@@ -3,7 +3,6 @@ import tarfile
 import toml
 import json
 import os
-import hashlib
 
 from time import sleep
 from pathlib import Path
@@ -11,8 +10,8 @@ from argparse import ArgumentParser
 
 from xian.constants import Constants as c
 from nacl.signing import SigningKey
-from nacl.encoding import HexEncoder, Base64Encoder
 from argparse import BooleanOptionalAction
+from xian.node_setup import build_priv_validator_key, render_cometbft_config
 
 """
 Configure CometBFT node
@@ -178,39 +177,7 @@ class Configure:
         os.remove(tar_path)
 
     def generate_keys(self):
-        pk_hex = self.args.validator_privkey
-
-        # Convert hex private key to bytes and generate signing key object
-        signing_key = SigningKey(pk_hex, encoder=HexEncoder)
-
-        # Obtain the verify key (public key) from the signing key
-        verify_key = signing_key.verify_key
-
-        # Concatenate private and public key bytes
-        priv_key_with_pub = signing_key.encode() + verify_key.encode()
-
-        # Encode concatenated private and public keys in Base64 for the output
-        priv_key_with_pub_b64 = Base64Encoder.encode(priv_key_with_pub).decode('utf-8')
-
-        # Encode public key in Base64 for the output
-        public_key_b64 = verify_key.encode(encoder=Base64Encoder).decode('utf-8')
-
-        # Hash the public key using SHA-256 and take the first 20 bytes for the address
-        address_bytes = hashlib.sha256(verify_key.encode()).digest()[:20]
-        address = address_bytes.hex().upper()
-
-        output = {
-            "address": address,
-            "pub_key": {
-                "type": "tendermint/PubKeyEd25519",
-                "value": public_key_b64
-            },
-            'priv_key': {
-                'type': 'tendermint/PrivKeyEd25519',
-                'value': priv_key_with_pub_b64
-            }
-        }
-        return output
+        return build_priv_validator_key(self.args.validator_privkey)
 
     def main(self):
         # Make sure this is run in the tools directory
@@ -221,10 +188,28 @@ class Configure:
             return
 
         with open(self.CONFIG_PATH, 'r') as f:
-            config = toml.load(f)
+            existing_config = toml.load(f)
 
-        config['consensus']['create_empty_blocks'] = False
-        config['consensus']['create_empty_blocks_interval'] = "10s"
+        config = render_cometbft_config(
+            moniker=self.args.moniker,
+            allow_cors=self.args.allow_cors,
+            service_node=self.args.service_node if self.args.service_node else False,
+            enable_pruning=self.args.enable_pruning,
+            blocks_to_keep=self.args.blocks_to_keep,
+            prometheus=self.args.prometheus,
+        )
+        config["rpc"]["laddr"] = existing_config["rpc"]["laddr"]
+        config["p2p"]["laddr"] = existing_config["p2p"]["laddr"]
+        config["db_backend"] = existing_config["db_backend"]
+        config["db_dir"] = existing_config["db_dir"]
+        config["genesis_file"] = existing_config["genesis_file"]
+        config["priv_validator_key_file"] = existing_config["priv_validator_key_file"]
+        config["priv_validator_state_file"] = existing_config["priv_validator_state_file"]
+        config["node_key_file"] = existing_config["node_key_file"]
+        config["abci"] = existing_config["abci"]
+        config["log_level"] = existing_config["log_level"]
+        config["log_format"] = existing_config["log_format"]
+        config["version"] = existing_config["version"]
 
         if self.args.seed_node_address:
             config['p2p']['seeds'] = f'{self.args.seed_node_address}:26656'
@@ -237,20 +222,6 @@ class Configure:
                 config['p2p']['seeds'] = f'{id}@{self.args.seed_node}:26656'
             else:
                 print("Failed to get node information after 10 attempts.")
-
-        config['xian'] = {
-            'block_service_mode': self.args.service_node if self.args.service_node else False,
-            'pruning_enabled': self.args.enable_pruning,
-            'blocks_to_keep': self.args.blocks_to_keep
-        }
-
-        config['proxy_app'] = self.UNIX_SOCKET_PATH
-
-        if self.args.moniker:
-            config['moniker'] = self.args.moniker
-
-        if self.args.allow_cors:
-            config['rpc']['cors_allowed_origins'] = ['*']
 
         if self.args.snapshot_url:
             # If data directory exists, delete it
@@ -314,6 +285,7 @@ class Configure:
             target_path = os.path.join(os.path.expanduser('~'), '.cometbft', 'config', 'priv_validator_key.json')
 
             keys = self.generate_keys()
+            keys.pop("_private_key_hex", None)
 
             with open(target_path, 'w') as f:
                 f.write(json.dumps(keys, indent=2))
