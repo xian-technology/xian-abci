@@ -4,6 +4,8 @@ import hashlib
 import json
 import re
 import tempfile
+from copy import deepcopy
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,22 @@ from xian.config_paths import resolve_legacy_contracts_dir
 from xian.utils.block import is_compiled_key
 
 TEMPLATE_ARG_PATTERN = re.compile(r"%%(.*?)%%")
+DEFAULT_CONSENSUS_PARAMS = {
+    "block": {
+        "max_bytes": "22020096",
+        "max_gas": "-1",
+        "time_iota_ms": "1000",
+    },
+    "evidence": {
+        "max_age_num_blocks": "100000",
+        "max_age_duration": "172800000000000",
+        "max_bytes": "1048576",
+    },
+    "validator": {
+        "pub_key_types": ["ed25519"],
+    },
+    "version": {},
+}
 
 
 def hash_block_data(
@@ -67,6 +85,7 @@ def _build_genesis_block(
     network: str,
     contracts_dir: Path,
     storage_home: Path,
+    constructor_overrides: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     contracting = ContractingClient(driver=Driver(storage_home=storage_home))
     contracting.set_submission_contract(commit=False)
@@ -97,6 +116,16 @@ def _build_genesis_block(
         constructor_args = render_template_values(
             contract.get("constructor_args"), substitutions
         )
+        override_args = (
+            constructor_overrides.get(contract_name)
+            or constructor_overrides.get(contract["name"])
+            if constructor_overrides is not None
+            else None
+        )
+        if override_args:
+            if constructor_args is None:
+                constructor_args = {}
+            constructor_args.update(override_args)
 
         if contracting.get_contract(contract_name) is None:
             contracting.submit(
@@ -138,6 +167,7 @@ def build_genesis_block(
     network: str = "devnet",
     contracts_dir: Path | None = None,
     storage_home: Path | None = None,
+    constructor_overrides: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     resolved_contracts_dir = resolve_contracts_dir(contracts_dir)
 
@@ -147,6 +177,7 @@ def build_genesis_block(
             network=network,
             contracts_dir=resolved_contracts_dir,
             storage_home=storage_home.resolve(),
+            constructor_overrides=constructor_overrides,
         )
 
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -155,7 +186,89 @@ def build_genesis_block(
             network=network,
             contracts_dir=resolved_contracts_dir,
             storage_home=Path(tmp_dir),
+            constructor_overrides=constructor_overrides,
         )
+
+
+def build_validator_genesis_entry(
+    *,
+    priv_validator_key: dict[str, Any],
+    power: int | str = 10,
+    name: str = "",
+) -> dict[str, Any]:
+    return {
+        "address": priv_validator_key["address"],
+        "pub_key": priv_validator_key["pub_key"],
+        "power": str(power),
+        "name": name,
+    }
+
+
+def build_cometbft_genesis(
+    *,
+    chain_id: str,
+    abci_genesis: dict[str, Any],
+    validators: list[dict[str, Any]] | None = None,
+    genesis_time: str | None = None,
+) -> dict[str, Any]:
+    resolved_genesis_time = genesis_time
+    if resolved_genesis_time is None:
+        resolved_genesis_time = (
+            datetime.now(timezone.utc)
+            .isoformat(timespec="microseconds")
+            .replace("+00:00", "Z")
+        )
+
+    return {
+        "genesis_time": resolved_genesis_time,
+        "chain_id": chain_id,
+        "initial_height": str(abci_genesis.get("number", "0")),
+        "consensus_params": deepcopy(DEFAULT_CONSENSUS_PARAMS),
+        "validators": validators or [],
+        "app_hash": "",
+        "abci_genesis": abci_genesis,
+    }
+
+
+def build_single_validator_genesis(
+    *,
+    chain_id: str,
+    priv_validator_key: dict[str, Any],
+    founder_private_key: str,
+    network: str = "local",
+    validator_name: str = "",
+    validator_power: int | str = 10,
+    registration_fee: int = 100000,
+    contracts_dir: Path | None = None,
+) -> dict[str, Any]:
+    founder_wallet = Wallet(private_key=founder_private_key)
+    abci_genesis = build_genesis_block(
+        founder_private_key=founder_private_key,
+        network=network,
+        contracts_dir=contracts_dir,
+        constructor_overrides={
+            "currency": {"vk": founder_wallet.public_key},
+            "foundation": {"vk": founder_wallet.public_key},
+            "members": {
+                "genesis_nodes": [founder_wallet.public_key],
+                "genesis_registration_fee": registration_fee,
+            },
+            "masternodes": {
+                "genesis_nodes": [founder_wallet.public_key],
+                "genesis_registration_fee": registration_fee,
+            },
+        },
+    )
+    validator_entry = build_validator_genesis_entry(
+        priv_validator_key=priv_validator_key,
+        power=validator_power,
+        name=validator_name,
+    )
+    return build_cometbft_genesis(
+        chain_id=chain_id,
+        abci_genesis=abci_genesis,
+        validators=[validator_entry],
+    )
 
 
 def write_genesis_block(path: Path, genesis_block: dict[str, Any]) -> None:

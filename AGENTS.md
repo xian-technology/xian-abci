@@ -25,6 +25,9 @@
   surface. Do not route new behavior through `src/xian/tools/`.
 - Do not add network-specific genesis files, seeds, or snapshots here. Those
   assets belong in the sibling `xian-configs` repo.
+- Universal bootstrap helpers are allowed here. If `xian-cli` needs local
+  network creation support, add it as importable logic under `src/xian/`
+  rather than as committed chain data.
 - Treat `xian-configs` as the source of truth for committed legacy chain
   fixtures. See `docs/LEGACY_CHAIN_ASSETS.md`.
 - Changes to contract execution semantics usually belong in `xian-contracting`, not here.

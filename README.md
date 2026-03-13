@@ -57,6 +57,9 @@ The BDS-backed test paths expect Postgres at
 - New genesis-building logic should live in importable helpers such as
   `src/xian/genesis_builder.py`, `src/xian/node_admin.py`, and
   `src/xian/state_export.py`, not as standalone scripts.
+- `src/xian/genesis_builder.py` now also owns the reusable single-validator
+  bootstrap primitives that `xian-cli network create` uses for local network
+  creation.
 - If a backend command surface is still needed, keep the entrypoint modules in
   `src/xian/cli/` instead of reviving legacy paths under `src/xian/tools/`.
 - The temporary keep/remove policy for committed chain fixtures is documented in
