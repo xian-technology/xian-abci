@@ -8,18 +8,21 @@
 ## Project Layout
 - `src/xian/methods/`: ABCI request handlers.
 - `src/xian/services/`: background services such as simulator and BDS support.
+- `src/xian/cli/`: backend and developer entrypoints that wrap importable
+  helpers without living in legacy `tools/`.
 - `src/xian/node_setup.py`: reusable CometBFT home and config helpers.
 - `src/xian/node_admin.py`: importable helpers for configuring an initialized
   CometBFT home and applying snapshots.
 - `src/xian/genesis_builder.py`: importable genesis-building helpers.
 - `src/xian/state_export.py`: importable state-export helpers.
-- `src/xian/tools/`: transitional wrapper scripts and state-patch utilities.
+- `src/xian/tools/`: state-patch and one-off upgrade data, not the main command
+  surface.
 - `tests/`: unit, integration, system, governance, tools, and ABCI-method coverage.
 
 ## Change Routing
 - Prefer extracting importable helpers from `src/xian/tools/` instead of adding more script-only logic.
-- Keep `src/xian/tools/` wrappers thin. New behavior should live in
-  `src/xian/` modules that tests can import directly.
+- Keep backend entrypoints in `src/xian/cli/` if they still need a command
+  surface. Do not route new behavior through `src/xian/tools/`.
 - Do not add network-specific genesis files, seeds, or snapshots here. Those
   assets belong in the sibling `xian-configs` repo.
 - Treat `xian-configs` as the source of truth for committed legacy chain

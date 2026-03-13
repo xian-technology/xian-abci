@@ -12,6 +12,7 @@ surface.
 This repo owns:
 
 - ABCI methods and node processing under `src/xian/methods/`
+- backend/developer entrypoints under `src/xian/cli/`
 - reusable node setup, node admin, state export, and genesis helpers under
   `src/xian/`
 - state utilities, rewards logic, validators, and BDS-facing services
@@ -56,5 +57,7 @@ The BDS-backed test paths expect Postgres at
 - New genesis-building logic should live in importable helpers such as
   `src/xian/genesis_builder.py`, `src/xian/node_admin.py`, and
   `src/xian/state_export.py`, not as standalone scripts.
+- If a backend command surface is still needed, keep the entrypoint modules in
+  `src/xian/cli/` instead of reviving legacy paths under `src/xian/tools/`.
 - The temporary keep/remove policy for committed chain fixtures is documented in
   [docs/LEGACY_CHAIN_ASSETS.md](docs/LEGACY_CHAIN_ASSETS.md).

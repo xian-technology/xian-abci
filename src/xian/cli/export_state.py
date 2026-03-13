@@ -7,7 +7,7 @@ from xian.state_export import export_state
 
 
 def build_parser() -> ArgumentParser:
-    parser = ArgumentParser()
+    parser = ArgumentParser(description="Export file-based chain state")
     parser.add_argument("-k", "--key", type=str, required=False)
     parser.add_argument("--output-path", type=str, required=False)
     return parser

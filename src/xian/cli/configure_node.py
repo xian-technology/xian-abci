@@ -7,7 +7,9 @@ from xian.node_admin import configure_existing_home
 
 
 def build_parser() -> ArgumentParser:
-    parser = ArgumentParser(description="Configure CometBFT")
+    parser = ArgumentParser(
+        description="Configure an initialized CometBFT home"
+    )
     parser.add_argument(
         "--seed-node",
         type=str,

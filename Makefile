@@ -40,4 +40,4 @@ pull-and-install:
 	make install
 	
 ex-state:
-	python -m xian.tools.export_state
+	PYTHONPATH=src python -m xian.cli.export_state
