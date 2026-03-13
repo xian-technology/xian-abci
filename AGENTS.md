@@ -19,6 +19,7 @@
 
 ## Validation
 - Bootstrap: `UV_CACHE_DIR=/tmp/uv-cache uv sync --group dev`
+- Preferred full validation path: `./scripts/validate-repo.sh`
 - Lint: `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .`
 - Format check: `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .`
 - Targeted node-setup tests: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/unit/test_node_setup.py`

@@ -57,18 +57,16 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y pkg-config libhdf5-dev build-essential
 
-      - name: Sync environment
-        working-directory: xian-abci
-        run: uv sync --group dev
-
-      - name: Ruff
-        working-directory: xian-abci
-        run: |
-          uv run ruff check .
-          uv run ruff format --check .
-
-      - name: Pytest
+      - name: Validate repository
         working-directory: xian-abci
         env:
-          DATABASE_URL: postgres://postgres:1234@localhost:5432/xian
-        run: uv run pytest
+          XIAN_ABCI_COVERAGE: "1"
+        run: |
+          ./scripts/validate-repo.sh
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: xian-abci-coverage
+          path: xian-abci/coverage.xml
+          if-no-files-found: error

@@ -25,6 +25,12 @@ UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .
 UV_CACHE_DIR=/tmp/uv-cache uv run pytest
 ```
 
+Or use the repo helper that runs the same contract:
+
+```bash
+./scripts/validate-repo.sh
+```
+
 The test suite expects a local Postgres instance at `postgres://postgres:1234@localhost:5432/xian` for BDS-backed coverage.
 
 ## Runtime
