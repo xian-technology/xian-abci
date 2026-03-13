@@ -40,4 +40,4 @@ pull-and-install:
 	make install
 	
 ex-state:
-	python ./src/xian/tools/export_state.py
+	python -m xian.tools.export_state

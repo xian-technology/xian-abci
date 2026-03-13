@@ -12,7 +12,8 @@ surface.
 This repo owns:
 
 - ABCI methods and node processing under `src/xian/methods/`
-- reusable node setup, config, and genesis helpers under `src/xian/`
+- reusable node setup, node admin, state export, and genesis helpers under
+  `src/xian/`
 - state utilities, rewards logic, validators, and BDS-facing services
 
 This repo does not own:
@@ -53,6 +54,7 @@ The BDS-backed test paths expect Postgres at
 - Legacy chain fixtures now live in the sibling
   [xian-configs](https://github.com/xian-technology/xian-configs) repo.
 - New genesis-building logic should live in importable helpers such as
-  `src/xian/genesis_builder.py`, not as standalone scripts.
+  `src/xian/genesis_builder.py`, `src/xian/node_admin.py`, and
+  `src/xian/state_export.py`, not as standalone scripts.
 - The temporary keep/remove policy for committed chain fixtures is documented in
   [docs/LEGACY_CHAIN_ASSETS.md](docs/LEGACY_CHAIN_ASSETS.md).

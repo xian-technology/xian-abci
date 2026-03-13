@@ -1,256 +1,123 @@
-import requests
-import tarfile
-import toml
+from __future__ import annotations
+
 import json
-import os
-import shutil
+from argparse import ArgumentParser, BooleanOptionalAction
 
-from time import sleep
-from pathlib import Path
-from argparse import ArgumentParser
-
-from xian.config_paths import resolve_legacy_genesis_file
-from xian.constants import Constants as c
-from argparse import BooleanOptionalAction
-from xian.node_setup import build_priv_validator_key, render_cometbft_config
-
-"""
-Configure CometBFT node
-"""
+from xian.node_admin import configure_existing_home
 
 
-# TODO: Set chain_id through this too
-class Configure:
-    """
-    Snapshot should be a tar.gz file containing
-    the data directory and xian directory
-
-    File priv_validator_state.json from snapshot should have
-    round and step set to 0 and signature, signbytes removed
-    """
-
-    COMET_HOME = Path.home() / '.cometbft'
-    CONFIG_PATH = COMET_HOME / 'config' / 'config.toml'
-    UNIX_SOCKET_PATH = 'unix:///tmp/abci.sock'
-
-    def __init__(self):
-        parser = ArgumentParser(description='Configure CometBFT')
-        parser.add_argument(
-            '--seed-node',
-            type=str,
-            help='IP of Seed Node e.g. 91.108.112.184 (without port, but 26657 & 26656 need to be open). For joining an existing network, populates node id from querying node.',
-            required=False
-        )
-        parser.add_argument(
-            '--seed-node-address',
-             type=str,
-             help='Seed node address e.g. <node_id>@91.108.112.184 . For cold booting a test network.',
-             required=False
-        )
-        parser.add_argument(
-            '--moniker',
-            type=str,
-            help='Name of your node',
-            required=True
-        )
-        parser.add_argument(
-            '--allow-cors',
-            action=BooleanOptionalAction,
-            help='Allow CORS',
-            required=False,
-            default=True
-        )
-        parser.add_argument(
-            '--snapshot-url',
-            type=str,
-            help='URL of snapshot in tar.gz format',
-            required=False
-        )
-        parser.add_argument(
-            '--copy-genesis',
-            action=BooleanOptionalAction,
-            help='Copy genesis file',
-            required=True
-        )
-        parser.add_argument(
-            '--genesis-file-name',
-            type=str,
-            help='Genesis filename if copy-genesis is True e.g. genesis-testnet.json',
-            required=True,
-            default="genesis-testnet.json"
-        )
-        parser.add_argument(
-            '--validator-privkey',
-            type=str,
-            help="Validator's private key",
-            required=True
-        )
-        parser.add_argument(
-            '--prometheus',
-            action=BooleanOptionalAction,
-            help='Enable Prometheus',
-            required=False,
-            default=True
-        )
-        parser.add_argument(
-            '--service-node',
-            action=BooleanOptionalAction,
-            help='If the node is a service node',
-            required=False,
-            default=False
-        )
-        parser.add_argument(
-            '--enable-pruning',
-            action=BooleanOptionalAction,
-            help='Prune blocks. Related to "blocks-to-keep" value',
-            required=False,
-            default=False
-        )
-        parser.add_argument(
-            '--blocks-to-keep',
-            type=int,
-            help='Number of blocks to keep. Related to "enable-pruning" value',
-            required=False,
-            default=100000
-        )
-
-        self.args = parser.parse_args()
-
-    def get_node_info(self, seed_node):
-        attempts = 0
-        max_attempts = 10
-        timeout = 3  # seconds
-        while attempts < max_attempts:
-            try:
-                response = requests.get(f'http://{seed_node}:26657/status', timeout=timeout)
-                response.raise_for_status()  # Raises stored HTTPError, if one occurred.
-                return response.json()
-            except requests.exceptions.HTTPError as err:
-                print(f"HTTP error: {err}")
-            except requests.exceptions.ConnectionError as err:
-                print(f"Connection error: {err}")
-            except requests.exceptions.Timeout as err:
-                print(f"Timeout error: {err}")
-            except requests.exceptions.RequestException as err:
-                print(f"Error: {err}")
-
-            attempts += 1
-            sleep(1)  # wait 1 second before trying again
-
-        return None  # or raise an Exception indicating the request ultimately failed
-    
-    def download_and_extract(self, url, target_path):
-        # Download the file from the URL
-        response = requests.get(url)
-        # Assumes the URL ends with the filename
-        filename = url.split('/')[-1]
-        tar_path = target_path / filename
-        # Ensure the target directory exists
-        os.makedirs(target_path, exist_ok=True)
-        
-        # Save the downloaded file to disk
-        with open(tar_path, 'wb') as file:
-            file.write(response.content)
-        
-        # Extract the tar.gz file
-        if tar_path.endswith(".tar.gz"):
-            with tarfile.open(tar_path, "r:gz") as tar:
-                tar.extractall(path=target_path)
-        elif tar_path.endswith(".tar"):
-            with tarfile.open(tar_path, "r:") as tar:
-                tar.extractall(path=target_path)
-        else:
-            print("File format not recognized. Please use a .tar.gz or .tar file.")
-        
-        os.remove(tar_path)
-
-    def generate_keys(self):
-        return build_priv_validator_key(self.args.validator_privkey)
-
-    def main(self):
-        if not os.path.exists(self.CONFIG_PATH):
-            print('Initialize CometBFT first')
-            return
-
-        with open(self.CONFIG_PATH, 'r') as f:
-            existing_config = toml.load(f)
-
-        config = render_cometbft_config(
-            moniker=self.args.moniker,
-            allow_cors=self.args.allow_cors,
-            service_node=self.args.service_node if self.args.service_node else False,
-            enable_pruning=self.args.enable_pruning,
-            blocks_to_keep=self.args.blocks_to_keep,
-            prometheus=self.args.prometheus,
-        )
-        config["rpc"]["laddr"] = existing_config["rpc"]["laddr"]
-        config["p2p"]["laddr"] = existing_config["p2p"]["laddr"]
-        config["db_backend"] = existing_config["db_backend"]
-        config["db_dir"] = existing_config["db_dir"]
-        config["genesis_file"] = existing_config["genesis_file"]
-        config["priv_validator_key_file"] = existing_config["priv_validator_key_file"]
-        config["priv_validator_state_file"] = existing_config["priv_validator_state_file"]
-        config["node_key_file"] = existing_config["node_key_file"]
-        config["abci"] = existing_config["abci"]
-        config["log_level"] = existing_config["log_level"]
-        config["log_format"] = existing_config["log_format"]
-        config["version"] = existing_config["version"]
-
-        if self.args.seed_node_address:
-            config['p2p']['seeds'] = f'{self.args.seed_node_address}:26656'
-        # Otherwise construct the seed node address from the IP
-        if self.args.seed_node:
-            info = self.get_node_info(self.args.seed_node)
-
-            if info:
-                id = info['result']['node_info']['id']
-                config['p2p']['seeds'] = f'{id}@{self.args.seed_node}:26656'
-            else:
-                print("Failed to get node information after 10 attempts.")
-
-        if self.args.snapshot_url:
-            # If data directory exists, delete it
-            data_dir = self.COMET_HOME / 'data'
-            if os.path.exists(data_dir):
-                os.system(f'rm -rf {data_dir}')
-            # If xian directory exists, delete it
-            xian_dir = self.COMET_HOME / 'xian'
-            if os.path.exists(xian_dir):
-                os.system(f'rm -rf {xian_dir}')
-
-            # Download snapshot
-            self.download_and_extract(self.args.snapshot_url, self.COMET_HOME)
-
-        if self.args.copy_genesis:
-            if not self.args.genesis_file_name:
-                print('Genesis file name is required')
-                return
-
-            genesis_path = resolve_legacy_genesis_file(
-                self.args.genesis_file_name
-            )
-            target_path = c.COMETBFT_GENESIS
-            shutil.copy2(genesis_path, target_path)
-
-        if self.args.validator_privkey:
-            target_path = os.path.join(os.path.expanduser('~'), '.cometbft', 'config', 'priv_validator_key.json')
-
-            keys = self.generate_keys()
-            keys.pop("_private_key_hex", None)
-
-            with open(target_path, 'w') as f:
-                f.write(json.dumps(keys, indent=2))
-
-        if self.args.prometheus:
-            config['instrumentation']['prometheus'] = True
-
-        print('Make sure that port 26657 is open for the REST API')
-        print('Make sure that port 26656 is open for P2P Node communication')
-
-        with open(self.CONFIG_PATH, 'w') as f:
-            f.write(toml.dumps(config))
-            print('Configuration updated')
+def build_parser() -> ArgumentParser:
+    parser = ArgumentParser(description="Configure CometBFT")
+    parser.add_argument(
+        "--seed-node",
+        type=str,
+        help=(
+            "seed node host or IP without port; queries node ID from the "
+            "remote status endpoint"
+        ),
+        required=False,
+    )
+    parser.add_argument(
+        "--seed-node-address",
+        type=str,
+        help=(
+            "seed node address in <node_id>@<host> form; used without a "
+            "remote lookup"
+        ),
+        required=False,
+    )
+    parser.add_argument(
+        "--moniker",
+        type=str,
+        help="name of your node",
+        required=True,
+    )
+    parser.add_argument(
+        "--allow-cors",
+        action=BooleanOptionalAction,
+        help="allow CORS on the RPC endpoint",
+        required=False,
+        default=True,
+    )
+    parser.add_argument(
+        "--snapshot-url",
+        type=str,
+        help="URL of snapshot in tar.gz or tar format",
+        required=False,
+    )
+    parser.add_argument(
+        "--copy-genesis",
+        action=BooleanOptionalAction,
+        help="copy a genesis file into the configured CometBFT home",
+        required=True,
+    )
+    parser.add_argument(
+        "--genesis-file-name",
+        type=str,
+        help="legacy genesis filename to copy when --copy-genesis is enabled",
+        required=False,
+        default="genesis-testnet.json",
+    )
+    parser.add_argument(
+        "--validator-privkey",
+        type=str,
+        help="validator private key as a 64-character hex string",
+        required=True,
+    )
+    parser.add_argument(
+        "--prometheus",
+        action=BooleanOptionalAction,
+        help="enable Prometheus metrics",
+        required=False,
+        default=True,
+    )
+    parser.add_argument(
+        "--service-node",
+        action=BooleanOptionalAction,
+        help="enable service-node mode",
+        required=False,
+        default=False,
+    )
+    parser.add_argument(
+        "--enable-pruning",
+        action=BooleanOptionalAction,
+        help='prune blocks according to "blocks-to-keep"',
+        required=False,
+        default=False,
+    )
+    parser.add_argument(
+        "--blocks-to-keep",
+        type=int,
+        help='number of blocks to keep when "enable-pruning" is enabled',
+        required=False,
+        default=100000,
+    )
+    return parser
 
 
-if __name__ == '__main__':
-    Configure().main()
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    result = configure_existing_home(
+        moniker=args.moniker,
+        validator_private_key_hex=args.validator_privkey,
+        allow_cors=args.allow_cors,
+        seed_node=args.seed_node,
+        seed_node_address=args.seed_node_address,
+        snapshot_url=args.snapshot_url,
+        copy_genesis=args.copy_genesis,
+        genesis_file_name=args.genesis_file_name,
+        prometheus=args.prometheus,
+        service_node=args.service_node,
+        enable_pruning=args.enable_pruning,
+        blocks_to_keep=args.blocks_to_keep,
+    )
+    print("Make sure that port 26657 is open for the REST API")
+    print("Make sure that port 26656 is open for P2P Node communication")
+    print("Configuration updated")
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
