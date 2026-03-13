@@ -16,6 +16,8 @@
 ## Change Routing
 - Prefer extracting importable helpers from `src/xian/tools/` instead of adding more script-only logic.
 - Do not add new network-specific genesis files, seeds, or snapshots here. Existing files under `src/xian/tools/genesis/` are legacy assets slated to move out.
+- Treat the current committed chain fixtures as a temporary bundle only. See
+  `docs/LEGACY_CHAIN_ASSETS.md` for what stays until `xian-configs` exists.
 - Changes to contract execution semantics usually belong in `xian-contracting`, not here.
 - Container lifecycle or Compose changes belong in `xian-stack`, even when they are needed to run this repo.
 

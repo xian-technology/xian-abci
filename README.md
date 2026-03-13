@@ -54,3 +54,5 @@ The BDS-backed test paths expect Postgres at
   and are slated to move out so this repo becomes a universal Xian node runtime.
 - New genesis-building logic should live in importable helpers such as
   `src/xian/genesis_builder.py`, not as standalone scripts.
+- The temporary keep/remove policy for committed chain fixtures is documented in
+  [docs/LEGACY_CHAIN_ASSETS.md](docs/LEGACY_CHAIN_ASSETS.md).
