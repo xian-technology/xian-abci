@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import json
 import shutil
 import tarfile
 import tempfile
 from pathlib import Path
 from time import sleep
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-
-import requests
-import toml
+from urllib.request import urlopen
 
 from xian.config_paths import resolve_legacy_genesis_file
 from xian.constants import Constants as c
@@ -19,6 +19,7 @@ from xian.node_setup import (
     write_json,
     write_toml,
 )
+from xian.toml_utils import load as load_toml
 
 _ROOT_CONFIG_KEYS_TO_PRESERVE = (
     "db_backend",
@@ -45,7 +46,7 @@ def load_existing_cometbft_config(
         raise FileNotFoundError("initialize CometBFT first")
 
     with open(config_path, "r", encoding="utf-8") as handle:
-        return toml.load(handle)
+        return load_toml(handle)
 
 
 def preserve_runtime_config(
@@ -69,13 +70,17 @@ def fetch_seed_node_status(
 ) -> dict[str, Any] | None:
     for attempt in range(attempts):
         try:
-            response = requests.get(
+            return _fetch_json_url(
                 f"http://{seed_node}:26657/status",
                 timeout=timeout_seconds,
             )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException:
+        except (
+            HTTPError,
+            URLError,
+            TimeoutError,
+            ValueError,
+            json.JSONDecodeError,
+        ):
             if attempt == attempts - 1:
                 break
             sleep(poll_interval_seconds)
@@ -120,10 +125,20 @@ def _download_snapshot_archive(snapshot_url: str, target_path: Path) -> Path:
     parsed_url = urlparse(snapshot_url)
     filename = Path(parsed_url.path).name or "snapshot.tar.gz"
     archive_path = target_path / filename
-    response = requests.get(snapshot_url, timeout=30)
-    response.raise_for_status()
-    archive_path.write_bytes(response.content)
+    archive_path.write_bytes(_download_binary_url(snapshot_url, timeout=30))
     return archive_path
+
+
+def _fetch_json_url(url: str, *, timeout: float) -> dict[str, Any]:
+    with urlopen(url, timeout=timeout) as response:
+        charset = response.headers.get_content_charset() or "utf-8"
+        payload = response.read().decode(charset)
+    return json.loads(payload)
+
+
+def _download_binary_url(url: str, *, timeout: float) -> bytes:
+    with urlopen(url, timeout=timeout) as response:
+        return response.read()
 
 
 def apply_snapshot_archive(snapshot_url: str, home: Path) -> str:

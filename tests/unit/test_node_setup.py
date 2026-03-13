@@ -3,13 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import toml
-
 from xian.node_setup import (
     build_priv_validator_key,
     materialize_cometbft_home,
     render_cometbft_config,
 )
+from xian.toml_utils import load as load_toml
 
 
 class NodeSetupTests(unittest.TestCase):
@@ -63,7 +62,7 @@ class NodeSetupTests(unittest.TestCase):
             self.assertTrue(state_path.exists())
             self.assertTrue(storage_path.exists())
 
-            rendered_config = toml.load(config_path)
+            rendered_config = load_toml(config_path)
             self.assertEqual(rendered_config["moniker"], "validator-1")
 
             rendered_genesis = json.loads(genesis_path.read_text(encoding="utf-8"))
@@ -134,7 +133,7 @@ class NodeSetupTests(unittest.TestCase):
                 state_path.read_text(encoding="utf-8"), original_state
             )
 
-            rendered_config = toml.load(second_result["config_path"])
+            rendered_config = load_toml(second_result["config_path"])
             rendered_genesis = json.loads(
                 Path(second_result["genesis_path"]).read_text(encoding="utf-8")
             )

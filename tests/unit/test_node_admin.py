@@ -6,14 +6,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import toml
-
 from xian.node_admin import (
     apply_snapshot_archive,
     configure_existing_home,
     resolve_seed_nodes,
 )
 from xian.node_setup import write_toml
+from xian.toml_utils import load as load_toml
+from xian.toml_utils import loads as load_toml_string
 
 
 class NodeAdminTests(unittest.TestCase):
@@ -48,16 +48,10 @@ class NodeAdminTests(unittest.TestCase):
                 info.size = len(payload)
                 archive.addfile(info, io.BytesIO(payload))
 
-            response = type(
-                "Response",
-                (),
-                {
-                    "content": archive_stream.getvalue(),
-                    "raise_for_status": staticmethod(lambda: None),
-                },
-            )()
-
-            with patch("xian.node_admin.requests.get", return_value=response):
+            with patch(
+                "xian.node_admin._download_binary_url",
+                return_value=archive_stream.getvalue(),
+            ):
                 archive_path = apply_snapshot_archive(
                     "https://example.invalid/snapshot.tar.gz",
                     home,
@@ -75,7 +69,7 @@ class NodeAdminTests(unittest.TestCase):
             config_path = home / "config" / "config.toml"
             config_path.parent.mkdir(parents=True)
 
-            existing_config = toml.loads(
+            existing_config = load_toml_string(
                 """
 version = "0.38.7"
 proxy_app = "unix:///tmp/abci.sock"
@@ -145,7 +139,7 @@ blocks_to_keep = 100000
                     allow_cors=False,
                 )
 
-            rendered_config = toml.load(config_path)
+            rendered_config = load_toml(config_path)
             rendered_validator_key = json.loads(
                 (home / "config" / "priv_validator_key.json").read_text(
                     encoding="utf-8"

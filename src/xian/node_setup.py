@@ -6,9 +6,10 @@ import secrets
 from pathlib import Path
 from typing import Any, Sequence
 
-import toml
 from nacl.encoding import Base64Encoder, HexEncoder
 from nacl.signing import SigningKey
+
+from xian import toml_utils
 
 DEFAULT_CONFIG_TOML = """
 version = "0.38.7"
@@ -210,7 +211,7 @@ def render_cometbft_config(
     proxy_app: str = "unix:///tmp/abci.sock",
     prometheus: bool = True,
 ) -> dict[str, Any]:
-    config = toml.loads(DEFAULT_CONFIG_TOML)
+    config = toml_utils.loads(DEFAULT_CONFIG_TOML)
     config["proxy_app"] = proxy_app
     config["moniker"] = moniker
     config["consensus"]["create_empty_blocks"] = False
@@ -249,7 +250,7 @@ def write_toml(
         raise FileExistsError(f"{path} already exists")
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        f.write(toml.dumps(payload))
+        f.write(toml_utils.dumps(payload))
 
 
 def materialize_cometbft_home(

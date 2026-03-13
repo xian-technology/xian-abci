@@ -1666,8 +1666,6 @@ dependencies = [
     { name = "loguru" },
     { name = "protobuf" },
     { name = "pynacl" },
-    { name = "requests" },
-    { name = "toml" },
     { name = "xian-contracting" },
     { name = "xian-py" },
 ]
@@ -1687,8 +1685,6 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7.3,<0.8" },
     { name = "protobuf", specifier = "==3.20.3" },
     { name = "pynacl", specifier = ">=1.5.0,<2" },
-    { name = "requests", specifier = ">=2.32.0,<3" },
-    { name = "toml", specifier = ">=0.10.2,<0.11" },
     { name = "xian-contracting", editable = "../xian-contracting" },
     { name = "xian-py", editable = "../xian-py" },
 ]

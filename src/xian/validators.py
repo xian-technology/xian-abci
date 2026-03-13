@@ -1,7 +1,7 @@
 import base64
+import json
 import logging
-
-import requests
+from urllib.request import urlopen
 
 from cometbft.abci.v1beta1.types_pb2 import ValidatorUpdate
 from cometbft.crypto.v1.keys_pb2 import PublicKey
@@ -17,10 +17,11 @@ class ValidatorHandler:
 
     def get_tendermint_validators(self) -> list[str]:
         try:
-            response = requests.get("http://localhost:26657/validators")
+            with urlopen("http://localhost:26657/validators") as response:
+                payload = json.loads(response.read().decode("utf-8"))
             validators = [
                 base64.b64decode(validator["pub_key"]["value"]).hex()
-                for validator in response.json()["result"]["validators"]
+                for validator in payload["result"]["validators"]
                 if int(validator["voting_power"]) > 0
             ]
         except Exception:

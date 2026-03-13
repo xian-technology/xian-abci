@@ -1,8 +1,7 @@
 import json
 
-import toml
-
 from xian.constants import Constants
+from xian.toml_utils import load as load_toml
 
 
 def load_tendermint_config(config: Constants):
@@ -13,7 +12,7 @@ def load_tendermint_config(config: Constants):
     ):
         raise FileNotFoundError(f"File not found: {config.COMETBFT_CONFIG}")
 
-    return toml.load(config.COMETBFT_CONFIG)
+    return load_toml(config.COMETBFT_CONFIG)
 
 
 def load_genesis_data(config: Constants):
