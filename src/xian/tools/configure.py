@@ -3,11 +3,13 @@ import tarfile
 import toml
 import json
 import os
+import shutil
 
 from time import sleep
 from pathlib import Path
 from argparse import ArgumentParser
 
+from xian.config_paths import resolve_legacy_genesis_file
 from xian.constants import Constants as c
 from argparse import BooleanOptionalAction
 from xian.node_setup import build_priv_validator_key, render_cometbft_config
@@ -166,9 +168,6 @@ class Configure:
         return build_priv_validator_key(self.args.validator_privkey)
 
     def main(self):
-        # Make sure this is run in the tools directory
-        os.chdir(os.path.dirname(os.path.abspath(__file__)))
-        
         if not os.path.exists(self.CONFIG_PATH):
             print('Initialize CometBFT first')
             return
@@ -227,10 +226,11 @@ class Configure:
                 print('Genesis file name is required')
                 return
 
-            # REWORK to PATH
-            genesis_path = os.path.normpath(os.path.join('genesis', self.args.genesis_file_name))
+            genesis_path = resolve_legacy_genesis_file(
+                self.args.genesis_file_name
+            )
             target_path = c.COMETBFT_GENESIS
-            os.system(f'cp {genesis_path} {target_path}')
+            shutil.copy2(genesis_path, target_path)
 
         if self.args.validator_privkey:
             target_path = os.path.join(os.path.expanduser('~'), '.cometbft', 'config', 'priv_validator_key.json')

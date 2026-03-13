@@ -2,6 +2,7 @@ import unittest
 from contracting.stdlib.bridge.time import Datetime
 from contracting.client import ContractingClient
 from contracting.storage.driver import Driver
+from xian.config_paths import resolve_legacy_contracts_dir
 import datetime
 import os
 
@@ -18,7 +19,7 @@ class TestVaultContract(unittest.TestCase):
         self.client.flush()
         
         # Set up paths and load contracts
-        self.contracts_dir = os.path.abspath(os.path.join(os.path.dirname(__file__),'..', '..','src', 'xian', 'tools', 'genesis', 'contracts' ))
+        self.contracts_dir = str(resolve_legacy_contracts_dir())
         
         # Deploy currency contract first (dependency)
         currency_path = os.path.join(self.contracts_dir, "currency.s.py")

@@ -50,8 +50,8 @@ The BDS-backed test paths expect Postgres at
 
 - Operator flows belong in [xian-cli](https://github.com/xian-technology/xian-cli).
 - Runtime/backend orchestration belongs in [xian-stack](https://github.com/xian-technology/xian-stack).
-- Existing files under `src/xian/tools/genesis/` are legacy compatibility assets
-  and are slated to move out so this repo becomes a universal Xian node runtime.
+- Legacy chain fixtures now live in the sibling
+  [xian-configs](https://github.com/xian-technology/xian-configs) repo.
 - New genesis-building logic should live in importable helpers such as
   `src/xian/genesis_builder.py`, not as standalone scripts.
 - The temporary keep/remove policy for committed chain fixtures is documented in

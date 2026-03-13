@@ -4,6 +4,7 @@ from contracting.client import ContractingClient
 from contracting.storage.driver import Driver
 from contracting.stdlib.bridge.hashing import sha3
 from xian_py.wallet import Wallet
+from xian.config_paths import resolve_legacy_contracts_dir
 import datetime
 import os
 class TestCurrencyContract(unittest.TestCase):
@@ -19,8 +20,7 @@ class TestCurrencyContract(unittest.TestCase):
         self.client = ContractingClient(environment=self.environment)
         self.client.flush()
         
-        # self.contracts_dir = os.path.dirname(os.path.abspath(__file__), '..', '..','src', 'xian', 'tools', 'genesis', 'contracts' )
-        self.contracts_dir = os.path.abspath(os.path.join(os.path.dirname(__file__),'..', '..','src', 'xian', 'tools', 'genesis', 'contracts' ))
+        self.contracts_dir = str(resolve_legacy_contracts_dir())
 
         
         currency_path = os.path.join(self.contracts_dir, "currency.s.py")

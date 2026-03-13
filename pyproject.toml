@@ -52,9 +52,6 @@ where = ["src"]
 [tool.setuptools.package-data]
 xian = [
     "services/bds/config.json",
-    "tools/genesis/*.json",
-    "tools/genesis/contracts/*.json",
-    "tools/genesis/contracts/*.s.py",
     "tools/state_patches/*.json",
 ]
 

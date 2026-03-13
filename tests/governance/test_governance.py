@@ -14,12 +14,14 @@ from loguru import logger
 from contracting.stdlib.bridge.time import Datetime
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
+from xian.config_paths import resolve_legacy_contracts_dir
 
 # Get the directory where the script is located
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
+LEGACY_CONTRACTS_DIR = resolve_legacy_contracts_dir()
 
 # Change the current working directory
 os.chdir(script_dir)
@@ -93,60 +95,12 @@ class MyTestCase(unittest.TestCase):
             / "contracts"
             / "submission.s.py"
         )
-        currency_contract_path = (
-            REPO_ROOT
-            / "src"
-            / "xian"
-            / "tools"
-            / "genesis"
-            / "contracts"
-            / "currency.s.py"
-        )
-        dao_contract_path = (
-            REPO_ROOT
-            / "src"
-            / "xian"
-            / "tools"
-            / "genesis"
-            / "contracts"
-            / "dao.s.py"
-        )
-        rewards_contract_path = (
-            REPO_ROOT
-            / "src"
-            / "xian"
-            / "tools"
-            / "genesis"
-            / "contracts"
-            / "rewards.s.py"
-        )
-        stamp_cost_contract_path = (
-            REPO_ROOT
-            / "src"
-            / "xian"
-            / "tools"
-            / "genesis"
-            / "contracts"
-            / "stamp_cost.s.py"
-        )
-        members_contract_path = (
-            REPO_ROOT
-            / "src"
-            / "xian"
-            / "tools"
-            / "genesis"
-            / "contracts"
-            / "members.s.py"
-        )
-        foundation_contract_path = (
-            REPO_ROOT
-            / "src"
-            / "xian"
-            / "tools"
-            / "genesis"
-            / "contracts"
-            / "foundation.s.py"
-        )
+        currency_contract_path = LEGACY_CONTRACTS_DIR / "currency.s.py"
+        dao_contract_path = LEGACY_CONTRACTS_DIR / "dao.s.py"
+        rewards_contract_path = LEGACY_CONTRACTS_DIR / "rewards.s.py"
+        stamp_cost_contract_path = LEGACY_CONTRACTS_DIR / "stamp_cost.s.py"
+        members_contract_path = LEGACY_CONTRACTS_DIR / "members.s.py"
+        foundation_contract_path = LEGACY_CONTRACTS_DIR / "foundation.s.py"
 
         with open(submission_contract_path) as f:
             contract = f.read()
