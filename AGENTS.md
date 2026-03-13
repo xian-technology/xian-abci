@@ -9,7 +9,8 @@
 - `src/xian/methods/`: ABCI request handlers.
 - `src/xian/services/`: background services such as simulator and BDS support.
 - `src/xian/node_setup.py`: reusable CometBFT home and config helpers.
-- `src/xian/tools/`: legacy scripts, genesis tooling, debugger helpers, and state utilities.
+- `src/xian/genesis_builder.py`: importable genesis-building helpers.
+- `src/xian/tools/`: transitional admin scripts, legacy genesis assets, and state utilities.
 - `tests/`: unit, integration, system, governance, tools, and ABCI-method coverage.
 
 ## Change Routing

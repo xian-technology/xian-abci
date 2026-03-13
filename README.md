@@ -12,7 +12,7 @@ surface.
 This repo owns:
 
 - ABCI methods and node processing under `src/xian/methods/`
-- reusable node setup and config helpers under `src/xian/`
+- reusable node setup, config, and genesis helpers under `src/xian/`
 - state utilities, rewards logic, validators, and BDS-facing services
 
 This repo does not own:
@@ -52,3 +52,5 @@ The BDS-backed test paths expect Postgres at
 - Runtime/backend orchestration belongs in [xian-stack](https://github.com/xian-technology/xian-stack).
 - Existing files under `src/xian/tools/genesis/` are legacy compatibility assets
   and are slated to move out so this repo becomes a universal Xian node runtime.
+- New genesis-building logic should live in importable helpers such as
+  `src/xian/genesis_builder.py`, not as standalone scripts.
