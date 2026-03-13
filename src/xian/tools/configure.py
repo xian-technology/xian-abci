@@ -9,7 +9,6 @@ from pathlib import Path
 from argparse import ArgumentParser
 
 from xian.constants import Constants as c
-from nacl.signing import SigningKey
 from argparse import BooleanOptionalAction
 from xian.node_setup import build_priv_validator_key, render_cometbft_config
 
@@ -66,13 +65,6 @@ class Configure:
             required=False
         )
         parser.add_argument(
-            '--generate-genesis',
-            action=BooleanOptionalAction,
-            help='Generate genesis file',
-            required=False,
-            default=False
-        )
-        parser.add_argument(
             '--copy-genesis',
             action=BooleanOptionalAction,
             help='Copy genesis file',
@@ -90,12 +82,6 @@ class Configure:
             type=str,
             help="Validator's private key",
             required=True
-        )
-        parser.add_argument(
-            '--founder-privkey',
-            type=str,
-            help="Founder's private key",
-            required=False
         )
         parser.add_argument(
             '--prometheus',
@@ -235,41 +221,6 @@ class Configure:
 
             # Download snapshot
             self.download_and_extract(self.args.snapshot_url, self.COMET_HOME)
-
-        # Generate genesis
-        if self.args.generate_genesis:
-            if not self.args.validator_privkey:
-                print('Validator private key is required')
-                return
-            if not self.args.founder_privkey:
-                print('Founder private key is required')
-                return
-
-            # Generate validator_pubkey from validator_privkey
-            seed = bytes.fromhex(self.args.validator_privkey)
-            sk = SigningKey(seed=seed)
-            vk = sk.verify_key
-
-            validator_pubkey = vk.encode().hex()
-
-            os.system(f'python3 genesis_gen.py '
-                      f'--validator-pubkey {validator_pubkey} '
-                      f'--founder-privkey {self.args.founder_privkey}')
-
-            # Get generated genesis block JSON
-            with open(Path('genesis') / 'genesis_block.json') as first_file:
-                genesis_block = json.load(first_file)
-
-            gen_full_path = Path('genesis') / self.args.genesis_file_name
-
-            # Get base genesis content JSON
-            with open(gen_full_path) as second_file:
-                genesis = json.load(second_file)
-
-            genesis['abci_genesis'] = genesis_block
-
-            with open(gen_full_path, 'w+') as gen_file:
-                json.dump(genesis, gen_file)
 
         if self.args.copy_genesis:
             if not self.args.genesis_file_name:
