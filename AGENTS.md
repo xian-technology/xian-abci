@@ -16,6 +16,7 @@
 - Prefer extracting importable helpers from `src/xian/tools/` instead of adding more script-only logic.
 - Do not add new network-specific genesis files, seeds, or snapshots here. Existing files under `src/xian/tools/genesis/` are legacy assets slated to move out.
 - Changes to contract execution semantics usually belong in `xian-contracting`, not here.
+- Container lifecycle or Compose changes belong in `xian-stack`, even when they are needed to run this repo.
 
 ## Validation
 - Bootstrap: `UV_CACHE_DIR=/tmp/uv-cache uv sync --group dev`
@@ -29,3 +30,4 @@
 ## Notes
 - Local `uv` development depends on sibling checkouts of `../xian-contracting` and `../xian-py`.
 - If you touch genesis or config rendering, keep `xian-cli` integration in mind and avoid baking in network-specific assumptions.
+- Treat `src/xian/tools/` as a transition area. Prefer new importable code under `src/xian/` when possible.
