@@ -1,21 +1,15 @@
-from cometbft.abci.v1beta3.types_pb2 import ResponseCheckTx
-from xian.utils.tx import (
-    validate_transaction
-)
-from xian.utils.tx import (
-    verify,
-    unpack_transaction
-)
-from xian.utils.encoding import decode_transaction_bytes
-from xian.constants import Constants as c
-
 import json
+
+from cometbft.abci.v1beta3.types_pb2 import ResponseCheckTx
+from xian.constants import Constants as c
+from xian.utils.encoding import decode_transaction_bytes
+from xian.utils.tx import unpack_transaction, validate_transaction, verify
 
 
 async def check_tx(self, raw_tx) -> ResponseCheckTx:
     try:
         tx, payload_str = decode_transaction_bytes(raw_tx)
-        validate_transaction(self.client,self.nonce_storage,tx)
+        validate_transaction(self.client, self.nonce_storage, tx)
         sender, signature, payload = unpack_transaction(tx)
         if not verify(sender, payload_str, signature):
             return ResponseCheckTx(code=c.ErrorCode, log="Bad signature")

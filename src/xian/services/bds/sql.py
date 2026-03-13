@@ -34,7 +34,7 @@ def create_state():
     );
     CREATE INDEX IF NOT EXISTS idx_state_value_numeric ON state(value_numeric);
     """
-    
+
 
 def create_state_changes():
     return """
@@ -57,7 +57,7 @@ def create_state_changes():
     );
     """
 
-    
+
 def create_events():
     return """
 -- Create the events table if it doesn't exist

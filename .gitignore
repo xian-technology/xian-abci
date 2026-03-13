@@ -162,6 +162,8 @@ dist
 *.pyc
 .test_pyabci
 .pytest_cache
+.ruff_cache/
+.tmp-home/
 
 tendermint
 contracting

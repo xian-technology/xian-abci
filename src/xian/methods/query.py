@@ -1,15 +1,16 @@
 import json
+import os
 import socket
 import struct
-import os
 
-from cometbft.abci.v1beta1.types_pb2 import ResponseQuery
-from xian.utils.encoding import encode_str
-from xian.constants import Constants as c
-from contracting.stdlib.bridge.decimal import ContractingDecimal
 from contracting.compilation import parser
+from contracting.stdlib.bridge.decimal import ContractingDecimal
 from contracting.storage.encoder import Encoder
 from loguru import logger
+
+from cometbft.abci.v1beta1.types_pb2 import ResponseQuery
+from xian.constants import Constants as c
+from xian.utils.encoding import encode_str
 
 
 async def query(self, req) -> ResponseQuery:
@@ -54,7 +55,7 @@ async def query(self, req) -> ResponseQuery:
 
         # http://localhost:26657/abci_query?path="/ping"
         elif path_parts[0] == "ping":
-            result = {'status': 'online'}
+            result = {"status": "online"}
 
         # Blockchain Data Service
         elif self.block_service_mode:
@@ -63,27 +64,27 @@ async def query(self, req) -> ResponseQuery:
 
             params = dict()
             for path in path_parts:
-                if '=' in path:
-                    param_list = path.split('=')
+                if "=" in path:
+                    param_list = path.split("=")
                     params[param_list[0]] = param_list[1]
 
-            if 'limit' in params:
+            if "limit" in params:
                 try:
-                    limit = int(params['limit'])
+                    limit = int(params["limit"])
                     if limit < 0 or limit > 1000:  # Example range check
                         limit = 100
                 except (ValueError, TypeError):
                     limit = 100
 
-            if 'offset' in params:
+            if "offset" in params:
                 try:
-                    offset = int(params['offset'])
+                    offset = int(params["offset"])
                     if offset < 0:
                         offset = 0
                 except (ValueError, TypeError):
                     offset = 0
 
-            # http://localhost:26657/abci_query?path="/keys/currency.balances"    
+            # http://localhost:26657/abci_query?path="/keys/currency.balances"
             if path_parts[0] == "keys":
                 list_of_keys = self.client.raw_driver.keys(path_parts[1])
                 result = [key.split(":")[1] for key in list_of_keys]
@@ -109,11 +110,19 @@ async def query(self, req) -> ResponseQuery:
             # http://localhost:26657/abci_query?path="/state_patches"
             elif path_parts[0] == "state_patches":
                 # Return the state patches JSON file content
-                src_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                patch_file_path = os.path.join(src_dir, "xian", "tools", "state_patches", "state_patches.json")
+                src_dir = os.path.dirname(
+                    os.path.dirname(os.path.dirname(__file__))
+                )
+                patch_file_path = os.path.join(
+                    src_dir,
+                    "xian",
+                    "tools",
+                    "state_patches",
+                    "state_patches.json",
+                )
 
                 if os.path.exists(patch_file_path):
-                    with open(patch_file_path, 'r') as f:
+                    with open(patch_file_path, "r") as f:
                         result = json.load(f)
                 else:
                     result = {}  # Return empty dict if file doesn't exist
@@ -129,7 +138,7 @@ async def query(self, req) -> ResponseQuery:
 
                 raw_tx = path_parts[1]
                 byte_data = bytes.fromhex(raw_tx)
-                message_length = struct.pack('>I', len(byte_data))
+                message_length = struct.pack(">I", len(byte_data))
                 connection.sendall(message_length + byte_data)
                 recv_length = connection.recv(4)
 
@@ -137,16 +146,18 @@ async def query(self, req) -> ResponseQuery:
                     # Handle error or incomplete length prefix
                     raise ValueError("Incomplete length prefix received")
                 else:
-                    length = struct.unpack('>I', recv_length)[0]
-                    recv = b''
+                    length = struct.unpack(">I", recv_length)[0]
+                    recv = b""
                     while len(recv) < length:
                         packet = connection.recv(length - len(recv))
                         if not packet:
                             # Connection closed or error
-                            raise ConnectionError("Connection closed before receiving all data")
+                            raise ConnectionError(
+                                "Connection closed before receiving all data"
+                            )
                         recv += packet
                     if len(recv) == length:
-                        result = recv.decode('utf-8')
+                        result = recv.decode("utf-8")
                     else:
                         # Handle incomplete data error
                         raise ValueError("Did not receive all expected data")
@@ -160,10 +171,12 @@ async def query(self, req) -> ResponseQuery:
                 raw_tx = path_parts[1]
                 byte_data = bytes.fromhex(raw_tx)
                 # extract payload from the raw_tx
-                decoded_dict = json.loads(byte_data.decode('utf-8'))
-                payload = decoded_dict.get('payload', {})
-                payload_byte_data = bytes.fromhex(json.dumps(payload).encode('utf-8').hex())
-                message_length = struct.pack('>I', len(payload_byte_data))
+                decoded_dict = json.loads(byte_data.decode("utf-8"))
+                payload = decoded_dict.get("payload", {})
+                payload_byte_data = bytes.fromhex(
+                    json.dumps(payload).encode("utf-8").hex()
+                )
+                message_length = struct.pack(">I", len(payload_byte_data))
                 connection.sendall(message_length + payload_byte_data)
                 recv_length = connection.recv(4)
 
@@ -171,24 +184,28 @@ async def query(self, req) -> ResponseQuery:
                     # Handle error or incomplete length prefix
                     raise ValueError("Incomplete length prefix received")
                 else:
-                    length = struct.unpack('>I', recv_length)[0]
-                    recv = b''
+                    length = struct.unpack(">I", recv_length)[0]
+                    recv = b""
                     while len(recv) < length:
                         packet = connection.recv(length - len(recv))
                         if not packet:
                             # Connection closed or error
-                            raise ConnectionError("Connection closed before receiving all data")
+                            raise ConnectionError(
+                                "Connection closed before receiving all data"
+                            )
                         recv += packet
                     if len(recv) == length:
-                        result = recv.decode('utf-8')
+                        result = recv.decode("utf-8")
                     else:
                         # Handle incomplete data error
                         raise ValueError("Did not receive all expected data")
 
         else:
-            error = f'Unknown query path: {path_parts[0]}'
+            error = f"Unknown query path: {path_parts[0]}"
             logger.error(error)
-            return ResponseQuery(code=c.ErrorCode, value=b"\x00", info=None, log=error)
+            return ResponseQuery(
+                code=c.ErrorCode, value=b"\x00", info=None, log=error
+            )
 
         if result is None:
             v = None
@@ -199,7 +216,9 @@ async def query(self, req) -> ResponseQuery:
         elif isinstance(result, int):
             v = encode_str(str(result))
             type_of_data = "int"
-        elif isinstance(result, float) or isinstance(result, ContractingDecimal):
+        elif isinstance(result, float) or isinstance(
+            result, ContractingDecimal
+        ):
             v = encode_str(str(result))
             type_of_data = "decimal"
         elif isinstance(result, dict) or isinstance(result, list):
@@ -213,4 +232,6 @@ async def query(self, req) -> ResponseQuery:
         logger.error(err)
         return ResponseQuery(code=c.ErrorCode)
 
-    return ResponseQuery(code=c.OkCode, value=v, info=type_of_data, key=encode_str(key))
+    return ResponseQuery(
+        code=c.OkCode, value=v, info=type_of_data, key=encode_str(key)
+    )

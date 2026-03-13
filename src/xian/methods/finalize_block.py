@@ -1,27 +1,23 @@
-import json
 import asyncio
+import json
+
+from loguru import logger
 
 from cometbft.abci.v1beta2.types_pb2 import Event, EventAttribute
-from cometbft.abci.v1beta3.types_pb2 import (
-    ResponseFinalizeBlock,
-    ExecTxResult
-)
-from xian.utils.hash import (
-    hash_list,
-    hash_from_rewards
-)
+from cometbft.abci.v1beta3.types_pb2 import ExecTxResult, ResponseFinalizeBlock
 from xian.utils.block import (
+    convert_cometbft_time_to_datetime,
     get_latest_block_hash,
     get_nanotime_from_block_time,
-    convert_cometbft_time_to_datetime
 )
 from xian.utils.encoding import (
-    decode_transaction_bytes,
     convert_binary_to_hex,
+    decode_transaction_bytes,
+    hash_bytes,
     stringify_decimals,
-    hash_bytes
 )
-from loguru import logger
+from xian.utils.hash import hash_from_rewards, hash_list
+
 
 async def finalize_block(self, req) -> ResponseFinalizeBlock:
     nanos = get_nanotime_from_block_time(req.time)
@@ -37,7 +33,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         "nanos": nanos,
         "height": height,
         "hash": hash,
-        "chain_id": self.chain_id
+        "chain_id": self.chain_id,
     }
 
     for tx_bytes in req.txs:
@@ -54,7 +50,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
             result = self.tx_processor.process_tx(
                 tx,
                 enabled_fees=self.enable_tx_fee,
-                rewards_handler=self.rewards_handler
+                rewards_handler=self.rewards_handler,
             )
         except Exception as e:
             logger.error(f"Error processing tx: {e}")
@@ -71,32 +67,30 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
 
         # Websocket Events - Only trigger state change events if tx was successful
         if result["tx_result"]["status"] == 0:
-
             # Need to replace chars since they are reserved
-            translation_table = str.maketrans({'.': '_', ':': '__'})
+            translation_table = str.maketrans({".": "_", ":": "__"})
 
             state_changes = []
 
-            for state in result['tx_result']['state']:
-                state_key = state['key'].translate(translation_table)
-                state_value = str(state['value'])
+            for state in result["tx_result"]["state"]:
+                state_key = state["key"].translate(translation_table)
+                state_value = str(state["value"])
 
                 state_changes.append(
                     EventAttribute(key=state_key, value=state_value)
                 )
 
             if state_changes:
-                tx_events.append(Event(
-                    type='StateChange',
-                    attributes=state_changes
-                ))
+                tx_events.append(
+                    Event(type="StateChange", attributes=state_changes)
+                )
 
         tx_results.append(
             ExecTxResult(
                 code=result["tx_result"]["status"],
                 data=parsed_tx_result.encode(),
                 gas_used=0,
-                events=tx_events
+                events=tx_events,
             )
         )
 
@@ -104,56 +98,64 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         if self.block_service_mode:
             cometbft_hash = hash_bytes(tx_bytes).upper()
             result["tx_result"]["hash"] = cometbft_hash
-            asyncio.create_task(self.bds.add_to_batch(tx | result, block_datetime))
+            asyncio.create_task(
+                self.bds.add_to_batch(tx | result, block_datetime)
+            )
 
     if self.static_rewards:
         try:
-            reward_writes.append(self.rewards_handler.distribute_static_rewards(
-                master_reward=self.static_rewards_amount_validators,
-                foundation_reward=self.static_rewards_amount_foundation,
-            ))
+            reward_writes.append(
+                self.rewards_handler.distribute_static_rewards(
+                    master_reward=self.static_rewards_amount_validators,
+                    foundation_reward=self.static_rewards_amount_foundation,
+                )
+            )
         except Exception as e:
             logger.error(f"STATIC REWARD ERROR: {e} for block")
 
     reward_hash = hash_from_rewards(reward_writes)
     validator_updates = self.validator_handler.build_validator_updates(height)
-    
+
     self.fingerprint_hashes.append(reward_hash)
-    
+
     # Apply any state patches for this block and include hash in fingerprint
     state_patch_applied = False
-    if hasattr(self, 'state_patch_manager'):
-        patch_hash, applied_patches = self.state_patch_manager.apply_patches_for_block(
-            height,
-            nanos
+    if hasattr(self, "state_patch_manager"):
+        patch_hash, applied_patches = (
+            self.state_patch_manager.apply_patches_for_block(height, nanos)
         )
-        
+
         # If patches were applied, include the hash in fingerprint hashes
         if patch_hash:
             self.fingerprint_hashes.append(patch_hash)
             state_patch_applied = True
-            logger.info(f"Added state patch hash to block fingerprint: {patch_hash}")
-            
+            logger.info(
+                f"Added state patch hash to block fingerprint: {patch_hash}"
+            )
+
             # If BDS is enabled, record state patches directly
             if self.block_service_mode and applied_patches:
-                asyncio.create_task(self.bds.add_state_patches(
-                    applied_patches,
-                    self.current_block_meta,
-                    block_datetime
-                ))
-    
+                asyncio.create_task(
+                    self.bds.add_state_patches(
+                        applied_patches, self.current_block_meta, block_datetime
+                    )
+                )
+
     # Save data to BDS - Process batch
     if self.block_service_mode:
         # Commit all changes to BDS
         asyncio.create_task(self.bds.commit_batch())
 
-    
     # No transactions and no state patches = no change to ABCI state, use previous block hash.
     # Otherwise, compute a new hash from the fingerprint hashes.
-    self.merkle_root_hash = latest_block_hash if (len(req.txs) == 0 and not state_patch_applied) else hash_list(self.fingerprint_hashes)
+    self.merkle_root_hash = (
+        latest_block_hash
+        if (len(req.txs) == 0 and not state_patch_applied)
+        else hash_list(self.fingerprint_hashes)
+    )
 
     return ResponseFinalizeBlock(
         validator_updates=validator_updates,
         tx_results=tx_results,
-        app_hash=self.merkle_root_hash
+        app_hash=self.merkle_root_hash,
     )

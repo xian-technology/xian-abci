@@ -1,8 +1,5 @@
 from cometbft.abci.v1beta3.types_pb2 import ResponseCommit
-from xian.utils.block import (
-    set_latest_block_hash,
-    set_latest_block_height
-)
+from xian.utils.block import set_latest_block_hash, set_latest_block_height
 
 
 async def commit(self) -> ResponseCommit:
@@ -16,10 +13,12 @@ async def commit(self) -> ResponseCommit:
     self.merkle_root_hash = None
     self.current_block_rewards = {}
 
-    retain_height = 0 
+    retain_height = 0
     if self.pruning_enabled:
         if self.current_block_meta["height"] > self.blocks_to_keep:
-            retain_height = self.current_block_meta["height"] - self.blocks_to_keep
+            retain_height = (
+                self.current_block_meta["height"] - self.blocks_to_keep
+            )
 
     self.current_block_meta = None
 

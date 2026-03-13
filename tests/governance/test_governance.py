@@ -9,13 +9,17 @@ import random
 import string
 import os
 import sys
+from pathlib import Path
 from loguru import logger
 from contracting.stdlib.bridge.time import Datetime
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
 
 # Get the directory where the script is located
-script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 
 # Change the current working directory
 os.chdir(script_dir)
@@ -81,46 +85,67 @@ class MyTestCase(unittest.TestCase):
         script_dir = os.path.dirname(os.path.abspath(__file__))
 
         # Construct absolute paths for the contract files
-        submission_contract_path = os.path.abspath(
-            os.path.join(
-                script_dir,
-                "../../xian-contracting/src/contracting/contracts/submission.s.py",
-            )
+        submission_contract_path = (
+            WORKSPACE_ROOT
+            / "xian-contracting"
+            / "src"
+            / "contracting"
+            / "contracts"
+            / "submission.s.py"
         )
-        currency_contract_path = os.path.abspath(
-            os.path.join(
-                script_dir,
-                "../../src/xian/tools/genesis/contracts/currency.s.py",
-            )
+        currency_contract_path = (
+            REPO_ROOT
+            / "src"
+            / "xian"
+            / "tools"
+            / "genesis"
+            / "contracts"
+            / "currency.s.py"
         )
-        dao_contract_path = os.path.abspath(
-            os.path.join(
-                script_dir, "../../src/xian/tools/genesis/contracts/dao.s.py"
-            )
+        dao_contract_path = (
+            REPO_ROOT
+            / "src"
+            / "xian"
+            / "tools"
+            / "genesis"
+            / "contracts"
+            / "dao.s.py"
         )
-        rewards_contract_path = os.path.abspath(
-            os.path.join(
-                script_dir,
-                "../../src/xian/tools/genesis/contracts/rewards.s.py",
-            )
+        rewards_contract_path = (
+            REPO_ROOT
+            / "src"
+            / "xian"
+            / "tools"
+            / "genesis"
+            / "contracts"
+            / "rewards.s.py"
         )
-        stamp_cost_contract_path = os.path.abspath(
-            os.path.join(
-                script_dir,
-                "../../src/xian/tools/genesis/contracts/stamp_cost.s.py",
-            )
+        stamp_cost_contract_path = (
+            REPO_ROOT
+            / "src"
+            / "xian"
+            / "tools"
+            / "genesis"
+            / "contracts"
+            / "stamp_cost.s.py"
         )
-        members_contract_path = os.path.abspath(
-            os.path.join(
-                script_dir,
-                "../../src/xian/tools/genesis/contracts/members.s.py",
-            )
+        members_contract_path = (
+            REPO_ROOT
+            / "src"
+            / "xian"
+            / "tools"
+            / "genesis"
+            / "contracts"
+            / "members.s.py"
         )
-        foundation_contract_path = os.path.abspath(
-            os.path.join(
-                script_dir,
-                "../../src/xian/tools/genesis/contracts/foundation.s.py",
-            )
+        foundation_contract_path = (
+            REPO_ROOT
+            / "src"
+            / "xian"
+            / "tools"
+            / "genesis"
+            / "contracts"
+            / "foundation.s.py"
         )
 
         with open(submission_contract_path) as f:

@@ -1,23 +1,26 @@
 """
 TCP Server that communicates with Tendermint
 """
+
 import asyncio
-import signal
-import platform
 import io
 import os
-
-from .utils import *
+import platform
+import signal
 from io import BytesIO
+
 from loguru import logger
+
+from cometbft.abci.v1beta1.types_pb2 import (
+    ResponseException,
+    ResponseFlush,
+)
 from cometbft.abci.v1beta3.types_pb2 import (
     Request,
     Response,
 )
-from cometbft.abci.v1beta1.types_pb2 import (
-    ResponseFlush,
-    ResponseException,
-)
+
+from .utils import read_messages, write_message
 
 MaxReadInBytes = 64 * 1024  # Max we'll consume on a read stream
 
@@ -41,7 +44,7 @@ class ProtocolHandler:
     def flush(self, req) -> bytes:
         response = Response(flush=ResponseFlush())
         return write_message(response)
-    
+
     async def echo(self, req) -> bytes:
         result = await self.app.echo(req.echo)
         response = Response(echo=result)
@@ -66,7 +69,7 @@ class ProtocolHandler:
         result = await self.app.commit()
         response = Response(commit=result)
         return write_message(response)
-    
+
     async def finalize_block(self, req) -> bytes:
         result = await self.app.finalize_block(req.finalize_block)
         response = Response(finalize_block=result)
@@ -96,12 +99,12 @@ class ProtocolHandler:
         result = await self.app.apply_snapshot_chunk(req.apply_snapshot_chunk)
         response = Response(apply_snapshot_chunk=result)
         return write_message(response)
-    
+
     async def process_proposal(self, req) -> bytes:
         result = await self.app.process_proposal(req.process_proposal)
         response = Response(process_proposal=result)
         return write_message(response)
-    
+
     async def prepare_proposal(self, req) -> bytes:
         result = await self.app.prepare_proposal(req.prepare_proposal)
         response = Response(prepare_proposal=result)
@@ -120,7 +123,7 @@ class ABCIServer:
     """
 
     protocol: ProtocolHandler
-    
+
     def __init__(self, app, socket_path="/tmp/abci.sock") -> None:
         """
         Requires App and an optional port if you changed the ABCI port on
@@ -169,7 +172,7 @@ class ABCIServer:
         await self.server.serve_forever()
 
     async def _handler(
-            self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         data = BytesIO()
         while True:

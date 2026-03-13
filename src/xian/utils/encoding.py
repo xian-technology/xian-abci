@@ -1,9 +1,9 @@
-import json
 import binascii
-import hashlib
 import decimal
-
+import hashlib
+import json
 from typing import Tuple
+
 from contracting.stdlib.bridge.decimal import ContractingDecimal
 from contracting.stdlib.bridge.time import Datetime
 from loguru import logger
@@ -21,7 +21,7 @@ def decode_transaction_bytes(raw) -> Tuple[dict, str]:
     tx_json = json.loads(tx_str)
     payload_str = extract_payload_string(tx_str)
 
-    assert json.loads(payload_str) == tx_json["payload"], 'Invalid payload'
+    assert json.loads(payload_str) == tx_json["payload"], "Invalid payload"
     return tx_json, payload_str
 
 
@@ -37,9 +37,9 @@ def extract_payload_string(json_str):
         start_index = json_str.find('"payload":')
         if start_index == -1:
             raise ValueError("No 'payload' found in the provided JSON string.")
-        
+
         # Find the opening brace of the 'payload' object
-        start_brace_index = json_str.find('{', start_index)
+        start_brace_index = json_str.find("{", start_index)
         if start_brace_index == -1:
             raise ValueError("Malformed JSON: No opening brace for 'payload'.")
 
@@ -49,26 +49,29 @@ def extract_payload_string(json_str):
         i = start_brace_index
         while i < len(json_str):
             char = json_str[i]
-            
-            if char == '"' and (i == 0 or json_str[i-1] != '\\'):
+
+            if char == '"' and (i == 0 or json_str[i - 1] != "\\"):
                 in_string = not in_string
-            
+
             if not in_string:
-                if char == '{':
+                if char == "{":
                     brace_count += 1
-                elif char == '}':
+                elif char == "}":
                     brace_count -= 1
-            
+
             # When brace_count is zero, we've found the matching closing brace
             if brace_count == 0:
-                return json_str[start_brace_index:i+1]
-            
+                return json_str[start_brace_index : i + 1]
+
             i += 1
-        
-        raise ValueError("Malformed JSON: No matching closing brace for 'payload'.")
+
+        raise ValueError(
+            "Malformed JSON: No matching closing brace for 'payload'."
+        )
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         raise
+
 
 def hash_bytes(bytes):
     return hashlib.sha256(bytes).hexdigest()
@@ -78,7 +81,9 @@ def convert_binary_to_hex(binary_data):
     try:
         return binascii.hexlify(binary_data).decode()
     except UnicodeDecodeError as e:
-        logger.error(f"The binary data could not be decoded with UTF-8 encoding: {e}")
+        logger.error(
+            f"The binary data could not be decoded with UTF-8 encoding: {e}"
+        )
         raise
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
@@ -104,6 +109,5 @@ def stringify_decimals(obj):
                 return str(obj)
         else:
             return obj
-    except:
+    except Exception:
         return ""
-

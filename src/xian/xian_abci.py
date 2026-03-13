@@ -1,40 +1,38 @@
-import os
-import importlib
-import sys
-import gc
 import asyncio
+import gc
+import importlib
+import os
 import signal
+import sys
+from datetime import datetime, timedelta
 
-from loguru import logger
-from datetime import timedelta, datetime
-from abci.server import ABCIServer
-from xian.constants import Constants
-from xian.services.bds.bds import BDS
 from contracting.client import ContractingClient
+from loguru import logger
 
+from abci.server import ABCIServer
+from abci.utils import get_logger
+from xian.constants import Constants
 from xian.methods import (
-    init_chain,
-    echo,
-    info,
     check_tx,
-    finalize_block,
     commit,
-    process_proposal,
+    echo,
+    finalize_block,
+    info,
+    init_chain,
     prepare_proposal,
+    process_proposal,
     query,
 )
-from xian.validators import ValidatorHandler
 from xian.nonce import NonceStorage
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
-from xian.utils.state_patches import StatePatchManager
-
+from xian.services.bds.bds import BDS
 from xian.utils.cometbft import (
-    load_tendermint_config,
     load_genesis_data,
+    load_tendermint_config,
 )
-
-from abci.utils import get_logger
+from xian.utils.state_patches import StatePatchManager
+from xian.validators import ValidatorHandler
 
 get_logger("requests").setLevel(30)
 get_logger("urllib3").setLevel(30)
@@ -82,7 +80,9 @@ class Xian:
         self.merkle_root_hash = None
         self.chain_id = self.genesis.get("chain_id", None)
 
-        self.block_service_mode = self.cometbft_config["xian"]["block_service_mode"]
+        self.block_service_mode = self.cometbft_config["xian"][
+            "block_service_mode"
+        ]
 
         self.pruning_enabled = self.cometbft_config["xian"]["pruning_enabled"]
         # If pruning is enabled, this is the number of blocks to keep history for
@@ -101,14 +101,16 @@ class Xian:
         self.static_rewards_amount_foundation = 1
         self.static_rewards_amount_validators = 1
         self.current_block_rewards = {}
-        
+
         # Initialize state patch manager
         self.state_patch_manager = StatePatchManager(self.client.raw_driver)
-        
+
         # Set up the state patches file path
         start_path = os.path.dirname(os.path.realpath(__file__))
-        patch_file_path = os.path.join(start_path, "tools", "state_patches", "state_patches.json")
-        
+        patch_file_path = os.path.join(
+            start_path, "tools", "state_patches", "state_patches.json"
+        )
+
         if os.path.exists(patch_file_path):
             logger.info(f"Loading state patches from: {patch_file_path}")
             self.state_patch_manager.load_patches(patch_file_path)
@@ -196,7 +198,7 @@ def cleanup_old_logs(logs_dir: str, days: int = 3):
     try:
         threshold = datetime.now() - timedelta(days=days)
         for f in os.listdir(logs_dir):
-            if not f.endswith('.log'):
+            if not f.endswith(".log"):
                 continue
 
             file_path = os.path.join(logs_dir, f)
@@ -217,8 +219,8 @@ def main():
     logger.add(sys.stderr, level="DEBUG")
 
     start_path = os.path.dirname(os.path.realpath(__file__))
-    log_path = os.path.realpath(os.path.join(start_path, '..', '..'))
-    logs_dir = os.path.join(log_path, 'logs')
+    log_path = os.path.realpath(os.path.join(start_path, "..", ".."))
+    logs_dir = os.path.join(log_path, "logs")
 
     os.makedirs(logs_dir, exist_ok=True)
 
@@ -226,13 +228,13 @@ def main():
     cleanup_old_logs(logs_dir, days=LOG_RETENTION_DAYS)
 
     logger.add(
-        os.path.join(log_path, 'logs', '{time}.log'),
+        os.path.join(log_path, "logs", "{time}.log"),
         retention=timedelta(days=LOG_RETENTION_DAYS),
         rotation=timedelta(hours=1),
         format="{time} {level} {name} {message}",
         level="DEBUG",
         enqueue=True,
-        compression="zip"  # Compress old logs
+        compression="zip",  # Compress old logs
     )
 
     # Register signal handlers

@@ -1,13 +1,13 @@
 import binascii
-import marshal
 import json
+import marshal
+from datetime import datetime
 
-from xian.constants import Constants as c
 from contracting.storage.encoder import convert_dict
+from google.protobuf.timestamp_pb2 import Timestamp
 from loguru import logger
 
-from google.protobuf.timestamp_pb2 import Timestamp
-from datetime import datetime
+from xian.constants import Constants as c
 
 
 def convert_cometbft_time_to_datetime(nanoseconds: int) -> datetime:
@@ -23,39 +23,39 @@ def get_nanotime_from_block_time(timeobj) -> int:
 
 
 def compile_contract_from_source(s: dict):
-    code = compile(s["value"], '', "exec")
+    code = compile(s["value"], "", "exec")
     serialized_code = marshal.dumps(code)
     hexadecimal_string = binascii.hexlify(serialized_code).decode()
     return hexadecimal_string
 
 
 def apply_state_changes_from_block(client, nonce_storage, block):
-    state_changes = block.get('genesis', [])
-    rewards = block.get('rewards', [])
+    state_changes = block.get("genesis", [])
+    rewards = block.get("rewards", [])
 
-    nanos = block.get('hlc_timestamp')
-    nonces = block.get('nonces', [])
+    nanos = block.get("hlc_timestamp")
+    nonces = block.get("nonces", [])
 
     for i, s in enumerate(state_changes):
         parts = s["key"].split(".")
 
         if parts[1] == "__code__":
-            logger.info(f'Processing contract: {parts[0]}')
+            logger.info(f"Processing contract: {parts[0]}")
             compiled_code = compile_contract_from_source(s)
             client.raw_driver.set(f"{parts[0]}.__compiled__", compiled_code)
-        if type(s['value']) is dict:
-            s['value'] = convert_dict(s['value'])
+        if type(s["value"]) is dict:
+            s["value"] = convert_dict(s["value"])
 
-        client.raw_driver.set(s['key'], s['value'])
+        client.raw_driver.set(s["key"], s["value"])
 
     for n in nonces:
         nonce_storage.set_nonce(n["key"], n["value"])
 
     for s in rewards:
-        if type(s['value']) is dict:
-            s['value'] = convert_dict(s['value'])
+        if type(s["value"]) is dict:
+            s["value"] = convert_dict(s["value"])
 
-        client.raw_driver.set(s['key'], s['value'])
+        client.raw_driver.set(s["key"], s["value"])
 
     client.raw_driver.hard_apply(nanos)
 
@@ -70,6 +70,7 @@ def is_compiled_key(key):
     if parts[1] == "__compiled__":
         return True
     return False
+
 
 def create_latest_block_json_if_not_exists():
     try:
@@ -100,7 +101,7 @@ def set_latest_block_hash(h):
     try:
         with open(f"{c.STORAGE_HOME}/__latest_block.json", "r") as f:
             latest_block = json.load(f)
-        
+
         # Update the hash while keeping the height intact
         latest_block["hash"] = h.hex()
 
@@ -133,7 +134,7 @@ def set_latest_block_height(h):
     try:
         with open(f"{c.STORAGE_HOME}/__latest_block.json", "r") as f:
             latest_block = json.load(f)
-        
+
         # Update the height while keeping the hash intact
         latest_block["height"] = h
 

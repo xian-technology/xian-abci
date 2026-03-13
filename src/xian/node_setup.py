@@ -10,7 +10,6 @@ import toml
 from nacl.encoding import Base64Encoder, HexEncoder
 from nacl.signing import SigningKey
 
-
 DEFAULT_CONFIG_TOML = """
 version = "0.38.7"
 proxy_app = "unix:///tmp/abci.sock"
@@ -172,7 +171,9 @@ def build_priv_validator_key(private_key_hex: str) -> dict[str, Any]:
             "type": "tendermint/PrivKeyEd25519",
             "value": priv_key_b64,
         },
-        "_private_key_hex": signing_key.encode(encoder=HexEncoder).decode("ascii"),
+        "_private_key_hex": signing_key.encode(encoder=HexEncoder).decode(
+            "ascii"
+        ),
     }
 
 
@@ -230,7 +231,9 @@ def load_genesis(path: Path) -> dict[str, Any]:
         return json.load(f)
 
 
-def write_json(path: Path, payload: dict[str, Any], *, overwrite: bool = False) -> None:
+def write_json(
+    path: Path, payload: dict[str, Any], *, overwrite: bool = False
+) -> None:
     if path.exists() and not overwrite:
         raise FileExistsError(f"{path} already exists")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -239,7 +242,9 @@ def write_json(path: Path, payload: dict[str, Any], *, overwrite: bool = False) 
         f.write("\n")
 
 
-def write_toml(path: Path, payload: dict[str, Any], *, overwrite: bool = False) -> None:
+def write_toml(
+    path: Path, payload: dict[str, Any], *, overwrite: bool = False
+) -> None:
     if path.exists() and not overwrite:
         raise FileExistsError(f"{path} already exists")
     path.parent.mkdir(parents=True, exist_ok=True)

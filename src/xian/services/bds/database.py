@@ -1,7 +1,8 @@
 import json
-import asyncpg
 
+import asyncpg
 from loguru import logger
+
 from xian.services.bds.config import Config
 
 
@@ -16,7 +17,6 @@ def result_to_json(result):
 
 
 class DB:
-
     batch = []
 
     def __init__(self, config: Config):
@@ -26,17 +26,17 @@ class DB:
     async def init_pool(self):
         # Create a temporary connection to the default database to check/create the target database
         temp_conn = await asyncpg.connect(
-            user=self.cfg.get('db_user'),
-            password=self.cfg.get('db_pass'),
-            database='postgres',  # Connect to the default 'postgres' database
-            host=self.cfg.get('db_host'),
-            port=self.cfg.get('db_port')
+            user=self.cfg.get("db_user"),
+            password=self.cfg.get("db_pass"),
+            database="postgres",  # Connect to the default 'postgres' database
+            host=self.cfg.get("db_host"),
+            port=self.cfg.get("db_port"),
         )
         try:
             # Check if the target database exists
             result = await temp_conn.fetchval(
                 "SELECT 1 FROM pg_database WHERE datname = $1",
-                self.cfg.get('db_name')
+                self.cfg.get("db_name"),
             )
             if not result:
                 # Create the target database if it does not exist
@@ -48,11 +48,11 @@ class DB:
 
         # Now create the connection pool to the target database
         self.pool = await asyncpg.create_pool(
-            user=self.cfg.get('db_user'),
-            password=self.cfg.get('db_pass'),
-            database=self.cfg.get('db_name'),
-            host=self.cfg.get('db_host'),
-            port=self.cfg.get('db_port')
+            user=self.cfg.get("db_user"),
+            password=self.cfg.get("db_pass"),
+            database=self.cfg.get("db_name"),
+            host=self.cfg.get("db_host"),
+            port=self.cfg.get("db_port"),
         )
 
     async def execute(self, query: str, params: list = []):
@@ -65,7 +65,7 @@ class DB:
                 result = await connection.execute(query, *params)
                 return result
             except Exception as e:
-                logger.exception(f'Error while executing SQL: {e}')
+                logger.exception(f"Error while executing SQL: {e}")
                 raise e
 
     def add_query_to_batch(self, query: str, args: list):
@@ -77,7 +77,7 @@ class DB:
                 for query, params in self.batch:
                     await connection.execute(query, *params)
             except Exception as e:
-                logger.exception(f'Error while executing SQL: {e}')
+                logger.exception(f"Error while executing SQL: {e}")
                 raise e
             finally:
                 self.batch = []
@@ -91,14 +91,16 @@ class DB:
                 result = await connection.fetch(query, *params)
                 return result
             except Exception as e:
-                logger.exception(f'Error while executing SQL: {e}')
+                logger.exception(f"Error while executing SQL: {e}")
                 raise e
 
     async def has_entries(self, table_name: str) -> bool:
         try:
-            result = await self.fetch(f"SELECT COUNT(*) as count FROM {table_name}")
+            result = await self.fetch(
+                f"SELECT COUNT(*) as count FROM {table_name}"
+            )
             logger.debug(result)
-            return result[0]['count'] > 0
+            return result[0]["count"] > 0
         except Exception as e:
             logger.exception(e)
             return False

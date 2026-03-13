@@ -1,8 +1,8 @@
-import os
 import json
+import os
+
 
 class Config:
-
     _cfg_data = None
     _cfg_file = None
 
@@ -13,17 +13,21 @@ class Config:
         self.load()
 
     def load(self):
-        with open(self._cfg_file, encoding='utf-8') as f:
+        with open(self._cfg_file, encoding="utf-8") as f:
             self._cfg_data = json.load(f)
 
     def dump(self):
-        with open(self._cfg_file, 'w', encoding='utf-8') as f:
-            json.dump(self._cfg_data, f, ensure_ascii=False, sort_keys=True, indent=4)
+        with open(self._cfg_file, "w", encoding="utf-8") as f:
+            json.dump(
+                self._cfg_data, f, ensure_ascii=False, sort_keys=True, indent=4
+            )
 
     def get(self, key, reload=False):
-        if reload: self.load()
+        if reload:
+            self.load()
         return self._cfg_data[key] if key in self._cfg_data else None
 
     def set(self, key, value, dump=True):
         self._cfg_data[key] = value
-        if dump: self.dump()
+        if dump:
+            self.dump()

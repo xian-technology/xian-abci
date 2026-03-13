@@ -1,5 +1,7 @@
 import hashlib
+
 from contracting.storage.encoder import encode
+
 
 def hash_list(obj: list) -> bytes:
     encoded_tx = encode("".join(obj)).encode()

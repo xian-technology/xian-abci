@@ -1,14 +1,19 @@
+import hashlib
 from typing import Callable
 
 import nacl
-import nacl.signing
 import nacl.encoding
-from contracting.storage.encoder import encode, decode
+import nacl.signing
 from contracting.stdlib.bridge.decimal import ContractingDecimal
-from xian.exceptions import TransactionException
-from xian.formatting import contract_name_is_formatted, TRANSACTION_PAYLOAD_RULES, TRANSACTION_RULES
+from contracting.storage.encoder import decode, encode
 from loguru import logger
-import hashlib
+
+from xian.exceptions import TransactionException
+from xian.formatting import (
+    TRANSACTION_PAYLOAD_RULES,
+    TRANSACTION_RULES,
+    contract_name_is_formatted,
+)
 
 
 def verify(vk: str, msg: str, signature: str):
@@ -61,11 +66,11 @@ def recurse_rules(d: dict, rule: dict | Callable):
     for key, subrule in rule.items():
         arg = d[key]
 
-        if type(arg) == dict:
+        if isinstance(arg, dict):
             if not recurse_rules(arg, subrule):
                 return False
 
-        elif type(arg) == list:
+        elif isinstance(arg, list):
             for a in arg:
                 if not recurse_rules(a, subrule):
                     return False
@@ -75,26 +80,29 @@ def recurse_rules(d: dict, rule: dict | Callable):
                 return False
 
     return True
-    
+
 
 def check_enough_stamps(
-        balance: object,
-        stamps_per_tau: object,
-        stamps_supplied: object,
-        contract: object = None,
-        function: object = None,
-        amount: object = 0
+    balance: object,
+    stamps_per_tau: object,
+    stamps_supplied: object,
+    contract: object = None,
+    function: object = None,
+    amount: object = 0,
 ):
 
     if balance * stamps_per_tau < stamps_supplied:
-        raise TransactionException('Transaction sender has too few stamps for this transaction')
+        raise TransactionException(
+            "Transaction sender has too few stamps for this transaction"
+        )
 
     # Prevent people from sending their entire balances for free by checking if that is what they are doing.
     if contract == "currency" and function == "transfer":
-
         # If you have less than 2 transactions worth of tau after trying to send your amount, fail.
         if ((balance - amount) * stamps_per_tau) / 6 < 2:
-            raise TransactionException('Transaction sender has too few stamps for this transaction')
+            raise TransactionException(
+                "Transaction sender has too few stamps for this transaction"
+            )
 
 
 def check_format(d: dict, rule: dict):
@@ -103,7 +111,9 @@ def check_format(d: dict, rule: dict):
     if not dict_has_keys(d, expected_keys):
         raise TransactionException("Transaction has unexpected or missing keys")
     if not recurse_rules(d, rule):
-        raise TransactionException("Transaction has wrongly formatted dictionary")
+        raise TransactionException(
+            "Transaction has wrongly formatted dictionary"
+        )
 
 
 def check_tx_keys(tx):
@@ -132,7 +142,9 @@ def check_tx_keys(tx):
         map(lambda key: key in keys, list(TRANSACTION_PAYLOAD_RULES.keys()))
     )
 
-    if not all(keys_are_valid) and len(keys) == len(list(TRANSACTION_PAYLOAD_RULES.keys())):
+    if not all(keys_are_valid) and len(keys) == len(
+        list(TRANSACTION_PAYLOAD_RULES.keys())
+    ):
         raise TransactionException("Payload keys are not valid")
 
 
@@ -140,13 +152,14 @@ def check_tx_formatting(tx: dict):
     check_tx_keys(tx)
     check_format(tx, TRANSACTION_RULES)
 
+
 def check_contract_name(contract, function, name):
     if (
-            contract == "submission"
-            and function == "submit_contract"
-            and (len(name) > 255 or not contract_name_is_formatted(name))
+        contract == "submission"
+        and function == "submit_contract"
+        and (len(name) > 255 or not contract_name_is_formatted(name))
     ):
-        raise TransactionException('Transaction contract name is invalid')
+        raise TransactionException("Transaction contract name is invalid")
 
 
 def validate_transaction(client, nonce_storage, tx):
@@ -162,17 +175,16 @@ def validate_transaction(client, nonce_storage, tx):
             contract="currency",
             variable="balances",
             arguments=[tx["payload"]["sender"]],
-            mark=False
+            mark=False,
         )
     except Exception as e:
-        raise TransactionException(f"Failed to retrieve 'currency' balance for sender: {e}")
+        raise TransactionException(
+            f"Failed to retrieve 'currency' balance for sender: {e}"
+        )
 
     try:
         stamp_rate = client.get_var(
-            contract="stamp_cost",
-            variable="S",
-            arguments=["value"],
-            mark=False
+            contract="stamp_cost", variable="S", arguments=["value"], mark=False
         )
         if stamp_rate is None:
             stamp_rate = 20
@@ -186,7 +198,6 @@ def validate_transaction(client, nonce_storage, tx):
     if stamps_supplied is None:
         stamps_supplied = 0
 
-
     if balance is None:
         balance = 0
 
@@ -194,8 +205,8 @@ def validate_transaction(client, nonce_storage, tx):
     amount = tx["payload"]["kwargs"].get("amount")
     amount = 0 if amount is None else amount
 
-    if isinstance(amount, dict) and '__fixed__' in amount:
-        amount = ContractingDecimal(amount['__fixed__'])
+    if isinstance(amount, dict) and "__fixed__" in amount:
+        amount = ContractingDecimal(amount["__fixed__"])
 
     # Check if they have enough stamps for the operation
     check_enough_stamps(
@@ -211,7 +222,7 @@ def validate_transaction(client, nonce_storage, tx):
     name = tx["payload"]["kwargs"].get("name")
     check_contract_name(contract, func, name)
 
-    
+
 def dict_has_keys(d: dict, keys: set):
     key_set = set(d.keys())
     return len(keys ^ key_set) == 0
@@ -219,8 +230,8 @@ def dict_has_keys(d: dict, keys: set):
 
 def format_dictionary(d: dict) -> dict:
     for k, v in d.items():
-        assert type(k) == str, 'Non-string key types not allowed.'
-        if type(v) == list:
+        assert isinstance(k, str), "Non-string key types not allowed."
+        if isinstance(v, list):
             for i in range(len(v)):
                 if isinstance(v[i], dict):
                     v[i] = format_dictionary(v[i])
