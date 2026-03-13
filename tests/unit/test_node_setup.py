@@ -75,6 +75,82 @@ class NodeSetupTests(unittest.TestCase):
             self.assertIn("address", rendered_validator)
             self.assertNotIn("_private_key_hex", rendered_validator)
 
+    def test_build_priv_validator_key_rejects_invalid_hex(self):
+        with self.assertRaisesRegex(
+            ValueError, "private key must be a 64-character hex string"
+        ):
+            build_priv_validator_key("abcd")
+
+        with self.assertRaisesRegex(
+            ValueError, "private key must be valid hex"
+        ):
+            build_priv_validator_key("z" * 64)
+
+    def test_materialize_home_preserves_node_key_and_state_on_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = Path(tmp_dir) / ".cometbft"
+            initial_config = render_cometbft_config(moniker="validator-1")
+            updated_config = render_cometbft_config(moniker="validator-2")
+            initial_genesis = {
+                "chain_id": "xian-local-1",
+                "validators": [],
+                "abci_genesis": {},
+            }
+            updated_genesis = {
+                "chain_id": "xian-local-2",
+                "validators": [],
+                "abci_genesis": {},
+            }
+            initial_validator_key = build_priv_validator_key(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            )
+            updated_validator_key = build_priv_validator_key(
+                "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+            )
+
+            first_result = materialize_cometbft_home(
+                home=home,
+                config=initial_config,
+                genesis=initial_genesis,
+                priv_validator_key=initial_validator_key,
+            )
+            node_key_path = Path(first_result["node_key_path"])
+            state_path = Path(first_result["priv_validator_state_path"])
+            original_node_key = node_key_path.read_text(encoding="utf-8")
+            original_state = state_path.read_text(encoding="utf-8")
+
+            second_result = materialize_cometbft_home(
+                home=home,
+                config=updated_config,
+                genesis=updated_genesis,
+                priv_validator_key=updated_validator_key,
+                overwrite=True,
+            )
+
+            self.assertEqual(
+                node_key_path.read_text(encoding="utf-8"), original_node_key
+            )
+            self.assertEqual(
+                state_path.read_text(encoding="utf-8"), original_state
+            )
+
+            rendered_config = toml.load(second_result["config_path"])
+            rendered_genesis = json.loads(
+                Path(second_result["genesis_path"]).read_text(encoding="utf-8")
+            )
+            rendered_validator = json.loads(
+                Path(second_result["priv_validator_key_path"]).read_text(
+                    encoding="utf-8"
+                )
+            )
+
+            self.assertEqual(rendered_config["moniker"], "validator-2")
+            self.assertEqual(rendered_genesis["chain_id"], "xian-local-2")
+            self.assertEqual(
+                rendered_validator["address"],
+                updated_validator_key["address"],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
