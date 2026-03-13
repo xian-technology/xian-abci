@@ -27,7 +27,8 @@
   assets belong in the sibling `xian-configs` repo.
 - Universal bootstrap helpers are allowed here. If `xian-cli` needs local
   network creation support, add it as importable logic under `src/xian/`
-  rather than as committed chain data.
+  rather than as committed chain data. Local-network helpers may support one or
+  more initial validators; keep that logic data-driven.
 - Treat `xian-configs` as the source of truth for committed legacy chain
   fixtures. See `docs/LEGACY_CHAIN_ASSETS.md`.
 - Changes to contract execution semantics usually belong in `xian-contracting`, not here.

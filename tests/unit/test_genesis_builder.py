@@ -8,6 +8,7 @@ from xian_py.wallet import Wallet
 from xian.genesis_builder import (
     build_cometbft_genesis,
     build_genesis_block,
+    build_local_network_genesis,
     build_single_validator_genesis,
     build_validator_genesis_entry,
     update_cometbft_genesis,
@@ -319,6 +320,139 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertEqual(state_by_key["masternodes.fee"], 321)
         self.assertEqual(genesis["validators"][0]["power"], "25")
         self.assertEqual(genesis["validators"][0]["name"], "validator-1")
+
+    def test_build_local_network_genesis_supports_multiple_validators(self):
+        founder_private_key = (
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        )
+        validator_two_private_key = (
+            "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        )
+        founder_wallet = Wallet(private_key=founder_private_key)
+        validator_two_wallet = Wallet(private_key=validator_two_private_key)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            contracts_dir = Path(tmp_dir) / "contracts"
+            contracts_dir.mkdir()
+            (contracts_dir / "currency.s.py").write_text(
+                "currency_vk = Variable()\n\n"
+                "@construct\n"
+                "def seed(vk: str):\n"
+                "    currency_vk.set(vk)\n\n"
+                "@export\n"
+                "def get_vk():\n"
+                "    return currency_vk.get()\n",
+                encoding="utf-8",
+            )
+            (contracts_dir / "foundation.s.py").write_text(
+                "foundation_vk = Variable()\n\n"
+                "@construct\n"
+                "def seed(vk: str):\n"
+                "    foundation_vk.set(vk)\n\n"
+                "@export\n"
+                "def get_vk():\n"
+                "    return foundation_vk.get()\n",
+                encoding="utf-8",
+            )
+            (contracts_dir / "members.s.py").write_text(
+                "nodes = Variable()\nfee = Variable()\n\n"
+                "@construct\n"
+                "def seed(genesis_nodes: list, genesis_registration_fee: int):\n"
+                "    nodes.set(genesis_nodes)\n"
+                "    fee.set(genesis_registration_fee)\n\n"
+                "@export\n"
+                "def get_nodes():\n"
+                "    return nodes.get()\n",
+                encoding="utf-8",
+            )
+            (contracts_dir / "contracts_local.json").write_text(
+                json.dumps(
+                    {
+                        "extension": ".s.py",
+                        "contracts": [
+                            {
+                                "name": "currency",
+                                "owner": None,
+                                "constructor_args": {"vk": "old-vk"},
+                            },
+                            {
+                                "name": "foundation",
+                                "owner": None,
+                                "constructor_args": {"vk": "old-vk"},
+                            },
+                            {
+                                "name": "members",
+                                "submit_as": "masternodes",
+                                "owner": None,
+                                "constructor_args": {
+                                    "genesis_nodes": ["old-node"],
+                                    "genesis_registration_fee": 1,
+                                },
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            genesis = build_local_network_genesis(
+                chain_id="xian-local-1",
+                founder_private_key=founder_private_key,
+                validators=[
+                    {
+                        "account_public_key": founder_wallet.public_key,
+                        "name": "validator-1",
+                        "power": 10,
+                        "priv_validator_key": {
+                            "address": "ABC",
+                            "pub_key": {
+                                "type": "tendermint/PubKeyEd25519",
+                                "value": "pub-1",
+                            },
+                            "priv_key": {
+                                "type": "tendermint/PrivKeyEd25519",
+                                "value": "priv-1",
+                            },
+                        },
+                    },
+                    {
+                        "account_public_key": validator_two_wallet.public_key,
+                        "name": "validator-2",
+                        "power": 25,
+                        "priv_validator_key": {
+                            "address": "DEF",
+                            "pub_key": {
+                                "type": "tendermint/PubKeyEd25519",
+                                "value": "pub-2",
+                            },
+                            "priv_key": {
+                                "type": "tendermint/PrivKeyEd25519",
+                                "value": "priv-2",
+                            },
+                        },
+                    },
+                ],
+                network="local",
+                registration_fee=321,
+                contracts_dir=contracts_dir,
+            )
+
+        state_by_key = {
+            entry["key"]: entry["value"]
+            for entry in genesis["abci_genesis"]["genesis"]
+        }
+        self.assertEqual(state_by_key["currency.currency_vk"], founder_wallet.public_key)
+        self.assertEqual(
+            state_by_key["foundation.foundation_vk"], founder_wallet.public_key
+        )
+        self.assertEqual(
+            state_by_key["masternodes.nodes"],
+            [founder_wallet.public_key, validator_two_wallet.public_key],
+        )
+        self.assertEqual(state_by_key["masternodes.fee"], 321)
+        self.assertEqual(len(genesis["validators"]), 2)
+        self.assertEqual(genesis["validators"][1]["name"], "validator-2")
+        self.assertEqual(genesis["validators"][1]["power"], "25")
 
 
 if __name__ == "__main__":

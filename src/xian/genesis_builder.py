@@ -242,6 +242,39 @@ def build_single_validator_genesis(
     contracts_dir: Path | None = None,
 ) -> dict[str, Any]:
     founder_wallet = Wallet(private_key=founder_private_key)
+    return build_local_network_genesis(
+        chain_id=chain_id,
+        founder_private_key=founder_private_key,
+        validators=[
+            {
+                "account_public_key": founder_wallet.public_key,
+                "name": validator_name,
+                "power": validator_power,
+                "priv_validator_key": priv_validator_key,
+            }
+        ],
+        network=network,
+        registration_fee=registration_fee,
+        contracts_dir=contracts_dir,
+    )
+
+
+def build_local_network_genesis(
+    *,
+    chain_id: str,
+    founder_private_key: str,
+    validators: list[dict[str, Any]],
+    network: str = "local",
+    registration_fee: int = 100000,
+    contracts_dir: Path | None = None,
+) -> dict[str, Any]:
+    if not validators:
+        raise ValueError("at least one validator is required")
+
+    founder_wallet = Wallet(private_key=founder_private_key)
+    genesis_nodes = [
+        validator["account_public_key"] for validator in validators
+    ]
     abci_genesis = build_genesis_block(
         founder_private_key=founder_private_key,
         network=network,
@@ -250,24 +283,27 @@ def build_single_validator_genesis(
             "currency": {"vk": founder_wallet.public_key},
             "foundation": {"vk": founder_wallet.public_key},
             "members": {
-                "genesis_nodes": [founder_wallet.public_key],
+                "genesis_nodes": genesis_nodes,
                 "genesis_registration_fee": registration_fee,
             },
             "masternodes": {
-                "genesis_nodes": [founder_wallet.public_key],
+                "genesis_nodes": genesis_nodes,
                 "genesis_registration_fee": registration_fee,
             },
         },
     )
-    validator_entry = build_validator_genesis_entry(
-        priv_validator_key=priv_validator_key,
-        power=validator_power,
-        name=validator_name,
-    )
+    validator_entries = [
+        build_validator_genesis_entry(
+            priv_validator_key=validator["priv_validator_key"],
+            power=validator.get("power", 10),
+            name=validator.get("name", ""),
+        )
+        for validator in validators
+    ]
     return build_cometbft_genesis(
         chain_id=chain_id,
         abci_genesis=abci_genesis,
-        validators=[validator_entry],
+        validators=validator_entries,
     )
 
 
