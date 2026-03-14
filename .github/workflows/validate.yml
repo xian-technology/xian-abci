@@ -46,6 +46,13 @@ jobs:
           repository: xian-technology/xian-py
           path: xian-py
 
+      - name: Check out xian-configs
+        uses: actions/checkout@v4
+        with:
+          repository: xian-technology/xian-configs
+          ref: master
+          path: xian-configs
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
