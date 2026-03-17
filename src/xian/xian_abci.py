@@ -241,7 +241,7 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
-    app = asyncio.get_event_loop().run_until_complete(Xian.create())
+    app = asyncio.run(Xian.create())
     ABCIServer(app=app).run()
 
 

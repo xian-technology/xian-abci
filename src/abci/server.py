@@ -139,7 +139,8 @@ class ABCIServer:
         # Check OS to handle signals appropriately
         on_windows = platform.system() == "Windows"
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         if not on_windows:
             # Unix...register signal handlers
             loop.add_signal_handler(
@@ -160,6 +161,8 @@ class ABCIServer:
                 loop.run_until_complete(_stop())
         finally:
             loop.stop()
+            asyncio.set_event_loop(None)
+            loop.close()
 
     async def _start(self) -> None:
         if os.path.exists(self.socket_path):
