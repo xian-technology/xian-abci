@@ -14,7 +14,9 @@ from contracting.storage.driver import Driver
 from contracting.storage.encoder import encode
 from xian_py.wallet import Wallet
 
-from xian.config_paths import resolve_legacy_contracts_dir
+from xian.config_paths import (
+    resolve_contracts_dir as resolve_configs_contracts_dir,
+)
 from xian.utils.block import is_compiled_key
 
 TEMPLATE_ARG_PATTERN = re.compile(r"%%(.*?)%%")
@@ -56,7 +58,7 @@ def hash_state_changes(state_changes: list[dict[str, Any]]) -> str:
 def resolve_contracts_dir(contracts_dir: Path | None = None) -> Path:
     if contracts_dir is not None:
         return contracts_dir.resolve()
-    return resolve_legacy_contracts_dir()
+    return resolve_configs_contracts_dir()
 
 
 def render_template_values(value: Any, substitutions: dict[str, str]) -> Any:

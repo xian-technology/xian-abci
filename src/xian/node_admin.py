@@ -11,7 +11,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-from xian.config_paths import resolve_legacy_genesis_file
+from xian.config_paths import (
+    resolve_genesis_source,
+)
 from xian.constants import Constants as c
 from xian.node_setup import (
     build_priv_validator_key,
@@ -118,7 +120,7 @@ def _safe_extract_tar_archive(archive_path: Path, target_path: Path) -> None:
                 raise ValueError(
                     f"snapshot archive contains invalid path: {member.name}"
                 )
-        archive.extractall(path=target_root)
+        archive.extractall(path=target_root, filter="data")
 
 
 def _download_snapshot_archive(snapshot_url: str, target_path: Path) -> Path:
@@ -173,7 +175,7 @@ def configure_existing_home(
     seed_node_address: str | None = None,
     snapshot_url: str | None = None,
     copy_genesis: bool = False,
-    genesis_file_name: str | None = None,
+    genesis_source: str | None = None,
     prometheus: bool = True,
     service_node: bool = False,
     enable_pruning: bool = False,
@@ -202,12 +204,12 @@ def configure_existing_home(
 
     genesis_target_path: Path | None = None
     if copy_genesis:
-        if not genesis_file_name:
+        if genesis_source is not None:
+            genesis_source_path = resolve_genesis_source(genesis_source)
+        else:
             raise ValueError(
-                "genesis file name is required when copy_genesis is enabled"
+                "genesis_source is required when copy_genesis is enabled"
             )
-
-        genesis_source_path = resolve_legacy_genesis_file(genesis_file_name)
         genesis_target_path = resolve_home_relative_path(
             home,
             config["genesis_file"],

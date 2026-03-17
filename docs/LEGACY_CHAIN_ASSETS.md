@@ -1,33 +1,24 @@
-# Legacy Chain Assets
+# Chain Asset Ownership
 
-`xian-abci` is moving toward a universal node runtime. The committed legacy
-chain bundle has been moved out of this repo and now lives in the sibling
-`xian-configs` repository under `legacy/genesis/`.
+`xian-abci` is the universal node runtime. Chain-specific assets live in the
+sibling `xian-configs` repository and are no longer owned by this repo.
 
 ## Current Source Of Truth
 
-These assets now live in `xian-configs`:
+Active network assets now live in `xian-configs`:
 
-- `legacy/genesis/*.json`
-- `legacy/genesis/contracts/contracts_*.json`
-- `legacy/genesis/contracts/*.s.py`
+- `networks/<name>/manifest.json`
+- `networks/<name>/genesis.json`
+- `contracts/`
 
-`xian-abci` may read these files through importable path helpers, but it should
-not vend them as package data or treat them as local repo-owned fixtures.
+The old `legacy/` tree remains only as archival material. Runtime code should
+prefer the canonical network and contract paths.
 
-## Temporary Policy
+## Policy
 
-- Do not move chain-specific assets back into `xian-abci`.
-- Do not add new chain-specific genesis files, seed lists, snapshots, or
-  product-facing network metadata to `xian-abci`.
-- Keep `mainnet`, `testnet`, `stagenet`, `devnet`, and `rcnet` assets in
-  `xian-configs` only as extracted fixtures, test inputs, or historical
-  references until that repo gets a normalized per-network structure.
-- `genesis-rcnet.json` remains only because it is part of the same extracted
-  legacy bundle. It is not a preferred network target.
-
-## Exit Criteria
-
-This file should become obsolete once `xian-configs` replaces the extracted
-`legacy/` bundle with a normalized network-focused structure and `xian-abci`
-keeps only universal presets and importable genesis helpers.
+- Do not add chain-specific genesis files, seed lists, snapshots, or product
+  network metadata to `xian-abci`.
+- Keep genesis resolution and contract loading pointed at canonical paths in
+  `xian-configs`.
+- Treat `legacy/` content in `xian-configs` as archive material, not a primary
+  runtime input.

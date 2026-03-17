@@ -6,6 +6,7 @@ import secrets
 from pathlib import Path
 from typing import Any, Sequence
 
+from contracting.storage.encoder import encode
 from nacl.encoding import Base64Encoder, HexEncoder
 from nacl.signing import SigningKey
 
@@ -178,6 +179,26 @@ def build_priv_validator_key(private_key_hex: str) -> dict[str, Any]:
     }
 
 
+def generate_validator_material(
+    private_key_hex: str | None = None,
+) -> dict[str, Any]:
+    priv_validator_key = build_priv_validator_key(
+        _normalize_private_key(private_key_hex).hex()
+    )
+    public_key_bytes = Base64Encoder.decode(
+        priv_validator_key["pub_key"]["value"].encode("ascii")
+    )
+    return {
+        "validator_private_key_hex": priv_validator_key["_private_key_hex"],
+        "validator_public_key_hex": public_key_bytes.hex(),
+        "priv_validator_key": {
+            key: value
+            for key, value in priv_validator_key.items()
+            if key != "_private_key_hex"
+        },
+    }
+
+
 def build_node_key(private_key_hex: str | None = None) -> dict[str, Any]:
     seed = _normalize_private_key(private_key_hex)
     _, public_key_bytes, priv_key_b64 = _build_ed25519_key_material(seed)
@@ -239,7 +260,7 @@ def write_json(
         raise FileExistsError(f"{path} already exists")
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+        f.write(encode(payload))
         f.write("\n")
 
 
@@ -259,6 +280,7 @@ def materialize_cometbft_home(
     config: dict[str, Any],
     genesis: dict[str, Any],
     priv_validator_key: dict[str, Any],
+    node_key: dict[str, Any] | None = None,
     overwrite: bool = False,
 ) -> dict[str, str]:
     config_dir = home / "config"
@@ -290,7 +312,7 @@ def materialize_cometbft_home(
     )
 
     if not node_key_path.exists():
-        node_key_payload = build_node_key()
+        node_key_payload = node_key or build_node_key()
         write_json(
             node_key_path,
             {"priv_key": node_key_payload["priv_key"]},

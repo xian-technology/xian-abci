@@ -54,11 +54,13 @@ def build_parser() -> ArgumentParser:
         required=True,
     )
     parser.add_argument(
-        "--genesis-file-name",
+        "--genesis-source",
         type=str,
-        help="legacy genesis filename to copy when --copy-genesis is enabled",
+        help=(
+            "genesis source inside xian-configs, for example 'mainnet', "
+            "'networks/mainnet/genesis.json', or a relative path"
+        ),
         required=False,
-        default="genesis-testnet.json",
     )
     parser.add_argument(
         "--validator-privkey",
@@ -108,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         seed_node_address=args.seed_node_address,
         snapshot_url=args.snapshot_url,
         copy_genesis=args.copy_genesis,
-        genesis_file_name=args.genesis_file_name,
+        genesis_source=args.genesis_source,
         prometheus=args.prometheus,
         service_node=args.service_node,
         enable_pruning=args.enable_pruning,

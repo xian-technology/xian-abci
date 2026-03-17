@@ -1,7 +1,7 @@
 import unittest
 from contracting.stdlib.bridge.time import Datetime, Timedelta
 from contracting.client import ContractingClient
-from xian.config_paths import resolve_legacy_contracts_dir
+from xian.config_paths import resolve_contracts_dir
 import datetime
 import os
 
@@ -18,7 +18,7 @@ class TestMembersContract(unittest.TestCase):
         self.client.flush()
         
         # Set up paths and load contracts
-        self.contracts_dir = str(resolve_legacy_contracts_dir())
+        self.contracts_dir = str(resolve_contracts_dir())
         
         # Deploy required contracts first with correct constructor args
         contract_args = {

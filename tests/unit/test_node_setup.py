@@ -5,6 +5,7 @@ from pathlib import Path
 
 from xian.node_setup import (
     build_priv_validator_key,
+    generate_validator_material,
     materialize_cometbft_home,
     render_cometbft_config,
 )
@@ -84,6 +85,19 @@ class NodeSetupTests(unittest.TestCase):
             ValueError, "private key must be valid hex"
         ):
             build_priv_validator_key("z" * 64)
+
+    def test_generate_validator_material_returns_expected_shape(self):
+        payload = generate_validator_material(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        )
+
+        self.assertEqual(
+            payload["validator_private_key_hex"],
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        )
+        self.assertEqual(len(payload["validator_public_key_hex"]), 64)
+        self.assertIn("address", payload["priv_validator_key"])
+        self.assertNotIn("_private_key_hex", payload["priv_validator_key"])
 
     def test_materialize_home_preserves_node_key_and_state_on_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

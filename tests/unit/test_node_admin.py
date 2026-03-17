@@ -109,14 +109,14 @@ blocks_to_keep = 100000
             write_toml(config_path, existing_config)
 
             configs_dir = tmp_path / "xian-configs"
-            legacy_genesis_dir = configs_dir / "legacy" / "genesis"
-            legacy_genesis_dir.mkdir(parents=True)
+            network_dir = configs_dir / "networks" / "local"
+            network_dir.mkdir(parents=True)
             genesis_payload = {
                 "chain_id": "xian-local-1",
                 "validators": [],
                 "abci_genesis": {},
             }
-            (legacy_genesis_dir / "genesis-local.json").write_text(
+            (network_dir / "genesis.json").write_text(
                 json.dumps(genesis_payload),
                 encoding="utf-8",
             )
@@ -133,7 +133,7 @@ blocks_to_keep = 100000
                     ),
                     seed_node_address="seed-1@127.0.0.1",
                     copy_genesis=True,
-                    genesis_file_name="genesis-local.json",
+                    genesis_source="local",
                     enable_pruning=True,
                     blocks_to_keep=5000,
                     allow_cors=False,
@@ -172,6 +172,85 @@ blocks_to_keep = 100000
                 str(home / "config" / "config.toml"),
             )
             self.assertEqual(result["seed_nodes"], ["seed-1@127.0.0.1:26656"])
+
+    def test_configure_existing_home_accepts_network_first_genesis_source(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            home = tmp_path / ".cometbft"
+            config_path = home / "config" / "config.toml"
+            config_path.parent.mkdir(parents=True)
+
+            existing_config = load_toml_string(
+                """
+version = "0.38.7"
+proxy_app = "unix:///tmp/abci.sock"
+moniker = "initial-node"
+db_backend = "goleveldb"
+db_dir = "data"
+log_level = "info"
+log_format = "plain"
+genesis_file = "config/genesis.json"
+priv_validator_key_file = "config/priv_validator_key.json"
+priv_validator_state_file = "data/priv_validator_state.json"
+node_key_file = "config/node_key.json"
+abci = "socket"
+filter_peers = false
+
+[rpc]
+laddr = "tcp://127.0.0.1:26657"
+cors_allowed_origins = ["*"]
+
+[p2p]
+laddr = "tcp://0.0.0.0:26656"
+seeds = ""
+
+[consensus]
+create_empty_blocks = false
+create_empty_blocks_interval = "0s"
+
+[instrumentation]
+prometheus = false
+
+[xian]
+block_service_mode = false
+pruning_enabled = false
+blocks_to_keep = 100000
+""".strip()
+            )
+            write_toml(config_path, existing_config)
+
+            configs_dir = tmp_path / "xian-configs"
+            network_dir = configs_dir / "networks" / "mainnet"
+            network_dir.mkdir(parents=True)
+            genesis_payload = {
+                "chain_id": "xian-1",
+                "validators": [],
+                "abci_genesis": {},
+            }
+            (network_dir / "genesis.json").write_text(
+                json.dumps(genesis_payload),
+                encoding="utf-8",
+            )
+
+            with patch.dict(
+                "os.environ", {"XIAN_CONFIGS_DIR": str(configs_dir)}
+            ):
+                result = configure_existing_home(
+                    home=home,
+                    moniker="updated-node",
+                    validator_private_key_hex=None,
+                    copy_genesis=True,
+                    genesis_source="mainnet",
+                )
+
+            rendered_genesis = json.loads(
+                (home / "config" / "genesis.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(rendered_genesis["chain_id"], "xian-1")
+            self.assertEqual(
+                result["genesis_path"],
+                str(home / "config" / "genesis.json"),
+            )
 
 
 if __name__ == "__main__":

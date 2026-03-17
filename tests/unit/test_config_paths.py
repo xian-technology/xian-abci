@@ -5,8 +5,9 @@ from unittest.mock import patch
 
 from xian.config_paths import (
     resolve_configs_dir,
-    resolve_legacy_contracts_dir,
-    resolve_legacy_genesis_file,
+    resolve_contracts_dir,
+    resolve_genesis_source,
+    resolve_network_genesis_file,
 )
 
 
@@ -18,22 +19,37 @@ class ConfigPathsTests(unittest.TestCase):
 
             self.assertEqual(resolve_configs_dir(configs_dir), configs_dir.resolve())
 
-    def test_resolve_legacy_paths_use_environment_override(self):
+    def test_resolve_contracts_dir_uses_environment_override(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             configs_dir = Path(tmp_dir) / "xian-configs"
-            genesis_dir = configs_dir / "legacy" / "genesis"
-            contracts_dir = genesis_dir / "contracts"
+            contracts_dir = configs_dir / "contracts"
             contracts_dir.mkdir(parents=True)
-            genesis_file = genesis_dir / "genesis-devnet.json"
-            genesis_file.write_text("{}", encoding="utf-8")
 
             with patch.dict("os.environ", {"XIAN_CONFIGS_DIR": str(configs_dir)}):
                 self.assertEqual(resolve_configs_dir(), configs_dir.resolve())
                 self.assertEqual(
-                    resolve_legacy_contracts_dir(), contracts_dir.resolve()
+                    resolve_contracts_dir(), contracts_dir.resolve()
+                )
+
+    def test_resolve_genesis_source_prefers_network_first_layout(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            configs_dir = Path(tmp_dir) / "xian-configs"
+            network_dir = configs_dir / "networks" / "mainnet"
+            network_dir.mkdir(parents=True)
+            genesis_file = network_dir / "genesis.json"
+            genesis_file.write_text("{}", encoding="utf-8")
+
+            with patch.dict("os.environ", {"XIAN_CONFIGS_DIR": str(configs_dir)}):
+                self.assertEqual(
+                    resolve_network_genesis_file("mainnet"),
+                    genesis_file.resolve(),
                 )
                 self.assertEqual(
-                    resolve_legacy_genesis_file("genesis-devnet.json"),
+                    resolve_genesis_source("mainnet"),
+                    genesis_file.resolve(),
+                )
+                self.assertEqual(
+                    resolve_genesis_source("networks/mainnet/genesis.json"),
                     genesis_file.resolve(),
                 )
 

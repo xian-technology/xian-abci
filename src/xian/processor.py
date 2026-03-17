@@ -1,6 +1,6 @@
 import hashlib
 import math
-from datetime import datetime
+from datetime import UTC, datetime
 
 from contracting.execution.executor import Executor
 from contracting.stdlib.bridge.decimal import ContractingDecimal
@@ -320,7 +320,7 @@ class TxProcessor:
 
     def get_now_from_nanos(self, nanos):
         return Datetime._from_datetime(
-            datetime.utcfromtimestamp(math.ceil(nanos / 1e9))
+            datetime.fromtimestamp(math.ceil(nanos / 1e9), UTC)
         )
 
     def prune_tx_result(self, tx_result: dict):
