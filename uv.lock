@@ -842,6 +842,7 @@ wheels = [
 name = "xian-abci"
 source = { editable = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "asyncpg" },
     { name = "loguru" },
     { name = "protobuf" },
@@ -860,6 +861,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", specifier = ">=3.13.0,<4" },
     { name = "asyncpg", specifier = ">=0.30.0,<0.31" },
     { name = "loguru", specifier = ">=0.7.3,<0.8" },
     { name = "protobuf", specifier = "==3.20.3" },

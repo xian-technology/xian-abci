@@ -6,7 +6,6 @@ class Constants:
     COMETBFT_CONFIG = COMETBFT_HOME / Path("config/config.toml")
     COMETBFT_GENESIS = COMETBFT_HOME / Path("config/genesis.json")
     STORAGE_HOME = COMETBFT_HOME / Path("xian/")
-    SIMULATOR_SOCKET = "/tmp/simulator_socket.sock"
 
     NONCE_FILENAME = "__n"
     PENDING_NONCE_FILENAME = "__pn"

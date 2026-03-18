@@ -27,6 +27,7 @@ from xian.nonce import NonceStorage
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
 from xian.services.bds.bds import BDS
+from xian.simulator import TransactionSimulator
 from xian.utils.cometbft import (
     load_genesis_data,
     load_tendermint_config,
@@ -74,6 +75,10 @@ class Xian:
         self.nonce_storage = NonceStorage(self.client)
         self.validator_handler = ValidatorHandler(self)
         self.tx_processor = TxProcessor(client=self.client)
+        self.simulator = TransactionSimulator(
+            client=self.client,
+            get_block_meta=lambda: self.current_block_meta,
+        )
         self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None
         self.fingerprint_hashes = []

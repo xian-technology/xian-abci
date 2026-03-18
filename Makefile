@@ -6,7 +6,7 @@ RPC_LADDR ?= tcp://0.0.0.0:26657
 .DEFAULT_GOAL := help
 
 .PHONY: help sync validate wipe reset init node-id \
-	run-abci run-cometbft run-bds configure-node export-state
+	run-abci run-cometbft run-dashboard configure-node export-state
 
 help:
 	@printf "Available targets:\n"
@@ -18,7 +18,7 @@ help:
 	@printf "  %-18s %s\n" "node-id" "Print the CometBFT node ID"
 	@printf "  %-18s %s\n" "run-abci" "Run the xian-abci application process"
 	@printf "  %-18s %s\n" "run-cometbft" "Run the CometBFT process"
-	@printf "  %-18s %s\n" "run-bds" "Run the BDS simulator process"
+	@printf "  %-18s %s\n" "run-dashboard" "Run the optional dashboard service"
 	@printf "  %-18s %s\n" "configure-node" "Run xian-configure-node with ARGS='...'"
 	@printf "  %-18s %s\n" "export-state" "Run xian-export-state with ARGS='...'"
 
@@ -46,8 +46,8 @@ run-abci:
 run-cometbft:
 	$(COMETBFT_BIN) node --rpc.laddr "$(RPC_LADDR)"
 
-run-bds:
-	$(UV) run xian-simulator
+run-dashboard:
+	$(UV) run xian-dashboard
 
 configure-node:
 	$(UV) run xian-configure-node $(ARGS)

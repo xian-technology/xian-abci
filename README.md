@@ -55,7 +55,7 @@ process manager:
 
 ```bash
 uv run xian-abci
-uv run xian-simulator
+uv run xian-dashboard --rpc-url http://127.0.0.1:26657
 uv run xian-configure-node --help
 uv run xian-export-state --help
 cometbft node --rpc.laddr tcp://0.0.0.0:26657
@@ -63,6 +63,13 @@ cometbft node --rpc.laddr tcp://0.0.0.0:26657
 
 If you need supervision, use `xian-stack`, Docker, `systemd`, or `launchd`.
 Do not add PM2 or ad hoc shell supervision back into this repo.
+
+The transaction simulator is now in-process. `simulate_tx` no longer depends on
+a Unix socket sidecar.
+
+Successful transactions now also emit standard ABCI events for contract events,
+so CometBFT indexing and downstream tooling can subscribe without custom
+sidecars.
 
 ## Boundary Notes
 

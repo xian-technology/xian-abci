@@ -5,6 +5,7 @@ from loguru import logger
 
 from cometbft.abci.v1beta2.types_pb2 import Event, EventAttribute
 from cometbft.abci.v1beta3.types_pb2 import ExecTxResult, ResponseFinalizeBlock
+from xian.constants import Constants as c
 from xian.utils.block import (
     convert_cometbft_time_to_datetime,
     get_latest_block_hash,
@@ -17,6 +18,15 @@ from xian.utils.encoding import (
     stringify_decimals,
 )
 from xian.utils.hash import hash_from_rewards, hash_list
+
+
+def _error_tx_result(message: str) -> ExecTxResult:
+    logger.error(message)
+    return ExecTxResult(
+        code=c.ErrorCode,
+        data=json.dumps({"error": message}).encode(),
+        gas_used=0,
+    )
 
 
 async def finalize_block(self, req) -> ResponseFinalizeBlock:
@@ -40,7 +50,9 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         try:
             tx, payload_str = decode_transaction_bytes(tx_bytes)
         except Exception as e:
-            logger.error(f"Error decoding transaction: {e}")
+            tx_results.append(
+                _error_tx_result(f"Error decoding transaction: {e}")
+            )
             continue
 
         # Attach metadata to the transaction
@@ -53,41 +65,93 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 rewards_handler=self.rewards_handler,
             )
         except Exception as e:
-            logger.error(f"Error processing tx: {e}")
-            # Skip this transaction
+            tx_results.append(_error_tx_result(f"Error processing tx: {e}"))
+            continue
+
+        tx_result = result.get("tx_result")
+        if tx_result is None:
+            tx_results.append(
+                _error_tx_result(
+                    "Transaction processor returned no tx_result"
+                )
+            )
             continue
 
         self.nonce_storage.set_nonce_by_tx(tx)
-        tx_hash = result["tx_result"]["hash"]
+        tx_hash = tx_result.get("hash")
+        if not tx_hash:
+            tx_results.append(
+                _error_tx_result("Transaction processor returned no tx hash")
+            )
+            continue
         self.fingerprint_hashes.append(tx_hash)
-        parsed_tx_result = json.dumps(stringify_decimals(result["tx_result"]))
+        parsed_tx_result = json.dumps(stringify_decimals(tx_result))
         logger.debug(f"Parsed tx result: {parsed_tx_result}")
 
         tx_events = []
 
-        # Websocket Events - Only trigger state change events if tx was successful
-        if result["tx_result"]["status"] == 0:
-            # Need to replace chars since they are reserved
+        if tx_result["status"] == 0:
             translation_table = str.maketrans({".": "_", ":": "__"})
-
             state_changes = []
-
-            for state in result["tx_result"]["state"]:
+            for state in tx_result["state"]:
                 state_key = state["key"].translate(translation_table)
                 state_value = str(state["value"])
-
                 state_changes.append(
                     EventAttribute(key=state_key, value=state_value)
                 )
-
             if state_changes:
                 tx_events.append(
                     Event(type="StateChange", attributes=state_changes)
                 )
 
+            for contract_event in tx_result.get("events", []):
+                attrs = [
+                    EventAttribute(
+                        key="contract",
+                        value=str(contract_event.get("contract", "")),
+                        index=True,
+                    ),
+                    EventAttribute(
+                        key="signer",
+                        value=str(contract_event.get("signer", "")),
+                        index=True,
+                    ),
+                    EventAttribute(
+                        key="caller",
+                        value=str(contract_event.get("caller", "")),
+                        index=True,
+                    ),
+                ]
+                for key, value in contract_event.get(
+                    "data_indexed", {}
+                ).items():
+                    attrs.append(
+                        EventAttribute(
+                            key=str(key),
+                            value=str(value),
+                            index=True,
+                        )
+                    )
+                for key, value in contract_event.get("data", {}).items():
+                    attrs.append(
+                        EventAttribute(
+                            key=str(key),
+                            value=str(value),
+                            index=False,
+                        )
+                    )
+                tx_events.append(
+                    Event(
+                        type=str(
+                            contract_event.get("event", "ContractEvent")
+                        ),
+                        attributes=attrs,
+                    )
+                )
+
         tx_results.append(
             ExecTxResult(
-                code=result["tx_result"]["status"],
+                code=tx_result["status"],
                 data=parsed_tx_result.encode(),
                 gas_used=0,
                 events=tx_events,
@@ -97,7 +161,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         # Save data to BDS - Add tx data to batch
         if self.block_service_mode:
             cometbft_hash = hash_bytes(tx_bytes).upper()
-            result["tx_result"]["hash"] = cometbft_hash
+            tx_result["hash"] = cometbft_hash
             asyncio.create_task(
                 self.bds.add_to_batch(tx | result, block_datetime)
             )

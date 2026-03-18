@@ -11,6 +11,7 @@ license = "Apache-2.0"
 authors = [{ name = "Xian Core Team" }]
 requires-python = ">=3.12"
 dependencies = [
+    "aiohttp>=3.13.0,<4",
     "asyncpg>=0.30.0,<0.31",
     "loguru>=0.7.3,<0.8",
     "protobuf==3.20.3",
@@ -32,7 +33,7 @@ Repository = "https://github.com/xian-technology/xian-abci"
 
 [project.scripts]
 xian-abci = "xian.xian_abci:main"
-xian-simulator = "xian.services.simulator:main"
+xian-dashboard = "xian.dashboard.cli:main"
 xian-configure-node = "xian.cli.configure_node:main"
 xian-export-state = "xian.cli.export_state:main"
 
@@ -56,6 +57,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 xian = [
+    "dashboard/static/*.html",
     "services/bds/config.json",
     "tools/state_patches/*.json",
 ]

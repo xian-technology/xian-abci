@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xian Node</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0b1120;--surface:#141c2e;--surface2:#1a2340;--border:#1e293b;
+  --text:#f1f5f9;--text2:#94a3b8;--text3:#64748b;
+  --accent:#3b82f6;--accent2:#2563eb;--green:#10b981;--amber:#f59e0b;--red:#ef4444;
+  --radius:8px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:'SF Mono','Fira Code','Cascadia Code',Consolas,monospace;
+}
+html{font-size:14px}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ── header ── */
+.header{display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:56px;background:var(--surface);border-bottom:1px solid var(--border)}
+.header-left{display:flex;align-items:center;gap:12px}
+.logo{font-size:1.25rem;font-weight:700;letter-spacing:.5px;cursor:pointer}
+.logo span{color:var(--accent)}
+.chain-badge{font-size:.75rem;padding:2px 8px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-family:var(--mono)}
+.header-right{display:flex;align-items:center;gap:12px}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--text3);flex-shrink:0}
+.status-dot.online{background:var(--green)}
+.status-dot.syncing{background:var(--amber);animation:pulse 1.5s infinite}
+.status-dot.offline{background:var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.status-text{font-size:.8rem;color:var(--text2)}
+
+/* ── tabs ── */
+.tabs{display:flex;gap:0;padding:0 24px;background:var(--surface);border-bottom:1px solid var(--border)}
+.tab{padding:10px 20px;font-size:.85rem;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;user-select:none}
+.tab:hover{color:var(--text2)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* ── breadcrumb ── */
+.breadcrumb{padding:12px 0;margin-bottom:16px;font-size:.8rem;color:var(--text3);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.breadcrumb a{color:var(--accent);cursor:pointer}
+.breadcrumb .sep{color:var(--text3)}
+
+/* ── main ── */
+.main{max-width:1200px;margin:0 auto;padding:24px}
+.section{display:none}
+.section.active{display:block}
+
+/* ── stat cards ── */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+.stat-label{font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:4px}
+.stat-value{font-size:1.5rem;font-weight:600;font-family:var(--mono);word-break:break-all}
+.stat-value.small{font-size:.9rem;font-weight:400}
+.stat-sub{font-size:.75rem;color:var(--text3);margin-top:4px}
+
+/* ── cards ── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px;overflow:hidden}
+.card-header{padding:14px 20px;border-bottom:1px solid var(--border);font-size:.85rem;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
+.card-body{padding:20px}
+
+/* ── data rows ── */
+.data-row{display:flex;justify-content:space-between;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border)}
+.data-row:last-child{border-bottom:none}
+.data-key{font-size:.8rem;color:var(--text3);flex-shrink:0;width:160px}
+.data-val{font-size:.85rem;font-family:var(--mono);color:var(--text);text-align:right;word-break:break-all;max-width:calc(100% - 180px)}
+
+/* ── tables ── */
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:10px 16px;font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600}
+td{padding:10px 16px;border-bottom:1px solid var(--border);font-size:.85rem;font-family:var(--mono)}
+tr:hover td{background:var(--surface2)}
+tr.clickable{cursor:pointer}
+.hash{color:var(--accent);cursor:pointer}
+.hash:hover{text-decoration:underline}
+.badge{display:inline-block;font-size:.7rem;padding:2px 8px;border-radius:4px;font-family:var(--font);font-weight:500}
+.badge.success{background:rgba(16,185,129,.15);color:var(--green)}
+.badge.fail{background:rgba(239,68,68,.15);color:var(--red)}
+
+/* ── peers ── */
+.peer-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px}
+.peer{font-size:.8rem;font-family:var(--mono);padding:8px 12px;background:var(--surface2);border-radius:var(--radius);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── explorer ── */
+.search-bar{display:flex;gap:8px;margin-bottom:24px}
+.search-input{flex:1;padding:10px 16px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:.9rem;font-family:var(--mono);outline:none;transition:border-color .15s}
+.search-input:focus{border-color:var(--accent)}
+.search-input::placeholder{color:var(--text3)}
+.btn{padding:10px 20px;border-radius:var(--radius);border:none;background:var(--accent);color:#fff;font-size:.85rem;cursor:pointer;font-weight:500;transition:background .15s}
+.btn:hover{background:var(--accent2)}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text2)}
+.btn-ghost:hover{background:var(--surface2);color:var(--text)}
+
+.pagination{display:flex;justify-content:space-between;align-items:center;margin:16px 16px}
+.page-info{font-size:.8rem;color:var(--text3)}
+
+/* ── code block ── */
+.code-block{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;font-family:var(--mono);font-size:.8rem;line-height:1.7;overflow-x:auto;white-space:pre;color:var(--text);max-height:600px;overflow-y:auto;tab-size:4}
+
+/* ── Python syntax highlighting ── */
+.py-kw{color:#c678dd}
+.py-str{color:#98c379}
+.py-num{color:#d19a66}
+.py-cmt{color:#5c6370;font-style:italic}
+.py-fn{color:#61afef}
+.py-dec{color:#e5c07b}
+.py-op{color:#56b6c2}
+.py-cls{color:#e5c07b}
+.py-self{color:#e06c75}
+.py-bool{color:#d19a66}
+.py-builtin{color:#61afef}
+
+/* ── json block ── */
+.json-block{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;font-family:var(--mono);font-size:.8rem;line-height:1.6;overflow-x:auto;white-space:pre-wrap;word-break:break-all;color:var(--text);max-height:400px;overflow-y:auto}
+
+/* ── tag list ── */
+.tag{display:inline-block;font-size:.75rem;padding:3px 10px;border-radius:4px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);margin:2px 4px 2px 0;font-family:var(--mono)}
+
+/* ── state query ── */
+.query-section{margin-top:24px}
+.query-result{margin-top:12px;padding:16px;background:var(--surface2);border-radius:var(--radius);font-family:var(--mono);font-size:.85rem;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;color:var(--text)}
+
+/* ── empty / loading ── */
+.empty{text-align:center;padding:40px;color:var(--text3);font-size:.9rem}
+.loading{display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── link style ── */
+.link{color:var(--accent);cursor:pointer}
+.link:hover{text-decoration:underline}
+
+/* ── scrollbar ── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--text3)}
+
+/* ── responsive ── */
+@media(max-width:640px){
+  .header{padding:0 12px}
+  .tabs{padding:0 12px}
+  .main{padding:12px}
+  .stats{grid-template-columns:1fr 1fr}
+  .data-key{width:100px}
+  .data-val{max-width:calc(100% - 120px)}
+  th,td{padding:8px 10px;font-size:.75rem}
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="logo" onclick="navigateTo('home')"><span>X</span>ian</div>
+    <div class="chain-badge" id="chain-id">&mdash;</div>
+  </div>
+  <div class="header-right">
+    <div class="status-dot" id="status-dot"></div>
+    <span class="status-text" id="status-text">connecting...</span>
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="dashboard">Dashboard</div>
+  <div class="tab" data-tab="explorer">Explorer</div>
+</div>
+
+<div class="main">
+  <!-- DASHBOARD -->
+  <div class="section active" id="section-dashboard">
+    <div class="stats" id="stats-row"></div>
+
+    <div class="card">
+      <div class="card-header">Node Information</div>
+      <div class="card-body" id="node-info"><div class="empty"><span class="loading"></span> Loading...</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Recent Blocks</div>
+      <div class="card-body" id="recent-blocks" style="padding:0"><div class="empty"><span class="loading"></span> Loading...</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Connected Peers</div>
+      <div class="card-body" id="peers-info"><div class="empty"><span class="loading"></span> Loading...</div></div>
+    </div>
+  </div>
+
+  <!-- EXPLORER -->
+  <div class="section" id="section-explorer">
+    <div class="search-bar">
+      <input class="search-input" id="search-input" placeholder="Search by block height, tx hash, contract name, or state key (e.g. currency.balances:addr)" />
+      <button class="btn" id="search-btn">Search</button>
+    </div>
+
+    <div id="explorer-detail"></div>
+
+    <div id="explorer-list">
+      <div class="card">
+        <div class="card-header">Blocks</div>
+        <div class="card-body" id="explorer-blocks" style="padding:0"><div class="empty"><span class="loading"></span> Loading...</div></div>
+      </div>
+
+      <div class="query-section">
+        <div class="card">
+          <div class="card-header">State Query</div>
+          <div class="card-body">
+            <div class="search-bar" style="margin-bottom:0">
+              <input class="search-input" id="state-input" placeholder="e.g. currency.balances:your_address_here" />
+              <button class="btn" id="state-btn">Query</button>
+            </div>
+            <div class="query-result" id="state-result" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ── state ── */
+let latestHeight = 0;
+let explorerMaxHeight = 0;
+let lastBlockTime = null;
+let lastBlockHash = null;
+const BLOCKS_PER_PAGE = 20;
+let ws = null;
+let wsReconnectDelay = 1000;
+const WS_MAX_DELAY = 30000;
+
+/* ── helpers ── */
+function $(id){ return document.getElementById(id) }
+function truncHash(h, n){
+  if(!h) return "\u2014";
+  n = n || 10;
+  if(h.length <= n*2+2) return h;
+  return h.slice(0,n) + "\u2026" + h.slice(-n);
+}
+function timeAgo(iso){
+  if(!iso) return "\u2014";
+  const d = new Date(iso);
+  const s = Math.floor((Date.now() - d.getTime())/1000);
+  if(s < 5) return "just now";
+  if(s < 60) return s+"s ago";
+  if(s < 3600) return Math.floor(s/60)+"m ago";
+  if(s < 86400) return Math.floor(s/3600)+"h ago";
+  return Math.floor(s/86400)+"d ago";
+}
+function fmtTime(iso){
+  if(!iso) return "\u2014";
+  return new Date(iso).toLocaleString();
+}
+function escHtml(s){
+  if(!s) return "";
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+async function api(path){
+  try{
+    const r = await fetch("/api/"+path);
+    if(!r.ok) throw new Error(r.statusText);
+    return await r.json();
+  }catch(e){
+    console.error("API error:",path,e);
+    return {error:e.message};
+  }
+}
+
+/* ── navigation ── */
+function switchToTab(tabName){
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+  document.querySelectorAll(".section").forEach(x=>x.classList.remove("active"));
+  document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add("active");
+  $("section-"+tabName).classList.add("active");
+}
+
+function navigateTo(view, id, pushState){
+  if(pushState !== false){
+    const path = view === "home" ? "/" : view === "list" ? "/explorer" : "/explorer/"+view+"/"+id;
+    history.pushState({view, id}, "", path);
+  }
+  if(view === "home"){
+    switchToTab("dashboard");
+    return;
+  }
+  switchToTab("explorer");
+  if(view === "block") viewBlock(id);
+  else if(view === "tx") viewTx(id);
+  else if(view === "contract") viewContract(id);
+  else if(view === "list"){
+    $("explorer-detail").innerHTML = "";
+    $("explorer-list").style.display = "";
+    if(explorerMaxHeight === 0) loadExplorerBlocks();
+  }
+}
+window.navigateTo = navigateTo;
+
+window.addEventListener("popstate", function(e){
+  const s = e.state;
+  if(s) navigateTo(s.view, s.id, false);
+  else navigateTo("home", null, false);
+});
+
+function showDetail(html){
+  $("explorer-detail").innerHTML = html;
+  $("explorer-list").style.display = "none";
+  $("explorer-detail").scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+function breadcrumb(items){
+  let html = '<div class="breadcrumb"><a onclick="navigateTo(\'list\')">Explorer</a>';
+  items.forEach(item=>{
+    html += '<span class="sep">/</span>';
+    if(item.link) html += `<a onclick="${escHtml(item.link)}">${escHtml(item.label)}</a>`;
+    else html += `<span>${escHtml(item.label)}</span>`;
+  });
+  return html + '</div>';
+}
+
+/* ── tabs ── */
+document.querySelectorAll(".tab").forEach(t=>{
+  t.addEventListener("click",()=>{
+    switchToTab(t.dataset.tab);
+    if(t.dataset.tab==="explorer"){
+      $("explorer-detail").innerHTML = "";
+      $("explorer-list").style.display = "";
+      if(explorerMaxHeight===0) loadExplorerBlocks();
+    }
+  });
+});
+
+/* ── WebSocket ── */
+function connectWS(){
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const url = proto + "//" + location.host + "/ws";
+  ws = new WebSocket(url);
+
+  ws.onopen = function(){
+    console.log("WS connected");
+    wsReconnectDelay = 1000;
+  };
+
+  ws.onmessage = function(evt){
+    try{
+      const msg = JSON.parse(evt.data);
+      if(msg.type === "new_block") handleNewBlock(msg);
+      else if(msg.type === "node_status") handleNodeStatus(msg);
+    }catch(e){
+      console.error("WS parse error:", e);
+    }
+  };
+
+  ws.onclose = function(){
+    console.log("WS disconnected, reconnecting in", wsReconnectDelay, "ms");
+    $("status-dot").className = "status-dot offline";
+    $("status-text").textContent = "disconnected";
+    setTimeout(connectWS, wsReconnectDelay);
+    wsReconnectDelay = Math.min(wsReconnectDelay * 2, WS_MAX_DELAY);
+  };
+
+  ws.onerror = function(){ ws.close(); };
+}
+
+function handleNewBlock(msg){
+  latestHeight = msg.height;
+  lastBlockTime = msg.time;
+  lastBlockHash = msg.hash;
+
+  /* update height stat card */
+  const cards = document.querySelectorAll("#stats-row .stat");
+  if(cards.length > 0){
+    const hCard = cards[0];
+    const valEl = hCard.querySelector(".stat-value");
+    const subEl = hCard.querySelector(".stat-sub");
+    if(valEl) valEl.textContent = msg.height.toLocaleString();
+    if(subEl) subEl.textContent = timeAgo(msg.time);
+  }
+
+  /* update node info latest block/hash */
+  const niRows = document.querySelectorAll("#node-info .data-row");
+  niRows.forEach(row=>{
+    const key = row.querySelector(".data-key");
+    const val = row.querySelector(".data-val");
+    if(!key||!val) return;
+    const k = key.textContent;
+    if(k==="Latest Block") val.textContent = String(msg.height);
+    else if(k==="Latest Hash") val.textContent = truncHash(msg.hash,16);
+    else if(k==="Block Time") val.textContent = fmtTime(msg.time);
+  });
+
+  /* prepend to dashboard recent blocks */
+  const rb = $("recent-blocks");
+  let tbody = rb ? rb.querySelector("tbody") : null;
+  if(rb && !tbody){
+    rb.innerHTML = '<table><thead><tr><th>Height</th><th>Hash</th><th>Time</th><th>Txs</th></tr></thead><tbody></tbody></table>';
+    tbody = rb.querySelector("tbody");
+  }
+  if(tbody){
+    const tr = document.createElement("tr");
+    tr.className = "clickable";
+    tr.setAttribute("onclick", "navigateTo('block','"+msg.height+"')");
+    tr.setAttribute("data-time", msg.time);
+    tr.innerHTML =
+      '<td>'+msg.height.toLocaleString()+'</td>'+
+      '<td><span class="hash">'+truncHash(msg.hash,8)+'</span></td>'+
+      '<td class="time-ago">'+timeAgo(msg.time)+'</td>'+
+      '<td>'+msg.num_txs+'</td>';
+    tbody.insertBefore(tr, tbody.firstChild);
+    while(tbody.children.length > 10) tbody.removeChild(tbody.lastChild);
+  }
+
+  /* prepend to explorer block list if visible */
+  const eb = $("explorer-blocks");
+  const eTbody = eb ? eb.querySelector("tbody") : null;
+  if(eTbody && explorerMaxHeight > 0){
+    explorerMaxHeight = msg.height;
+    const tr2 = document.createElement("tr");
+    tr2.className = "clickable";
+    tr2.setAttribute("onclick", "navigateTo('block','"+msg.height+"')");
+    tr2.innerHTML =
+      '<td>'+msg.height.toLocaleString()+'</td>'+
+      '<td><span class="hash">'+truncHash(msg.hash,8)+'</span></td>'+
+      '<td>'+truncHash(msg.proposer,6)+'</td>'+
+      '<td>'+fmtTime(msg.time)+'</td>'+
+      '<td>'+msg.num_txs+'</td>';
+    eTbody.insertBefore(tr2, eTbody.firstChild);
+    while(eTbody.children.length > BLOCKS_PER_PAGE) eTbody.removeChild(eTbody.lastChild);
+  }
+}
+
+function handleNodeStatus(msg){
+  if(msg.status === "online"){
+    /* node is reachable; actual sync state will be set by refreshSlowData */
+    $("status-dot").className = "status-dot syncing";
+    $("status-text").textContent = "connected";
+  } else {
+    $("status-dot").className = "status-dot offline";
+    $("status-text").textContent = "node offline";
+  }
+}
+
+/* ── dashboard ── */
+async function refreshDashboard(){
+  const [status, netInfo, validators] = await Promise.all([
+    api("status"), api("net_info"), api("validators")
+  ]);
+
+  if(status.error){
+    $("status-dot").className="status-dot offline";
+    $("status-text").textContent="offline";
+    return;
+  }
+
+  const ni = status.node_info || {};
+  const si = status.sync_info || {};
+  const vi = status.validator_info || {};
+  latestHeight = parseInt(si.latest_block_height||"0",10);
+  lastBlockTime = si.latest_block_time || null;
+  lastBlockHash = si.latest_block_hash || null;
+
+  const catching = si.catching_up;
+  $("status-dot").className = "status-dot "+(catching?"syncing":"online");
+  $("status-text").textContent = catching?"syncing":"synced";
+  $("chain-id").textContent = ni.network || "\u2014";
+
+  $("stats-row").innerHTML = `
+    <div class="stat">
+      <div class="stat-label">Block Height</div>
+      <div class="stat-value">${latestHeight.toLocaleString()}</div>
+      <div class="stat-sub">${timeAgo(si.latest_block_time)}</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Peers</div>
+      <div class="stat-value">${netInfo.n_peers||"0"}</div>
+      <div class="stat-sub">${netInfo.listening?"listening":"not listening"}</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Validator</div>
+      <div class="stat-value small">${vi.address?truncHash(vi.address,8):"N/A"}</div>
+      <div class="stat-sub">power: ${vi.voting_power||"0"}</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Moniker</div>
+      <div class="stat-value small">${ni.moniker||"\u2014"}</div>
+      <div class="stat-sub">CometBFT ${ni.version||"?"}</div>
+    </div>
+  `;
+
+  $("node-info").innerHTML = `
+    <div class="data-row"><span class="data-key">Node ID</span><span class="data-val">${ni.id||"\u2014"}</span></div>
+    <div class="data-row"><span class="data-key">Network</span><span class="data-val">${ni.network||"\u2014"}</span></div>
+    <div class="data-row"><span class="data-key">Moniker</span><span class="data-val">${ni.moniker||"\u2014"}</span></div>
+    <div class="data-row"><span class="data-key">CometBFT</span><span class="data-val">${ni.version||"\u2014"}</span></div>
+    <div class="data-row"><span class="data-key">Latest Block</span><span class="data-val">${si.latest_block_height||"\u2014"}</span></div>
+    <div class="data-row"><span class="data-key">Latest Hash</span><span class="data-val">${truncHash(si.latest_block_hash,16)}</span></div>
+    <div class="data-row"><span class="data-key">Block Time</span><span class="data-val">${fmtTime(si.latest_block_time)}</span></div>
+    <div class="data-row"><span class="data-key">Earliest Block</span><span class="data-val">${si.earliest_block_height||"\u2014"}</span></div>
+    <div class="data-row"><span class="data-key">Catching Up</span><span class="data-val">${catching?"Yes":"No"}</span></div>
+  `;
+
+  if(latestHeight > 0){
+    const min = Math.max(1, latestHeight - 9);
+    const bc = await api("blockchain?min_height="+min+"&max_height="+latestHeight);
+    const metas = (bc.block_metas||[]).sort((a,b)=>parseInt(b.header.height)-parseInt(a.header.height));
+    if(metas.length){
+      let html = '<table><thead><tr><th>Height</th><th>Hash</th><th>Time</th><th>Txs</th></tr></thead><tbody>';
+      metas.forEach(m=>{
+        const h = m.header;
+        html += `<tr class="clickable" onclick="navigateTo('block','${h.height}')" data-time="${escHtml(h.time)}">
+          <td>${parseInt(h.height).toLocaleString()}</td>
+          <td><span class="hash">${truncHash(m.block_id.hash,8)}</span></td>
+          <td class="time-ago">${timeAgo(h.time)}</td>
+          <td>${m.num_txs||"0"}</td>
+        </tr>`;
+      });
+      html += '</tbody></table>';
+      $("recent-blocks").innerHTML = html;
+    } else {
+      $("recent-blocks").innerHTML = '<div class="empty">No blocks yet</div>';
+    }
+  }
+
+  const peers = netInfo.peers||[];
+  if(peers.length){
+    let html = '<div class="peer-list">';
+    peers.forEach(p=>{
+      const ni2 = p.node_info||{};
+      html += `<div class="peer" title="${ni2.id||""}">${ni2.moniker||"peer"} \u2014 ${p.remote_ip||"?"}</div>`;
+    });
+    html += '</div>';
+    $("peers-info").innerHTML = html;
+  } else {
+    $("peers-info").innerHTML = '<div class="empty">No peers connected</div>';
+  }
+}
+
+/* ── explorer block list ── */
+async function loadExplorerBlocks(maxH){
+  if(!maxH) maxH = latestHeight || 0;
+  if(maxH <= 0){
+    const st = await api("status");
+    if(!st.error) maxH = parseInt(st.sync_info.latest_block_height||"0",10);
+    latestHeight = maxH;
+  }
+  if(maxH <= 0){
+    $("explorer-blocks").innerHTML = '<div class="empty">No blocks available</div>';
+    return;
+  }
+  explorerMaxHeight = maxH;
+  const min = Math.max(1, maxH - BLOCKS_PER_PAGE + 1);
+  const bc = await api("blockchain?min_height="+min+"&max_height="+maxH);
+  const metas = (bc.block_metas||[]).sort((a,b)=>parseInt(b.header.height)-parseInt(a.header.height));
+
+  if(!metas.length){
+    $("explorer-blocks").innerHTML = '<div class="empty">No blocks found</div>';
+    return;
+  }
+
+  let html = '<table><thead><tr><th>Height</th><th>Hash</th><th>Proposer</th><th>Time</th><th>Txs</th></tr></thead><tbody>';
+  metas.forEach(m=>{
+    const h = m.header;
+    html += `<tr class="clickable" onclick="navigateTo('block','${h.height}')">
+      <td>${parseInt(h.height).toLocaleString()}</td>
+      <td><span class="hash">${truncHash(m.block_id.hash,8)}</span></td>
+      <td>${truncHash(h.proposer_address,6)}</td>
+      <td>${fmtTime(h.time)}</td>
+      <td>${m.num_txs||"0"}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+
+  const canPrev = min > 1;
+  const canNext = maxH < latestHeight;
+  html += `<div class="pagination">
+    <button class="btn btn-ghost" ${canPrev?"onclick=\"window._explorerPage('prev')\"":"disabled"}>\u2190 Older</button>
+    <span class="page-info">${min.toLocaleString()} \u2013 ${maxH.toLocaleString()}</span>
+    <button class="btn btn-ghost" ${canNext?"onclick=\"window._explorerPage('next')\"":"disabled"}>Newer \u2192</button>
+  </div>`;
+
+  $("explorer-blocks").innerHTML = html;
+}
+
+window._explorerPage = function(dir){
+  if(dir==="prev") loadExplorerBlocks(Math.max(1, explorerMaxHeight - BLOCKS_PER_PAGE));
+  else loadExplorerBlocks(Math.min(latestHeight, explorerMaxHeight + BLOCKS_PER_PAGE));
+};
+
+/* ── block detail view ── */
+async function viewBlock(height){
+  showDetail('<div class="card"><div class="card-body"><span class="loading"></span> Loading block '+escHtml(height)+'...</div></div>');
+
+  const [data, results] = await Promise.all([
+    api("block/"+height),
+    api("block_results/"+height)
+  ]);
+
+  if(data.error){
+    showDetail('<div class="card"><div class="card-body" style="color:var(--red)">Error: '+escHtml(data.error)+'</div></div>');
+    return;
+  }
+
+  const block = data.block||{};
+  const hdr = block.header||{};
+  const bid = data.block_id||{};
+  const decodedTxs = data.decoded_txs||[];
+  const txResults = (results.txs_results)||[];
+
+  let html = breadcrumb([{label:"Block #"+parseInt(hdr.height).toLocaleString()}]);
+
+  html += `<div class="card">
+    <div class="card-header">Block #${parseInt(hdr.height).toLocaleString()}</div>
+    <div class="card-body">
+      <div class="data-row"><span class="data-key">Height</span><span class="data-val">${escHtml(hdr.height)}</span></div>
+      <div class="data-row"><span class="data-key">Hash</span><span class="data-val">${escHtml(bid.hash)||"\u2014"}</span></div>
+      <div class="data-row"><span class="data-key">Time</span><span class="data-val">${fmtTime(hdr.time)}</span></div>
+      <div class="data-row"><span class="data-key">Proposer</span><span class="data-val">${escHtml(hdr.proposer_address)||"\u2014"}</span></div>
+      <div class="data-row"><span class="data-key">Transactions</span><span class="data-val">${decodedTxs.length}</span></div>
+      <div class="data-row"><span class="data-key">App Hash</span><span class="data-val">${escHtml(hdr.app_hash)||"\u2014"}</span></div>
+      <div class="data-row"><span class="data-key">Consensus Hash</span><span class="data-val">${truncHash(hdr.consensus_hash,16)}</span></div>
+      <div class="data-row"><span class="data-key">Data Hash</span><span class="data-val">${escHtml(hdr.data_hash)||"\u2014"}</span></div>
+      <div class="data-row"><span class="data-key">Last Commit Hash</span><span class="data-val">${truncHash(hdr.last_commit_hash,16)}</span></div>
+    </div>
+  </div>`;
+
+  if(decodedTxs.length > 0){
+    html += `<div class="card">
+      <div class="card-header">Transactions (${decodedTxs.length})</div>
+      <div class="card-body" style="padding:0">
+        <table><thead><tr><th>#</th><th>Contract</th><th>Function</th><th>Sender</th><th>Status</th></tr></thead><tbody>`;
+
+    decodedTxs.forEach((tx, i)=>{
+      const payload = tx&&tx.payload?tx.payload:{};
+      const contract = payload.contract||"\u2014";
+      const fn = payload.function||"\u2014";
+      const sender = payload.sender?truncHash(payload.sender,8):"\u2014";
+      const txRes = txResults[i]||{};
+      const code = txRes.code;
+      const ok = code === 0 || code === undefined;
+      const statusBadge = code !== undefined ? `<span class="badge ${ok?"success":"fail"}">${ok?"OK":"Fail"}</span>` : "\u2014";
+
+      /* tx hash computed by backend (SHA-256 of raw tx bytes) */
+      const txHash = tx&&tx.tx_hash ? tx.tx_hash : null;
+      const clickAttr = txHash ? `onclick="navigateTo('tx','${escHtml(txHash)}')"` : "";
+
+      html += `<tr class="${txHash?"clickable":""}" ${clickAttr}>
+        <td>${i+1}</td>
+        <td><span class="link" onclick="event.stopPropagation();navigateTo('contract','${escHtml(contract)}')">${escHtml(contract)}</span></td>
+        <td>${escHtml(fn)}</td>
+        <td>${sender}</td>
+        <td>${statusBadge}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  /* block navigation */
+  const h = parseInt(hdr.height);
+  html += '<div style="display:flex;justify-content:space-between;margin-top:8px">';
+  if(h > 1) html += `<button class="btn btn-ghost" onclick="navigateTo('block','${h-1}')">\u2190 Block ${(h-1).toLocaleString()}</button>`;
+  else html += '<span></span>';
+  html += `<button class="btn btn-ghost" onclick="navigateTo('block','${h+1}')">Block ${(h+1).toLocaleString()} \u2192</button>`;
+  html += '</div>';
+
+  showDetail(html);
+}
+window._viewBlock = function(h){ navigateTo("block", h); };
+
+/* ── tx detail view ── */
+async function viewTx(hash){
+  showDetail('<div class="card"><div class="card-body"><span class="loading"></span> Loading transaction...</div></div>');
+
+  const tx = await api("tx/"+hash);
+  if(tx.error){
+    const errMsg = typeof tx.error === "object" ? (tx.error.data||tx.error.message||JSON.stringify(tx.error)) : tx.error;
+    showDetail('<div class="card"><div class="card-body" style="color:var(--red)">Error: '+escHtml(errMsg)+'</div></div>');
+    return;
+  }
+
+  const txHash = tx.hash||hash;
+  const height = tx.height||"\u2014";
+  const decoded = tx.tx_decoded||null;
+  const payload = decoded?decoded.payload:{};
+  const metadata = decoded?decoded.metadata:{};
+  const txResult = tx.tx_result||{};
+  const dataDecoded = txResult.data_decoded||null;
+
+  let html = breadcrumb([
+    {label:"Block #"+height, link:"navigateTo('block','"+height+"')"},
+    {label:"Tx "+truncHash(txHash,8)}
+  ]);
+
+  /* overview card */
+  html += `<div class="card">
+    <div class="card-header">Transaction Overview</div>
+    <div class="card-body">
+      <div class="data-row"><span class="data-key">Hash</span><span class="data-val">${escHtml(txHash)}</span></div>
+      <div class="data-row"><span class="data-key">Block Height</span><span class="data-val"><span class="link" onclick="navigateTo('block','${height}')">${height}</span></span></div>
+      <div class="data-row"><span class="data-key">Index</span><span class="data-val">${tx.index!==undefined?tx.index:"\u2014"}</span></div>`;
+
+  if(txResult.code !== undefined){
+    const ok = txResult.code === 0;
+    html += `<div class="data-row"><span class="data-key">Status</span><span class="data-val"><span class="badge ${ok?"success":"fail"}">${ok?"Success":"Failed (code "+txResult.code+")"}</span></span></div>`;
+  }
+  html += '</div></div>';
+
+  /* payload card */
+  if(payload && Object.keys(payload).length){
+    const contract = payload.contract||"";
+    html += `<div class="card">
+      <div class="card-header">Transaction Payload</div>
+      <div class="card-body">
+        <div class="data-row"><span class="data-key">Sender</span><span class="data-val">${escHtml(payload.sender)||"\u2014"}</span></div>
+        <div class="data-row"><span class="data-key">Contract</span><span class="data-val">${contract?'<span class="link" onclick="navigateTo(\'contract\',\''+escHtml(contract)+'\')">'+escHtml(contract)+'</span>':"\u2014"}</span></div>
+        <div class="data-row"><span class="data-key">Function</span><span class="data-val">${escHtml(payload.function)||"\u2014"}</span></div>
+        <div class="data-row"><span class="data-key">Chain ID</span><span class="data-val">${escHtml(payload.chain_id)||"\u2014"}</span></div>
+        <div class="data-row"><span class="data-key">Nonce</span><span class="data-val">${payload.nonce!==undefined?payload.nonce:"\u2014"}</span></div>
+        <div class="data-row"><span class="data-key">Stamps Supplied</span><span class="data-val">${payload.stamps_supplied!==undefined?payload.stamps_supplied:"\u2014"}</span></div>
+      </div>`;
+
+    if(payload.kwargs && Object.keys(payload.kwargs).length){
+      html += `<div class="card-header" style="border-top:1px solid var(--border)">Arguments (kwargs)</div>
+        <div class="card-body"><div class="json-block">${escHtml(JSON.stringify(payload.kwargs,null,2))}</div></div>`;
+    }
+    html += '</div>';
+  }
+
+  /* signature */
+  if(metadata && metadata.signature){
+    html += `<div class="card">
+      <div class="card-header">Signature</div>
+      <div class="card-body">
+        <div class="data-row"><span class="data-key">Signature</span><span class="data-val" style="font-size:.75rem">${escHtml(metadata.signature)}</span></div>
+      </div>
+    </div>`;
+  }
+
+  /* result card */
+  if(dataDecoded && typeof dataDecoded === "object"){
+    html += `<div class="card"><div class="card-header">Transaction Result</div><div class="card-body">`;
+
+    if(dataDecoded.status !== undefined){
+      const ok = dataDecoded.status === 0;
+      html += `<div class="data-row"><span class="data-key">Status</span><span class="data-val"><span class="badge ${ok?"success":"fail"}">${ok?"Success":"Failed ("+dataDecoded.status+")"}</span></span></div>`;
+    }
+    if(dataDecoded.stamps_used !== undefined){
+      html += `<div class="data-row"><span class="data-key">Stamps Used</span><span class="data-val">${dataDecoded.stamps_used}</span></div>`;
+    }
+    if(dataDecoded.result !== undefined && dataDecoded.result !== null){
+      const r = typeof dataDecoded.result === "object" ? JSON.stringify(dataDecoded.result, null, 2) : String(dataDecoded.result);
+      html += `<div class="data-row"><span class="data-key">Return Value</span><span class="data-val">${escHtml(r)}</span></div>`;
+    }
+
+    /* state changes */
+    if(dataDecoded.state && Array.isArray(dataDecoded.state) && dataDecoded.state.length){
+      html += '</div><div class="card-header" style="border-top:1px solid var(--border)">State Changes ('+dataDecoded.state.length+')</div><div class="card-body" style="padding:0">';
+      html += '<table><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>';
+      dataDecoded.state.forEach(s=>{
+        const key = s.key||"";
+        const val = typeof s.value === "object" ? JSON.stringify(s.value) : String(s.value!==undefined?s.value:"");
+        html += `<tr><td style="word-break:break-all;font-size:.78rem">${escHtml(key)}</td><td style="word-break:break-all;font-size:.78rem">${escHtml(val)}</td></tr>`;
+      });
+      html += '</tbody></table>';
+    }
+
+    /* events */
+    if(dataDecoded.events && Array.isArray(dataDecoded.events) && dataDecoded.events.length){
+      html += '</div><div class="card-header" style="border-top:1px solid var(--border)">Events ('+dataDecoded.events.length+')</div><div class="card-body">';
+      dataDecoded.events.forEach(ev=>{
+        html += `<div class="json-block" style="margin-bottom:8px">${escHtml(JSON.stringify(ev,null,2))}</div>`;
+      });
+    }
+
+    /* rewards */
+    if(dataDecoded.rewards && Array.isArray(dataDecoded.rewards) && dataDecoded.rewards.length){
+      html += '</div><div class="card-header" style="border-top:1px solid var(--border)">Rewards</div><div class="card-body" style="padding:0">';
+      html += '<table><thead><tr><th>Recipient</th><th>Amount</th></tr></thead><tbody>';
+      dataDecoded.rewards.forEach(r=>{
+        const key = typeof r === "object" ? (r.key||Object.keys(r)[0]||"") : "";
+        const val = typeof r === "object" ? (r.value||r[Object.keys(r)[0]]||"") : String(r);
+        html += `<tr><td style="word-break:break-all;font-size:.78rem">${escHtml(key)}</td><td style="font-size:.78rem">${escHtml(String(val))}</td></tr>`;
+      });
+      html += '</tbody></table>';
+    }
+
+    html += '</div></div>';
+  }
+
+  /* raw tx data fallback */
+  if(!decoded && tx.tx){
+    html += `<div class="card">
+      <div class="card-header">Raw Transaction (Base64)</div>
+      <div class="card-body"><div class="json-block" style="font-size:.75rem">${escHtml(tx.tx)}</div></div>
+    </div>`;
+  }
+
+  showDetail(html);
+}
+
+/* ── contract detail view ── */
+async function viewContract(name){
+  showDetail('<div class="card"><div class="card-body"><span class="loading"></span> Loading contract '+escHtml(name)+'...</div></div>');
+
+  const data = await api("contract/"+encodeURIComponent(name));
+  if(data.error){
+    showDetail('<div class="card"><div class="card-body" style="color:var(--red)">Error: '+escHtml(data.error)+'</div></div>');
+    return;
+  }
+
+  let html = breadcrumb([{label:"Contract: "+name}]);
+
+  /* overview */
+  html += `<div class="card">
+    <div class="card-header">Contract: ${escHtml(name)}</div>
+    <div class="card-body">
+      <div class="data-row"><span class="data-key">Name</span><span class="data-val">${escHtml(name)}</span></div>
+    </div>`;
+
+  /* methods */
+  const methods = data.methods;
+  if(methods && Array.isArray(methods) && methods.length){
+    html += `<div class="card-header" style="border-top:1px solid var(--border)">Methods (${methods.length})</div>
+      <div class="card-body">`;
+    methods.forEach(m=>{
+      if(typeof m === "object" && m.name){
+        let sig = m.name + "(";
+        if(m.arguments && Array.isArray(m.arguments)){
+          sig += m.arguments.map(a => typeof a === "object" ? (a.name||a) : a).join(", ");
+        }
+        sig += ")";
+        html += `<div class="tag">${escHtml(sig)}</div>`;
+      } else {
+        html += `<div class="tag">${escHtml(String(m))}</div>`;
+      }
+    });
+    html += '</div>';
+  }
+
+  /* variables */
+  const vars = data.variables;
+  if(vars && Array.isArray(vars) && vars.length){
+    html += `<div class="card-header" style="border-top:1px solid var(--border)">State Variables (${vars.length})</div>
+      <div class="card-body">`;
+    vars.forEach(v=>{
+      if(typeof v === "object" && v.name){
+        html += `<div class="tag">${escHtml(v.name)}${v.type?" : "+escHtml(v.type):""}</div>`;
+      } else {
+        html += `<div class="tag">${escHtml(String(v))}</div>`;
+      }
+    });
+    html += '</div>';
+  }
+
+  html += '</div>';
+
+  /* source code */
+  if(data.code){
+    html += `<div class="card">
+      <div class="card-header">Source Code</div>
+      <div class="card-body"><div class="code-block">${highlightPython(data.code)}</div></div>
+    </div>`;
+  }
+
+  showDetail(html);
+}
+
+/* ── Python syntax highlighting ── */
+function highlightPython(code){
+  const lines = escHtml(code).split("\n");
+  return lines.map(line=>{
+    /* comments */
+    let commentIdx = -1;
+    let inStr = false;
+    let strChar = "";
+    for(let i=0;i<line.length;i++){
+      if(!inStr && (line[i]==="'" || line[i]==='"')){
+        inStr = true; strChar = line[i];
+      } else if(inStr && line[i]===strChar && line[i-1]!=="\\"){
+        inStr = false;
+      } else if(!inStr && line[i]==="#"){
+        commentIdx = i; break;
+      }
+    }
+
+    let main = commentIdx >= 0 ? line.slice(0, commentIdx) : line;
+    let comment = commentIdx >= 0 ? '<span class="py-cmt">'+line.slice(commentIdx)+'</span>' : "";
+
+    /* strings */
+    main = main.replace(/(&#x27;&#x27;&#x27;[\s\S]*?&#x27;&#x27;&#x27;|&quot;&quot;&quot;[\s\S]*?&quot;&quot;&quot;|&#x27;(?:[^&#]|&[^#]|&#[^x]|&#x[^2]|&#x2[^7])*?&#x27;|&quot;(?:[^&]|&[^q]|&q[^u])*?&quot;)/g, '<span class="py-str">$1</span>');
+    /* simpler string matching */
+    main = main.replace(/(&quot;.*?&quot;)/g, '<span class="py-str">$1</span>');
+    main = main.replace(/(f&quot;.*?&quot;|f&#x27;.*?&#x27;)/g, '<span class="py-str">$1</span>');
+
+    /* decorators */
+    main = main.replace(/^(\s*)(@\w+)/g, '$1<span class="py-dec">$2</span>');
+
+    /* keywords */
+    const kws = ["import","from","def","class","return","if","elif","else","for","while","try","except","finally","with","as","raise","pass","break","continue","yield","async","await","lambda","in","not","and","or","is","global","nonlocal","assert","del"];
+    kws.forEach(k=>{
+      const re = new RegExp("\\b("+k+")\\b","g");
+      main = main.replace(re, '<span class="py-kw">$1</span>');
+    });
+
+    /* booleans & None */
+    main = main.replace(/\b(True|False|None)\b/g, '<span class="py-bool">$1</span>');
+
+    /* self */
+    main = main.replace(/\b(self|ctx)\b/g, '<span class="py-self">$1</span>');
+
+    /* numbers */
+    main = main.replace(/\b(\d+\.?\d*)\b/g, '<span class="py-num">$1</span>');
+
+    /* function calls */
+    main = main.replace(/\b([a-zA-Z_]\w*)\s*\(/g, '<span class="py-fn">$1</span>(');
+
+    return main + comment;
+  }).join("\n");
+}
+
+/* ── search ── */
+async function doSearch(){
+  const q = $("search-input").value.trim();
+  if(!q) return;
+
+  /* numeric → block height */
+  if(/^\d+$/.test(q)){
+    navigateTo("block", q);
+    return;
+  }
+
+  /* 64-char hex → try tx hash */
+  if(/^[a-fA-F0-9]{64}$/.test(q)){
+    const tx = await api("tx/"+q);
+    if(!tx.error && tx.hash){
+      navigateTo("tx", q);
+      return;
+    }
+    showDetail('<div class="card"><div class="card-body" style="color:var(--text3)">Hash not found as transaction. Try searching by block height.</div></div>');
+    $("explorer-list").style.display = "none";
+    return;
+  }
+
+  /* contract name (simple identifier without dots or colons) */
+  if(/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(q)){
+    const contract = await api("contract/"+encodeURIComponent(q));
+    if(!contract.error && contract.code){
+      navigateTo("contract", q);
+      return;
+    }
+  }
+
+  /* state key (contains a dot) → ABCI query */
+  if(q.includes(".")){
+    /* check if it looks like a contract name first (no colon) */
+    if(!q.includes(":")){
+      const contract = await api("contract/"+encodeURIComponent(q));
+      if(!contract.error && contract.code){
+        navigateTo("contract", q);
+        return;
+      }
+    }
+
+    const res = await api("abci_query/get/"+encodeURIComponent(q));
+    const resp = res.response||res;
+    const val = resp.value;
+    if(val !== null && val !== undefined){
+      let h = breadcrumb([{label:"State: "+q}]);
+      h += `<div class="card">
+        <div class="card-header">State: ${escHtml(q)}</div>
+        <div class="card-body"><div class="json-block">${escHtml(typeof val==="object"?JSON.stringify(val,null,2):String(val))}</div></div>
+      </div>`;
+      showDetail(h);
+    } else {
+      showDetail('<div class="card"><div class="card-body" style="color:var(--text3)">No state found for: '+escHtml(q)+'</div></div>');
+      $("explorer-list").style.display = "none";
+    }
+    return;
+  }
+
+  showDetail('<div class="card"><div class="card-body" style="color:var(--text3)">Enter a block height, 64-char tx hash, contract name, or state key (e.g. currency.balances:address).</div></div>');
+  $("explorer-list").style.display = "none";
+}
+
+$("search-btn").addEventListener("click", doSearch);
+$("search-input").addEventListener("keydown", e=>{ if(e.key==="Enter") doSearch(); });
+
+/* ── state query ── */
+$("state-btn").addEventListener("click", async ()=>{
+  const key = $("state-input").value.trim();
+  if(!key) return;
+  $("state-result").style.display = "block";
+  $("state-result").textContent = "Loading...";
+  const res = await api("abci_query/get/"+encodeURIComponent(key));
+  const resp = res.response||res;
+  const val = resp.value;
+  if(val !== null && val !== undefined){
+    $("state-result").textContent = typeof val==="object"?JSON.stringify(val,null,2):String(val);
+  } else if(res.error){
+    $("state-result").textContent = "Error: "+res.error;
+  } else {
+    $("state-result").textContent = "null (key not found)";
+  }
+});
+$("state-input").addEventListener("keydown", e=>{ if(e.key==="Enter") $("state-btn").click(); });
+
+/* ── slow poll (peers, validators, node info) ── */
+async function refreshSlowData(){
+  const [status, netInfo] = await Promise.all([
+    api("status"), api("net_info")
+  ]);
+
+  if(status.error) return;
+
+  const ni = status.node_info || {};
+  const si = status.sync_info || {};
+  const vi = status.validator_info || {};
+  const h = parseInt(si.latest_block_height||"0",10);
+  if(h > latestHeight){
+    latestHeight = h;
+    lastBlockTime = si.latest_block_time || lastBlockTime;
+    lastBlockHash = si.latest_block_hash || lastBlockHash;
+  }
+
+  const catching = si.catching_up;
+  $("status-dot").className = "status-dot "+(catching?"syncing":"online");
+  $("status-text").textContent = catching?"syncing":"synced";
+
+  $("chain-id").textContent = ni.network || "\u2014";
+
+  /* update all stat cards including height */
+  const cards = document.querySelectorAll("#stats-row .stat");
+  if(cards.length >= 4){
+    const subText = lastBlockTime ? timeAgo(lastBlockTime) : "\u2014";
+    cards[0].innerHTML = '<div class="stat-label">Block Height</div><div class="stat-value">'+latestHeight.toLocaleString()+'</div><div class="stat-sub">'+subText+'</div>';
+    cards[1].innerHTML = '<div class="stat-label">Peers</div><div class="stat-value">'+(netInfo.n_peers||"0")+'</div><div class="stat-sub">'+(netInfo.listening?"listening":"not listening")+'</div>';
+    cards[2].innerHTML = '<div class="stat-label">Validator</div><div class="stat-value small">'+(vi.address?truncHash(vi.address,8):"N/A")+'</div><div class="stat-sub">power: '+(vi.voting_power||"0")+'</div>';
+    cards[3].innerHTML = '<div class="stat-label">Moniker</div><div class="stat-value small">'+(ni.moniker||"\u2014")+'</div><div class="stat-sub">CometBFT '+(ni.version||"?")+'</div>';
+  }
+
+  /* node info card */
+  $("node-info").innerHTML =
+    '<div class="data-row"><span class="data-key">Node ID</span><span class="data-val">'+(ni.id||"\u2014")+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Network</span><span class="data-val">'+(ni.network||"\u2014")+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Moniker</span><span class="data-val">'+(ni.moniker||"\u2014")+'</span></div>'+
+    '<div class="data-row"><span class="data-key">CometBFT</span><span class="data-val">'+(ni.version||"\u2014")+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Latest Block</span><span class="data-val">'+(si.latest_block_height||"\u2014")+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Latest Hash</span><span class="data-val">'+truncHash(si.latest_block_hash,16)+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Block Time</span><span class="data-val">'+fmtTime(si.latest_block_time)+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Earliest Block</span><span class="data-val">'+(si.earliest_block_height||"\u2014")+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Catching Up</span><span class="data-val">'+(catching?"Yes":"No")+'</span></div>';
+
+  /* peers */
+  const peers = netInfo.peers||[];
+  if(peers.length){
+    let html = '<div class="peer-list">';
+    peers.forEach(p=>{
+      const ni2 = p.node_info||{};
+      html += '<div class="peer" title="'+(ni2.id||"")+'">'+(ni2.moniker||"peer")+' \u2014 '+(p.remote_ip||"?")+'</div>';
+    });
+    html += '</div>';
+    $("peers-info").innerHTML = html;
+  } else {
+    $("peers-info").innerHTML = '<div class="empty">No peers connected</div>';
+  }
+}
+
+/* ── periodic time-ago refresh ── */
+function refreshTimeAgo(){
+  /* update block height card sub-text */
+  if(lastBlockTime){
+    const cards = document.querySelectorAll("#stats-row .stat");
+    if(cards.length > 0){
+      const sub = cards[0].querySelector(".stat-sub");
+      if(sub) sub.textContent = timeAgo(lastBlockTime);
+    }
+  }
+
+  /* update all rows with data-time attributes in recent blocks */
+  document.querySelectorAll("#recent-blocks tr[data-time]").forEach(tr=>{
+    const td = tr.querySelector(".time-ago");
+    if(td) td.textContent = timeAgo(tr.getAttribute("data-time"));
+  });
+}
+
+/* ── init ── */
+async function init(){
+  /* full initial load */
+  await refreshDashboard();
+  /* switch to WebSocket for blocks + slow poll for the rest */
+  connectWS();
+  setInterval(refreshSlowData, 30000);
+  setInterval(refreshTimeAgo, 5000);
+
+  /* handle deep-link URL */
+  const path = location.pathname;
+  const m = path.match(/^\/explorer(?:\/(block|tx|contract)\/(.+))?$/);
+  if(m){
+    if(m[1] && m[2]) navigateTo(m[1], decodeURIComponent(m[2]), false);
+    else navigateTo("list", null, false);
+  } else {
+    history.replaceState({view:"home"}, "", "/");
+  }
+}
+init();
+})();
+</script>
+</body>
+</html>
