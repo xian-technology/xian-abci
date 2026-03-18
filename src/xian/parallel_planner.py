@@ -10,6 +10,7 @@ class TransactionAccess:
     nonce: int
     reads: frozenset[str]
     writes: frozenset[str]
+    additive_writes: frozenset[str]
     status: int
 
     @classmethod
@@ -20,6 +21,7 @@ class TransactionAccess:
             nonce=tx["payload"]["nonce"],
             reads=frozenset(output["reads"].keys()),
             writes=frozenset(output["writes"].keys()),
+            additive_writes=frozenset(),
             status=output["status_code"],
         )
 
@@ -30,6 +32,7 @@ class ParallelStage:
     senders: frozenset[str]
     reads: frozenset[str]
     writes: frozenset[str]
+    additive_writes: frozenset[str]
 
     @property
     def size(self) -> int:
@@ -92,6 +95,9 @@ class ParallelExecutionPlanner:
 
         stage_reads = set().union(*(item.reads for item in stage))
         stage_writes = set().union(*(item.writes for item in stage))
+        stage_additive_writes = set().union(
+            *(item.additive_writes for item in stage)
+        )
 
         if access.writes & stage_writes:
             return True
@@ -99,7 +105,19 @@ class ParallelExecutionPlanner:
         if access.writes & stage_reads:
             return True
 
+        if access.writes & stage_additive_writes:
+            return True
+
         if access.reads & stage_writes:
+            return True
+
+        if access.reads & stage_additive_writes:
+            return True
+
+        if access.additive_writes & stage_reads:
+            return True
+
+        if access.additive_writes & stage_writes:
             return True
 
         return False
@@ -110,4 +128,7 @@ class ParallelExecutionPlanner:
             senders=frozenset(item.sender for item in stage),
             reads=frozenset().union(*(item.reads for item in stage)),
             writes=frozenset().union(*(item.writes for item in stage)),
+            additive_writes=frozenset().union(
+                *(item.additive_writes for item in stage)
+            ),
         )

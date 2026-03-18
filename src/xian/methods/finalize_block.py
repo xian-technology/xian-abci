@@ -195,7 +195,11 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         if self.block_service_mode:
             cometbft_hash = hash_bytes(tx_bytes).upper()
             tx_result["hash"] = cometbft_hash
-            bds_payload = tx | {k: v for k, v in result.items() if k != "access"}
+            bds_payload = tx | {
+                k: v
+                for k, v in result.items()
+                if k not in {"access", "base_writes", "reward_deltas"}
+            }
             asyncio.create_task(
                 self.bds.add_to_batch(bds_payload, block_datetime)
             )

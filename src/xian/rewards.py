@@ -94,6 +94,79 @@ class RewardsHandler:
 
         return master_reward, foundation_reward, developer_mapping
 
+    def build_tx_reward_outputs(self, total_stamps_to_split, contract):
+        reward_split = self.client.get_var(
+            contract="rewards", variable="S", arguments=["value"]
+        )
+        if not reward_split or total_stamps_to_split <= 0:
+            return None, {}
+
+        stamp_rate = self.client.get_var(
+            contract="stamp_cost", variable="S", arguments=["value"]
+        )
+        foundation_owner = self.client.get_var(
+            contract="foundation", variable="owner"
+        )
+        masternodes = (
+            self.client.get_var(contract="masternodes", variable="nodes") or []
+        )
+
+        if stamp_rate in (None, 0) or foundation_owner is None:
+            logger.error("Reward configuration is incomplete.")
+            return None, {}
+
+        master_reward, foundation_reward, developer_mapping = (
+            self.calculate_tx_output_rewards(
+                total_stamps_to_split=total_stamps_to_split,
+                contract=contract,
+            )
+        )
+
+        rewards = {
+            "masternode_reward": {},
+            "foundation_reward": {},
+            "developer_reward": {},
+        }
+        reward_deltas = defaultdict(lambda: ContractingDecimal("0"))
+
+        if foundation_reward:
+            foundation_amount = ContractingDecimal(
+                str(foundation_reward / stamp_rate)
+            )
+            rewards["foundation_reward"][foundation_owner] = foundation_amount
+            reward_deltas[f"currency.balances:{foundation_owner}"] += (
+                foundation_amount
+            )
+
+        if master_reward:
+            masternode_amount = ContractingDecimal(
+                str(master_reward / stamp_rate)
+            )
+            for masternode in masternodes:
+                rewards["masternode_reward"][masternode] = masternode_amount
+                reward_deltas[f"currency.balances:{masternode}"] += (
+                    masternode_amount
+                )
+
+        for developer, reward in developer_mapping.items():
+            recipient = (
+                foundation_owner if developer in ("sys", None) else developer
+            )
+            developer_amount = ContractingDecimal(str(reward / stamp_rate))
+            existing_amount = rewards["developer_reward"].get(recipient)
+            if existing_amount is None:
+                rewards["developer_reward"][recipient] = developer_amount
+            else:
+                rewards["developer_reward"][recipient] = (
+                    existing_amount + developer_amount
+                )
+            reward_deltas[f"currency.balances:{recipient}"] += developer_amount
+
+        if not any(rewards.values()):
+            return None, {}
+
+        return rewards, dict(reward_deltas)
+
     def distribute_rewards(self, stamp_rewards_amount, stamp_rewards_contract):
         if (
             not self.client.get_var(

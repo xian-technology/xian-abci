@@ -6,13 +6,22 @@ from xian.parallel_planner import (
 )
 
 
-def access(index, sender, reads=(), writes=(), nonce=0, status=0):
+def access(
+    index,
+    sender,
+    reads=(),
+    writes=(),
+    additive_writes=(),
+    nonce=0,
+    status=0,
+):
     return TransactionAccess(
         index=index,
         sender=sender,
         nonce=nonce,
         reads=frozenset(reads),
         writes=frozenset(writes),
+        additive_writes=frozenset(additive_writes),
         status=status,
     )
 
@@ -72,6 +81,36 @@ class TestParallelExecutionPlanner(unittest.TestCase):
         self.assertEqual(plan.stage_count, 2)
         self.assertEqual(plan.stages[0].tx_indexes, (0,))
         self.assertEqual(plan.stages[1].tx_indexes, (1, 2))
+
+    def test_allows_parallel_additive_reward_writes(self):
+        plan = self.planner.build(
+            [
+                access(
+                    0, "alice", additive_writes={"currency.balances:foundation"}
+                ),
+                access(
+                    1, "bob", additive_writes={"currency.balances:foundation"}
+                ),
+                access(2, "carol", writes={"dex.orders:1"}),
+            ]
+        )
+
+        self.assertEqual(plan.stage_count, 1)
+        self.assertEqual(plan.stages[0].tx_indexes, (0, 1, 2))
+
+    def test_splits_stage_when_read_depends_on_additive_reward_write(self):
+        plan = self.planner.build(
+            [
+                access(
+                    0, "alice", additive_writes={"currency.balances:foundation"}
+                ),
+                access(1, "bob", reads={"currency.balances:foundation"}),
+            ]
+        )
+
+        self.assertEqual(plan.stage_count, 2)
+        self.assertEqual(plan.stages[0].tx_indexes, (0,))
+        self.assertEqual(plan.stages[1].tx_indexes, (1,))
 
 
 if __name__ == "__main__":

@@ -1,11 +1,13 @@
-import unittest
-from contracting.client import ContractingClient
-from xian.processor import TxProcessor
-from fixtures.mock_constants import MockConstants
-from datetime import datetime
-from utils import setup_fixtures, teardown_fixtures
-import time
 import os
+import time
+import unittest
+from datetime import datetime
+
+from contracting.client import ContractingClient
+from fixtures.mock_constants import MockConstants
+from utils import setup_fixtures, teardown_fixtures
+
+from xian.processor import TxProcessor
 
 
 def create_block_meta(dt: datetime = datetime.now()):
@@ -28,15 +30,17 @@ class TestProcessor(unittest.TestCase):
         self.c.flush()
         self.tx_processor = TxProcessor(client=self.c)
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        token_path = os.path.join(self.script_dir, "contracts", "token_contract.py")
+
+        token_path = os.path.join(
+            self.script_dir, "contracts", "token_contract.py"
+        )
         with open(token_path) as f:
             code = f.read()
             self.c.submit(code, name="currency_1")
 
         self.currency_1 = self.c.get_contract("currency_1")
 
-        proxy_path = os.path.join(self.script_dir, "contracts", "proxy.py")    
+        proxy_path = os.path.join(self.script_dir, "contracts", "proxy.py")
         with open(proxy_path) as f:
             code = f.read()
             self.c.submit(code, name="proxy")
@@ -121,7 +125,7 @@ class TestProcessor(unittest.TestCase):
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": create_block_meta(),
-            }
+            },
         )
 
         expected_events = [
@@ -168,8 +172,6 @@ class TestProcessor(unittest.TestCase):
         ]
 
         self.assertEqual(res["tx_result"]["events"], expected_events)
-        
-        
 
 
 if __name__ == "__main__":

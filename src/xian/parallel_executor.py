@@ -20,9 +20,7 @@ def _speculative_process_tx(task: dict) -> dict:
     )
     tx_processor = TxProcessor(client=client)
     rewards_handler = (
-        RewardsHandler(client=client)
-        if task["use_rewards_handler"]
-        else None
+        RewardsHandler(client=client) if task["use_rewards_handler"] else None
     )
 
     return tx_processor.process_tx(
@@ -98,6 +96,7 @@ class ParallelBlockExecutor:
         plan = self.planner.build(accesses) if accesses else None
 
         committed_writes: set[str] = set()
+        committed_additive_writes: set[str] = set()
         committed_senders: set[str] = set()
         final_results: list[dict] = []
         speculative_accepted = 0
@@ -114,6 +113,7 @@ class ParallelBlockExecutor:
                 result=result,
                 access=access,
                 committed_writes=committed_writes,
+                committed_additive_writes=committed_additive_writes,
                 committed_senders=committed_senders,
             ):
                 result = tx_processor.process_tx(
@@ -127,6 +127,10 @@ class ParallelBlockExecutor:
                 )
                 serial_fallbacks += 1
             else:
+                result["tx_result"]["state"] = tx_processor.materialize_writes(
+                    result.get("base_writes", {}),
+                    result.get("reward_deltas", {}),
+                )
                 tx_processor.apply_tx_result(result["tx_result"])
                 speculative_accepted += 1
 
@@ -134,6 +138,7 @@ class ParallelBlockExecutor:
 
             if access is not None:
                 committed_writes.update(access.writes)
+                committed_additive_writes.update(access.additive_writes)
                 committed_senders.add(access.sender)
 
         stats = ParallelExecutionStats(
@@ -187,6 +192,7 @@ class ParallelBlockExecutor:
         result: dict,
         access: TransactionAccess | None,
         committed_writes: set[str],
+        committed_additive_writes: set[str],
         committed_senders: set[str],
     ) -> bool:
         tx_result = result.get("tx_result")
@@ -199,7 +205,16 @@ class ParallelBlockExecutor:
         if access.reads & committed_writes:
             return True
 
+        if access.reads & committed_additive_writes:
+            return True
+
         if access.writes & committed_writes:
+            return True
+
+        if access.writes & committed_additive_writes:
+            return True
+
+        if access.additive_writes & committed_writes:
             return True
 
         return False

@@ -56,20 +56,26 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             ],
         }
 
-        with patch(
-            "xian.methods.finalize_block.decode_transaction_bytes",
-            return_value=({"payload": {}}, "{}"),
-        ), patch.object(
-            self.app.tx_processor,
-            "process_tx",
-            return_value={"tx_result": tx_result},
-        ), patch.object(self.app.nonce_storage, "set_nonce_by_tx"):
+        with (
+            patch(
+                "xian.methods.finalize_block.decode_transaction_bytes",
+                return_value=({"payload": {}}, "{}"),
+            ),
+            patch.object(
+                self.app.tx_processor,
+                "process_tx",
+                return_value={"tx_result": tx_result},
+            ),
+            patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
+        ):
             response = await self.process_request(
                 Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
             )
 
         tx_events = response.finalize_block.tx_results[0].events
-        self.assertEqual([event.type for event in tx_events], ["StateChange", "Transfer"])
+        self.assertEqual(
+            [event.type for event in tx_events], ["StateChange", "Transfer"]
+        )
 
         transfer_event = tx_events[1]
         attrs = {attr.key: attr.value for attr in transfer_event.attributes}
@@ -80,18 +86,26 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(attrs["amount"], "10")
 
     async def test_finalize_block_handles_missing_tx_result(self):
-        with patch(
-            "xian.methods.finalize_block.decode_transaction_bytes",
-            return_value=({"payload": {}}, "{}"),
-        ), patch.object(
-            self.app.tx_processor,
-            "process_tx",
-            return_value={"tx_result": None},
-        ), patch.object(self.app.nonce_storage, "set_nonce_by_tx") as set_nonce:
+        with (
+            patch(
+                "xian.methods.finalize_block.decode_transaction_bytes",
+                return_value=({"payload": {}}, "{}"),
+            ),
+            patch.object(
+                self.app.tx_processor,
+                "process_tx",
+                return_value={"tx_result": None},
+            ),
+            patch.object(
+                self.app.nonce_storage, "set_nonce_by_tx"
+            ) as set_nonce,
+        ):
             response = await self.process_request(
                 Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
             )
 
         self.assertEqual(len(response.finalize_block.tx_results), 1)
-        self.assertEqual(response.finalize_block.tx_results[0].code, c.ErrorCode)
+        self.assertEqual(
+            response.finalize_block.tx_results[0].code, c.ErrorCode
+        )
         set_nonce.assert_not_called()

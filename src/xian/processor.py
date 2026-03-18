@@ -3,7 +3,6 @@ import math
 from datetime import UTC, datetime
 
 from contracting.execution.executor import Executor
-from contracting.stdlib.bridge.decimal import ContractingDecimal
 from contracting.stdlib.bridge.time import Datetime
 from contracting.storage.encoder import convert_dict, safe_repr
 from loguru import logger
@@ -44,23 +43,35 @@ class TxProcessor:
                     "tx_result": None,
                     "stamp_rewards_amount": 0,
                     "stamp_rewards_contract": None,
+                    "base_writes": {},
+                    "reward_deltas": {},
+                    "access": None,
                 }
 
             # Process the result of the executor
-            tx_result = self.process_tx_output(
+            processed = self.process_tx_output(
                 output=output,
                 transaction=tx,
                 stamp_cost=stamp_cost,
                 rewards_handler=rewards_handler,
             )
+            tx_result = processed["tx_result"]
 
-            access = self.build_access_record(tx=tx, output=output)
+            access = self.build_access_record(
+                tx=tx,
+                status_code=output["status_code"],
+                reads=processed["reads"],
+                base_writes=processed["base_writes"],
+                reward_deltas=processed["reward_deltas"],
+            )
             tx_result = self.prune_tx_result(tx_result)
 
             return {
                 "tx_result": tx_result,
                 "stamp_rewards_amount": output["stamps_used"],
                 "stamp_rewards_contract": tx["payload"]["contract"],
+                "base_writes": processed["base_writes"],
+                "reward_deltas": processed["reward_deltas"],
                 "access": access,
             }
         except Exception as e:
@@ -70,6 +81,8 @@ class TxProcessor:
                 "tx_result": None,
                 "stamp_rewards_amount": 0,
                 "stamp_rewards_contract": None,
+                "base_writes": {},
+                "reward_deltas": {},
                 "access": None,
             }
         finally:
@@ -132,110 +145,22 @@ class TxProcessor:
         tx_hash = tx_hash_from_tx(transaction)
 
         rewards = None
+        reward_deltas = {}
         if output["status_code"] == 0 and rewards_handler is not None:
-            calculated_rewards = rewards_handler.calculate_tx_output_rewards(
+            rewards, reward_deltas = rewards_handler.build_tx_reward_outputs(
                 total_stamps_to_split=output["stamps_used"],
                 contract=transaction["payload"]["contract"],
             )
-            stamp_rate = self.client.get_var(
-                contract="stamp_cost", variable="S", arguments=["value"]
-            )
-            foundation_owner = self.client.get_var(
-                contract="foundation", variable="owner"
-            )
-            rewards = {
-                "masternode_reward": {},
-                "foundation_reward": {
-                    foundation_owner: ContractingDecimal(
-                        str(calculated_rewards[1] / stamp_rate)
-                    )
-                },
-                "developer_reward": {},
-            }
 
-            for masternode in self.client.get_var(
-                contract="masternodes", variable="nodes"
-            ):
-                rewards["masternode_reward"][masternode] = ContractingDecimal(
-                    str(calculated_rewards[0] / stamp_rate)
-                )
-
-            for developer, reward in calculated_rewards[2].items():
-                if developer == "sys" or developer is None:
-                    developer = self.client.get_var(
-                        contract="foundation", variable="owner"
-                    )
-                rewards["developer_reward"][developer] = ContractingDecimal(
-                    str(reward / stamp_rate)
-                )
-
-            state_change_key = "currency.balances"
-
-            # Update masternode rewards in output writes
-            for address, reward in rewards["masternode_reward"].items():
-                write_key = f"{state_change_key}:{address}"
-                write_key_balance = self.client.get_var(
-                    contract="currency",
-                    variable="balances",
-                    arguments=[address],
-                )
-                if write_key_balance is None:
-                    write_key_balance = 0
-                if write_key in output["writes"]:
-                    output["writes"][write_key] += ContractingDecimal(
-                        str(reward)
-                    )
-                else:
-                    output["writes"][write_key] = (
-                        write_key_balance + ContractingDecimal(str(reward))
-                    )
-
-            # Update foundation reward in output writes
-            for address, reward in rewards["foundation_reward"].items():
-                write_key = f"{state_change_key}:{address}"
-                write_key_balance = self.client.get_var(
-                    contract="currency",
-                    variable="balances",
-                    arguments=[foundation_owner],
-                )
-                if write_key_balance is None:
-                    write_key_balance = 0
-                if write_key in output["writes"]:
-                    output["writes"][write_key] += ContractingDecimal(
-                        str(reward)
-                    )
-                else:
-                    output["writes"][write_key] = (
-                        write_key_balance + ContractingDecimal(str(reward))
-                    )
-
-            # Update developer rewards in output writes
-            for address, reward in rewards["developer_reward"].items():
-                write_key = f"{state_change_key}:{address}"
-                write_key_balance = self.client.get_var(
-                    contract="currency",
-                    variable="balances",
-                    arguments=[address],
-                )
-                if write_key_balance is None:
-                    write_key_balance = 0
-                if write_key in output["writes"]:
-                    output["writes"][write_key] += ContractingDecimal(
-                        str(reward)
-                    )
-                else:
-                    output["writes"][write_key] = (
-                        write_key_balance + ContractingDecimal(str(reward))
-                    )
-
-        writes = self.determine_writes_from_output(
+        base_writes = self.determine_writes_from_output(
             status_code=output["status_code"],
             ouput_writes=output["writes"],
             stamps_used=output["stamps_used"],
             stamp_cost=stamp_cost,
             tx_sender=transaction["payload"]["sender"],
-            rewards=rewards,
         )
+        writes = self.materialize_writes(base_writes, reward_deltas)
+        reads = frozenset(self.client.raw_driver.transaction_reads.keys())
 
         for write in writes:
             self.client.raw_driver.set(key=write["key"], value=write["value"])
@@ -253,7 +178,12 @@ class TxProcessor:
 
         tx_output = format_dictionary(tx_output)
 
-        return tx_output
+        return {
+            "tx_result": tx_output,
+            "reads": reads,
+            "base_writes": base_writes,
+            "reward_deltas": reward_deltas,
+        }
 
     def apply_tx_result(self, tx_result: dict) -> None:
         for write in tx_result["state"]:
@@ -266,11 +196,10 @@ class TxProcessor:
         stamps_used,
         stamp_cost,
         tx_sender,
-        rewards=None,
     ):
         # Only apply the writes if the tx passes
         if status_code == 0:
-            writes = [{"key": k, "value": v} for k, v in ouput_writes.items()]
+            return dict(ouput_writes)
         else:
             sender_balance = self.executor.driver.get_var(
                 contract="currency",
@@ -290,13 +219,22 @@ class TxProcessor:
             except AssertionError:
                 new_bal = 0
 
-            writes = [
-                {
-                    "key": "currency.balances:{}".format(tx_sender),
-                    "value": new_bal,
-                }
-            ]
+            return {f"currency.balances:{tx_sender}": new_bal}
 
+    def materialize_writes(self, base_writes, reward_deltas):
+        writes_map = dict(base_writes)
+
+        for key, delta in reward_deltas.items():
+            if key in writes_map:
+                writes_map[key] += delta
+                continue
+
+            current_value = self.client.raw_driver.get(key, save=False)
+            if current_value is None:
+                current_value = 0
+            writes_map[key] = current_value + delta
+
+        writes = [{"key": k, "value": v} for k, v in writes_map.items()]
         try:
             writes.sort(key=lambda x: x["key"])
         except Exception as e:
@@ -345,12 +283,20 @@ class TxProcessor:
         tx_result.pop("transaction")
         return tx_result
 
-    def build_access_record(self, tx: dict, output: dict) -> TransactionAccess:
+    def build_access_record(
+        self,
+        tx: dict,
+        status_code: int,
+        reads: frozenset[str],
+        base_writes: dict,
+        reward_deltas: dict,
+    ) -> TransactionAccess:
         return TransactionAccess(
             index=-1,
             sender=tx["payload"]["sender"],
             nonce=tx["payload"].get("nonce", 0),
-            reads=frozenset(self.client.raw_driver.transaction_reads.keys()),
-            writes=frozenset(output["writes"].keys()),
-            status=output["status_code"],
+            reads=reads,
+            writes=frozenset(base_writes.keys()),
+            additive_writes=frozenset(reward_deltas.keys()),
+            status=status_code,
         )
