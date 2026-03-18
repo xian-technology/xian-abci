@@ -127,6 +127,16 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.query.key, ACCOUNT.encode("utf-8"))
         self.assertEqual(response.query.value, b"0")
 
+    async def test_get_next_nonce_query_uses_pending_nonce(self):
+        self.app.nonce_storage.set_pending_nonce(ACCOUNT, 9)
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path=f"/get_next_nonce/{ACCOUNT}"))
+        )
+
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.value, b"10")
+
     async def test_contract_query(self):
         response = await self.process_request(
             Request(query=RequestQuery(path="/contract/currency"))

@@ -8,14 +8,17 @@ class NonceStorage:
     def __init__(self, client, root=None):
         root = root if root is not None else c.STORAGE_HOME
         self.client = client
+        self.pending_nonces = {}
 
     def check_nonce(self, tx: dict):
         tx_nonce = tx["payload"]["nonce"]
         tx_sender = tx["payload"]["sender"]
-        current_nonce = self.get_nonce(sender=tx_sender)
+        expected_nonce = self.get_next_nonce(sender=tx_sender)
 
-        if not (current_nonce is None or tx_nonce > current_nonce):
-            raise TransactionException("Transaction nonce is invalid")
+        if tx_nonce != expected_nonce:
+            raise TransactionException(
+                f"Transaction nonce is invalid. Expected {expected_nonce}, got {tx_nonce}"
+            )
 
     def set_nonce_by_tx(self, tx):
         self.client.raw_driver.set(
@@ -46,12 +49,7 @@ class NonceStorage:
 
     # Move this to transaction.py
     def get_pending_nonce(self, sender):
-        return self.client.raw_driver.get(
-            c.PENDING_NONCE_FILENAME
-            + config.INDEX_SEPARATOR
-            + sender
-            + config.DELIMITER
-        )
+        return self.pending_nonces.get(sender)
 
     def safe_set_nonce(self, sender, value):
         current_nonce = self.get_nonce(sender=sender)
@@ -69,13 +67,7 @@ class NonceStorage:
             )
 
     def set_pending_nonce(self, sender, value):
-        self.client.raw_driver.set(
-            c.PENDING_NONCE_FILENAME
-            + config.INDEX_SEPARATOR
-            + sender
-            + config.DELIMITER,
-            value,
-        )
+        self.pending_nonces[sender] = value
 
     # Move this to webserver.py
     def get_latest_nonce(self, sender):
@@ -102,7 +94,7 @@ class NonceStorage:
 
     def flush(self):
         self.client.raw_driver.flush_file(c.NONCE_FILENAME)
-        self.client.raw_driver.flush_file(c.PENDING_NONCE_FILENAME)
+        self.flush_pending()
 
     def flush_pending(self):
-        self.client.raw_driver.flush_file(c.PENDING_NONCE_FILENAME)
+        self.pending_nonces.clear()

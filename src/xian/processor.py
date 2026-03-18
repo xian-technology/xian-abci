@@ -8,6 +8,7 @@ from contracting.stdlib.bridge.time import Datetime
 from contracting.storage.encoder import convert_dict, safe_repr
 from loguru import logger
 
+from xian.parallel_planner import TransactionAccess
 from xian.utils.block import is_compiled_key
 from xian.utils.tx import format_dictionary, tx_hash_from_tx
 
@@ -58,6 +59,7 @@ class TxProcessor:
                 "tx_result": tx_result,
                 "stamp_rewards_amount": output["stamps_used"],
                 "stamp_rewards_contract": tx["payload"]["contract"],
+                "access": self.build_access_record(tx=tx, output=output),
             }
         except Exception as e:
             logger.error(e)
@@ -66,6 +68,7 @@ class TxProcessor:
                 "tx_result": None,
                 "stamp_rewards_amount": 0,
                 "stamp_rewards_contract": None,
+                "access": None,
             }
 
     def execute_tx(
@@ -333,3 +336,6 @@ class TxProcessor:
         # remove original sent transaction
         tx_result.pop("transaction")
         return tx_result
+
+    def build_access_record(self, tx: dict, output: dict) -> TransactionAccess:
+        return TransactionAccess.from_output(index=-1, tx=tx, output=output)

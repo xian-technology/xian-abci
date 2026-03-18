@@ -16,6 +16,10 @@ async def check_tx(self, raw_tx) -> ResponseCheckTx:
         payload_json = json.loads(payload)
         if payload_json["chain_id"] != self.chain_id:
             return ResponseCheckTx(code=c.ErrorCode, log="Wrong chain_id")
+        self.nonce_storage.set_pending_nonce(
+            sender=payload_json["sender"],
+            value=payload_json["nonce"],
+        )
         return ResponseCheckTx(code=c.OkCode)
     except Exception as e:
         return ResponseCheckTx(code=c.ErrorCode, log=f"{type(e).__name__}: {e}")

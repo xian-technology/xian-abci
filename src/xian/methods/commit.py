@@ -7,6 +7,7 @@ async def commit(self) -> ResponseCommit:
     set_latest_block_height(self.current_block_meta["height"])
 
     self.client.raw_driver.hard_apply(str(self.current_block_meta["nanos"]))
+    self.nonce_storage.flush_pending()
 
     # unset current_block_meta & cleanup
     self.fingerprint_hashes = []
