@@ -12,7 +12,7 @@ authors = [{ name = "Xian Core Team" }]
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.13.0,<4",
-    "asyncpg>=0.30.0,<0.31",
+    "asyncpg>=0.30.0,<0.32",
     "loguru>=0.7.3,<0.8",
     "protobuf==3.20.3",
     "pynacl>=1.6.2,<2",
