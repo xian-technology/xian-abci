@@ -1,7 +1,7 @@
 import os
 import time
 import unittest
-from datetime import datetime
+from datetime import UTC, datetime
 
 from contracting.client import ContractingClient
 from fixtures.mock_constants import MockConstants
@@ -172,6 +172,20 @@ class TestProcessor(unittest.TestCase):
         ]
 
         self.assertEqual(res["tx_result"]["events"], expected_events)
+
+    def test_get_now_from_nanos_preserves_subsecond_precision(self):
+        dt = datetime(2026, 3, 19, 12, 34, 56, 789123, tzinfo=UTC)
+        nanos = int(dt.timestamp()) * 1_000_000_000 + 789_123_456
+
+        now = self.tx_processor.get_now_from_nanos(nanos)
+
+        self.assertEqual(now.year, 2026)
+        self.assertEqual(now.month, 3)
+        self.assertEqual(now.day, 19)
+        self.assertEqual(now.hour, 12)
+        self.assertEqual(now.minute, 34)
+        self.assertEqual(now.second, 56)
+        self.assertEqual(now.microsecond, 789123)
 
 
 if __name__ == "__main__":

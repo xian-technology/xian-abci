@@ -11,6 +11,7 @@ from contracting.stdlib.bridge.time import Datetime
 from contracting.storage.encoder import convert_dict, safe_repr
 from loguru import logger
 
+from xian.utils.block import nanoseconds_to_utc_datetime
 from xian.utils.encoding import stringify_decimals
 from xian.utils.tx import format_dictionary
 
@@ -145,11 +146,18 @@ class TransactionSimulator:
             (self.get_block_meta() or {}) if self.get_block_meta else {}
         )
         salt = secrets.token_hex(32)
+        block_nanos = block_meta.get("nanos")
+        if block_nanos is None:
+            now = Datetime._from_datetime(datetime.now())
+        else:
+            now = Datetime._from_datetime(
+                nanoseconds_to_utc_datetime(block_nanos)
+            )
         return {
             "block_hash": salt,
             "block_num": block_meta.get("height", block_num),
             "__input_hash": salt,
-            "now": Datetime._from_datetime(datetime.now()),
+            "now": now,
             "AUXILIARY_SALT": salt,
             "chain_id": block_meta.get("chain_id"),
         }

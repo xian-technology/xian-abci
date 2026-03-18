@@ -1,6 +1,4 @@
 import hashlib
-import math
-from datetime import UTC, datetime
 
 from contracting.execution.executor import Executor
 from contracting.stdlib.bridge.time import Datetime
@@ -8,7 +6,7 @@ from contracting.storage.encoder import convert_dict, safe_repr
 from loguru import logger
 
 from xian.parallel_planner import TransactionAccess
-from xian.utils.block import is_compiled_key
+from xian.utils.block import is_compiled_key, nanoseconds_to_utc_datetime
 from xian.utils.tx import format_dictionary, tx_hash_from_tx
 
 
@@ -268,9 +266,8 @@ class TxProcessor:
         return h.hexdigest()
 
     def get_now_from_nanos(self, nanos):
-        return Datetime._from_datetime(
-            datetime.fromtimestamp(math.ceil(nanos / 1e9), UTC)
-        )
+        block_time = nanoseconds_to_utc_datetime(nanos)
+        return Datetime._from_datetime(block_time)
 
     def prune_tx_result(self, tx_result: dict):
         # remove compiled code in the case of a contract submission

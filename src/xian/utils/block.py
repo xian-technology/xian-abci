@@ -1,19 +1,24 @@
 import binascii
 import json
 import marshal
-from datetime import datetime
+from datetime import UTC, datetime
 
 from contracting.storage.encoder import convert_dict
-from google.protobuf.timestamp_pb2 import Timestamp
 from loguru import logger
 
 from xian.constants import Constants as c
 
 
+def nanoseconds_to_utc_datetime(nanoseconds: int) -> datetime:
+    seconds, remainder = divmod(nanoseconds, 1_000_000_000)
+    microseconds = remainder // 1_000
+    return datetime.fromtimestamp(seconds, UTC).replace(
+        microsecond=microseconds
+    )
+
+
 def convert_cometbft_time_to_datetime(nanoseconds: int) -> datetime:
-    timestamp = Timestamp()
-    timestamp.FromNanoseconds(nanoseconds)
-    return timestamp.ToDatetime()
+    return nanoseconds_to_utc_datetime(nanoseconds)
 
 
 def get_nanotime_from_block_time(timeobj) -> int:

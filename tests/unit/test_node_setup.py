@@ -32,6 +32,10 @@ class NodeSetupTests(unittest.TestCase):
             "seed1@127.0.0.1:26656,seed2@127.0.0.1:26656",
         )
         self.assertEqual(config["rpc"]["cors_allowed_origins"], [])
+        self.assertFalse(config["consensus"]["create_empty_blocks"])
+        self.assertEqual(
+            config["consensus"]["create_empty_blocks_interval"], "0s"
+        )
         self.assertTrue(config["xian"]["block_service_mode"])
         self.assertTrue(config["xian"]["pruning_enabled"])
         self.assertEqual(config["xian"]["blocks_to_keep"], 5000)
@@ -45,7 +49,11 @@ class NodeSetupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             home = Path(tmp_dir) / ".cometbft"
             config = render_cometbft_config(moniker="validator-1")
-            genesis = {"chain_id": "xian-local-1", "validators": [], "abci_genesis": {}}
+            genesis = {
+                "chain_id": "xian-local-1",
+                "validators": [],
+                "abci_genesis": {},
+            }
             priv_validator_key = build_priv_validator_key(
                 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
             )
@@ -74,7 +82,9 @@ class NodeSetupTests(unittest.TestCase):
             rendered_config = load_toml(config_path)
             self.assertEqual(rendered_config["moniker"], "validator-1")
 
-            rendered_genesis = json.loads(genesis_path.read_text(encoding="utf-8"))
+            rendered_genesis = json.loads(
+                genesis_path.read_text(encoding="utf-8")
+            )
             self.assertEqual(rendered_genesis["chain_id"], "xian-local-1")
 
             rendered_validator = json.loads(

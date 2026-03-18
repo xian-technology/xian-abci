@@ -242,7 +242,7 @@ def render_cometbft_config(
     config["proxy_app"] = proxy_app
     config["moniker"] = moniker
     config["consensus"]["create_empty_blocks"] = False
-    config["consensus"]["create_empty_blocks_interval"] = "10s"
+    config["consensus"]["create_empty_blocks_interval"] = "0s"
     config["p2p"]["seeds"] = ",".join(seed_nodes or [])
     config["rpc"]["cors_allowed_origins"] = ["*"] if allow_cors else []
     config["instrumentation"]["prometheus"] = prometheus
