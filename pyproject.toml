@@ -30,6 +30,12 @@ classifiers = [
 [project.urls]
 Repository = "https://github.com/xian-technology/xian-abci"
 
+[project.scripts]
+xian-abci = "xian.xian_abci:main"
+xian-simulator = "xian.services.simulator:main"
+xian-configure-node = "xian.cli.configure_node:main"
+xian-export-state = "xian.cli.export_state:main"
+
 [dependency-groups]
 dev = [
     "parameterized>=0.9.0,<0.10",

@@ -158,5 +158,10 @@ class Simulator:
         )
 
 
-if __name__ == "__main__":
+def main() -> int:
     Simulator().listen()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

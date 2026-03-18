@@ -1,43 +1,56 @@
+UV ?= uv
+COMETBFT_BIN ?= cometbft
+COMETBFT_HOME ?= $(HOME)/.cometbft
+RPC_LADDR ?= tcp://0.0.0.0:26657
+
+.DEFAULT_GOAL := help
+
+.PHONY: help sync validate wipe reset init node-id \
+	run-abci run-cometbft run-bds configure-node export-state
+
+help:
+	@printf "Available targets:\n"
+	@printf "  %-18s %s\n" "sync" "Install the development environment with uv"
+	@printf "  %-18s %s\n" "validate" "Run the repo validation script"
+	@printf "  %-18s %s\n" "init" "Initialize the local CometBFT home"
+	@printf "  %-18s %s\n" "wipe" "Delete state and run cometbft unsafe-reset-all"
+	@printf "  %-18s %s\n" "reset" "Run wipe and then init"
+	@printf "  %-18s %s\n" "node-id" "Print the CometBFT node ID"
+	@printf "  %-18s %s\n" "run-abci" "Run the xian-abci application process"
+	@printf "  %-18s %s\n" "run-cometbft" "Run the CometBFT process"
+	@printf "  %-18s %s\n" "run-bds" "Run the BDS simulator process"
+	@printf "  %-18s %s\n" "configure-node" "Run xian-configure-node with ARGS='...'"
+	@printf "  %-18s %s\n" "export-state" "Run xian-export-state with ARGS='...'"
+
+sync:
+	$(UV) sync --group dev
+
+validate:
+	./scripts/validate-repo.sh
+
 wipe:
-	rm -rf ~/.cometbft/xian
-	../cometbft unsafe-reset-all
+	rm -rf "$(COMETBFT_HOME)/xian"
+	$(COMETBFT_BIN) unsafe-reset-all
 
-up:
-	cd ./src/xian && pm2 start xian_abci.py --name xian -f
-	pm2 start "../cometbft node --rpc.laddr tcp://0.0.0.0:26657" --name cometbft -f
-
-up-bds:
-	cd ./src/xian/services/ && pm2 start simulator.py --name simulator -f --wait-ready
-	cd ./src/xian && pm2 start xian_abci.py --name xian -f
-	pm2 start "../cometbft node --rpc.laddr tcp://0.0.0.0:26657" --name cometbft -f
-
-logs:
-	pm2 logs --lines 1000
-
-down:
-	pm2 stop all
-	sleep 5  # Give Loguru time to handle any final cleanup
-	pm2 delete all
-
-restart:
-	make down
-	make up
+reset: wipe init
 
 init:
-	../cometbft init
+	$(COMETBFT_BIN) init
 
 node-id:
-	../cometbft show-node-id
+	$(COMETBFT_BIN) show-node-id
 
-dwu:
-	make down
-	make wipe
-	make init
-	make up
+run-abci:
+	$(UV) run xian-abci
 
-pull-and-install:
-	make pull
-	make install
-	
-ex-state:
-	uv run python -m xian.cli.export_state
+run-cometbft:
+	$(COMETBFT_BIN) node --rpc.laddr "$(RPC_LADDR)"
+
+run-bds:
+	$(UV) run xian-simulator
+
+configure-node:
+	$(UV) run xian-configure-node $(ARGS)
+
+export-state:
+	$(UV) run xian-export-state $(ARGS)

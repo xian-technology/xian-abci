@@ -48,6 +48,22 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest
 The BDS-backed test paths expect Postgres at
 `postgres://postgres:1234@localhost:5432/xian`.
 
+## Runtime Surface
+
+`xian-abci` exposes single-process entrypoints. It does not own a bundled
+process manager:
+
+```bash
+uv run xian-abci
+uv run xian-simulator
+uv run xian-configure-node --help
+uv run xian-export-state --help
+cometbft node --rpc.laddr tcp://0.0.0.0:26657
+```
+
+If you need supervision, use `xian-stack`, Docker, `systemd`, or `launchd`.
+Do not add PM2 or ad hoc shell supervision back into this repo.
+
 ## Boundary Notes
 
 - Operator flows belong in [xian-cli](https://github.com/xian-technology/xian-cli).
