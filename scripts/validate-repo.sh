@@ -23,13 +23,21 @@ UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run ruff format --check .
 
 pytest_args=("$@")
 if [[ "${XIAN_ABCI_COVERAGE:-0}" == "1" ]]; then
-  pytest_args=(
+  coverage_args=(
     --cov=src/abci
     --cov=src/xian
     --cov-report=term-missing:skip-covered
     --cov-report=xml
-    "${pytest_args[@]}"
   )
+  if ((${#pytest_args[@]})); then
+    pytest_args=("${coverage_args[@]}" "${pytest_args[@]}")
+  else
+    pytest_args=("${coverage_args[@]}")
+  fi
 fi
 
-UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run pytest "${pytest_args[@]}"
+if ((${#pytest_args[@]})); then
+  UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run pytest "${pytest_args[@]}"
+else
+  UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run pytest
+fi

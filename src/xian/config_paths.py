@@ -33,6 +33,7 @@ def resolve_configs_dir(explicit: Path | None = None) -> Path:
         "set XIAN_CONFIGS_DIR or use the shared sibling workspace layout"
     )
 
+
 def resolve_contracts_dir(configs_dir: Path | None = None) -> Path:
     path = resolve_configs_dir(configs_dir) / CONTRACTS_SUBPATH
     if not path.exists():

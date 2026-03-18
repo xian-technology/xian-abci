@@ -176,7 +176,12 @@ class SubscriptionManager:
             if not key:
                 return {"status": "error", "message": "missing key"}
             self._state_subs.setdefault(ws, set()).add(key)
-            return {"status": "ok", "action": "subscribe", "type": "state", "key": key}
+            return {
+                "status": "ok",
+                "action": "subscribe",
+                "type": "state",
+                "key": key,
+            }
         elif sub_type == "event":
             contract = data.get("contract", "*")
             event = data.get("event")
@@ -184,7 +189,12 @@ class SubscriptionManager:
             subs = self._event_subs.setdefault(ws, [])
             if entry not in subs:
                 subs.append(entry)
-            return {"status": "ok", "action": "subscribe", "type": "event", **entry}
+            return {
+                "status": "ok",
+                "action": "subscribe",
+                "type": "event",
+                **entry,
+            }
         else:
             return {"status": "error", "message": f"unknown type: {sub_type}"}
 
@@ -193,7 +203,12 @@ class SubscriptionManager:
         if sub_type == "state":
             key = data.get("key", "")
             self._state_subs.get(ws, set()).discard(key)
-            return {"status": "ok", "action": "unsubscribe", "type": "state", "key": key}
+            return {
+                "status": "ok",
+                "action": "unsubscribe",
+                "type": "state",
+                "key": key,
+            }
         elif sub_type == "event":
             contract = data.get("contract", "*")
             event = data.get("event")
@@ -201,7 +216,12 @@ class SubscriptionManager:
             subs = self._event_subs.get(ws, [])
             if entry in subs:
                 subs.remove(entry)
-            return {"status": "ok", "action": "unsubscribe", "type": "event", **entry}
+            return {
+                "status": "ok",
+                "action": "unsubscribe",
+                "type": "event",
+                **entry,
+            }
         else:
             return {"status": "error", "message": f"unknown type: {sub_type}"}
 
@@ -262,9 +282,7 @@ async def _cometbft_subscriber(app: web.Application) -> None:
     while True:
         try:
             logger.info(f"Connecting to CometBFT WebSocket: {ws_url}")
-            async with session.ws_connect(
-                ws_url, heartbeat=20.0
-            ) as ws:
+            async with session.ws_connect(ws_url, heartbeat=20.0) as ws:
                 delay_idx = 0
                 logger.info(
                     "CometBFT WebSocket connected, subscribing to"
@@ -284,9 +302,7 @@ async def _cometbft_subscriber(app: web.Application) -> None:
                                 "Error handling CometBFT WS message"
                             )
                     elif msg.type == aiohttp.WSMsgType.ERROR:
-                        logger.warning(
-                            f"CometBFT WS error: {ws.exception()}"
-                        )
+                        logger.warning(f"CometBFT WS error: {ws.exception()}")
                         break
                     elif msg.type in (
                         aiohttp.WSMsgType.CLOSE,
@@ -302,17 +318,13 @@ async def _cometbft_subscriber(app: web.Application) -> None:
             logger.exception("CometBFT WS connection failed")
 
         await _broadcast_status(app, "offline")
-        delay = _RECONNECT_DELAYS[
-            min(delay_idx, len(_RECONNECT_DELAYS) - 1)
-        ]
+        delay = _RECONNECT_DELAYS[min(delay_idx, len(_RECONNECT_DELAYS) - 1)]
         delay_idx += 1
         logger.info(f"Reconnecting to CometBFT WS in {delay}s...")
         await asyncio.sleep(delay)
 
 
-async def _handle_cometbft_event(
-    app: web.Application, data: dict
-) -> None:
+async def _handle_cometbft_event(app: web.Application, data: dict) -> None:
     """Parse CometBFT events and route to subscribers."""
     result = data.get("result", {})
     event_data = result.get("data", {})
@@ -324,9 +336,7 @@ async def _handle_cometbft_event(
         await _handle_tx_event(app, event_data)
 
 
-async def _handle_new_block(
-    app: web.Application, event_data: dict
-) -> None:
+async def _handle_new_block(app: web.Application, event_data: dict) -> None:
     """Broadcast new block summary to all connected clients."""
     value = event_data.get("value", {})
     block = value.get("block", {})
@@ -343,9 +353,7 @@ async def _handle_new_block(
                     "contract": payload.get("contract"),
                     "function": payload.get("function"),
                     "sender": payload.get("sender"),
-                    "stamps_supplied": payload.get(
-                        "stamps_supplied"
-                    ),
+                    "stamps_supplied": payload.get("stamps_supplied"),
                 }
             )
 
@@ -366,9 +374,7 @@ async def _handle_new_block(
     await _broadcast(app, message)
 
 
-async def _handle_tx_event(
-    app: web.Application, event_data: dict
-) -> None:
+async def _handle_tx_event(app: web.Application, event_data: dict) -> None:
     """Route per-tx state changes and contract events to subscribers."""
     subs: SubscriptionManager = app["subscriptions"]
     value = event_data.get("value", {})
@@ -403,11 +409,13 @@ async def _handle_tx_event(
 
                 matched = subs.match_state(state_key)
                 if matched:
-                    msg = json.dumps({
-                        "type": "state_change",
-                        "key": state_key,
-                        "value": raw_value,
-                    })
+                    msg = json.dumps(
+                        {
+                            "type": "state_change",
+                            "key": state_key,
+                            "value": raw_value,
+                        }
+                    )
                     for ws in matched:
                         try:
                             await ws.send_str(msg)
@@ -438,17 +446,20 @@ async def _handle_tx_event(
 
             matched = subs.match_event(contract, event_name)
             if matched:
-                msg = json.dumps({
-                    "type": "contract_event",
-                    "event": event_name,
-                    "contract": contract,
-                    "data": {
-                        k: v for k, v in attrs.items()
-                        if k not in ("contract", "signer", "caller")
-                    },
-                    "signer": attrs.get("signer", ""),
-                    "caller": attrs.get("caller", ""),
-                })
+                msg = json.dumps(
+                    {
+                        "type": "contract_event",
+                        "event": event_name,
+                        "contract": contract,
+                        "data": {
+                            k: v
+                            for k, v in attrs.items()
+                            if k not in ("contract", "signer", "caller")
+                        },
+                        "signer": attrs.get("signer", ""),
+                        "caller": attrs.get("caller", ""),
+                    }
+                )
                 for ws in matched:
                     try:
                         await ws.send_str(msg)
@@ -468,13 +479,9 @@ async def _broadcast(app: web.Application, message: str) -> None:
         app["ws_clients"].discard(ws)
 
 
-async def _broadcast_status(
-    app: web.Application, status: str
-) -> None:
+async def _broadcast_status(app: web.Application, status: str) -> None:
     """Notify browsers about CometBFT connection status."""
-    await _broadcast(
-        app, json.dumps({"type": "node_status", "status": status})
-    )
+    await _broadcast(app, json.dumps({"type": "node_status", "status": status}))
 
 
 # ── WebSocket: browser handler ─────────────────────────────────
@@ -488,8 +495,7 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     request.app["ws_clients"].add(ws)
     subs.add_client(ws)
     logger.debug(
-        f"Browser WS connected"
-        f" ({len(request.app['ws_clients'])} total)"
+        f"Browser WS connected ({len(request.app['ws_clients'])} total)"
     )
 
     try:
@@ -501,21 +507,22 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                         response = subs.handle_message(ws, data)
                         await ws.send_str(json.dumps(response))
                 except json.JSONDecodeError:
-                    await ws.send_str(json.dumps(
-                        {"status": "error", "message": "invalid JSON"}
-                    ))
+                    await ws.send_str(
+                        json.dumps(
+                            {"status": "error", "message": "invalid JSON"}
+                        )
+                    )
                 except Exception as exc:
-                    await ws.send_str(json.dumps(
-                        {"status": "error", "message": str(exc)}
-                    ))
+                    await ws.send_str(
+                        json.dumps({"status": "error", "message": str(exc)})
+                    )
             elif msg.type == aiohttp.WSMsgType.ERROR:
                 break
     finally:
         subs.remove_client(ws)
         request.app["ws_clients"].discard(ws)
         logger.debug(
-            f"Browser WS disconnected"
-            f" ({len(request.app['ws_clients'])} total)"
+            f"Browser WS disconnected ({len(request.app['ws_clients'])} total)"
         )
 
     return ws
@@ -574,9 +581,7 @@ async def handle_block(request: web.Request) -> web.Response:
     rpc = request.app["rpc_url"]
 
     try:
-        result = await _raw_rpc(
-            session, rpc, "block", {"height": height}
-        )
+        result = await _raw_rpc(session, rpc, "block", {"height": height})
         block = result.get("block", {})
         txs_raw = (block.get("data") or {}).get("txs") or []
 
@@ -587,9 +592,7 @@ async def handle_block(request: web.Request) -> web.Response:
             # Compute the CometBFT tx hash (SHA-256 of raw bytes)
             try:
                 raw_bytes = base64.b64decode(raw_tx)
-                entry["tx_hash"] = hashlib.sha256(
-                    raw_bytes
-                ).hexdigest().upper()
+                entry["tx_hash"] = hashlib.sha256(raw_bytes).hexdigest().upper()
             except Exception:
                 pass
             decoded_txs.append(entry)
@@ -602,9 +605,7 @@ async def handle_block(request: web.Request) -> web.Response:
             status=502,
         )
     except Exception as exc:
-        return web.json_response(
-            {"error": str(exc)}, status=500
-        )
+        return web.json_response({"error": str(exc)}, status=500)
 
 
 async def handle_block_results(
@@ -630,9 +631,7 @@ async def handle_block_results(
             status=502,
         )
     except Exception as exc:
-        return web.json_response(
-            {"error": str(exc)}, status=500
-        )
+        return web.json_response({"error": str(exc)}, status=500)
 
 
 async def handle_tx(request: web.Request) -> web.Response:
@@ -643,9 +642,7 @@ async def handle_tx(request: web.Request) -> web.Response:
     rpc = request.app["rpc_url"]
 
     try:
-        result = await _raw_rpc(
-            session, rpc, "tx", {"hash": tx_hash}
-        )
+        result = await _raw_rpc(session, rpc, "tx", {"hash": tx_hash})
 
         if result.get("tx"):
             decoded = _decode_tx_bytes(result["tx"])
@@ -665,9 +662,7 @@ async def handle_tx(request: web.Request) -> web.Response:
             status=502,
         )
     except Exception as exc:
-        return web.json_response(
-            {"error": str(exc)}, status=500
-        )
+        return web.json_response({"error": str(exc)}, status=500)
 
 
 async def handle_unconfirmed(
@@ -687,12 +682,8 @@ async def handle_contract(request: web.Request) -> web.Response:
 
     try:
         code = await _abci_query(session, rpc, f"contract/{name}")
-        methods = await _abci_query(
-            session, rpc, f"contract_methods/{name}"
-        )
-        variables = await _abci_query(
-            session, rpc, f"contract_vars/{name}"
-        )
+        methods = await _abci_query(session, rpc, f"contract_methods/{name}")
+        variables = await _abci_query(session, rpc, f"contract_vars/{name}")
 
         source = None
         if code and _decompiler:
@@ -721,9 +712,7 @@ async def handle_contract(request: web.Request) -> web.Response:
             status=502,
         )
     except Exception as exc:
-        return web.json_response(
-            {"error": str(exc)}, status=500
-        )
+        return web.json_response({"error": str(exc)}, status=500)
 
 
 async def handle_abci_query(
@@ -760,9 +749,7 @@ async def handle_abci_query(
             status=502,
         )
     except Exception as exc:
-        return web.json_response(
-            {"error": str(exc)}, status=500
-        )
+        return web.json_response({"error": str(exc)}, status=500)
 
 
 # ── app lifecycle ───────────────────────────────────────────────
@@ -772,9 +759,7 @@ async def _on_startup(app: web.Application) -> None:
     app["session"] = aiohttp.ClientSession()
     app["ws_clients"] = set()
     app["subscriptions"] = SubscriptionManager()
-    app["_subscriber_task"] = asyncio.create_task(
-        _cometbft_subscriber(app)
-    )
+    app["_subscriber_task"] = asyncio.create_task(_cometbft_subscriber(app))
 
 
 async def _on_cleanup(app: web.Application) -> None:
@@ -813,15 +798,11 @@ def create_app(
     app.router.add_get("/api/consensus", handle_consensus)
     app.router.add_get("/api/blockchain", handle_blockchain)
     app.router.add_get("/api/block/{height}", handle_block)
-    app.router.add_get(
-        "/api/block_results/{height}", handle_block_results
-    )
+    app.router.add_get("/api/block_results/{height}", handle_block_results)
     app.router.add_get("/api/tx/{hash}", handle_tx)
     app.router.add_get("/api/unconfirmed_txs", handle_unconfirmed)
     app.router.add_get("/api/contract/{name}", handle_contract)
-    app.router.add_get(
-        "/api/abci_query/{path:.+}", handle_abci_query
-    )
+    app.router.add_get("/api/abci_query/{path:.+}", handle_abci_query)
 
     return app
 

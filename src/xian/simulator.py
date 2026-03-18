@@ -137,7 +137,9 @@ class TransactionSimulator:
         }
 
     def _make_environment(self, block_num: int = 1) -> dict:
-        block_meta = (self.get_block_meta() or {}) if self.get_block_meta else {}
+        block_meta = (
+            (self.get_block_meta() or {}) if self.get_block_meta else {}
+        )
         salt = secrets.token_hex(32)
         return {
             "block_hash": salt,

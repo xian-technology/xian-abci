@@ -71,9 +71,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         tx_result = result.get("tx_result")
         if tx_result is None:
             tx_results.append(
-                _error_tx_result(
-                    "Transaction processor returned no tx_result"
-                )
+                _error_tx_result("Transaction processor returned no tx_result")
             )
             continue
 
@@ -142,9 +140,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                     )
                 tx_events.append(
                     Event(
-                        type=str(
-                            contract_event.get("event", "ContractEvent")
-                        ),
+                        type=str(contract_event.get("event", "ContractEvent")),
                         attributes=attrs,
                     )
                 )
