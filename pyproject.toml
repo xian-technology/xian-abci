@@ -14,7 +14,7 @@ dependencies = [
     "aiohttp>=3.13.0,<4",
     "asyncpg>=0.30.0,<0.32",
     "loguru>=0.7.3,<0.8",
-    "protobuf==3.20.3",
+    "protobuf==6.33.5",
     "pynacl>=1.6.2,<2",
     "xian-contracting",
     "xian-py",
@@ -39,6 +39,7 @@ xian-export-state = "xian.cli.export_state:main"
 
 [dependency-groups]
 dev = [
+    "grpcio-tools==1.78.0",
     "parameterized>=0.9.0,<0.10",
     "pytest>=9.0.2,<10",
     "pytest-cov>=7.0.0,<8",

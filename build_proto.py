@@ -1,57 +1,67 @@
-"""
-Build protobuf files
-"""
+"""Generate checked-in Python protobuf stubs for the vendored CometBFT schemas."""
 
-import os
-import sys
+from __future__ import annotations
+
 import shutil
 import subprocess
+import sys
+from pathlib import Path
 
 
-protoc = shutil.which("protoc")
+REPO_ROOT = Path(__file__).resolve().parent
+PROTO_ROOT = REPO_ROOT / "protos"
+OUTPUT_ROOT = REPO_ROOT / "src"
 
 
-def generate_proto(source):
-    """
-    Call the Protocol Compiler to generate a _pb2.py from the given
-    .proto file.  Does nothing if the output already exists and is newer than
-    the input.
-    """
+def require_grpc_tools() -> None:
+    try:
+        __import__("grpc_tools.protoc")
+    except ModuleNotFoundError as exc:  # pragma: no cover - exercised manually
+        raise SystemExit(
+            "grpcio-tools is required to build protobuf stubs. "
+            "Run `uv sync --group dev` and retry."
+        ) from exc
 
-    output = source.replace(".proto", "_pb2.py").replace("./protos/", ".")
 
-    if not os.path.exists(output) or (
-        os.path.exists(source)
-        and os.path.getmtime(source) > os.path.getmtime(output)
-    ):
-        print(" ~ Generating: %s..." % output)
+def iter_proto_files() -> list[Path]:
+    return sorted(PROTO_ROOT.rglob("*.proto"))
 
-        if not os.path.exists(source):
-            sys.stderr.write("Can't find required file: %s\n" % source)
-            sys.exit(-1)
 
-        protoc_command = [
-            protoc,
-            "-I./protos",
-            "-I.",
-            "--python_out=./src",
-            source,
-        ]
-        if subprocess.call(protoc_command) != 0:
-            sys.exit(-1)
+def expected_output(source: Path) -> Path:
+    relative = source.relative_to(PROTO_ROOT)
+    return OUTPUT_ROOT / relative.with_name(f"{relative.stem}_pb2.py")
+
+
+def generate_proto(source: Path) -> None:
+    if not source.exists():
+        raise SystemExit(f"Can't find required file: {source}")
+
+    output = expected_output(source)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    print(f" ~ Generating: {output.relative_to(REPO_ROOT)}...")
+
+    command = [
+        sys.executable,
+        "-m",
+        "grpc_tools.protoc",
+        f"-I{PROTO_ROOT}",
+        f"-I{REPO_ROOT}",
+        f"--python_out={OUTPUT_ROOT}",
+        str(source),
+    ]
+    subprocess.run(command, check=True, cwd=REPO_ROOT)
+
+
+def main() -> int:
+    require_grpc_tools()
+
+    if shutil.which(sys.executable) is None:  # pragma: no cover - defensive
+        raise SystemExit(f"Python executable not found: {sys.executable}")
+
+    for source in iter_proto_files():
+        generate_proto(source)
+    return 0
 
 
 if __name__ == "__main__":
-    if protoc is None:
-        sys.stderr.write("protoc is not installed!\n")
-        sys.exit(-1)
-
-    # Find all the protos
-    proto_files = []
-    for root, dirs, files in os.walk("protos"):
-        for file in files:
-            if file.endswith(".proto"):
-                proto_files.append(os.path.join(root, file))
-
-    for fn in proto_files:
-        generate_proto(fn)
+    raise SystemExit(main())
