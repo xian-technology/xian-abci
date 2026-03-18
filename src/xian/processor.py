@@ -21,6 +21,7 @@ class TxProcessor:
         )
 
     def process_tx(self, tx, enabled_fees=False, rewards_handler=None):
+        self.client.raw_driver.clear_transaction_reads()
         environment = self.get_environment(tx=tx)
 
         stamp_cost = (
@@ -53,13 +54,14 @@ class TxProcessor:
                 rewards_handler=rewards_handler,
             )
 
+            access = self.build_access_record(tx=tx, output=output)
             tx_result = self.prune_tx_result(tx_result)
 
             return {
                 "tx_result": tx_result,
                 "stamp_rewards_amount": output["stamps_used"],
                 "stamp_rewards_contract": tx["payload"]["contract"],
-                "access": self.build_access_record(tx=tx, output=output),
+                "access": access,
             }
         except Exception as e:
             logger.error(e)
@@ -70,6 +72,8 @@ class TxProcessor:
                 "stamp_rewards_contract": None,
                 "access": None,
             }
+        finally:
+            self.client.raw_driver.clear_transaction_reads()
 
     def execute_tx(
         self, transaction, stamp_cost, environment: dict = {}, metering=False
@@ -251,6 +255,10 @@ class TxProcessor:
 
         return tx_output
 
+    def apply_tx_result(self, tx_result: dict) -> None:
+        for write in tx_result["state"]:
+            self.client.raw_driver.set(key=write["key"], value=write["value"])
+
     def determine_writes_from_output(
         self,
         status_code,
@@ -338,4 +346,11 @@ class TxProcessor:
         return tx_result
 
     def build_access_record(self, tx: dict, output: dict) -> TransactionAccess:
-        return TransactionAccess.from_output(index=-1, tx=tx, output=output)
+        return TransactionAccess(
+            index=-1,
+            sender=tx["payload"]["sender"],
+            nonce=tx["payload"].get("nonce", 0),
+            reads=frozenset(self.client.raw_driver.transaction_reads.keys()),
+            writes=frozenset(output["writes"].keys()),
+            status=output["status_code"],
+        )

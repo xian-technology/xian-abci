@@ -180,6 +180,9 @@ def configure_existing_home(
     service_node: bool = False,
     enable_pruning: bool = False,
     blocks_to_keep: int = 100000,
+    parallel_execution_enabled: bool = False,
+    parallel_execution_workers: int = 0,
+    parallel_execution_min_transactions: int = 8,
 ) -> dict[str, str | list[str] | None]:
     config_path = home / "config" / "config.toml"
     existing_config = load_existing_cometbft_config(config_path)
@@ -194,6 +197,11 @@ def configure_existing_home(
         service_node=service_node,
         enable_pruning=enable_pruning,
         blocks_to_keep=blocks_to_keep,
+        parallel_execution_enabled=parallel_execution_enabled,
+        parallel_execution_workers=parallel_execution_workers,
+        parallel_execution_min_transactions=(
+            parallel_execution_min_transactions
+        ),
         prometheus=prometheus,
     )
     config = preserve_runtime_config(rendered_config, existing_config)

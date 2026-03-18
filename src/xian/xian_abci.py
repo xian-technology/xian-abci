@@ -24,6 +24,7 @@ from xian.methods import (
     query,
 )
 from xian.nonce import NonceStorage
+from xian.parallel_executor import ParallelBlockExecutor
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
 from xian.services.bds.bds import BDS
@@ -85,13 +86,20 @@ class Xian:
         self.merkle_root_hash = None
         self.chain_id = self.genesis.get("chain_id", None)
 
-        self.block_service_mode = self.cometbft_config["xian"][
-            "block_service_mode"
-        ]
+        xian_config = self.cometbft_config.get("xian", {})
+        self.block_service_mode = xian_config.get("block_service_mode", False)
 
-        self.pruning_enabled = self.cometbft_config["xian"]["pruning_enabled"]
+        self.pruning_enabled = xian_config.get("pruning_enabled", False)
         # If pruning is enabled, this is the number of blocks to keep history for
-        self.blocks_to_keep = self.cometbft_config["xian"]["blocks_to_keep"]
+        self.blocks_to_keep = xian_config.get("blocks_to_keep", 100000)
+        self.parallel_block_executor = ParallelBlockExecutor(
+            storage_home=constants.STORAGE_HOME,
+            enabled=xian_config.get("parallel_execution_enabled", False),
+            workers=xian_config.get("parallel_execution_workers", 0),
+            min_transactions=xian_config.get(
+                "parallel_execution_min_transactions", 8
+            ),
+        )
         self.app_version = 1
         if self.chain_id is None:
             raise ValueError("No value set for 'chain_id' in genesis block")

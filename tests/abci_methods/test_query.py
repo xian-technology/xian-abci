@@ -102,7 +102,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["result"], "123.45")
         self.assertEqual(
             result["state"],
-            [{"key": "currency.balances:alice", "value": "99.55"}],
+            [{"key": "currency.balances:alice", "value": "99.4"}],
         )
         self.assertEqual(
             self.app.client.raw_driver.get("currency.balances:alice"),

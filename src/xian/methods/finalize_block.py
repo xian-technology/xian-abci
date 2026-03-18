@@ -46,24 +46,61 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         "chain_id": self.chain_id,
     }
 
+    decoded_entries = []
     for tx_bytes in req.txs:
         try:
-            tx, payload_str = decode_transaction_bytes(tx_bytes)
+            tx, _ = decode_transaction_bytes(tx_bytes)
         except Exception as e:
-            tx_results.append(
-                _error_tx_result(f"Error decoding transaction: {e}")
+            decoded_entries.append(
+                {
+                    "tx_bytes": tx_bytes,
+                    "error": _error_tx_result(
+                        f"Error decoding transaction: {e}"
+                    ),
+                }
             )
             continue
 
         # Attach metadata to the transaction
         tx["b_meta"] = self.current_block_meta
+        decoded_entries.append({"tx": tx, "tx_bytes": tx_bytes})
 
+    decoded_txs = [entry["tx"] for entry in decoded_entries if "tx" in entry]
+    processed_results = None
+
+    parallel_execution = self.parallel_block_executor.execute(
+        txs=decoded_txs,
+        tx_processor=self.tx_processor,
+        enabled_fees=self.enable_tx_fee,
+        rewards_handler=self.rewards_handler,
+    )
+    if parallel_execution is not None:
+        processed_results, parallel_stats = parallel_execution
+        logger.info(
+            "Parallel block execution accepted "
+            f"{parallel_stats.speculative_accepted}/{len(decoded_txs)} "
+            f"speculative results with {parallel_stats.serial_fallbacks} "
+            f"serial fallbacks across {parallel_stats.planned_stage_count} stages"
+        )
+
+    processed_iter = iter(processed_results or [])
+
+    for entry in decoded_entries:
+        if "error" in entry:
+            tx_results.append(entry["error"])
+            continue
+
+        tx = entry["tx"]
+        tx_bytes = entry["tx_bytes"]
         try:
-            result = self.tx_processor.process_tx(
-                tx,
-                enabled_fees=self.enable_tx_fee,
-                rewards_handler=self.rewards_handler,
-            )
+            if processed_results is not None:
+                result = next(processed_iter)
+            else:
+                result = self.tx_processor.process_tx(
+                    tx,
+                    enabled_fees=self.enable_tx_fee,
+                    rewards_handler=self.rewards_handler,
+                )
         except Exception as e:
             tx_results.append(_error_tx_result(f"Error processing tx: {e}"))
             continue
@@ -158,8 +195,9 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         if self.block_service_mode:
             cometbft_hash = hash_bytes(tx_bytes).upper()
             tx_result["hash"] = cometbft_hash
+            bds_payload = tx | {k: v for k, v in result.items() if k != "access"}
             asyncio.create_task(
-                self.bds.add_to_batch(tx | result, block_datetime)
+                self.bds.add_to_batch(bds_payload, block_datetime)
             )
 
     if self.static_rewards:

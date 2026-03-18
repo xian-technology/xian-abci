@@ -96,6 +96,27 @@ def build_parser() -> ArgumentParser:
         required=False,
         default=100000,
     )
+    parser.add_argument(
+        "--parallel-execution-enabled",
+        action=BooleanOptionalAction,
+        help="enable speculative parallel block execution",
+        required=False,
+        default=False,
+    )
+    parser.add_argument(
+        "--parallel-execution-workers",
+        type=int,
+        help="number of speculative execution workers",
+        required=False,
+        default=0,
+    )
+    parser.add_argument(
+        "--parallel-execution-min-transactions",
+        type=int,
+        help="minimum transactions in a block before parallel execution is used",
+        required=False,
+        default=8,
+    )
     return parser
 
 
@@ -115,6 +136,11 @@ def main(argv: list[str] | None = None) -> int:
         service_node=args.service_node,
         enable_pruning=args.enable_pruning,
         blocks_to_keep=args.blocks_to_keep,
+        parallel_execution_enabled=args.parallel_execution_enabled,
+        parallel_execution_workers=args.parallel_execution_workers,
+        parallel_execution_min_transactions=(
+            args.parallel_execution_min_transactions
+        ),
     )
     print("Make sure that port 26657 is open for the REST API")
     print("Make sure that port 26656 is open for P2P Node communication")

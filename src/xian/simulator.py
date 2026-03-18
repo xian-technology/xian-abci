@@ -95,6 +95,9 @@ class TransactionSimulator:
             "pending_writes": deepcopy(self.client.raw_driver.pending_writes),
             "pending_reads": deepcopy(self.client.raw_driver.pending_reads),
             "pending_deltas": deepcopy(self.client.raw_driver.pending_deltas),
+            "transaction_reads": deepcopy(
+                self.client.raw_driver.transaction_reads
+            ),
             "transaction_writes": deepcopy(
                 self.client.raw_driver.transaction_writes
             ),
@@ -106,6 +109,7 @@ class TransactionSimulator:
         driver.pending_writes = state_snapshot["pending_writes"]
         driver.pending_reads = state_snapshot["pending_reads"]
         driver.pending_deltas = state_snapshot["pending_deltas"]
+        driver.transaction_reads = state_snapshot["transaction_reads"]
         driver.transaction_writes = state_snapshot["transaction_writes"]
         driver.log_events = state_snapshot["log_events"]
 

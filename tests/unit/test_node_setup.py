@@ -20,6 +20,9 @@ class NodeSetupTests(unittest.TestCase):
             service_node=True,
             enable_pruning=True,
             blocks_to_keep=5000,
+            parallel_execution_enabled=True,
+            parallel_execution_workers=4,
+            parallel_execution_min_transactions=12,
             allow_cors=False,
         )
 
@@ -32,6 +35,11 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(config["xian"]["block_service_mode"])
         self.assertTrue(config["xian"]["pruning_enabled"])
         self.assertEqual(config["xian"]["blocks_to_keep"], 5000)
+        self.assertTrue(config["xian"]["parallel_execution_enabled"])
+        self.assertEqual(config["xian"]["parallel_execution_workers"], 4)
+        self.assertEqual(
+            config["xian"]["parallel_execution_min_transactions"], 12
+        )
 
     def test_materialize_home_writes_expected_files(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

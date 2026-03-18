@@ -132,6 +132,9 @@ namespace = "cometbft"
 block_service_mode = false
 pruning_enabled = false
 blocks_to_keep = 100000
+parallel_execution_enabled = false
+parallel_execution_workers = 0
+parallel_execution_min_transactions = 8
 """.strip()
 
 
@@ -229,6 +232,9 @@ def render_cometbft_config(
     service_node: bool = False,
     enable_pruning: bool = False,
     blocks_to_keep: int = 100000,
+    parallel_execution_enabled: bool = False,
+    parallel_execution_workers: int = 0,
+    parallel_execution_min_transactions: int = 8,
     proxy_app: str = "unix:///tmp/abci.sock",
     prometheus: bool = True,
 ) -> dict[str, Any]:
@@ -244,6 +250,11 @@ def render_cometbft_config(
         "block_service_mode": service_node,
         "pruning_enabled": enable_pruning,
         "blocks_to_keep": blocks_to_keep,
+        "parallel_execution_enabled": parallel_execution_enabled,
+        "parallel_execution_workers": parallel_execution_workers,
+        "parallel_execution_min_transactions": (
+            parallel_execution_min_transactions
+        ),
     }
     return config
 
