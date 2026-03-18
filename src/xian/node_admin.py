@@ -180,6 +180,8 @@ def configure_existing_home(
     service_node: bool = False,
     enable_pruning: bool = False,
     blocks_to_keep: int = 100000,
+    block_policy_mode: str = "on_demand",
+    block_policy_interval: str = "0s",
     parallel_execution_enabled: bool = False,
     parallel_execution_workers: int = 0,
     parallel_execution_min_transactions: int = 8,
@@ -197,6 +199,8 @@ def configure_existing_home(
         service_node=service_node,
         enable_pruning=enable_pruning,
         blocks_to_keep=blocks_to_keep,
+        block_policy_mode=block_policy_mode,
+        block_policy_interval=block_policy_interval,
         parallel_execution_enabled=parallel_execution_enabled,
         parallel_execution_workers=parallel_execution_workers,
         parallel_execution_min_transactions=(

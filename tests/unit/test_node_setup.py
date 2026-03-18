@@ -45,6 +45,38 @@ class NodeSetupTests(unittest.TestCase):
             config["xian"]["parallel_execution_min_transactions"], 12
         )
 
+    def test_render_config_supports_periodic_block_policy(self):
+        config = render_cometbft_config(
+            moniker="validator-1",
+            block_policy_mode="periodic",
+            block_policy_interval="10s",
+        )
+
+        self.assertTrue(config["consensus"]["create_empty_blocks"])
+        self.assertEqual(
+            config["consensus"]["create_empty_blocks_interval"], "10s"
+        )
+
+    def test_render_config_supports_idle_interval_block_policy(self):
+        config = render_cometbft_config(
+            moniker="validator-1",
+            block_policy_mode="idle_interval",
+            block_policy_interval="10s",
+        )
+
+        self.assertFalse(config["consensus"]["create_empty_blocks"])
+        self.assertEqual(
+            config["consensus"]["create_empty_blocks_interval"], "10s"
+        )
+
+    def test_render_config_rejects_zero_interval_for_periodic_modes(self):
+        with self.assertRaisesRegex(ValueError, "non-zero"):
+            render_cometbft_config(
+                moniker="validator-1",
+                block_policy_mode="periodic",
+                block_policy_interval="0s",
+            )
+
     def test_materialize_home_writes_expected_files(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             home = Path(tmp_dir) / ".cometbft"

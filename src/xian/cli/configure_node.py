@@ -4,6 +4,7 @@ import json
 from argparse import ArgumentParser, BooleanOptionalAction
 
 from xian.node_admin import configure_existing_home
+from xian.node_setup import SUPPORTED_BLOCK_POLICY_MODES
 
 
 def build_parser() -> ArgumentParser:
@@ -97,6 +98,20 @@ def build_parser() -> ArgumentParser:
         default=100000,
     )
     parser.add_argument(
+        "--block-policy-mode",
+        choices=sorted(SUPPORTED_BLOCK_POLICY_MODES),
+        help="block production policy for contract time progression",
+        required=False,
+        default="on_demand",
+    )
+    parser.add_argument(
+        "--block-policy-interval",
+        type=str,
+        help="interval used by idle_interval or periodic block policies",
+        required=False,
+        default="0s",
+    )
+    parser.add_argument(
         "--parallel-execution-enabled",
         action=BooleanOptionalAction,
         help="enable speculative parallel block execution",
@@ -136,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
         service_node=args.service_node,
         enable_pruning=args.enable_pruning,
         blocks_to_keep=args.blocks_to_keep,
+        block_policy_mode=args.block_policy_mode,
+        block_policy_interval=args.block_policy_interval,
         parallel_execution_enabled=args.parallel_execution_enabled,
         parallel_execution_workers=args.parallel_execution_workers,
         parallel_execution_min_transactions=(

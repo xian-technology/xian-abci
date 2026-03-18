@@ -7,14 +7,25 @@ Xian contract time is chain time, not wall-clock time.
 - `now` is deterministic because it comes from the block header agreed by consensus.
 - `now` is expressed in UTC and carried into contracts through the `Datetime` bridge type.
 
-## On-Demand Blocks
+## Block Policies
 
-Xian nodes are configured for on-demand block production:
+Xian supports three deterministic block-production policies:
 
 - `create_empty_blocks = false`
 - `create_empty_blocks_interval = "0s"`
 
-In that mode, chain time only advances when CometBFT produces a new block.
+This is `on_demand`. Chain time only advances when CometBFT produces a new
+block carrying transactions or a proof block.
+
+Two other valid policies are:
+
+- `idle_interval`: `create_empty_blocks = false` and
+  `create_empty_blocks_interval = "10s"` or similar
+- `periodic`: `create_empty_blocks = true` and
+  `create_empty_blocks_interval = "10s"` or similar
+
+All three are deterministic. The only semantic difference is when chain time
+advances during otherwise idle periods.
 
 Implications:
 
@@ -22,7 +33,8 @@ Implications:
 - Time-based state changes do not happen "in the background".
 - Deadlines and expirations are enforced when a transaction is executed in a later block.
 
-This is the correct tradeoff for a deterministic chain that does not want periodic empty blocks.
+This is the correct tradeoff for a deterministic chain that does not want
+periodic empty blocks.
 
 ## Contract Design Guidance
 

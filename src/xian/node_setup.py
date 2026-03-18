@@ -137,6 +137,36 @@ parallel_execution_workers = 0
 parallel_execution_min_transactions = 8
 """.strip()
 
+SUPPORTED_BLOCK_POLICY_MODES = {"on_demand", "idle_interval", "periodic"}
+
+
+def resolve_block_policy(
+    *,
+    mode: str = "on_demand",
+    interval: str = "0s",
+) -> tuple[bool, str]:
+    if mode not in SUPPORTED_BLOCK_POLICY_MODES:
+        raise ValueError(
+            "block_policy_mode must be one of "
+            f"{sorted(SUPPORTED_BLOCK_POLICY_MODES)}"
+        )
+    if not isinstance(interval, str) or not interval:
+        raise ValueError("block_policy_interval must be a non-empty string")
+
+    if mode == "on_demand":
+        return False, "0s"
+
+    if interval == "0s":
+        raise ValueError(
+            "block_policy_interval must be non-zero for idle_interval and "
+            "periodic modes"
+        )
+
+    if mode == "idle_interval":
+        return False, interval
+
+    return True, interval
+
 
 def _normalize_private_key(private_key_hex: str | None) -> bytes:
     if private_key_hex is None:
@@ -232,6 +262,8 @@ def render_cometbft_config(
     service_node: bool = False,
     enable_pruning: bool = False,
     blocks_to_keep: int = 100000,
+    block_policy_mode: str = "on_demand",
+    block_policy_interval: str = "0s",
     parallel_execution_enabled: bool = False,
     parallel_execution_workers: int = 0,
     parallel_execution_min_transactions: int = 8,
@@ -239,10 +271,16 @@ def render_cometbft_config(
     prometheus: bool = True,
 ) -> dict[str, Any]:
     config = toml_utils.loads(DEFAULT_CONFIG_TOML)
+    create_empty_blocks, create_empty_blocks_interval = resolve_block_policy(
+        mode=block_policy_mode,
+        interval=block_policy_interval,
+    )
     config["proxy_app"] = proxy_app
     config["moniker"] = moniker
-    config["consensus"]["create_empty_blocks"] = False
-    config["consensus"]["create_empty_blocks_interval"] = "0s"
+    config["consensus"]["create_empty_blocks"] = create_empty_blocks
+    config["consensus"]["create_empty_blocks_interval"] = (
+        create_empty_blocks_interval
+    )
     config["p2p"]["seeds"] = ",".join(seed_nodes or [])
     config["rpc"]["cors_allowed_origins"] = ["*"] if allow_cors else []
     config["instrumentation"]["prometheus"] = prometheus
