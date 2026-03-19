@@ -4,11 +4,11 @@ from decimal import Decimal
 from timeit import default_timer as timer
 from uuid import uuid4
 
-from contracting.stdlib.bridge.decimal import ContractingDecimal
 from contracting.stdlib.bridge.time import Datetime, Timedelta
 from loguru import logger
 from xian_py.decompiler import ContractDecompiler
 from xian_py.wallet import Wallet
+from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.services.bds import sql
 from xian.services.bds.config import Config

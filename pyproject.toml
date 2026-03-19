@@ -18,6 +18,7 @@ dependencies = [
     "pynacl>=1.6.2,<2",
     "xian-contracting",
     "xian-py",
+    "xian-runtime-types>=0.1.0,<0.2",
 ]
 keywords = ["blockchain", "cometbft", "abci", "xian", "python"]
 classifiers = [
@@ -86,3 +87,4 @@ ignore = ["E501"]
 [tool.uv.sources]
 xian-contracting = { path = "../xian-contracting", editable = true }
 xian-py = { path = "../xian-py", editable = true }
+xian-runtime-types = { path = "../xian-contracting/packages/xian-runtime-types", editable = true }

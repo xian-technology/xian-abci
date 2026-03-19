@@ -1,8 +1,8 @@
 import decimal
 from collections import defaultdict
 
-from contracting.stdlib.bridge.decimal import ContractingDecimal
 from loguru import logger
+from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.constants import Constants as c
 

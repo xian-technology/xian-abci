@@ -4,9 +4,9 @@ from typing import Callable
 import nacl
 import nacl.encoding
 import nacl.signing
-from contracting.stdlib.bridge.decimal import ContractingDecimal
 from contracting.storage.encoder import decode, encode
 from loguru import logger
+from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.exceptions import TransactionException
 from xian.formatting import (

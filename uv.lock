@@ -964,6 +964,7 @@ dependencies = [
     { name = "pynacl" },
     { name = "xian-contracting" },
     { name = "xian-py" },
+    { name = "xian-runtime-types" },
 ]
 
 [package.dev-dependencies]
@@ -984,6 +985,7 @@ requires-dist = [
     { name = "pynacl", specifier = ">=1.6.2,<2" },
     { name = "xian-contracting", editable = "../xian-contracting" },
     { name = "xian-py", editable = "../xian-py" },
+    { name = "xian-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
 ]
 
 [package.metadata.requires-dev]
@@ -1004,6 +1006,7 @@ dependencies = [
     { name = "cachetools" },
     { name = "lmdb" },
     { name = "pynacl" },
+    { name = "xian-runtime-types" },
 ]
 
 [package.metadata]
@@ -1012,6 +1015,7 @@ requires-dist = [
     { name = "cachetools", specifier = ">=5,<8" },
     { name = "lmdb", specifier = ">=1.6,<2" },
     { name = "pynacl", specifier = ">=1.5.0,<2" },
+    { name = "xian-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
 ]
 
 [package.metadata.requires-dev]
@@ -1029,6 +1033,7 @@ dependencies = [
     { name = "aiohttp" },
     { name = "astor" },
     { name = "pynacl" },
+    { name = "xian-runtime-types" },
 ]
 
 [package.metadata]
@@ -1039,6 +1044,7 @@ requires-dist = [
     { name = "eth-account", marker = "extra == 'eth'", specifier = ">=0.13.4,<0.14" },
     { name = "eth-utils", marker = "extra == 'eth'", specifier = ">=5.2.0,<6" },
     { name = "pynacl", specifier = ">=1.5.0,<2" },
+    { name = "xian-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
 ]
 provides-extras = ["hd", "eth"]
 
@@ -1048,6 +1054,11 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.0.0,<8" },
     { name = "ruff", specifier = ">=0.15.6,<0.16" },
 ]
+
+[[package]]
+name = "xian-runtime-types"
+version = "0.1.0"
+source = { editable = "../xian-contracting/packages/xian-runtime-types" }
 
 [[package]]
 name = "yarl"

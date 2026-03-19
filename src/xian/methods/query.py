@@ -2,9 +2,9 @@ import json
 import os
 
 from contracting.compilation import parser
-from contracting.stdlib.bridge.decimal import ContractingDecimal
 from contracting.storage.encoder import Encoder
 from loguru import logger
+from xian_runtime_types.decimal import ContractingDecimal
 
 from cometbft.abci.v1beta1.types_pb2 import ResponseQuery
 from xian.constants import Constants as c
