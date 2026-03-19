@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from contracting.storage.driver import Driver
-from contracting.storage.encoder import encode
 from xian_py.wallet import Wallet
+from xian_runtime_types.encoding import encode
 
 from xian.utils.block import (
     get_latest_block_hash,

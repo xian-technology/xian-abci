@@ -3,8 +3,8 @@ import json
 import marshal
 from datetime import UTC, datetime
 
-from contracting.storage.encoder import convert_dict
 from loguru import logger
+from xian_runtime_types.encoding import convert_dict
 
 from xian.constants import Constants as c
 

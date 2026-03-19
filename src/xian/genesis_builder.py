@@ -11,8 +11,8 @@ from typing import Any
 
 from contracting.client import ContractingClient
 from contracting.storage.driver import Driver
-from contracting.storage.encoder import encode
 from xian_py.wallet import Wallet
+from xian_runtime_types.encoding import encode
 
 from xian.config_paths import (
     resolve_contracts_dir as resolve_configs_contracts_dir,

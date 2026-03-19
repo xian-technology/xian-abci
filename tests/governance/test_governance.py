@@ -11,7 +11,7 @@ import os
 import sys
 from pathlib import Path
 from loguru import logger
-from contracting.stdlib.bridge.time import Datetime
+from xian_runtime_types.time import Datetime
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
 from xian.config_paths import resolve_contracts_dir

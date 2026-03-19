@@ -4,9 +4,9 @@ import hashlib
 import json
 from typing import Tuple
 
-from contracting.stdlib.bridge.time import Datetime
 from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal
+from xian_runtime_types.time import Datetime
 
 
 def encode_str(value):

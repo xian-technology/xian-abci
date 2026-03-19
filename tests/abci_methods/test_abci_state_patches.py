@@ -11,7 +11,7 @@ import datetime
 import math
 
 from xian.utils.block import set_latest_block_hash
-from contracting.stdlib.bridge.time import Datetime
+from xian_runtime_types.time import Datetime
 
 from fixtures.mock_constants import MockConstants
 import pytest

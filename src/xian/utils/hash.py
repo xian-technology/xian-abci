@@ -1,6 +1,6 @@
 import hashlib
 
-from contracting.storage.encoder import encode
+from xian_runtime_types.encoding import encode
 
 
 def hash_list(obj: list) -> bytes:

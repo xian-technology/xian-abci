@@ -4,8 +4,8 @@ import marshal
 import os
 
 from contracting.compilation.compiler import ContractingCompiler
-from contracting.storage.encoder import convert_dict
 from loguru import logger
+from xian_runtime_types.encoding import convert_dict
 
 from xian.utils.encoding import hash_bytes
 

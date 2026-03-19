@@ -6,9 +6,9 @@ import secrets
 from pathlib import Path
 from typing import Any, Sequence
 
-from contracting.storage.encoder import encode
 from nacl.encoding import Base64Encoder, HexEncoder
 from nacl.signing import SigningKey
+from xian_runtime_types.encoding import encode
 
 from xian import toml_utils
 

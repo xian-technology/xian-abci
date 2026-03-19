@@ -1,5 +1,5 @@
 import unittest
-from contracting.stdlib.bridge.time import Datetime, Timedelta
+from xian_runtime_types.time import Datetime, Timedelta
 from contracting.client import ContractingClient
 from xian.config_paths import resolve_contracts_dir
 import datetime
