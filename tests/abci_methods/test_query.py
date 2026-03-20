@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import unittest
 from io import BytesIO
 
@@ -31,6 +30,40 @@ def balance_of(account: str):
 """.strip()
 
 ACCOUNT = "c93dee52d7dc6cc43af44007c3b1dae5b730ccf18a9e6fb43521f8e4064561e6"
+
+
+class _FakeBDS:
+    async def get_state_patches(self, limit, offset):
+        return [
+            {
+                "hash": "PATCH-1",
+                "block_height": 12,
+                "patch_count": 2,
+                "patches": [
+                    {
+                        "key": "currency.balances:alice",
+                        "value": {"__fixed__": "12.5"},
+                        "comment": "repair",
+                    }
+                ],
+            }
+        ]
+
+    async def get_state_patches_for_block(self, block_height):
+        return [{"hash": f"PATCH-{block_height}", "block_height": block_height}]
+
+    async def get_state_patch_by_hash(self, patch_hash):
+        return {"hash": patch_hash, "block_height": 12, "patch_count": 2}
+
+    async def get_state_changes_for_patch(self, patch_hash):
+        return [
+            {
+                "key": "currency.balances:alice",
+                "value": {"__fixed__": "12.5"},
+                "block_height": 12,
+                "write_index": 0,
+            }
+        ]
 
 
 async def deserialize(raw: bytes) -> Response:
@@ -88,9 +121,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         encoded_payload = json.dumps(payload).encode("utf-8").hex()
 
         response = await self.process_request(
-            Request(
-                query=RequestQuery(path=f"/simulate_tx/{encoded_payload}")
-            )
+            Request(query=RequestQuery(path=f"/simulate_tx/{encoded_payload}"))
         )
         result = json.loads(response.query.value)
 
@@ -158,28 +189,9 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.query.code, Constants.OkCode)
         self.assertEqual(response.query.info, "str")
 
-    async def test_state_patches_query_real_file(self):
-        base_dir = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        )
-        patch_file_path = os.path.join(
-            base_dir,
-            "src",
-            "xian",
-            "tools",
-            "state_patches",
-            "state_patches.json",
-        )
-
-        self.assertTrue(
-            os.path.exists(patch_file_path),
-            f"State patches file not found at {patch_file_path}",
-        )
-
-        with open(patch_file_path, "r", encoding="utf-8") as handle:
-            expected_data = json.load(handle)
-
+    async def test_state_patches_query_uses_bds(self):
         self.app.block_service_mode = True
+        self.app.bds = _FakeBDS()
         response = await self.process_request(
             Request(query=RequestQuery(path="/state_patches"))
         )
@@ -188,9 +200,36 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.query.info, "str")
 
         result = json.loads(response.query.value)
-        self.assertEqual(result, expected_data)
-        self.assertIsInstance(result, dict)
-        self.assertTrue(result)
+        self.assertIsInstance(result, list)
+        self.assertEqual(result[0]["hash"], "PATCH-1")
+        self.assertEqual(result[0]["block_height"], 12)
+
+    async def test_state_patch_history_queries(self):
+        self.app.block_service_mode = True
+        self.app.bds = _FakeBDS()
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/state_patches_for_block/12"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(
+            json.loads(response.query.value)[0]["hash"], "PATCH-12"
+        )
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/state_patch/PATCH-1"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(json.loads(response.query.value)["hash"], "PATCH-1")
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/state_changes_for_patch/PATCH-1"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(
+            json.loads(response.query.value)[0]["key"],
+            "currency.balances:alice",
+        )
 
 
 if __name__ == "__main__":

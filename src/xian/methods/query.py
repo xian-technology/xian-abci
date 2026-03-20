@@ -1,5 +1,4 @@
 import json
-import os
 
 from contracting.compilation import parser
 from loguru import logger
@@ -62,6 +61,9 @@ async def query(self, req) -> ResponseQuery:
 
         # Blockchain Data Service
         elif self.block_service_mode:
+            if not hasattr(self, "bds"):
+                raise RuntimeError("BDS service is not initialized")
+
             limit = 100
             offset = 0
 
@@ -112,23 +114,21 @@ async def query(self, req) -> ResponseQuery:
 
             # http://localhost:26657/abci_query?path="/state_patches"
             elif path_parts[0] == "state_patches":
-                # Return the state patches JSON file content
-                src_dir = os.path.dirname(
-                    os.path.dirname(os.path.dirname(__file__))
-                )
-                patch_file_path = os.path.join(
-                    src_dir,
-                    "xian",
-                    "tools",
-                    "state_patches",
-                    "state_patches.json",
+                result = await self.bds.get_state_patches(limit, offset)
+
+            # http://localhost:26657/abci_query?path="/state_patches_for_block/123"
+            elif path_parts[0] == "state_patches_for_block":
+                result = await self.bds.get_state_patches_for_block(
+                    int(path_parts[1])
                 )
 
-                if os.path.exists(patch_file_path):
-                    with open(patch_file_path, "r") as f:
-                        result = json.load(f)
-                else:
-                    result = {}  # Return empty dict if file doesn't exist
+            # http://localhost:26657/abci_query?path="/state_patch/ABC123"
+            elif path_parts[0] == "state_patch":
+                result = await self.bds.get_state_patch_by_hash(key)
+
+            # http://localhost:26657/abci_query?path="/state_changes_for_patch/ABC123"
+            elif path_parts[0] == "state_changes_for_patch":
+                result = await self.bds.get_state_changes_for_patch(key)
 
             # http://localhost:26657/abci_query?path="/contracts/limit=10/offset=20"
             elif path_parts[0] == "contracts":

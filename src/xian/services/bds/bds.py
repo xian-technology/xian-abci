@@ -1,83 +1,25 @@
-import json
-from datetime import datetime
-from decimal import Decimal
+from __future__ import annotations
+
+from datetime import datetime, timezone
 from timeit import default_timer as timer
-from uuid import uuid4
+from typing import Any
 
 from loguru import logger
 from xian_py.decompiler import ContractDecompiler
-from xian_py.wallet import Wallet
-from xian_runtime_types.decimal import ContractingDecimal
-from xian_runtime_types.time import Datetime, Timedelta
 
 from xian.services.bds import sql
 from xian.services.bds.config import BdsConfig
-from xian.services.bds.database import DB, result_to_json
+from xian.services.bds.database import DB
+from xian.services.bds.serializer import (
+    canonical_decimal,
+    canonical_json_value,
+    canonical_result_value,
+    utc_datetime,
+)
 
-
-# Custom JSON encoder for our own objects
-def strip_trailing_zeros(s: str) -> str:
-    if "." in s:
-        s = s.rstrip("0").rstrip(".")
-    return s
-
-
-# Encodes everything to string - except for unknown objects
-class CustomEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, ContractingDecimal):
-            return strip_trailing_zeros(str(obj))
-        elif isinstance(obj, Decimal):
-            return strip_trailing_zeros(str(obj))
-        elif isinstance(obj, Datetime):
-            return obj._datetime.isoformat(timespec="microseconds")
-        elif isinstance(obj, Timedelta):
-            total_seconds = str(obj._timedelta.total_seconds())
-            return strip_trailing_zeros(total_seconds)
-        elif isinstance(obj, int):
-            return str(obj)
-        else:
-            return super().default(obj)
-
-    # To recursively process and handle custom types within nested structures
-    def encode(self, obj):
-        def process(o):
-            if isinstance(o, dict):
-                if len(o) == 1:
-                    if "__fixed__" in o:
-                        return strip_trailing_zeros(str(o["__fixed__"]))
-                    elif "__time__" in o:
-                        # Convert __time__ list to ISO 8601 string
-                        time_list = o["__time__"]
-                        # Ensure time_list has exactly 7 elements
-                        time_list += [0] * (7 - len(time_list))
-                        dt_obj = datetime(*time_list)
-                        # Convert to ISO 8601 string with microseconds
-                        return dt_obj.isoformat(timespec="microseconds")
-                # Process nested dictionaries and convert keys to strings
-                return {str(k): process(v) for k, v in o.items()}
-            elif isinstance(o, list):
-                # Process each item in the list
-                return [process(v) for v in o]
-            elif isinstance(o, ContractingDecimal):
-                return strip_trailing_zeros(str(o))
-            elif isinstance(o, Decimal):
-                return strip_trailing_zeros(str(o))
-            elif isinstance(o, Datetime):
-                # Serialize datetime as ISO formatted string
-                return o._datetime.isoformat(timespec="microseconds")
-            elif isinstance(o, Timedelta):
-                # Serialize total seconds as a string
-                total_seconds = str(o._timedelta.total_seconds())
-                return strip_trailing_zeros(total_seconds)
-            elif isinstance(o, int):
-                return str(o)
-            else:
-                # Return the object as-is if it doesn't match any custom types
-                return o
-
-        # Encode the processed object
-        return super().encode(process(obj))
+GENESIS_BLOCK_HASH = "GENESIS"
+GENESIS_TX_HASH = "GENESIS"
+GENESIS_CREATED_AT = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 class BDS:
@@ -87,659 +29,547 @@ class BDS:
 
     async def init(self, cometbft_genesis: dict):
         await self.db.init_pool()
-        await self.__init_tables()
+        await self._prepare_schema()
 
-        has_entries = await self.db.has_entries("transactions")
-        if not has_entries:
+        if not await self.db.has_entries("blocks"):
             await self.process_genesis_block(cometbft_genesis)
 
         logger.info("BDS service initialized")
         return self
 
+    async def _prepare_schema(self) -> None:
+        await self.db.execute(sql.create_meta())
+        current_version = await self.db.fetchval(sql.select_schema_version())
+        if current_version != str(sql.SCHEMA_VERSION):
+            if (
+                current_version is not None
+                or await self._legacy_tables_present()
+            ):
+                logger.warning(
+                    "Resetting BDS schema to version {}",
+                    sql.SCHEMA_VERSION,
+                )
+                await self.db.execute(sql.drop_all_tables())
+            await self.db.execute(sql.create_meta())
+
+        for statement in (
+            sql.create_blocks(),
+            sql.create_transactions(),
+            sql.create_state_changes(),
+            sql.create_state(),
+            sql.create_events(),
+            sql.create_rewards(),
+            sql.create_contracts(),
+            sql.create_state_patches(),
+        ):
+            await self.db.execute(statement)
+
+        await self.db.execute(
+            sql.upsert_schema_version(),
+            [str(sql.SCHEMA_VERSION), utc_datetime(datetime.now())],
+        )
+
+    async def _legacy_tables_present(self) -> bool:
+        return bool(
+            await self.db.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name IN (
+                        'transactions',
+                        'state',
+                        'state_changes',
+                        'events',
+                        'rewards',
+                        'contracts',
+                        'state_patches',
+                        'addresses'
+                      )
+                );
+                """
+            )
+        )
+
     async def process_genesis_block(self, cometbft_genesis: dict):
         start_time = timer()
-
         genesis_state = cometbft_genesis["abci_genesis"]["genesis"]
+        block_time = GENESIS_CREATED_AT
 
-        # insert genesis txn
-        await self.insert_genesis_txn(genesis_state)
+        async with self.db.pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    sql.insert_block(),
+                    0,
+                    GENESIS_BLOCK_HASH,
+                    0,
+                    block_time,
+                    1,
+                    GENESIS_BLOCK_HASH,
+                    block_time,
+                )
+                await connection.execute(
+                    sql.insert_transaction(),
+                    GENESIS_TX_HASH,
+                    0,
+                    GENESIS_BLOCK_HASH,
+                    0,
+                    0,
+                    "sys",
+                    0,
+                    "GENESIS_SUBMISSION",
+                    "process_genesis_block",
+                    True,
+                    0,
+                    0,
+                    {"status": "ok", "genesis_entries": len(genesis_state)},
+                    {"kind": "genesis"},
+                    {
+                        "kind": "genesis",
+                        "genesis": canonical_json_value(genesis_state),
+                    },
+                    block_time,
+                )
 
-        # process each item in the genesis block
-        for index, state in enumerate(genesis_state):
-            logger.debug(f"processing item {index} from genesis_state")
-            parts = state["key"].split(".")
+                current_index: dict[str, tuple[int | None, str | None]] = {}
+                for write_index, state in enumerate(genesis_state):
+                    key = state["key"]
+                    value = canonical_json_value(state["value"])
+                    previous_change_id, previous_tx_hash = current_index.get(
+                        key, (None, None)
+                    )
+                    change_id = await connection.fetchval(
+                        sql.insert_state_change(),
+                        0,
+                        GENESIS_BLOCK_HASH,
+                        0,
+                        GENESIS_TX_HASH,
+                        0,
+                        write_index,
+                        key,
+                        value,
+                        previous_change_id,
+                        previous_tx_hash,
+                        "genesis",
+                        block_time,
+                    )
+                    current_index[key] = (change_id, GENESIS_TX_HASH)
+                    await connection.execute(
+                        sql.upsert_state(),
+                        key,
+                        value,
+                        change_id,
+                        GENESIS_TX_HASH,
+                        0,
+                        block_time,
+                    )
 
-            if parts[1] == "__code__":
-                submission_time = self.get_submission_time(
-                    genesis_state, parts[0]
-                )
-                await self.insert_genesis_state_contract(
-                    parts[0], state["value"], submission_time
-                )
-            else:
-                await self.insert_genesis_state_change(
-                    state["key"], state["value"]
-                )
-                await self.insert_genesis_state(state["key"], state["value"])
+                    if key.endswith(".__code__"):
+                        contract_name = key.split(".", 1)[0]
+                        original_code = ContractDecompiler().decompile(
+                            state["value"]
+                        )
+                        submission_time = self.get_submission_time(
+                            genesis_state, contract_name
+                        )
+                        await connection.execute(
+                            sql.upsert_contract(),
+                            contract_name,
+                            GENESIS_TX_HASH,
+                            0,
+                            submission_time,
+                            original_code,
+                            self.is_XSC0001(original_code),
+                        )
 
         logger.debug(
             f"Saved genesis block to BDS in {timer() - start_time:.3f} seconds"
         )
 
-    async def __init_tables(self):
-        try:
-            await self.db.execute(sql.create_transactions())
-            await self.db.execute(sql.create_state_changes())
-            await self.db.execute(sql.create_rewards())
-            await self.db.execute(sql.create_contracts())
-            await self.db.execute(sql.create_addresses())
-            await self.db.execute(sql.create_state())
-            await self.db.execute(sql.create_events())
-            await self.db.execute(sql.create_state_patches())
-        except Exception as e:
-            logger.exception(e)
-
-    async def add_to_batch(self, tx: dict, block_time: datetime):
-        await self._insert_tx(tx, block_time)
-        await self._insert_state(tx, block_time)
-        await self._insert_state_changes(tx, block_time)
-        await self._insert_rewards(tx, block_time)
-        await self._insert_addresses(tx, block_time)
-        await self._insert_contracts(tx, block_time)
-        await self._insert_events(tx, block_time)
-
-    async def commit_batch(self):
+    async def persist_block(
+        self,
+        *,
+        block_meta: dict[str, Any],
+        block_time: datetime,
+        app_hash: str,
+        transactions: list[dict[str, Any]],
+        state_patches: list[dict[str, Any]] | None = None,
+        state_patch_hash: str | None = None,
+    ) -> None:
         start_time = timer()
-        try:
-            query_count = await self.db.commit_batch_to_disk()
-        except Exception as exc:
-            logger.exception(f"Failed to save block to BDS: {exc}")
-            return
-        if query_count == 0:
-            return
-        logger.debug(
-            f"Saved block to BDS in {timer() - start_time:.3f} seconds "
-            f"across {query_count} queued queries"
-        )
-
-    async def _insert_tx(self, tx: dict, block_time: datetime):
-        status = True if tx["tx_result"]["status"] == 0 else False
-        result = (
-            None
-            if tx["tx_result"]["result"] == "None"
-            else tx["tx_result"]["result"]
-        )
+        created_at = utc_datetime(block_time)
+        state_patches = state_patches or []
 
         try:
-            await self.db.add_query_to_batch(
-                sql.insert_transaction(),
-                [
-                    tx["tx_result"]["hash"],
-                    tx["payload"]["contract"],
-                    tx["payload"]["function"],
-                    tx["payload"]["sender"],
-                    tx["payload"]["nonce"],
-                    tx["tx_result"]["stamps_used"],
-                    tx["b_meta"]["hash"],
-                    tx["b_meta"]["height"],
-                    tx["b_meta"]["nanos"],
-                    status,
-                    result,
-                    json.dumps(tx, cls=CustomEncoder),
-                    block_time,
-                ],
-            )
-        except Exception as e:
-            logger.exception(e)
+            async with self.db.pool.acquire() as connection:
+                async with connection.transaction():
+                    await connection.execute(
+                        sql.insert_block(),
+                        block_meta["height"],
+                        block_meta["hash"],
+                        block_meta["nanos"],
+                        created_at,
+                        len(transactions),
+                        app_hash,
+                        created_at,
+                    )
 
-    async def _insert_state_changes(self, tx: dict, block_time: datetime):
-        for state_change in tx["tx_result"]["state"]:
-            try:
-                await self.db.add_query_to_batch(
-                    sql.insert_state_changes(),
-                    [
-                        None,
-                        tx["tx_result"]["hash"],
-                        state_change["key"],
-                        json.dumps(state_change["value"], cls=CustomEncoder),
-                        block_time,
-                    ],
-                )
+                    touched_keys = {
+                        state_change["key"]
+                        for tx in transactions
+                        for state_change in tx["tx_result"]["state"]
+                    }
+                    touched_keys.update(
+                        patch["key"]
+                        for patch in state_patches
+                        if "key" in patch
+                    )
+                    current_index = await self._load_current_state_index(
+                        connection, touched_keys
+                    )
 
-            except Exception as e:
-                logger.exception(e)
-
-    async def _insert_state(self, tx: dict, block_time: datetime):
-        for state_change in tx["tx_result"]["state"]:
-            try:
-                await self.db.add_query_to_batch(
-                    sql.insert_or_update_state(),
-                    [
-                        state_change["key"],
-                        json.dumps(state_change["value"], cls=CustomEncoder),
-                        block_time,
-                    ],
-                )
-
-            except Exception as e:
-                logger.exception(e)
-
-    async def _insert_rewards(self, tx: dict, block_time: datetime):
-        async def insert(type, key, value):
-            await self.db.add_query_to_batch(
-                sql.insert_rewards(),
-                [
-                    None,
-                    tx["tx_result"]["hash"],
-                    type,
-                    key,
-                    strip_trailing_zeros(str(value)),
-                    block_time,
-                ],
-            )
-
-        rewards = tx["tx_result"]["rewards"]
-
-        if rewards:
-            # Developer reward
-            for address, reward in rewards["developer_reward"].items():
-                try:
-                    await insert("developer", address, reward)
-                except Exception as e:
-                    logger.exception(e)
-
-            # Masternode reward
-            for address, reward in rewards["masternode_reward"].items():
-                try:
-                    await insert("masternode", address, reward)
-                except Exception as e:
-                    logger.exception(e)
-
-            # Foundation reward
-            for address, reward in rewards["foundation_reward"].items():
-                try:
-                    await insert("foundation", address, reward)
-                except Exception as e:
-                    logger.exception(e)
-
-    async def _insert_addresses(self, tx: dict, block_time: datetime):
-        for state_change in tx["tx_result"]["state"]:
-            if state_change["key"].startswith("currency.balances:"):
-                address = state_change["key"].replace("currency.balances:", "")
-                if Wallet.is_valid_key(address):
-                    try:
-                        await self.db.add_query_to_batch(
-                            sql.insert_addresses(),
-                            [tx["tx_result"]["hash"], address, block_time],
+                    for tx in transactions:
+                        await self._persist_transaction(
+                            connection,
+                            block_meta=block_meta,
+                            block_time=created_at,
+                            current_index=current_index,
+                            tx=tx,
                         )
-                    except Exception as e:
-                        logger.exception(e)
 
-    async def _insert_events(self, tx: dict, block_time: datetime):
-        for event in tx["tx_result"]["events"]:
-            try:
-                await self.db.add_query_to_batch(
-                    sql.insert_events(),
-                    [
-                        event["contract"],  # Contract name
-                        event["event"],  # Event name
-                        event["signer"],  # Signer of the event
-                        event["caller"],  # Caller of the event
-                        json.dumps(
-                            event["data_indexed"], cls=CustomEncoder
-                        ),  # Serialize indexed data
-                        json.dumps(
-                            event["data"], cls=CustomEncoder
-                        ),  # Serialize non-indexed data
-                        tx["tx_result"]["hash"],
-                        block_time,  # Created timestamp
-                    ],
-                )
-            except Exception as e:
-                logger.exception(e)
-
-    async def _insert_contracts(self, tx: dict, block_time: datetime):
-        # Only save contracts if tx was successful
-        if tx["tx_result"]["status"] != 0:
+                    if state_patches:
+                        await self._persist_state_patches(
+                            connection,
+                            block_meta=block_meta,
+                            block_time=created_at,
+                            current_index=current_index,
+                            state_patches=state_patches,
+                            state_patch_hash=state_patch_hash
+                            or f"STATE_PATCH_{block_meta['height']}",
+                            tx_index=len(transactions),
+                        )
+        except Exception as exc:
+            logger.exception(f"Failed to persist block to BDS: {exc}")
             return
+
+        logger.debug(
+            "Saved block {} to BDS in {:.3f} seconds",
+            block_meta["height"],
+            timer() - start_time,
+        )
+
+    async def _persist_transaction(
+        self,
+        connection,
+        *,
+        block_meta: dict[str, Any],
+        block_time: datetime,
+        current_index: dict[str, tuple[int | None, str | None]],
+        tx: dict[str, Any],
+    ) -> None:
+        tx_result = tx["tx_result"]
+        payload = tx["payload"]
+        tx_hash = tx_result["hash"]
+        tx_index = int(tx["tx_index"])
+
+        await connection.execute(
+            sql.insert_transaction(),
+            tx_hash,
+            block_meta["height"],
+            block_meta["hash"],
+            block_meta["nanos"],
+            tx_index,
+            payload["sender"],
+            payload["nonce"],
+            payload["contract"],
+            payload["function"],
+            tx_result["status"] == 0,
+            tx_result["status"],
+            tx_result["stamps_used"],
+            canonical_result_value(tx_result.get("result")),
+            canonical_json_value(payload),
+            canonical_json_value(tx["envelope"]),
+            block_time,
+        )
+
+        for write_index, state_change in enumerate(tx_result["state"]):
+            key = state_change["key"]
+            value = canonical_json_value(state_change["value"])
+            previous_change_id, previous_tx_hash = current_index.get(
+                key, (None, None)
+            )
+            change_id = await connection.fetchval(
+                sql.insert_state_change(),
+                block_meta["height"],
+                block_meta["hash"],
+                block_meta["nanos"],
+                tx_hash,
+                tx_index,
+                write_index,
+                key,
+                value,
+                previous_change_id,
+                previous_tx_hash,
+                "transaction",
+                block_time,
+            )
+            current_index[key] = (change_id, tx_hash)
+            await connection.execute(
+                sql.upsert_state(),
+                key,
+                value,
+                change_id,
+                tx_hash,
+                block_meta["height"],
+                block_time,
+            )
+
+        reward_index = 0
+        for reward_type, rewards in tx_result.get("rewards", {}).items():
+            for recipient_key, value in rewards.items():
+                await connection.execute(
+                    sql.insert_reward(),
+                    block_meta["height"],
+                    tx_hash,
+                    tx_index,
+                    reward_index,
+                    reward_type,
+                    recipient_key,
+                    canonical_decimal(value),
+                    block_time,
+                )
+                reward_index += 1
+
+        for event_index, event in enumerate(tx_result.get("events", [])):
+            await connection.execute(
+                sql.insert_event(),
+                block_meta["height"],
+                tx_hash,
+                tx_index,
+                event_index,
+                str(event.get("contract", "")),
+                str(event.get("event", "ContractEvent")),
+                str(event.get("signer", "")),
+                str(event.get("caller", "")),
+                canonical_json_value(event.get("data_indexed", {})),
+                canonical_json_value(event.get("data", {})),
+                block_time,
+            )
 
         if (
-            tx["payload"]["contract"] == "submission"
-            and tx["payload"]["function"] == "submit_contract"
+            tx_result["status"] == 0
+            and payload["contract"] == "submission"
+            and payload["function"] == "submit_contract"
         ):
-            try:
-                await self.db.add_query_to_batch(
-                    sql.insert_contracts(),
+            code = payload["kwargs"]["code"]
+            await connection.execute(
+                sql.upsert_contract(),
+                payload["kwargs"]["name"],
+                tx_hash,
+                block_meta["height"],
+                block_time,
+                code,
+                self.is_XSC0001(code),
+            )
+
+    async def _persist_state_patches(
+        self,
+        connection,
+        *,
+        block_meta: dict[str, Any],
+        block_time: datetime,
+        current_index: dict[str, tuple[int | None, str | None]],
+        state_patches: list[dict[str, Any]],
+        state_patch_hash: str,
+        tx_index: int,
+    ) -> None:
+        await connection.execute(
+            sql.insert_transaction(),
+            state_patch_hash,
+            block_meta["height"],
+            block_meta["hash"],
+            block_meta["nanos"],
+            tx_index,
+            "sys",
+            0,
+            "STATE_PATCHER",
+            "STATE_PATCH",
+            True,
+            0,
+            0,
+            {
+                "patch_count": len(state_patches),
+                "comment": "State Patch Pseudo-Transaction",
+            },
+            {"kind": "state_patch"},
+            {
+                "kind": "state_patch",
+                "patches": canonical_json_value(
                     [
-                        tx["tx_result"]["hash"],
-                        tx["payload"]["kwargs"]["name"],
-                        tx["payload"]["kwargs"]["code"],
-                        self.is_XSC0001(tx["payload"]["kwargs"]["code"]),
-                        block_time,
-                    ],
-                )
-            except Exception as e:
-                logger.exception(e)
+                        {
+                            "key": patch["key"],
+                            "value": patch["value"],
+                            "comment": patch.get("comment", ""),
+                        }
+                        for patch in state_patches
+                    ]
+                ),
+            },
+            block_time,
+        )
+
+        for write_index, patch in enumerate(state_patches):
+            key = patch["key"]
+            value = canonical_json_value(patch["value"])
+            previous_change_id, previous_tx_hash = current_index.get(
+                key, (None, None)
+            )
+            change_id = await connection.fetchval(
+                sql.insert_state_change(),
+                block_meta["height"],
+                block_meta["hash"],
+                block_meta["nanos"],
+                state_patch_hash,
+                tx_index,
+                write_index,
+                key,
+                value,
+                previous_change_id,
+                previous_tx_hash,
+                "state_patch",
+                block_time,
+            )
+            current_index[key] = (change_id, state_patch_hash)
+            await connection.execute(
+                sql.upsert_state(),
+                key,
+                value,
+                change_id,
+                state_patch_hash,
+                block_meta["height"],
+                block_time,
+            )
+
+        await connection.execute(
+            sql.insert_state_patch_record(),
+            state_patch_hash,
+            block_meta["height"],
+            block_meta["hash"],
+            block_meta["nanos"],
+            len(state_patches),
+            canonical_json_value(
+                [
+                    {
+                        "key": patch["key"],
+                        "value": patch["value"],
+                        "comment": patch.get("comment", ""),
+                    }
+                    for patch in state_patches
+                ]
+            ),
+            block_time,
+        )
+
+    async def _load_current_state_index(
+        self,
+        connection,
+        keys: set[str],
+    ) -> dict[str, tuple[int | None, str | None]]:
+        if not keys:
+            return {}
+
+        rows = await connection.fetch(
+            """
+            SELECT key, last_change_id, last_tx_hash
+            FROM state
+            WHERE key = ANY($1::text[]);
+            """,
+            list(keys),
+        )
+        return {
+            row["key"]: (row["last_change_id"], row["last_tx_hash"])
+            for row in rows
+        }
 
     async def get_contracts(self, limit: int = 100, offset: int = 0):
-        try:
-            result = await self.db.fetch(
-                sql.select_contracts(), [limit, offset]
-            )
-
-            results = []
-            for row in result:
-                row_dict = dict(row)
-                results.append(row_dict)
-
-            # Convert the list of dictionaries to JSON
-            results_json = json.dumps(results, default=str)
-
-            return results_json
-        except Exception as e:
-            logger.exception(e)
+        rows = await self.db.fetch(sql.select_contracts(), [limit, offset])
+        return [dict(row) for row in rows]
 
     async def get_state(self, key: str, limit: int = 100, offset: int = 0):
-        try:
-            result = await self.db.fetch(
-                sql.select_state(), [key, limit, offset]
-            )
-
-            results = []
-            for row in result:
-                row_dict = dict(row)
-                results.append(row_dict)
-
-            # Convert the list of dictionaries to JSON
-            results_json = json.dumps(results, default=str)
-
-            return results_json
-        except Exception as e:
-            logger.exception(e)
+        rows = await self.db.fetch(sql.select_state(), [key, limit, offset])
+        return [dict(row) for row in rows]
 
     async def get_state_history(
         self, key: str, limit: int = 100, offset: int = 0
     ):
-        try:
-            result = await self.db.fetch(
-                sql.select_state_history(), [key, limit, offset]
-            )
+        rows = await self.db.fetch(
+            sql.select_state_history(), [key, limit, offset]
+        )
+        return [dict(row) for row in rows]
 
-            results = []
-            for row in result:
-                row_dict = dict(row)
-                try:
-                    # Parse the value column if it contains JSON
-                    row_dict["value"] = json.loads(row_dict["value"])
-                except (json.JSONDecodeError, TypeError):
-                    pass
-                results.append(row_dict)
-
-            # Convert the list of dictionaries to JSON
-            results_json = json.dumps(results, default=str)
-
-            return results_json
-        except Exception as e:
-            logger.exception(e)
-
-    async def get_state_for_tx(self, key: str):
-        try:
-            result = await self.db.fetch(sql.select_state_tx(), [key])
-            return result_to_json(result)
-        except Exception as e:
-            logger.exception(e)
+    async def get_state_for_tx(self, tx_hash: str):
+        rows = await self.db.fetch(sql.select_state_tx(), [tx_hash])
+        return [dict(row) for row in rows]
 
     async def get_state_for_block(self, key: str):
-        try:
-            if len(key) == 64:
-                result = await self.db.fetch(
-                    sql.select_state_block_hash(), [key]
-                )
-            else:
-                result = await self.db.fetch(
-                    sql.select_state_block_height(), [int(key)]
-                )
-            return result_to_json(result)
-        except Exception as e:
-            logger.exception(e)
+        if len(key) == 64:
+            rows = await self.db.fetch(sql.select_state_block_hash(), [key])
+        else:
+            rows = await self.db.fetch(
+                sql.select_state_block_height(), [int(key)]
+            )
+        return [dict(row) for row in rows]
 
-    def is_XSC0001(self, code):
-        """
-        Check if contract code complies with XSC0001 standard
-        """
-        code = code.replace(" ", "")
+    async def get_state_patches(self, limit: int = 100, offset: int = 0):
+        rows = await self.db.fetch(sql.select_state_patches(), [limit, offset])
+        return [dict(row) for row in rows]
 
-        if "balances=Hash(" not in code:
+    async def get_state_patches_for_block(self, block_height: int):
+        rows = await self.db.fetch(
+            sql.select_state_patches_for_block(), [block_height]
+        )
+        return [dict(row) for row in rows]
+
+    async def get_state_patch_by_hash(self, patch_hash: str):
+        row = await self.db.fetchrow(
+            sql.select_state_patch_by_hash(), [patch_hash]
+        )
+        return dict(row) if row is not None else None
+
+    async def get_state_changes_for_patch(self, patch_hash: str):
+        rows = await self.db.fetch(
+            sql.select_state_changes_for_patch(), [patch_hash]
+        )
+        return [dict(row) for row in rows]
+
+    def is_XSC0001(self, code: str) -> bool:
+        normalized = code.replace(" ", "")
+        if "balances=Hash(" not in normalized:
             return False
-        if "@export\ndeftransfer(amount:float,to:str):" not in code:
+        if "@export\ndeftransfer(amount:float,to:str):" not in normalized:
             return False
-        if "@export\ndefapprove(amount:float,to:str):" not in code:
+        if "@export\ndefapprove(amount:float,to:str):" not in normalized:
             return False
         if (
             "@export\ndeftransfer_from(amount:float,to:str,main_account:str):"
-            not in code
+            not in normalized
         ):
             return False
         return True
 
-    async def insert_genesis_txn(self, genesis_state: dict):
-        await self.db.execute(
-            sql.insert_transaction(),
-            [
-                "GENESIS",
-                "GENESIS_SUBMISSION",
-                "process_genesis_block",
-                "sys",
-                0,
-                0,
-                "GENESIS",
-                0,
-                0,
-                True,
-                "OK",
-                json.dumps(genesis_state, cls=CustomEncoder),
-                datetime.now(),
-            ],
-        )
-
-    async def insert_genesis_state_contract(
-        self, contract_name, code, submission_time
-    ):
-        original_code = ContractDecompiler().decompile(code)
-
-        try:
-            await self.db.execute(
-                sql.insert_contracts(),
-                [
-                    "GENESIS",
-                    contract_name,
-                    original_code,
-                    self.is_XSC0001(original_code),
-                    submission_time,
-                ],
-            )
-        except Exception as e:
-            logger.exception(e)
-
-    async def insert_genesis_state_change(self, key, value):
-        try:
-            await self.db.execute(
-                sql.insert_state_changes(),
-                [
-                    None,
-                    "GENESIS",
-                    key,
-                    json.dumps(value, cls=CustomEncoder),
-                    datetime.now(),
-                ],
-            )
-        except Exception as e:
-            logger.exception(e)
-
-    async def insert_genesis_state(self, key, value):
-        try:
-            await self.db.execute(
-                sql.insert_or_update_state(),
-                [key, json.dumps(value, cls=CustomEncoder), datetime.now()],
-            )
-        except Exception as e:
-            logger.exception(e)
-
     def get_submission_time(
-        self, genesis_state: list, contract_name: str
+        self, genesis_state: list[dict[str, Any]], contract_name: str
     ) -> datetime:
         for item in genesis_state:
             if "con_" not in contract_name:
                 if contract_name == "submission":
-                    return datetime(1970, 1, 1, 0, 0, 0, 0)
-                return datetime(1970, 1, 1, 1, 0, 0, 0)
+                    return GENESIS_CREATED_AT
+                return datetime(1970, 1, 1, 1, 0, 0, tzinfo=timezone.utc)
             if (
                 isinstance(item, dict)
                 and item.get("key") == f"{contract_name}.__submitted__"
             ):
-                return datetime(*item["value"].get("__time__"))
-        return datetime.now()
-
-    async def add_state_patches(
-        self, patches: list, block_meta: dict, block_time: datetime
-    ):
-        """
-        Add state patches directly to BDS without creating a synthetic transaction.
-        This method handles state patches as direct state modifications.
-        """
-        patch_hash = f"STATE_PATCH_{block_meta['height']}"
-        logger.info(
-            f"Adding {len(patches)} state patches to BDS for block {block_meta['height']}"
-        )
-
-        # Create a transaction record for this state patch
-        await self.insert_state_patch_txn(
-            patches, block_meta, patch_hash, block_time
-        )
-
-        for patch in patches:
-            key = patch["key"]
-            value = patch["value"]
-            logger.info(f"Setting state patch for key {key}")
-            await self.set_state(
-                key, value, block_meta, block_time, tx_hash=patch_hash
-            )
-
-        # Record the patch metadata
-        try:
-            await self.db.add_query_to_batch(
-                sql.insert_state_patch_record(),
-                [
-                    patch_hash,
-                    block_meta["height"],
-                    block_meta["hash"],
-                    block_meta["nanos"],
-                    json.dumps(
-                        [
-                            {
-                                "key": p["key"],
-                                "value": p["value"],
-                                "comment": p.get("comment", ""),
-                            }
-                            for p in patches
-                        ],
-                        cls=CustomEncoder,
-                    ),
-                    block_time,
-                ],
-            )
-        except Exception as e:
-            logger.exception(f"Error recording state patch metadata: {e}")
-
-    async def get_state_patches(self, limit: int = 100, offset: int = 0):
-        """Get a list of all state patches with pagination."""
-        try:
-            result = await self.db.fetch(
-                sql.select_state_patches(), [limit, offset]
-            )
-
-            results = []
-            for row in result:
-                row_dict = dict(row)
-                results.append(row_dict)
-
-            # Convert the list of dictionaries to JSON
-            results_json = json.dumps(results, default=str)
-
-            return results_json
-        except Exception as e:
-            logger.exception(e)
-
-    async def get_state_patches_for_block(self, block_height: int):
-        """Get all state patches applied at a specific block height."""
-        try:
-            result = await self.db.fetch(
-                sql.select_state_patches_for_block(), [block_height]
-            )
-
-            results = []
-            for row in result:
-                row_dict = dict(row)
-                results.append(row_dict)
-
-            # Convert the list of dictionaries to JSON
-            results_json = json.dumps(results, default=str)
-
-            return results_json
-        except Exception as e:
-            logger.exception(e)
-
-    async def get_state_patch_by_hash(self, patch_hash: str):
-        """
-        Get a state patch by its hash
-        """
-        return await self.get_one(sql.select_state_patch_by_hash(), patch_hash)
-
-    async def get_state_changes_for_patch(self, patch_hash):
-        """
-        Get all state changes associated with a specific state patch
-        """
-        return await self.get_all(
-            sql.select_state_changes_for_patch(), patch_hash
-        )
-
-    async def insert_state_patch_txn(
-        self, patches, block_meta, patch_hash, block_time
-    ):
-        """
-        Create a transaction record for state patches, matching the 13 arguments
-        expected by sql.insert_transaction(). Pass arguments as a list for compatibility
-        with numbered placeholders ($1, $2, ...).
-        """
-        tx_values = {
-            "tx_hash": patch_hash,
-            "contract": "STATE_PATCHER",
-            "function": "STATE_PATCH",
-            "sender": "sys",
-            "nonce": 0,
-            "stamps_used": 0,
-            "block_hash": block_meta.get("hash"),
-            "block_height": block_meta["height"],
-            "block_time_nanos": block_meta.get("nanos"),
-            "success": True,
-            "status_code": "OK",
-            "metadata": json.dumps(
-                {
-                    "patch_count": len(patches),
-                    "comment": "State Patch Pseudo-Transaction",
-                }
-            ),
-            "created_at": block_time,
-        }
-
-        ordered_args = [
-            tx_values["tx_hash"],
-            tx_values["contract"],
-            tx_values["function"],
-            tx_values["sender"],
-            tx_values["nonce"],
-            tx_values["stamps_used"],
-            tx_values["block_hash"],
-            tx_values["block_height"],
-            tx_values["block_time_nanos"],
-            tx_values["success"],
-            tx_values["status_code"],
-            tx_values["metadata"],
-            tx_values["created_at"],
-        ]
-
-        logger.debug(
-            f"State Patch Tx Args Prepared (Count: {len(ordered_args)}): {ordered_args}"
-        )
-
-        try:
-            await self.db.execute(sql.insert_transaction(), ordered_args)
-            logger.info(
-                f"Created transaction record for state patch {patch_hash}"
-            )
-            return patch_hash
-        except Exception as e:
-            logger.error(
-                f"Error executing insert_transaction. Provided args (Count: {len(ordered_args)}): {ordered_args}"
-            )
-            logger.exception(
-                f"Failed to create transaction record for state patch: {e}"
-            )
-            raise e
-
-    async def set_state(
-        self, key, value, block_meta={}, block_time=None, tx_hash=None
-    ):
-        """set state updates state and state changes with the latest value"""
-        if not tx_hash:
-            tx_hash = f"BLOCK_{block_meta.get('height', '0')}"
-
-        if not block_time:
-            block_time = datetime.datetime.now(datetime.timezone.utc)
-
-        # Generate a proper UUID string
-        change_id = str(uuid4())
-
-        # Insert state change record - use a list/tuple for arguments to ensure correct ordering
-        await self.db.execute(
-            sql.insert_state_changes(),
-            [
-                change_id,  # Actual UUID string, not the key name "id"
-                tx_hash,
-                key,
-                json.dumps(value, cls=CustomEncoder),
-                block_time,
-            ],
-        )
-
-        # Update current state - also ensure correct argument ordering
-        await self.db.execute(
-            sql.insert_or_update_state(),
-            [
-                key,
-                json.dumps(value, cls=CustomEncoder),
-                block_time,
-            ],
-        )
-
-        # Special handling for contract code
-        parts = key.split(".")
-        if len(parts) > 1 and parts[1] == "__code__":
-            contract_name = parts[0]
-            code = value
-
-            try:
-                # First check if contract already exists
-                result = await self.db.fetch(
-                    sql.check_contract_exists(), [contract_name]
-                )
-                if result and len(result) > 0:
-                    # Update existing contract - use list for arguments
-                    await self.db.execute(
-                        sql.update_contract(),
-                        [
-                            tx_hash,
-                            code,
-                            self.is_XSC0001(code),
-                            block_time,
-                            contract_name,
-                        ],
-                    )
-                    logger.info(f"Updated existing contract {contract_name}")
-                else:
-                    # Insert new contract - use list for arguments
-                    await self.db.execute(
-                        sql.insert_contracts(),
-                        [
-                            tx_hash,
-                            contract_name,
-                            code,
-                            self.is_XSC0001(code),
-                            block_time,
-                        ],
-                    )
-                    logger.info(f"Inserted new contract {contract_name}")
-            except Exception as e:
-                logger.exception(
-                    f"Error handling contract code for {contract_name}: {e}"
-                )
+                time_value = item["value"].get("__time__")
+                return utc_datetime(datetime(*time_value))
+        return GENESIS_CREATED_AT

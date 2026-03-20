@@ -1,4 +1,3 @@
-import asyncio
 import json
 
 from loguru import logger
@@ -38,7 +37,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
     height = req.height
     tx_results = []
     reward_writes = []
-    bds_tasks = []
+    bds_transactions = []
     latest_block_hash = get_latest_block_hash()
     self.fingerprint_hashes.append(latest_block_hash.hex())
 
@@ -102,7 +101,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
     processed_iter = iter(processed_results or [])
 
     with self.profiler.scope("finalize_tx_loop", block_scoped=True):
-        for entry in decoded_entries:
+        for block_tx_index, entry in enumerate(decoded_entries):
             if "error" in entry:
                 tx_results.append(entry["error"])
                 continue
@@ -221,15 +220,17 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
             if self.block_service_mode:
                 cometbft_hash = hash_bytes(tx_bytes).upper()
                 tx_result["hash"] = cometbft_hash
-                bds_payload = tx | {
-                    k: v
-                    for k, v in result.items()
-                    if k not in {"access", "base_writes", "reward_deltas"}
-                }
-                bds_tasks.append(
-                    asyncio.create_task(
-                        self.bds.add_to_batch(bds_payload, block_datetime)
-                    )
+                bds_transactions.append(
+                    {
+                        "tx_index": block_tx_index,
+                        "envelope": {
+                            key: value
+                            for key, value in tx.items()
+                            if key != "b_meta"
+                        },
+                        "payload": tx["payload"],
+                        "tx_result": tx_result,
+                    }
                 )
 
     if self.static_rewards:
@@ -254,6 +255,8 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
 
         # Apply any state patches for this block and include hash in fingerprint
         state_patch_applied = False
+        patch_hash = None
+        applied_patches = []
         if hasattr(self, "state_patch_manager"):
             patch_hash, applied_patches = (
                 self.state_patch_manager.apply_patches_for_block(height, nanos)
@@ -267,25 +270,6 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                     f"Added state patch hash to block fingerprint: {patch_hash}"
                 )
 
-                # If BDS is enabled, record state patches directly
-                if self.block_service_mode and applied_patches:
-                    bds_tasks.append(
-                        asyncio.create_task(
-                            self.bds.add_state_patches(
-                                applied_patches,
-                                self.current_block_meta,
-                                block_datetime,
-                            )
-                        )
-                    )
-        # Save data to BDS - Process batch
-        if self.block_service_mode:
-            if bds_tasks:
-                with self.profiler.scope("finalize_bds_queue"):
-                    await asyncio.gather(*bds_tasks)
-            with self.profiler.scope("finalize_bds_commit"):
-                await self.bds.commit_batch()
-
         # No transactions and no state patches = no change to ABCI state, use previous block hash.
         # Otherwise, compute a new hash from the fingerprint hashes.
         self.merkle_root_hash = (
@@ -293,6 +277,17 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
             if (len(req.txs) == 0 and not state_patch_applied)
             else hash_list(self.fingerprint_hashes)
         )
+
+        if self.block_service_mode:
+            with self.profiler.scope("finalize_bds_commit"):
+                await self.bds.persist_block(
+                    block_meta=self.current_block_meta,
+                    block_time=block_datetime,
+                    app_hash=self.merkle_root_hash.hex().upper(),
+                    transactions=bds_transactions,
+                    state_patches=applied_patches,
+                    state_patch_hash=patch_hash,
+                )
 
     self.profiler.set_block_metadata(
         decoded_tx_count=len(decoded_txs),

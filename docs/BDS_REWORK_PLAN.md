@@ -1,5 +1,37 @@
 # BDS Rework Plan
 
+## Status
+
+Completed on `main` in the current rewrite:
+
+- runtime/env-driven BDS config replaced the old checked-in `config.json`
+- the old ad hoc batch flow was removed from the active BDS path
+- BDS now ingests one block at a time with one explicit database transaction
+- the schema now has first-class `blocks`
+- `state_changes` now carries chain-order and lineage metadata
+- current state is stored separately as a projection in `state`
+- the old `CustomEncoder` path was replaced by canonical runtime-based
+  serialization
+- state patch queries now read from BDS instead of the JSON file directly
+- BDS query paths now include:
+  - `/state`
+  - `/state_history`
+  - `/state_for_tx`
+  - `/state_for_block`
+  - `/state_patches`
+  - `/state_patches_for_block`
+  - `/state_patch/<hash>`
+  - `/state_changes_for_patch/<hash>`
+
+Still worth doing next:
+
+- add first-class BDS block / transaction / event query endpoints
+- decide whether BDS ingestion should stay in-process or move to a dedicated
+  sequential worker / external indexer
+- add replay/backfill capability for BDS after DB downtime
+- benchmark and tune large-table index strategy on realistic chain data
+- document the BDS query surface in `xian-docs-web`
+
 ## Goal
 
 Rework the Blockchain Data Service (BDS) so it behaves like a real chain data

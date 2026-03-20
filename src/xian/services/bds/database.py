@@ -1,5 +1,3 @@
-import asyncio
-import json
 import re
 from collections.abc import Sequence
 
@@ -9,22 +7,10 @@ from loguru import logger
 from xian.services.bds.config import BdsConfig
 
 
-def result_to_json(result):
-    results = []
-    for row in result:
-        row_dict = dict(row)
-        results.append(row_dict)
-
-    # Convert the list of dictionaries to JSON
-    return json.dumps(results, default=str)
-
-
 class DB:
     def __init__(self, config: BdsConfig):
         self.cfg = config
         self.pool = None
-        self.batch: list[tuple[str, tuple[object, ...]]] = []
-        self._batch_lock = asyncio.Lock()
 
     def _pool_kwargs(self) -> dict[str, object]:
         server_settings = {
@@ -107,31 +93,6 @@ class DB:
                 logger.exception(f"Error while executing SQL: {e}")
                 raise e
 
-    async def add_query_to_batch(
-        self, query: str, args: Sequence[object] | None = None
-    ) -> None:
-        async with self._batch_lock:
-            self.batch.append((query, tuple(args or ())))
-
-    async def commit_batch_to_disk(self) -> int:
-        async with self._batch_lock:
-            if not self.batch:
-                return 0
-            batch = self.batch
-            self.batch = []
-
-        async with self.pool.acquire() as connection:
-            try:
-                async with connection.transaction():
-                    for query, params in batch:
-                        await connection.execute(query, *params)
-            except Exception as e:
-                logger.exception(f"Error while executing SQL: {e}")
-                async with self._batch_lock:
-                    self.batch = list(batch) + self.batch
-                raise e
-        return len(batch)
-
     async def fetch(self, query: str, params: Sequence[object] | None = None):
         """
         This is meant for SELECT statements that return data
@@ -141,6 +102,28 @@ class DB:
             try:
                 result = await connection.fetch(query, *bound_params)
                 return result
+            except Exception as e:
+                logger.exception(f"Error while executing SQL: {e}")
+                raise e
+
+    async def fetchrow(
+        self, query: str, params: Sequence[object] | None = None
+    ):
+        bound_params = tuple(params or ())
+        async with self.pool.acquire() as connection:
+            try:
+                return await connection.fetchrow(query, *bound_params)
+            except Exception as e:
+                logger.exception(f"Error while executing SQL: {e}")
+                raise e
+
+    async def fetchval(
+        self, query: str, params: Sequence[object] | None = None
+    ):
+        bound_params = tuple(params or ())
+        async with self.pool.acquire() as connection:
+            try:
+                return await connection.fetchval(query, *bound_params)
             except Exception as e:
                 logger.exception(f"Error while executing SQL: {e}")
                 raise e
