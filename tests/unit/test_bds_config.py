@@ -53,6 +53,7 @@ class BdsConfigTests(unittest.TestCase):
                 "XIAN_BDS_STATEMENT_TIMEOUT_MS": "2500",
                 "XIAN_BDS_APPLICATION_NAME": "xian-bds-stack",
                 "XIAN_BDS_QUEUE_MAX_SIZE": "256",
+                "XIAN_BDS_SPOOL_DIR": "/tmp/xian-bds-spool",
             },
         )
 
@@ -66,6 +67,7 @@ class BdsConfigTests(unittest.TestCase):
         self.assertEqual(config.statement_timeout_ms, 2500)
         self.assertEqual(config.application_name, "xian-bds-stack")
         self.assertEqual(config.queue_max_size, 256)
+        self.assertEqual(config.spool_dir, "/tmp/xian-bds-spool")
 
 
 if __name__ == "__main__":

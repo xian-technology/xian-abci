@@ -4,6 +4,7 @@ import importlib
 import os
 import signal
 import sys
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 from contracting.client import ContractingClient
@@ -112,6 +113,11 @@ class Xian:
 
         self.block_service_mode = xian_config.get("block_service_mode", False)
         self.bds_config = BdsConfig.from_runtime_settings(xian_config)
+        if self.bds_config.spool_dir is None:
+            self.bds_config = replace(
+                self.bds_config,
+                spool_dir=str(constants.STORAGE_HOME / "bds-spool"),
+            )
 
         self.pruning_enabled = xian_config.get("pruning_enabled", False)
         # If pruning is enabled, this is the number of blocks to keep history for

@@ -36,6 +36,7 @@ class BdsConfig:
     statement_timeout_ms: int = 0
     application_name: str = "xian-bds"
     queue_max_size: int = 128
+    spool_dir: str | None = None
 
     @classmethod
     def from_runtime_settings(
@@ -52,6 +53,10 @@ class BdsConfig:
         dsn = _first_non_empty(
             bds_settings.get("dsn"),
             env.get("XIAN_BDS_DSN"),
+        )
+        spool_dir = _first_non_empty(
+            bds_settings.get("spool_dir"),
+            env.get("XIAN_BDS_SPOOL_DIR"),
         )
 
         return cls(
@@ -126,4 +131,5 @@ class BdsConfig:
                 ),
                 default=128,
             ),
+            spool_dir=str(spool_dir) if isinstance(spool_dir, str) else None,
         )

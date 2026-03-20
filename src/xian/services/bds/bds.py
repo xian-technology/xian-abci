@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from timeit import default_timer as timer
 from typing import Any
 
@@ -25,10 +27,16 @@ GENESIS_CREATED_AT = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 class BDS:
+    WORKER_RETRY_DELAY_SECONDS = 2.0
+    CLOSE_FLUSH_TIMEOUT_SECONDS = 1.0
+
     def __init__(self, config: BdsConfig):
         self.config = config
         self.db = DB(config)
-        self._queue: asyncio.Queue[BdsBlockPayload | None] | None = None
+        self.spool_dir = Path(config.spool_dir or ".bds-spool")
+        self._queue: (
+            asyncio.Queue[tuple[BdsBlockPayload, Path] | None] | None
+        ) = None
         self._worker_task: asyncio.Task | None = None
 
     async def init(self, cometbft_genesis: dict):
@@ -38,7 +46,9 @@ class BDS:
         if not await self.db.has_entries("blocks"):
             await self.process_genesis_block(cometbft_genesis)
 
+        self.spool_dir.mkdir(parents=True, exist_ok=True)
         self._start_worker()
+        await self._replay_spool()
         logger.info("BDS service initialized")
         return self
 
@@ -55,22 +65,42 @@ class BDS:
         assert self._queue is not None
 
         while True:
-            payload = await self._queue.get()
+            queued = await self._queue.get()
             try:
-                if payload is None:
+                if queued is None:
                     return
-                await self.persist_block(payload)
+                payload, spool_path = queued
+                while True:
+                    try:
+                        if await self.persist_block(payload):
+                            if spool_path.exists():
+                                spool_path.unlink()
+                            break
+                        await asyncio.sleep(self.WORKER_RETRY_DELAY_SECONDS)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        logger.exception(
+                            f"BDS worker failed to persist block: {exc}"
+                        )
+                        await asyncio.sleep(self.WORKER_RETRY_DELAY_SECONDS)
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:
-                logger.exception(f"BDS worker failed to persist block: {exc}")
             finally:
                 self._queue.task_done()
 
     async def enqueue_block(self, payload: BdsBlockPayload) -> None:
         if self._queue is None:
             raise RuntimeError("BDS worker is not initialized")
-        await self._queue.put(payload)
+        spool_path = self._write_spool_file(payload)
+        await self._queue.put((payload, spool_path))
+
+    async def _replay_spool(self) -> None:
+        if self._queue is None:
+            return
+        for spool_path in self._pending_spool_files():
+            payload = self._read_spool_file(spool_path)
+            await self._queue.put((payload, spool_path))
 
     async def flush(self) -> None:
         if self._queue is None:
@@ -80,12 +110,43 @@ class BDS:
     async def close(self) -> None:
         if self._queue is None:
             return
-        await self.flush()
-        await self._queue.put(None)
+        try:
+            await asyncio.wait_for(
+                self.flush(), timeout=self.CLOSE_FLUSH_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Timed out waiting for BDS queue flush; pending blocks remain in {}",
+                self.spool_dir,
+            )
         if self._worker_task is not None:
-            await self._worker_task
+            self._worker_task.cancel()
+            await asyncio.gather(self._worker_task, return_exceptions=True)
         self._worker_task = None
         self._queue = None
+
+    def _spool_file_path(self, payload: BdsBlockPayload) -> Path:
+        height = int(payload.block_meta["height"])
+        block_hash = str(payload.block_meta["hash"])
+        return self.spool_dir / f"{height:020d}-{block_hash}.json"
+
+    def _write_spool_file(self, payload: BdsBlockPayload) -> Path:
+        spool_path = self._spool_file_path(payload)
+        temp_path = spool_path.with_suffix(".json.tmp")
+        temp_path.write_text(
+            json.dumps(payload.to_spool_dict(), separators=(",", ":")),
+            encoding="utf-8",
+        )
+        temp_path.replace(spool_path)
+        return spool_path
+
+    def _read_spool_file(self, spool_path: Path) -> BdsBlockPayload:
+        return BdsBlockPayload.from_spool_dict(
+            json.loads(spool_path.read_text(encoding="utf-8"))
+        )
+
+    def _pending_spool_files(self) -> list[Path]:
+        return sorted(self.spool_dir.glob("*.json"))
 
     async def _prepare_schema(self) -> None:
         await self.db.execute(sql.create_meta())
@@ -237,12 +298,19 @@ class BDS:
             f"Saved genesis block to BDS in {timer() - start_time:.3f} seconds"
         )
 
-    async def persist_block(self, payload: BdsBlockPayload) -> None:
+    async def persist_block(self, payload: BdsBlockPayload) -> bool:
         start_time = timer()
         created_at = utc_datetime(payload.block_time)
         state_patches = payload.state_patches or []
 
         try:
+            already_persisted = await self.db.fetchval(
+                "SELECT 1 FROM blocks WHERE height = $1",
+                [payload.block_meta["height"]],
+            )
+            if already_persisted:
+                return True
+
             async with self.db.pool.acquire() as connection:
                 async with connection.transaction():
                     await connection.execute(
@@ -292,13 +360,14 @@ class BDS:
                         )
         except Exception as exc:
             logger.exception(f"Failed to persist block to BDS: {exc}")
-            return
+            return False
 
         logger.debug(
             "Saved block {} to BDS in {:.3f} seconds",
             payload.block_meta["height"],
             timer() - start_time,
         )
+        return True
 
     async def _persist_transaction(
         self,

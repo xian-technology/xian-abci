@@ -22,6 +22,8 @@ Completed on `main` in the current rewrite:
 - BDS writes now go through a dedicated sequential in-process worker instead
   of waiting on direct Postgres writes in `FinalizeBlock`
 - graceful node shutdown now flushes the BDS queue
+- BDS now writes block payloads to a local durable spool before enqueueing
+  them, so indexing can replay after node restarts or temporary DB downtime
 - BDS query paths now include:
   - `/state`
   - `/state_history`
@@ -34,13 +36,15 @@ Completed on `main` in the current rewrite:
 
 Still worth doing next:
 
-- add a local durable spool / replay path so BDS can catch up after downtime
 - decide later whether that worker should stay in-process or become a separate
   replayable external indexer
 - add replay/backfill capability for BDS after DB downtime
 - benchmark and tune large-table index strategy on realistic chain data
 - expose queue lag / worker health operationally
-- document eventual-consistency expectations for BDS-backed queries
+- document the local spool / replay behavior and operational expectations
+- add an explicit operator path to inspect and drain the spool safely
+- decide whether startup should block on spool catch-up or continue with
+  eventual consistency
 
 ## Goal
 
