@@ -95,6 +95,44 @@ async def query(self, req) -> ResponseQuery:
                 result = [key.split(":")[1] for key in list_of_keys]
                 key = path_parts[1]
 
+            # http://localhost:26657/abci_query?path="/blocks/limit=10/offset=20"
+            elif path_parts[0] == "blocks":
+                result = await self.bds.get_blocks(limit, offset)
+
+            # http://localhost:26657/abci_query?path="/block/123"
+            elif path_parts[0] == "block":
+                result = await self.bds.get_block(int(key))
+
+            # http://localhost:26657/abci_query?path="/block_by_hash/ABC123"
+            elif path_parts[0] == "block_by_hash":
+                result = await self.bds.get_block_by_hash(key)
+
+            # http://localhost:26657/abci_query?path="/tx/ABC123"
+            elif path_parts[0] == "tx":
+                result = await self.bds.get_tx(key)
+
+            # http://localhost:26657/abci_query?path="/txs_for_block/123"
+            elif path_parts[0] == "txs_for_block":
+                result = await self.bds.get_txs_for_block(key)
+
+            # http://localhost:26657/abci_query?path="/txs_by_sender/<vk>/limit=10/offset=20"
+            elif path_parts[0] == "txs_by_sender":
+                result = await self.bds.get_txs_by_sender(key, limit, offset)
+
+            # http://localhost:26657/abci_query?path="/txs_by_contract/<name>/limit=10/offset=20"
+            elif path_parts[0] == "txs_by_contract":
+                result = await self.bds.get_txs_by_contract(key, limit, offset)
+
+            # http://localhost:26657/abci_query?path="/events_for_tx/<tx_hash>"
+            elif path_parts[0] == "events_for_tx":
+                result = await self.bds.get_events_for_tx(key)
+
+            # http://localhost:26657/abci_query?path="/events/<contract>/<event>/limit=10/offset=20"
+            elif path_parts[0] == "events":
+                result = await self.bds.get_events(
+                    path_parts[1], path_parts[2], limit, offset
+                )
+
             # http://localhost:26657/abci_query?path="/state/currency.balances"
             elif path_parts[0] == "state":
                 result = await self.bds.get_state(key, limit, offset)

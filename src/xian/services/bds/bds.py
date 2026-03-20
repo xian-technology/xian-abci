@@ -496,6 +496,66 @@ class BDS:
         rows = await self.db.fetch(sql.select_contracts(), [limit, offset])
         return [dict(row) for row in rows]
 
+    async def get_blocks(self, limit: int = 100, offset: int = 0):
+        rows = await self.db.fetch(sql.select_blocks(), [limit, offset])
+        return [dict(row) for row in rows]
+
+    async def get_block(self, block_height: int):
+        row = await self.db.fetchrow(
+            sql.select_block_by_height(), [block_height]
+        )
+        return dict(row) if row is not None else None
+
+    async def get_block_by_hash(self, block_hash: str):
+        row = await self.db.fetchrow(sql.select_block_by_hash(), [block_hash])
+        return dict(row) if row is not None else None
+
+    async def get_tx(self, tx_hash: str):
+        row = await self.db.fetchrow(
+            sql.select_transaction_by_hash(), [tx_hash]
+        )
+        return dict(row) if row is not None else None
+
+    async def get_txs_for_block(self, block_ref: str):
+        if len(block_ref) == 64:
+            rows = await self.db.fetch(
+                sql.select_transactions_for_block_hash(), [block_ref]
+            )
+        else:
+            rows = await self.db.fetch(
+                sql.select_transactions_for_block_height(), [int(block_ref)]
+            )
+        return [dict(row) for row in rows]
+
+    async def get_txs_by_sender(
+        self, sender: str, limit: int = 100, offset: int = 0
+    ):
+        rows = await self.db.fetch(
+            sql.select_transactions_by_sender(), [sender, limit, offset]
+        )
+        return [dict(row) for row in rows]
+
+    async def get_txs_by_contract(
+        self, contract: str, limit: int = 100, offset: int = 0
+    ):
+        rows = await self.db.fetch(
+            sql.select_transactions_by_contract(), [contract, limit, offset]
+        )
+        return [dict(row) for row in rows]
+
+    async def get_events_for_tx(self, tx_hash: str):
+        rows = await self.db.fetch(sql.select_events_for_tx(), [tx_hash])
+        return [dict(row) for row in rows]
+
+    async def get_events(
+        self, contract: str, event: str, limit: int = 100, offset: int = 0
+    ):
+        rows = await self.db.fetch(
+            sql.select_events_by_contract_event(),
+            [contract, event, limit, offset],
+        )
+        return [dict(row) for row in rows]
+
     async def get_state(self, key: str, limit: int = 100, offset: int = 0):
         rows = await self.db.fetch(sql.select_state(), [key, limit, offset])
         return [dict(row) for row in rows]

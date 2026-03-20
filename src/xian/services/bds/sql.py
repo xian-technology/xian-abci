@@ -340,6 +340,221 @@ def select_contracts():
     """
 
 
+def select_blocks():
+    return """
+    SELECT
+        height,
+        block_hash,
+        block_time,
+        block_time_iso,
+        tx_count,
+        app_hash,
+        created_at
+    FROM blocks
+    ORDER BY height DESC
+    LIMIT $1 OFFSET $2;
+    """
+
+
+def select_block_by_height():
+    return """
+    SELECT
+        height,
+        block_hash,
+        block_time,
+        block_time_iso,
+        tx_count,
+        app_hash,
+        created_at
+    FROM blocks
+    WHERE height = $1;
+    """
+
+
+def select_block_by_hash():
+    return """
+    SELECT
+        height,
+        block_hash,
+        block_time,
+        block_time_iso,
+        tx_count,
+        app_hash,
+        created_at
+    FROM blocks
+    WHERE block_hash = $1;
+    """
+
+
+def select_transaction_by_hash():
+    return """
+    SELECT
+        hash,
+        block_height,
+        block_hash,
+        block_time,
+        tx_index,
+        sender,
+        nonce,
+        contract,
+        function,
+        success,
+        status_code,
+        stamps_used,
+        result,
+        payload,
+        envelope,
+        created_at
+    FROM transactions
+    WHERE hash = $1;
+    """
+
+
+def select_transactions_for_block_height():
+    return """
+    SELECT
+        hash,
+        block_height,
+        block_hash,
+        block_time,
+        tx_index,
+        sender,
+        nonce,
+        contract,
+        function,
+        success,
+        status_code,
+        stamps_used,
+        result,
+        payload,
+        envelope,
+        created_at
+    FROM transactions
+    WHERE block_height = $1
+    ORDER BY tx_index ASC;
+    """
+
+
+def select_transactions_for_block_hash():
+    return """
+    SELECT
+        hash,
+        block_height,
+        block_hash,
+        block_time,
+        tx_index,
+        sender,
+        nonce,
+        contract,
+        function,
+        success,
+        status_code,
+        stamps_used,
+        result,
+        payload,
+        envelope,
+        created_at
+    FROM transactions
+    WHERE block_hash = $1
+    ORDER BY tx_index ASC;
+    """
+
+
+def select_transactions_by_sender():
+    return """
+    SELECT
+        hash,
+        block_height,
+        block_hash,
+        block_time,
+        tx_index,
+        sender,
+        nonce,
+        contract,
+        function,
+        success,
+        status_code,
+        stamps_used,
+        result,
+        payload,
+        envelope,
+        created_at
+    FROM transactions
+    WHERE sender = $1
+    ORDER BY block_height DESC, tx_index DESC
+    LIMIT $2 OFFSET $3;
+    """
+
+
+def select_transactions_by_contract():
+    return """
+    SELECT
+        hash,
+        block_height,
+        block_hash,
+        block_time,
+        tx_index,
+        sender,
+        nonce,
+        contract,
+        function,
+        success,
+        status_code,
+        stamps_used,
+        result,
+        payload,
+        envelope,
+        created_at
+    FROM transactions
+    WHERE contract = $1
+    ORDER BY block_height DESC, tx_index DESC
+    LIMIT $2 OFFSET $3;
+    """
+
+
+def select_events_for_tx():
+    return """
+    SELECT
+        id,
+        block_height,
+        tx_hash,
+        tx_index,
+        event_index,
+        contract,
+        event,
+        signer,
+        caller,
+        data_indexed,
+        data,
+        created_at
+    FROM events
+    WHERE tx_hash = $1
+    ORDER BY event_index ASC;
+    """
+
+
+def select_events_by_contract_event():
+    return """
+    SELECT
+        id,
+        block_height,
+        tx_hash,
+        tx_index,
+        event_index,
+        contract,
+        event,
+        signer,
+        caller,
+        data_indexed,
+        data,
+        created_at
+    FROM events
+    WHERE contract = $1 AND event = $2
+    ORDER BY block_height DESC, tx_index DESC, event_index DESC
+    LIMIT $3 OFFSET $4;
+    """
+
+
 def select_state():
     return """
     SELECT

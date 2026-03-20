@@ -33,6 +33,33 @@ ACCOUNT = "c93dee52d7dc6cc43af44007c3b1dae5b730ccf18a9e6fb43521f8e4064561e6"
 
 
 class _FakeBDS:
+    async def get_blocks(self, limit, offset):
+        return [{"height": 12, "block_hash": "BLOCK-12", "tx_count": 3}]
+
+    async def get_block(self, block_height):
+        return {"height": block_height, "block_hash": f"BLOCK-{block_height}"}
+
+    async def get_block_by_hash(self, block_hash):
+        return {"height": 12, "block_hash": block_hash}
+
+    async def get_tx(self, tx_hash):
+        return {"hash": tx_hash, "block_height": 12, "sender": "alice"}
+
+    async def get_txs_for_block(self, block_ref):
+        return [{"hash": f"TX-{block_ref}", "block_height": 12, "tx_index": 0}]
+
+    async def get_txs_by_sender(self, sender, limit, offset):
+        return [{"hash": "TX-SENDER", "sender": sender}]
+
+    async def get_txs_by_contract(self, contract, limit, offset):
+        return [{"hash": "TX-CONTRACT", "contract": contract}]
+
+    async def get_events_for_tx(self, tx_hash):
+        return [{"tx_hash": tx_hash, "event": "Transfer"}]
+
+    async def get_events(self, contract, event, limit, offset):
+        return [{"contract": contract, "event": event}]
+
     async def get_state_patches(self, limit, offset):
         return [
             {
@@ -203,6 +230,76 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result, list)
         self.assertEqual(result[0]["hash"], "PATCH-1")
         self.assertEqual(result[0]["block_height"], 12)
+
+    async def test_block_and_transaction_queries_use_bds(self):
+        self.app.block_service_mode = True
+        self.app.bds = _FakeBDS()
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/blocks/limit=5/offset=0"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(json.loads(response.query.value)[0]["height"], 12)
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/block/12"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(
+            json.loads(response.query.value)["block_hash"], "BLOCK-12"
+        )
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/block_by_hash/BLOCK-12"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(json.loads(response.query.value)["height"], 12)
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/tx/TX-1"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(json.loads(response.query.value)["hash"], "TX-1")
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/txs_for_block/12"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(json.loads(response.query.value)[0]["hash"], "TX-12")
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/txs_by_sender/alice"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(json.loads(response.query.value)[0]["sender"], "alice")
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/txs_by_contract/currency"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(
+            json.loads(response.query.value)[0]["contract"], "currency"
+        )
+
+    async def test_event_queries_use_bds(self):
+        self.app.block_service_mode = True
+        self.app.bds = _FakeBDS()
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/events_for_tx/TX-1"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(
+            json.loads(response.query.value)[0]["event"], "Transfer"
+        )
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/events/currency/Transfer"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(
+            json.loads(response.query.value)[0]["contract"], "currency"
+        )
 
     async def test_state_patch_history_queries(self):
         self.app.block_service_mode = True
