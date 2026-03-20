@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade build
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Verify built version matches tag
+        run: |
+          python - <<'PY'
+          import pathlib
+          import sys
+
+          expected = "${{ github.ref_name }}".removeprefix("v")
+          files = [path.name for path in pathlib.Path("dist").iterdir() if path.is_file()]
+          if not files:
+              raise SystemExit("No distribution artifacts were built")
+          if not all(expected in name for name in files):
+              raise SystemExit(
+                  f"Built artifacts do not match tag version {expected}: {files}"
+              )
+          PY
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-dist
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/p/xian-abci
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: release-dist
+          path: dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs:
+      - build
+      - publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: release-dist
+          path: dist
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
+            --title "xian-abci ${GITHUB_REF_NAME#v}" \
+            --generate-notes

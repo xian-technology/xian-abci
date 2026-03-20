@@ -29,30 +29,30 @@ jobs:
 
     steps:
       - name: Check out xian-abci
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: xian-abci
 
       - name: Check out xian-contracting
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: xian-technology/xian-contracting
           path: xian-contracting
 
       - name: Check out xian-py
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: xian-technology/xian-py
           path: xian-py
 
       - name: Check out xian-configs
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: xian-technology/xian-configs
           path: xian-configs
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.14"
 
@@ -70,7 +70,7 @@ jobs:
           ./scripts/validate-repo.sh
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: xian-abci-coverage
           path: xian-abci/coverage.xml
