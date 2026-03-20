@@ -242,7 +242,6 @@ class TxProcessor:
 
             tx_output = {
                 "hash": tx_hash,
-                "transaction": transaction,
                 "status": output["status_code"],
                 "state": writes,
                 "events": output["events"],
@@ -358,8 +357,6 @@ class TxProcessor:
             for entry in tx_result["state"]
             if not is_compiled_key(entry["key"])
         ]
-        # remove original sent transaction
-        tx_result.pop("transaction")
         return tx_result
 
     def build_access_record(

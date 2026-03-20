@@ -92,6 +92,7 @@ class TestProcessor(unittest.TestCase):
         ]
 
         self.assertEqual(res["tx_result"]["events"], expected_events)
+        self.assertNotIn("transaction", res["tx_result"])
 
     def test_send_multiple_returns_events(self):
         self.d.set(
