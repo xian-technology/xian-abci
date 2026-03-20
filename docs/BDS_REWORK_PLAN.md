@@ -26,6 +26,8 @@ Completed on `main` in the current rewrite:
   them, so indexing can replay after node restarts or temporary DB downtime
 - BDS now exposes operator-facing status/spool inspection queries for queue
   depth, indexed head, lag, and pending spooled blocks
+- BDS now has a local `xian-bds-reindex` path for full historical backfill
+  from CometBFT RPC when the node still retains block history
 - BDS query paths now include:
   - `/state`
   - `/state_history`
@@ -40,13 +42,15 @@ Still worth doing next:
 
 - decide later whether that worker should stay in-process or become a separate
   replayable external indexer
-- add full historical replay/backfill for nodes that did not have BDS enabled
-  from the start
 - benchmark and tune large-table index strategy on realistic chain data
 - document the local spool / replay behavior and operational expectations
 - add an explicit operator path to inspect and drain the spool safely
 - decide whether startup should block on spool catch-up or continue with
   eventual consistency
+- decide whether and how to support importing BDS snapshots from another node
+  for faster bootstrap on large networks or pruned nodes
+- extend reindex/backfill to work against explicit archival RPC sources as a
+  first-class documented operator flow
 
 ## Goal
 

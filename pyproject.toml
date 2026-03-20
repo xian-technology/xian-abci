@@ -42,6 +42,7 @@ xian-abci = "xian.xian_abci:main"
 xian-dashboard = "xian.dashboard.cli:main"
 xian-configure-node = "xian.cli.configure_node:main"
 xian-export-state = "xian.cli.export_state:main"
+xian-bds-reindex = "xian.cli.reindex_bds:main"
 
 [dependency-groups]
 dev = [

@@ -39,14 +39,24 @@ class BDS:
         ) = None
         self._worker_task: asyncio.Task | None = None
 
-    async def init(self, cometbft_genesis: dict):
+    async def initialize_storage(
+        self,
+        cometbft_genesis: dict,
+        *,
+        reset: bool = False,
+    ) -> None:
         await self.db.init_pool()
+        self.spool_dir.mkdir(parents=True, exist_ok=True)
+        if reset:
+            self.clear_spool()
+            await self.db.execute(sql.drop_all_tables())
         await self._prepare_schema()
 
         if not await self.db.has_entries("blocks"):
             await self.process_genesis_block(cometbft_genesis)
 
-        self.spool_dir.mkdir(parents=True, exist_ok=True)
+    async def init(self, cometbft_genesis: dict):
+        await self.initialize_storage(cometbft_genesis)
         self._start_worker()
         await self._replay_spool()
         logger.info("BDS service initialized")
@@ -108,22 +118,22 @@ class BDS:
         await self._queue.join()
 
     async def close(self) -> None:
-        if self._queue is None:
-            return
-        try:
-            await asyncio.wait_for(
-                self.flush(), timeout=self.CLOSE_FLUSH_TIMEOUT_SECONDS
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                "Timed out waiting for BDS queue flush; pending blocks remain in {}",
-                self.spool_dir,
-            )
+        if self._queue is not None:
+            try:
+                await asyncio.wait_for(
+                    self.flush(), timeout=self.CLOSE_FLUSH_TIMEOUT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timed out waiting for BDS queue flush; pending blocks remain in {}",
+                    self.spool_dir,
+                )
         if self._worker_task is not None:
             self._worker_task.cancel()
             await asyncio.gather(self._worker_task, return_exceptions=True)
         self._worker_task = None
         self._queue = None
+        await self.db.close_pool()
 
     def _spool_file_path(self, payload: BdsBlockPayload) -> Path:
         height = int(payload.block_meta["height"])
@@ -147,6 +157,11 @@ class BDS:
 
     def _pending_spool_files(self) -> list[Path]:
         return sorted(self.spool_dir.glob("*.json"))
+
+    def clear_spool(self) -> None:
+        self.spool_dir.mkdir(parents=True, exist_ok=True)
+        for path in self.spool_dir.glob("*.json*"):
+            path.unlink(missing_ok=True)
 
     def _spool_entry_metadata(
         self, spool_path: Path, payload: BdsBlockPayload | None = None

@@ -79,6 +79,11 @@ class DB:
 
         self.pool = await asyncpg.create_pool(**self._pool_kwargs())
 
+    async def close_pool(self) -> None:
+        if self.pool is not None:
+            await self.pool.close()
+            self.pool = None
+
     async def execute(self, query: str, params: Sequence[object] | None = None):
         """
         This is meant for INSERT, UPDATE and DELETE statements

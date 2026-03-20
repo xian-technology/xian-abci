@@ -77,6 +77,52 @@ class StatePatchManager:
             self.patches = {}
             self.loaded = False
 
+    def build_applied_patches_for_block(
+        self, height
+    ) -> tuple[str | None, list[dict]]:
+        """Build the BDS-facing patch payload for a block without mutating state."""
+        if not self.loaded or height not in self.patches:
+            return None, []
+
+        patches = self.patches[height]
+        if not patches:
+            return None, []
+
+        applied_patches = []
+
+        for patch in patches:
+            key = patch["key"]
+            comment = patch.get("comment", "No comment provided")
+            applied_patch = {
+                "key": key,
+                "value": patch["value"],
+                "comment": comment,
+            }
+            applied_patches.append(applied_patch)
+
+            parts = key.split(".")
+            if len(parts) > 1 and parts[1] == "__code__":
+                contract_name = parts[0]
+                try:
+                    _, compiled_code = compile_contract_from_source(patch)
+                    applied_patches.append(
+                        {
+                            "key": f"{contract_name}.__compiled__",
+                            "value": compiled_code,
+                            "comment": f"Compiled bytecode for {comment}",
+                        }
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to compile contract code for {contract_name}: {e}"
+                    )
+                    logger.error(
+                        "Skipping compiled patch payload and continuing"
+                    )
+
+        patch_hash = hash_from_state_changes(patches)
+        return patch_hash, applied_patches
+
     def apply_patches_for_block(self, height, nanos) -> tuple[str | None, list]:
         """Apply any patches for the specified block height and return hash and applied patches."""
         if not self.loaded or height not in self.patches:
@@ -88,7 +134,9 @@ class StatePatchManager:
 
         logger.info(f"Applying {len(patches)} state patches for block {height}")
 
-        applied_patches = []
+        patch_hash, applied_patches = self.build_applied_patches_for_block(
+            height
+        )
 
         for patch in patches:
             key = patch["key"]
@@ -96,10 +144,6 @@ class StatePatchManager:
             comment = patch.get("comment", "No comment provided")
 
             logger.info(f"Applying patch: {key} -> {value} ({comment})")
-
-            # Track the patch being applied (deep copy to avoid modification)
-            applied_patch = {"key": key, "value": value, "comment": comment}
-            applied_patches.append(applied_patch)
 
             # Check if this is a contract code patch
             # Contract code key format: con_contract_name.__code__
@@ -119,23 +163,6 @@ class StatePatchManager:
                         f"{contract_name}.__compiled__", compiled_code
                     )
 
-                    # For BDS, we want to record both the original code and the compiled code
-                    # First add the original code to applied patches
-                    original_code_patch = {
-                        "key": key,
-                        "value": patch["value"],  # Original code
-                        "comment": f"Original source code for {comment}",
-                    }
-                    applied_patches.append(original_code_patch)
-
-                    # Then add the compiled code
-                    compiled_patch = {
-                        "key": f"{contract_name}.__compiled__",
-                        "value": compiled_code,
-                        "comment": f"Compiled bytecode for {comment}",
-                    }
-                    applied_patches.append(compiled_patch)
-
                     logger.info(
                         f"Contract code patch applied for {contract_name}"
                     )
@@ -147,9 +174,6 @@ class StatePatchManager:
                     logger.error(
                         "Skipping this patch and continuing with others"
                     )
-
-                    # Remove this patch from applied_patches since it wasn't actually applied
-                    applied_patches.pop()
             else:
                 # Handle all other (non-code) patches
                 # Convert dict values if needed
@@ -162,8 +186,6 @@ class StatePatchManager:
         # Finalize changes
         self.raw_driver.hard_apply(nanos)
 
-        # Generate a hash of the state patches
-        patch_hash = hash_from_state_changes(patches)
         logger.info(f"Generated hash for state patches: {patch_hash}")
 
         return patch_hash, applied_patches
