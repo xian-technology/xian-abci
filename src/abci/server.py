@@ -172,6 +172,10 @@ class ABCIServer:
         if os.path.exists(self.socket_path):
             os.remove(self.socket_path)
 
+        start_handler = getattr(self.protocol.app, "start_runtime", None)
+        if inspect.iscoroutinefunction(start_handler):
+            await start_handler()
+
         self.server = await asyncio.start_unix_server(
             self._handler,
             path=self.socket_path,

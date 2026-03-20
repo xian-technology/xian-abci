@@ -24,6 +24,7 @@ from xian.methods import (
     process_proposal,
     query,
 )
+from xian.metrics import MetricsService
 from xian.nonce import NonceStorage
 from xian.parallel_executor import ParallelBlockExecutor
 from xian.perf import PerfTracker
@@ -131,6 +132,9 @@ class Xian:
             ),
         )
         self.app_version = 1
+        self.metrics_service = MetricsService.from_runtime_settings(
+            self, xian_config
+        )
 
         if self.genesis.get("abci_genesis", None) is None:
             raise ValueError(
@@ -164,10 +168,14 @@ class Xian:
     async def create(cls, constants=Constants()):
         self = cls(constants=constants)
         if self.block_service_mode:
-            self.bds = await BDS(self.bds_config).init(
-                cometbft_genesis=self.genesis
-            )
+            self.bds = BDS(self.bds_config)
+            await self.bds.initialize_storage(cometbft_genesis=self.genesis)
         return self
+
+    async def start_runtime(self):
+        if self.block_service_mode and hasattr(self, "bds"):
+            await self.bds.start()
+        await self.metrics_service.start()
 
     async def echo(self, req):
         """
@@ -246,6 +254,7 @@ class Xian:
         return res
 
     async def close(self):
+        await self.metrics_service.close()
         if self.block_service_mode and hasattr(self, "bds"):
             await self.bds.close()
 

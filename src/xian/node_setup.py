@@ -134,6 +134,10 @@ block_service_mode = false
 pruning_enabled = false
 blocks_to_keep = 100000
 tracer_mode = "python_line_v1"
+metrics_enabled = true
+metrics_host = "127.0.0.1"
+metrics_port = 9108
+metrics_bds_refresh_seconds = 5.0
 parallel_execution_enabled = false
 parallel_execution_workers = 0
 parallel_execution_min_transactions = 8
@@ -291,6 +295,10 @@ def render_cometbft_config(
     block_policy_mode: str = "on_demand",
     block_policy_interval: str = "0s",
     tracer_mode: str = "python_line_v1",
+    metrics_enabled: bool = True,
+    metrics_host: str = "127.0.0.1",
+    metrics_port: int = 9108,
+    metrics_bds_refresh_seconds: float = 5.0,
     parallel_execution_enabled: bool = False,
     parallel_execution_workers: int = 0,
     parallel_execution_min_transactions: int = 8,
@@ -331,6 +339,10 @@ def render_cometbft_config(
         "pruning_enabled": enable_pruning,
         "blocks_to_keep": blocks_to_keep,
         "tracer_mode": resolved_tracer_mode,
+        "metrics_enabled": metrics_enabled,
+        "metrics_host": metrics_host,
+        "metrics_port": metrics_port,
+        "metrics_bds_refresh_seconds": metrics_bds_refresh_seconds,
         "parallel_execution_enabled": parallel_execution_enabled,
         "parallel_execution_workers": parallel_execution_workers,
         "parallel_execution_min_transactions": (

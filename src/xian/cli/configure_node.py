@@ -121,6 +121,34 @@ def build_parser() -> ArgumentParser:
         default="python_line_v1",
     )
     parser.add_argument(
+        "--metrics-enabled",
+        action=BooleanOptionalAction,
+        help="enable the Xian Prometheus metrics endpoint",
+        required=False,
+        default=True,
+    )
+    parser.add_argument(
+        "--metrics-host",
+        type=str,
+        help="listen host for the Xian Prometheus metrics endpoint",
+        required=False,
+        default="127.0.0.1",
+    )
+    parser.add_argument(
+        "--metrics-port",
+        type=int,
+        help="listen port for the Xian Prometheus metrics endpoint",
+        required=False,
+        default=9108,
+    )
+    parser.add_argument(
+        "--metrics-bds-refresh-seconds",
+        type=float,
+        help="refresh interval for BDS-derived Prometheus gauges",
+        required=False,
+        default=5.0,
+    )
+    parser.add_argument(
         "--parallel-execution-enabled",
         action=BooleanOptionalAction,
         help="enable speculative parallel block execution",
@@ -261,6 +289,10 @@ def main(argv: list[str] | None = None) -> int:
         block_policy_mode=args.block_policy_mode,
         block_policy_interval=args.block_policy_interval,
         tracer_mode=args.tracer_mode,
+        metrics_enabled=args.metrics_enabled,
+        metrics_host=args.metrics_host,
+        metrics_port=args.metrics_port,
+        metrics_bds_refresh_seconds=args.metrics_bds_refresh_seconds,
         parallel_execution_enabled=args.parallel_execution_enabled,
         parallel_execution_workers=args.parallel_execution_workers,
         parallel_execution_min_transactions=(

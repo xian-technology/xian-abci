@@ -752,6 +752,67 @@ async def handle_abci_query(
         return web.json_response({"error": str(exc)}, status=500)
 
 
+async def handle_monitoring(request: web.Request) -> web.Response:
+    session = request.app["session"]
+    rpc = request.app["rpc_url"]
+
+    async def fetch_decoded_query(path: str) -> dict:
+        result = await _raw_rpc(
+            session,
+            rpc,
+            "abci_query",
+            {"path": f'"/{path}"'},
+        )
+        response = result.get("response", {})
+        decoded = None
+        if response.get("value"):
+            decoded = _decode_abci_value(response["value"])
+        return {"code": response.get("code"), "value": decoded}
+
+    async def fetch_perf() -> dict:
+        try:
+            perf_query = await fetch_decoded_query("perf_status")
+            if perf_query["code"] != 0 or perf_query["value"] is None:
+                return {"enabled": False}
+            snapshot = perf_query["value"]
+            return {
+                "enabled": bool(snapshot.get("enabled", False)),
+                "snapshot": snapshot,
+            }
+        except Exception as exc:
+            return {"enabled": False, "error": str(exc)}
+
+    async def fetch_bds() -> dict:
+        try:
+            bds_query = await fetch_decoded_query("bds_status")
+            if bds_query["code"] != 0 or not isinstance(
+                bds_query["value"], dict
+            ):
+                return {"enabled": False}
+            return {"enabled": True, "status": bds_query["value"]}
+        except Exception:
+            return {"enabled": False}
+
+    async def fetch_unconfirmed() -> dict:
+        try:
+            return await _raw_rpc(session, rpc, "unconfirmed_txs")
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    perf, bds, unconfirmed = await asyncio.gather(
+        fetch_perf(),
+        fetch_bds(),
+        fetch_unconfirmed(),
+    )
+    return web.json_response(
+        {
+            "perf": perf,
+            "bds": bds,
+            "unconfirmed_txs": unconfirmed,
+        }
+    )
+
+
 # ── app lifecycle ───────────────────────────────────────────────
 
 
@@ -801,6 +862,7 @@ def create_app(
     app.router.add_get("/api/block_results/{height}", handle_block_results)
     app.router.add_get("/api/tx/{hash}", handle_tx)
     app.router.add_get("/api/unconfirmed_txs", handle_unconfirmed)
+    app.router.add_get("/api/monitoring", handle_monitoring)
     app.router.add_get("/api/contract/{name}", handle_contract)
     app.router.add_get("/api/abci_query/{path:.+}", handle_abci_query)
 

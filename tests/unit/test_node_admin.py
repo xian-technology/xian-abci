@@ -137,6 +137,10 @@ blocks_to_keep = 100000
                     enable_pruning=True,
                     blocks_to_keep=5000,
                     allow_cors=False,
+                    metrics_enabled=True,
+                    metrics_host="0.0.0.0",
+                    metrics_port=9208,
+                    metrics_bds_refresh_seconds=7.5,
                     bds_host="postgres",
                     bds_port=5544,
                     bds_database="xian_index",
@@ -180,6 +184,12 @@ blocks_to_keep = 100000
             self.assertEqual(rendered_config["xian"]["blocks_to_keep"], 5000)
             self.assertEqual(
                 rendered_config["xian"]["tracer_mode"], "python_line_v1"
+            )
+            self.assertTrue(rendered_config["xian"]["metrics_enabled"])
+            self.assertEqual(rendered_config["xian"]["metrics_host"], "0.0.0.0")
+            self.assertEqual(rendered_config["xian"]["metrics_port"], 9208)
+            self.assertEqual(
+                rendered_config["xian"]["metrics_bds_refresh_seconds"], 7.5
             )
             self.assertEqual(rendered_config["xian"]["bds"]["host"], "postgres")
             self.assertEqual(rendered_config["xian"]["bds"]["port"], 5544)

@@ -69,10 +69,13 @@ class BDS:
 
     async def init(self, cometbft_genesis: dict):
         await self.initialize_storage(cometbft_genesis)
-        self._start_worker()
-        await self._replay_spool()
+        await self.start()
         logger.info("BDS service initialized")
         return self
+
+    async def start(self) -> None:
+        self._start_worker()
+        await self._replay_spool()
 
     def _start_worker(self) -> None:
         if self._queue is not None and self._worker_task is not None:

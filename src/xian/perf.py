@@ -118,6 +118,18 @@ class NoopPerfTracker:
     def end_block(self, **metadata: Any) -> None:
         return None
 
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "enabled": False,
+            "node_name": None,
+            "chain_id": None,
+            "tracer_mode": None,
+            "pid": os.getpid(),
+            "updated_at_unix_ns": time.time_ns(),
+            "global_metrics": {},
+            "recent_blocks": [],
+        }
+
     def flush(self) -> None:
         return None
 
@@ -247,6 +259,7 @@ class PerfTracker:
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
             return {
+                "enabled": True,
                 "node_name": self.node_name,
                 "chain_id": self.chain_id,
                 "tracer_mode": self.tracer_mode,

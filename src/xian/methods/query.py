@@ -54,6 +54,10 @@ async def query(self, req) -> ResponseQuery:
         elif path_parts[0] == "ping":
             result = {"status": "online"}
 
+        # http://localhost:26657/abci_query?path="/perf_status"
+        elif path_parts[0] == "perf_status":
+            result = self.profiler.snapshot()
+
         # http://localhost:26657/abci_query?path="/simulate_tx/<encoded_payload>"
         elif path_parts[0] == "simulate_tx":
             raw_payload = path_parts[1]

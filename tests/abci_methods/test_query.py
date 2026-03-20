@@ -226,6 +226,17 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.query.key, b"")
         self.assertEqual(response.query.value, b"OK")
 
+    async def test_perf_status_query(self):
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/perf_status"))
+        )
+        payload = json.loads(response.query.value)
+
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.info, "str")
+        self.assertEqual(payload["enabled"], False)
+        self.assertEqual(payload["recent_blocks"], [])
+
     async def test_get_next_nonce_query(self):
         response = await self.process_request(
             Request(query=RequestQuery(path=f"/get_next_nonce/{ACCOUNT}"))
