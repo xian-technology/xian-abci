@@ -137,6 +137,15 @@ blocks_to_keep = 100000
                     enable_pruning=True,
                     blocks_to_keep=5000,
                     allow_cors=False,
+                    bds_host="postgres",
+                    bds_port=5544,
+                    bds_database="xian_index",
+                    bds_user="indexer",
+                    bds_password="secret",
+                    bds_pool_min_size=2,
+                    bds_pool_max_size=6,
+                    bds_statement_timeout_ms=5000,
+                    bds_application_name="xian-bds-test",
                 )
 
             rendered_config = load_toml(config_path)
@@ -167,6 +176,24 @@ blocks_to_keep = 100000
             self.assertEqual(rendered_config["xian"]["blocks_to_keep"], 5000)
             self.assertEqual(
                 rendered_config["xian"]["tracer_mode"], "python_line_v1"
+            )
+            self.assertEqual(rendered_config["xian"]["bds"]["host"], "postgres")
+            self.assertEqual(rendered_config["xian"]["bds"]["port"], 5544)
+            self.assertEqual(
+                rendered_config["xian"]["bds"]["database"], "xian_index"
+            )
+            self.assertEqual(rendered_config["xian"]["bds"]["user"], "indexer")
+            self.assertEqual(
+                rendered_config["xian"]["bds"]["password"], "secret"
+            )
+            self.assertEqual(rendered_config["xian"]["bds"]["pool_min_size"], 2)
+            self.assertEqual(rendered_config["xian"]["bds"]["pool_max_size"], 6)
+            self.assertEqual(
+                rendered_config["xian"]["bds"]["statement_timeout_ms"], 5000
+            )
+            self.assertEqual(
+                rendered_config["xian"]["bds"]["application_name"],
+                "xian-bds-test",
             )
             self.assertEqual(rendered_genesis["chain_id"], "xian-local-1")
             self.assertIn("address", rendered_validator_key)

@@ -45,6 +45,34 @@ class NodeSetupTests(unittest.TestCase):
         self.assertEqual(
             config["xian"]["parallel_execution_min_transactions"], 12
         )
+        self.assertEqual(config["xian"]["bds"]["database"], "xian")
+        self.assertEqual(config["xian"]["bds"]["application_name"], "xian-bds")
+
+    def test_render_config_applies_bds_settings(self):
+        config = render_cometbft_config(
+            moniker="validator-1",
+            bds_host="postgres",
+            bds_port=5544,
+            bds_database="xian_index",
+            bds_user="indexer",
+            bds_password="secret",
+            bds_pool_min_size=2,
+            bds_pool_max_size=6,
+            bds_statement_timeout_ms=5000,
+            bds_application_name="xian-bds-test",
+        )
+
+        self.assertEqual(config["xian"]["bds"]["host"], "postgres")
+        self.assertEqual(config["xian"]["bds"]["port"], 5544)
+        self.assertEqual(config["xian"]["bds"]["database"], "xian_index")
+        self.assertEqual(config["xian"]["bds"]["user"], "indexer")
+        self.assertEqual(config["xian"]["bds"]["password"], "secret")
+        self.assertEqual(config["xian"]["bds"]["pool_min_size"], 2)
+        self.assertEqual(config["xian"]["bds"]["pool_max_size"], 6)
+        self.assertEqual(config["xian"]["bds"]["statement_timeout_ms"], 5000)
+        self.assertEqual(
+            config["xian"]["bds"]["application_name"], "xian-bds-test"
+        )
 
     def test_render_config_supports_native_tracer_mode(self):
         config = render_cometbft_config(
@@ -52,9 +80,7 @@ class NodeSetupTests(unittest.TestCase):
             tracer_mode="native_instruction_v1",
         )
 
-        self.assertEqual(
-            config["xian"]["tracer_mode"], "native_instruction_v1"
-        )
+        self.assertEqual(config["xian"]["tracer_mode"], "native_instruction_v1")
 
     def test_render_config_supports_periodic_block_policy(self):
         config = render_cometbft_config(

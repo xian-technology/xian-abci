@@ -137,6 +137,18 @@ tracer_mode = "python_line_v1"
 parallel_execution_enabled = false
 parallel_execution_workers = 0
 parallel_execution_min_transactions = 8
+
+[xian.bds]
+dsn = ""
+host = ""
+port = 5432
+database = "xian"
+user = ""
+password = ""
+pool_min_size = 1
+pool_max_size = 10
+statement_timeout_ms = 0
+application_name = "xian-bds"
 """.strip()
 
 SUPPORTED_BLOCK_POLICY_MODES = {"on_demand", "idle_interval", "periodic"}
@@ -278,6 +290,16 @@ def render_cometbft_config(
     parallel_execution_enabled: bool = False,
     parallel_execution_workers: int = 0,
     parallel_execution_min_transactions: int = 8,
+    bds_dsn: str = "",
+    bds_host: str = "",
+    bds_port: int = 5432,
+    bds_database: str = "xian",
+    bds_user: str = "",
+    bds_password: str = "",
+    bds_pool_min_size: int = 1,
+    bds_pool_max_size: int = 10,
+    bds_statement_timeout_ms: int = 0,
+    bds_application_name: str = "xian-bds",
     proxy_app: str = "unix:///tmp/abci.sock",
     prometheus: bool = True,
 ) -> dict[str, Any]:
@@ -306,6 +328,18 @@ def render_cometbft_config(
         "parallel_execution_min_transactions": (
             parallel_execution_min_transactions
         ),
+        "bds": {
+            "dsn": bds_dsn,
+            "host": bds_host,
+            "port": bds_port,
+            "database": bds_database,
+            "user": bds_user,
+            "password": bds_password,
+            "pool_min_size": bds_pool_min_size,
+            "pool_max_size": bds_pool_max_size,
+            "statement_timeout_ms": bds_statement_timeout_ms,
+            "application_name": bds_application_name,
+        },
     }
     return config
 

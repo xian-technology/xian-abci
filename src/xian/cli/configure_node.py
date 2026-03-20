@@ -141,6 +141,76 @@ def build_parser() -> ArgumentParser:
         required=False,
         default=8,
     )
+    parser.add_argument(
+        "--bds-dsn",
+        type=str,
+        help="PostgreSQL DSN for the optional Blockchain Data Service",
+        required=False,
+        default="",
+    )
+    parser.add_argument(
+        "--bds-host",
+        type=str,
+        help="PostgreSQL host for the optional Blockchain Data Service",
+        required=False,
+        default="",
+    )
+    parser.add_argument(
+        "--bds-port",
+        type=int,
+        help="PostgreSQL port for the optional Blockchain Data Service",
+        required=False,
+        default=5432,
+    )
+    parser.add_argument(
+        "--bds-database",
+        type=str,
+        help="PostgreSQL database name for the optional Blockchain Data Service",
+        required=False,
+        default="xian",
+    )
+    parser.add_argument(
+        "--bds-user",
+        type=str,
+        help="PostgreSQL user for the optional Blockchain Data Service",
+        required=False,
+        default="",
+    )
+    parser.add_argument(
+        "--bds-password",
+        type=str,
+        help="PostgreSQL password for the optional Blockchain Data Service",
+        required=False,
+        default="",
+    )
+    parser.add_argument(
+        "--bds-pool-min-size",
+        type=int,
+        help="minimum asyncpg pool size for the optional Blockchain Data Service",
+        required=False,
+        default=1,
+    )
+    parser.add_argument(
+        "--bds-pool-max-size",
+        type=int,
+        help="maximum asyncpg pool size for the optional Blockchain Data Service",
+        required=False,
+        default=10,
+    )
+    parser.add_argument(
+        "--bds-statement-timeout-ms",
+        type=int,
+        help="statement timeout for BDS database sessions in milliseconds",
+        required=False,
+        default=0,
+    )
+    parser.add_argument(
+        "--bds-application-name",
+        type=str,
+        help="application_name reported by BDS database sessions",
+        required=False,
+        default="xian-bds",
+    )
     return parser
 
 
@@ -168,6 +238,16 @@ def main(argv: list[str] | None = None) -> int:
         parallel_execution_min_transactions=(
             args.parallel_execution_min_transactions
         ),
+        bds_dsn=args.bds_dsn,
+        bds_host=args.bds_host,
+        bds_port=args.bds_port,
+        bds_database=args.bds_database,
+        bds_user=args.bds_user,
+        bds_password=args.bds_password,
+        bds_pool_min_size=args.bds_pool_min_size,
+        bds_pool_max_size=args.bds_pool_max_size,
+        bds_statement_timeout_ms=args.bds_statement_timeout_ms,
+        bds_application_name=args.bds_application_name,
     )
     print("Make sure that port 26657 is open for the REST API")
     print("Make sure that port 26656 is open for P2P Node communication")

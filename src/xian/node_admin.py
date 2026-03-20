@@ -186,6 +186,16 @@ def configure_existing_home(
     parallel_execution_enabled: bool = False,
     parallel_execution_workers: int = 0,
     parallel_execution_min_transactions: int = 8,
+    bds_dsn: str = "",
+    bds_host: str = "",
+    bds_port: int = 5432,
+    bds_database: str = "xian",
+    bds_user: str = "",
+    bds_password: str = "",
+    bds_pool_min_size: int = 1,
+    bds_pool_max_size: int = 10,
+    bds_statement_timeout_ms: int = 0,
+    bds_application_name: str = "xian-bds",
 ) -> dict[str, str | list[str] | None]:
     config_path = home / "config" / "config.toml"
     existing_config = load_existing_cometbft_config(config_path)
@@ -208,6 +218,16 @@ def configure_existing_home(
         parallel_execution_min_transactions=(
             parallel_execution_min_transactions
         ),
+        bds_dsn=bds_dsn,
+        bds_host=bds_host,
+        bds_port=bds_port,
+        bds_database=bds_database,
+        bds_user=bds_user,
+        bds_password=bds_password,
+        bds_pool_min_size=bds_pool_min_size,
+        bds_pool_max_size=bds_pool_max_size,
+        bds_statement_timeout_ms=bds_statement_timeout_ms,
+        bds_application_name=bds_application_name,
         prometheus=prometheus,
     )
     config = preserve_runtime_config(rendered_config, existing_config)

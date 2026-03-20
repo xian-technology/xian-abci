@@ -1,33 +1,121 @@
-import json
+from __future__ import annotations
+
 import os
+from dataclasses import dataclass
+from typing import Any, Mapping
 
 
-class Config:
-    _cfg_data = None
-    _cfg_file = None
+def _first_non_empty(*values: object, default: object | None = None) -> object:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and value == "":
+            continue
+        return value
+    return default
 
-    def __init__(self, *cfg_path: str):
-        # Ensure the path is relative to the directory of this file
-        base_path = os.path.dirname(os.path.abspath(__file__))
-        self._cfg_file = os.path.join(base_path, *cfg_path)
-        self.load()
 
-    def load(self):
-        with open(self._cfg_file, encoding="utf-8") as f:
-            self._cfg_data = json.load(f)
+def _coerce_int(value: object, *, default: int) -> int:
+    resolved = _first_non_empty(value, default=default)
+    try:
+        return int(resolved)
+    except (TypeError, ValueError):
+        return default
 
-    def dump(self):
-        with open(self._cfg_file, "w", encoding="utf-8") as f:
-            json.dump(
-                self._cfg_data, f, ensure_ascii=False, sort_keys=True, indent=4
-            )
 
-    def get(self, key, reload=False):
-        if reload:
-            self.load()
-        return self._cfg_data[key] if key in self._cfg_data else None
+@dataclass(frozen=True)
+class BdsConfig:
+    dsn: str | None = None
+    host: str = "127.0.0.1"
+    port: int = 5432
+    database: str = "xian"
+    user: str = "xian"
+    password: str = ""
+    pool_min_size: int = 1
+    pool_max_size: int = 10
+    statement_timeout_ms: int = 0
+    application_name: str = "xian-bds"
 
-    def set(self, key, value, dump=True):
-        self._cfg_data[key] = value
-        if dump:
-            self.dump()
+    @classmethod
+    def from_runtime_settings(
+        cls,
+        xian_config: Mapping[str, Any] | None = None,
+        environ: Mapping[str, str] | None = None,
+    ) -> BdsConfig:
+        runtime = xian_config or {}
+        env = environ or os.environ
+        bds_settings = runtime.get("bds", {})
+        if not isinstance(bds_settings, Mapping):
+            bds_settings = {}
+
+        dsn = _first_non_empty(
+            bds_settings.get("dsn"),
+            env.get("XIAN_BDS_DSN"),
+        )
+
+        return cls(
+            dsn=dsn if isinstance(dsn, str) else None,
+            host=str(
+                _first_non_empty(
+                    bds_settings.get("host"),
+                    env.get("XIAN_BDS_HOST"),
+                    default="127.0.0.1",
+                )
+            ),
+            port=_coerce_int(
+                _first_non_empty(
+                    bds_settings.get("port"),
+                    env.get("XIAN_BDS_PORT"),
+                ),
+                default=5432,
+            ),
+            database=str(
+                _first_non_empty(
+                    bds_settings.get("database"),
+                    env.get("XIAN_BDS_DATABASE"),
+                    default="xian",
+                )
+            ),
+            user=str(
+                _first_non_empty(
+                    bds_settings.get("user"),
+                    env.get("XIAN_BDS_USER"),
+                    default="xian",
+                )
+            ),
+            password=str(
+                _first_non_empty(
+                    bds_settings.get("password"),
+                    env.get("XIAN_BDS_PASSWORD"),
+                    default="",
+                )
+            ),
+            pool_min_size=_coerce_int(
+                _first_non_empty(
+                    bds_settings.get("pool_min_size"),
+                    env.get("XIAN_BDS_POOL_MIN_SIZE"),
+                ),
+                default=1,
+            ),
+            pool_max_size=_coerce_int(
+                _first_non_empty(
+                    bds_settings.get("pool_max_size"),
+                    env.get("XIAN_BDS_POOL_MAX_SIZE"),
+                ),
+                default=10,
+            ),
+            statement_timeout_ms=_coerce_int(
+                _first_non_empty(
+                    bds_settings.get("statement_timeout_ms"),
+                    env.get("XIAN_BDS_STATEMENT_TIMEOUT_MS"),
+                ),
+                default=0,
+            ),
+            application_name=str(
+                _first_non_empty(
+                    bds_settings.get("application_name"),
+                    env.get("XIAN_BDS_APPLICATION_NAME"),
+                    default="xian-bds",
+                )
+            ),
+        )

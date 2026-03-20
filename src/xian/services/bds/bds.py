@@ -11,7 +11,7 @@ from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.time import Datetime, Timedelta
 
 from xian.services.bds import sql
-from xian.services.bds.config import Config
+from xian.services.bds.config import BdsConfig
 from xian.services.bds.database import DB, result_to_json
 
 
@@ -81,11 +81,11 @@ class CustomEncoder(json.JSONEncoder):
 
 
 class BDS:
-    db = None
+    def __init__(self, config: BdsConfig):
+        self.config = config
+        self.db = DB(config)
 
     async def init(self, cometbft_genesis: dict):
-        self.db = DB(Config("config.json"))
-
         await self.db.init_pool()
         await self.__init_tables()
 
@@ -133,11 +133,9 @@ class BDS:
             await self.db.execute(sql.create_rewards())
             await self.db.execute(sql.create_contracts())
             await self.db.execute(sql.create_addresses())
-            await self.db.execute(sql.create_readonly_role())
             await self.db.execute(sql.create_state())
             await self.db.execute(sql.create_events())
             await self.db.execute(sql.create_state_patches())
-            await self.db.execute(sql.enforce_table_limits())
         except Exception as e:
             logger.exception(e)
 
@@ -151,13 +149,17 @@ class BDS:
         await self._insert_events(tx, block_time)
 
     async def commit_batch(self):
-        if len(self.db.batch) == 0:
-            return
-
         start_time = timer()
-        await self.db.commit_batch_to_disk()
+        try:
+            query_count = await self.db.commit_batch_to_disk()
+        except Exception as exc:
+            logger.exception(f"Failed to save block to BDS: {exc}")
+            return
+        if query_count == 0:
+            return
         logger.debug(
-            f"Saved block to BDS in {timer() - start_time:.3f} seconds"
+            f"Saved block to BDS in {timer() - start_time:.3f} seconds "
+            f"across {query_count} queued queries"
         )
 
     async def _insert_tx(self, tx: dict, block_time: datetime):
@@ -169,7 +171,7 @@ class BDS:
         )
 
         try:
-            self.db.add_query_to_batch(
+            await self.db.add_query_to_batch(
                 sql.insert_transaction(),
                 [
                     tx["tx_result"]["hash"],
@@ -193,7 +195,7 @@ class BDS:
     async def _insert_state_changes(self, tx: dict, block_time: datetime):
         for state_change in tx["tx_result"]["state"]:
             try:
-                self.db.add_query_to_batch(
+                await self.db.add_query_to_batch(
                     sql.insert_state_changes(),
                     [
                         None,
@@ -210,7 +212,7 @@ class BDS:
     async def _insert_state(self, tx: dict, block_time: datetime):
         for state_change in tx["tx_result"]["state"]:
             try:
-                self.db.add_query_to_batch(
+                await self.db.add_query_to_batch(
                     sql.insert_or_update_state(),
                     [
                         state_change["key"],
@@ -224,7 +226,7 @@ class BDS:
 
     async def _insert_rewards(self, tx: dict, block_time: datetime):
         async def insert(type, key, value):
-            self.db.add_query_to_batch(
+            await self.db.add_query_to_batch(
                 sql.insert_rewards(),
                 [
                     None,
@@ -266,7 +268,7 @@ class BDS:
                 address = state_change["key"].replace("currency.balances:", "")
                 if Wallet.is_valid_key(address):
                     try:
-                        self.db.add_query_to_batch(
+                        await self.db.add_query_to_batch(
                             sql.insert_addresses(),
                             [tx["tx_result"]["hash"], address, block_time],
                         )
@@ -276,7 +278,7 @@ class BDS:
     async def _insert_events(self, tx: dict, block_time: datetime):
         for event in tx["tx_result"]["events"]:
             try:
-                self.db.add_query_to_batch(
+                await self.db.add_query_to_batch(
                     sql.insert_events(),
                     [
                         event["contract"],  # Contract name
@@ -306,7 +308,7 @@ class BDS:
             and tx["payload"]["function"] == "submit_contract"
         ):
             try:
-                self.db.add_query_to_batch(
+                await self.db.add_query_to_batch(
                     sql.insert_contracts(),
                     [
                         tx["tx_result"]["hash"],
@@ -525,7 +527,7 @@ class BDS:
 
         # Record the patch metadata
         try:
-            self.db.add_query_to_batch(
+            await self.db.add_query_to_batch(
                 sql.insert_state_patch_record(),
                 [
                     patch_hash,

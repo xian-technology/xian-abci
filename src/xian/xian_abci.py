@@ -29,6 +29,7 @@ from xian.perf import PerfTracker
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
 from xian.services.bds.bds import BDS
+from xian.services.bds.config import BdsConfig
 from xian.simulator import TransactionSimulator
 from xian.utils.cometbft import (
     load_genesis_data,
@@ -110,6 +111,7 @@ class Xian:
         self.merkle_root_hash = None
 
         self.block_service_mode = xian_config.get("block_service_mode", False)
+        self.bds_config = BdsConfig.from_runtime_settings(xian_config)
 
         self.pruning_enabled = xian_config.get("pruning_enabled", False)
         # If pruning is enabled, this is the number of blocks to keep history for
@@ -156,7 +158,9 @@ class Xian:
     async def create(cls, constants=Constants()):
         self = cls(constants=constants)
         if self.block_service_mode:
-            self.bds = await BDS().init(cometbft_genesis=self.genesis)
+            self.bds = await BDS(self.bds_config).init(
+                cometbft_genesis=self.genesis
+            )
         return self
 
     async def echo(self, req):

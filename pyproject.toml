@@ -65,7 +65,6 @@ where = ["src"]
 [tool.setuptools.package-data]
 xian = [
     "dashboard/static/*.html",
-    "services/bds/config.json",
     "tools/state_patches/*.json",
 ]
 

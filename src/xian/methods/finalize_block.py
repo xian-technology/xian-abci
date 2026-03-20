@@ -38,6 +38,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
     height = req.height
     tx_results = []
     reward_writes = []
+    bds_tasks = []
     latest_block_hash = get_latest_block_hash()
     self.fingerprint_hashes.append(latest_block_hash.hex())
 
@@ -225,8 +226,10 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                     for k, v in result.items()
                     if k not in {"access", "base_writes", "reward_deltas"}
                 }
-                asyncio.create_task(
-                    self.bds.add_to_batch(bds_payload, block_datetime)
+                bds_tasks.append(
+                    asyncio.create_task(
+                        self.bds.add_to_batch(bds_payload, block_datetime)
+                    )
                 )
 
     if self.static_rewards:
@@ -266,17 +269,22 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
 
                 # If BDS is enabled, record state patches directly
                 if self.block_service_mode and applied_patches:
-                    asyncio.create_task(
-                        self.bds.add_state_patches(
-                            applied_patches,
-                            self.current_block_meta,
-                            block_datetime,
+                    bds_tasks.append(
+                        asyncio.create_task(
+                            self.bds.add_state_patches(
+                                applied_patches,
+                                self.current_block_meta,
+                                block_datetime,
+                            )
                         )
                     )
         # Save data to BDS - Process batch
         if self.block_service_mode:
-            # Commit all changes to BDS
-            asyncio.create_task(self.bds.commit_batch())
+            if bds_tasks:
+                with self.profiler.scope("finalize_bds_queue"):
+                    await asyncio.gather(*bds_tasks)
+            with self.profiler.scope("finalize_bds_commit"):
+                await self.bds.commit_batch()
 
         # No transactions and no state patches = no change to ABCI state, use previous block hash.
         # Otherwise, compute a new hash from the fingerprint hashes.

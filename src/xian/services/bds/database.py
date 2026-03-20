@@ -1,9 +1,12 @@
+import asyncio
 import json
+import re
+from collections.abc import Sequence
 
 import asyncpg
 from loguru import logger
 
-from xian.services.bds.config import Config
+from xian.services.bds.config import BdsConfig
 
 
 def result_to_json(result):
@@ -17,78 +20,126 @@ def result_to_json(result):
 
 
 class DB:
-    batch = []
-
-    def __init__(self, config: Config):
+    def __init__(self, config: BdsConfig):
         self.cfg = config
         self.pool = None
+        self.batch: list[tuple[str, tuple[object, ...]]] = []
+        self._batch_lock = asyncio.Lock()
+
+    def _pool_kwargs(self) -> dict[str, object]:
+        server_settings = {
+            "application_name": self.cfg.application_name,
+        }
+        if self.cfg.statement_timeout_ms > 0:
+            server_settings["statement_timeout"] = (
+                f"{self.cfg.statement_timeout_ms}ms"
+            )
+
+        kwargs: dict[str, object] = {
+            "min_size": self.cfg.pool_min_size,
+            "max_size": self.cfg.pool_max_size,
+            "server_settings": server_settings,
+        }
+        if self.cfg.dsn:
+            kwargs["dsn"] = self.cfg.dsn
+            return kwargs
+
+        kwargs.update(
+            {
+                "user": self.cfg.user,
+                "password": self.cfg.password,
+                "database": self.cfg.database,
+                "host": self.cfg.host,
+                "port": self.cfg.port,
+            }
+        )
+        return kwargs
+
+    def _admin_connect_kwargs(self) -> dict[str, object]:
+        return {
+            "user": self.cfg.user,
+            "password": self.cfg.password,
+            "database": "postgres",
+            "host": self.cfg.host,
+            "port": self.cfg.port,
+            "server_settings": {
+                "application_name": f"{self.cfg.application_name}-bootstrap"
+            },
+        }
+
+    @staticmethod
+    def _validate_database_name(name: str) -> str:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise ValueError(f"invalid database name: {name!r}")
+        return name
 
     async def init_pool(self):
-        # Create a temporary connection to the default database to check/create the target database
-        temp_conn = await asyncpg.connect(
-            user=self.cfg.get("db_user"),
-            password=self.cfg.get("db_pass"),
-            database="postgres",  # Connect to the default 'postgres' database
-            host=self.cfg.get("db_host"),
-            port=self.cfg.get("db_port"),
-        )
-        try:
-            # Check if the target database exists
-            result = await temp_conn.fetchval(
-                "SELECT 1 FROM pg_database WHERE datname = $1",
-                self.cfg.get("db_name"),
-            )
-            if not result:
-                # Create the target database if it does not exist
-                await temp_conn.execute(
-                    f"CREATE DATABASE {self.cfg.get('db_name')}"
+        if not self.cfg.dsn:
+            temp_conn = await asyncpg.connect(**self._admin_connect_kwargs())
+            try:
+                result = await temp_conn.fetchval(
+                    "SELECT 1 FROM pg_database WHERE datname = $1",
+                    self.cfg.database,
                 )
-        finally:
-            await temp_conn.close()
+                if not result:
+                    database_name = self._validate_database_name(
+                        self.cfg.database
+                    )
+                    await temp_conn.execute(
+                        f'CREATE DATABASE "{database_name}"'
+                    )
+            finally:
+                await temp_conn.close()
 
-        # Now create the connection pool to the target database
-        self.pool = await asyncpg.create_pool(
-            user=self.cfg.get("db_user"),
-            password=self.cfg.get("db_pass"),
-            database=self.cfg.get("db_name"),
-            host=self.cfg.get("db_host"),
-            port=self.cfg.get("db_port"),
-        )
+        self.pool = await asyncpg.create_pool(**self._pool_kwargs())
 
-    async def execute(self, query: str, params: list = []):
+    async def execute(self, query: str, params: Sequence[object] | None = None):
         """
         This is meant for INSERT, UPDATE and DELETE statements
         that usually don't return data
         """
+        bound_params = tuple(params or ())
         async with self.pool.acquire() as connection:
             try:
-                result = await connection.execute(query, *params)
+                result = await connection.execute(query, *bound_params)
                 return result
             except Exception as e:
                 logger.exception(f"Error while executing SQL: {e}")
                 raise e
 
-    def add_query_to_batch(self, query: str, args: list):
-        self.batch.append((query, args))
+    async def add_query_to_batch(
+        self, query: str, args: Sequence[object] | None = None
+    ) -> None:
+        async with self._batch_lock:
+            self.batch.append((query, tuple(args or ())))
 
-    async def commit_batch_to_disk(self):
+    async def commit_batch_to_disk(self) -> int:
+        async with self._batch_lock:
+            if not self.batch:
+                return 0
+            batch = self.batch
+            self.batch = []
+
         async with self.pool.acquire() as connection:
             try:
-                for query, params in self.batch:
-                    await connection.execute(query, *params)
+                async with connection.transaction():
+                    for query, params in batch:
+                        await connection.execute(query, *params)
             except Exception as e:
                 logger.exception(f"Error while executing SQL: {e}")
+                async with self._batch_lock:
+                    self.batch = list(batch) + self.batch
                 raise e
-            finally:
-                self.batch = []
+        return len(batch)
 
-    async def fetch(self, query: str, params: list = []):
+    async def fetch(self, query: str, params: Sequence[object] | None = None):
         """
         This is meant for SELECT statements that return data
         """
+        bound_params = tuple(params or ())
         async with self.pool.acquire() as connection:
             try:
-                result = await connection.fetch(query, *params)
+                result = await connection.fetch(query, *bound_params)
                 return result
             except Exception as e:
                 logger.exception(f"Error while executing SQL: {e}")
