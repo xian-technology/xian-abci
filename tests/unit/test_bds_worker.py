@@ -109,6 +109,57 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(spool_entries[0]["block_hash"], "A")
             self.assertEqual(spool_entries[1]["block_hash"], "B")
 
+    async def test_compact_spool_removes_stale_entries_only(self):
+        with TemporaryDirectory() as spool_dir:
+            bds = _RecordingBDS(spool_dir)
+            Path(spool_dir).mkdir(parents=True, exist_ok=True)
+            bds._write_spool_file(_payload(8, "STALE"))
+            bds._write_spool_file(_payload(12, "FRESH"))
+            (Path(spool_dir) / "orphan.json.tmp").write_text(
+                "temp", encoding="utf-8"
+            )
+            bds.db.fetchval = AsyncMock(return_value=10)
+
+            result = await bds.compact_spool()
+
+            self.assertEqual(result["indexed_height"], 10)
+            self.assertEqual(result["removed_files"], 1)
+            self.assertEqual(result["removed_temp_files"], 1)
+            self.assertEqual(result["kept_files"], 1)
+            self.assertFalse((Path(spool_dir) / "orphan.json.tmp").exists())
+            remaining = sorted(Path(spool_dir).glob("*.json"))
+            self.assertEqual(len(remaining), 1)
+            self.assertTrue(remaining[0].name.endswith("-FRESH.json"))
+
+    async def test_drain_spool_replays_and_flushes_pending_entries(self):
+        with TemporaryDirectory() as spool_dir:
+            bds = _RecordingBDS(spool_dir)
+            Path(spool_dir).mkdir(parents=True, exist_ok=True)
+            bds._write_spool_file(_payload(11, "A"))
+            bds._write_spool_file(_payload(12, "B"))
+            bds.db.fetchval = AsyncMock(return_value=12)
+            bds.db.fetchrow = AsyncMock(
+                return_value={
+                    "indexed_block_count": 12,
+                    "indexed_height": 12,
+                    "indexed_block_hash": "BLOCK-12",
+                    "indexed_block_time": 12,
+                    "indexed_block_time_iso": datetime(
+                        2026, 1, 12, tzinfo=UTC
+                    ),
+                    "indexed_tx_count": 2,
+                    "indexed_app_hash": "APP-12",
+                }
+            )
+
+            result = await bds.drain_spool(timeout_seconds=5.0)
+            await bds.close()
+
+            self.assertFalse(result["timed_out"])
+            self.assertEqual(bds.persisted_heights, [11, 12])
+            self.assertEqual(result["status"]["spool_pending_count"], 0)
+            self.assertEqual(result["compacted"]["kept_files"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -14,8 +14,8 @@ from loguru import logger
 from xian.constants import Constants
 from xian.dashboard.app import normalize_rpc_url
 from xian.services.bds.bds import BDS
-from xian.services.bds.config import BdsConfig
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
+from xian.services.bds.runtime import resolve_bds_config
 from xian.services.bds.serializer import utc_datetime
 from xian.utils.cometbft import load_genesis_data, load_tendermint_config
 from xian.utils.encoding import decode_transaction_bytes, hash_bytes
@@ -305,15 +305,7 @@ async def run_bds_reindex(
     reset: bool = False,
 ) -> ReindexPlan:
     cometbft_genesis = load_genesis_data(constants)
-    cometbft_config = load_tendermint_config(constants)
-    xian_config = cometbft_config.get("xian", {})
-    bds_config = BdsConfig.from_runtime_settings(xian_config)
-    if bds_config.spool_dir is None:
-        bds_config = replace(
-            bds_config,
-            spool_dir=str(constants.STORAGE_HOME / "bds-spool"),
-        )
-
+    bds_config = resolve_bds_config(constants)
     bds = BDS(config=bds_config)
     await bds.initialize_storage(cometbft_genesis, reset=reset)
 

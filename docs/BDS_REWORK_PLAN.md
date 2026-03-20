@@ -30,6 +30,9 @@ Completed on `main` in the current rewrite:
   from CometBFT RPC when the node still retains block history
 - BDS status now reports spool byte totals, filesystem capacity/free space, and
   warning/error alerts for spool growth and low disk space
+- BDS now supports snapshot export/import for fast bootstrap and recovery
+- BDS now has explicit operator commands to compact stale spool entries and
+  drain the local spool into Postgres safely when the node is offline
 - BDS query paths now include:
   - `/state`
   - `/state_history`
@@ -45,11 +48,8 @@ Still worth doing next:
 - decide later whether that worker should stay in-process or become a separate
   replayable external indexer
 - benchmark and tune large-table index strategy on realistic chain data
-- add an explicit operator path to drain or compact the spool safely
 - decide whether startup should block on spool catch-up or continue with
   eventual consistency
-- decide whether and how to support importing BDS snapshots from another node
-  for faster bootstrap on large networks or pruned nodes
 - extend reindex/backfill to work against explicit archival RPC sources as a
   first-class documented operator flow
 - add richer storage policy guidance for Postgres maintenance, log retention,

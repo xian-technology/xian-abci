@@ -40,18 +40,29 @@ class BDS:
         ) = None
         self._worker_task: asyncio.Task | None = None
 
+    async def open_storage(self) -> None:
+        await self.db.init_pool()
+        self.spool_dir.mkdir(parents=True, exist_ok=True)
+
+    async def reset_schema(self) -> None:
+        await self.db.execute(sql.drop_all_tables())
+        await self._prepare_schema()
+
+    async def ensure_schema(self) -> None:
+        await self._prepare_schema()
+
     async def initialize_storage(
         self,
         cometbft_genesis: dict,
         *,
         reset: bool = False,
     ) -> None:
-        await self.db.init_pool()
-        self.spool_dir.mkdir(parents=True, exist_ok=True)
+        await self.open_storage()
         if reset:
             self.clear_spool()
-            await self.db.execute(sql.drop_all_tables())
-        await self._prepare_schema()
+            await self.reset_schema()
+        else:
+            await self.ensure_schema()
 
         if not await self.db.has_entries("blocks"):
             await self.process_genesis_block(cometbft_genesis)
@@ -163,6 +174,81 @@ class BDS:
         self.spool_dir.mkdir(parents=True, exist_ok=True)
         for path in self.spool_dir.glob("*.json*"):
             path.unlink(missing_ok=True)
+
+    def _spool_file_height(self, spool_path: Path) -> int | None:
+        prefix, _, _ = spool_path.name.partition("-")
+        try:
+            return int(prefix)
+        except ValueError:
+            try:
+                return int(
+                    self._read_spool_file(spool_path).block_meta["height"]
+                )
+            except Exception:
+                return None
+
+    async def compact_spool(self) -> dict[str, Any]:
+        self.spool_dir.mkdir(parents=True, exist_ok=True)
+        indexed_height = await self.db.fetchval(
+            "SELECT MAX(height) FROM blocks"
+        )
+        removed_files = 0
+        removed_bytes = 0
+        removed_temp_files = 0
+
+        for temp_path in self.spool_dir.glob("*.json.tmp"):
+            removed_temp_files += 1
+            temp_path.unlink(missing_ok=True)
+
+        if indexed_height is None:
+            return {
+                "indexed_height": None,
+                "removed_files": removed_files,
+                "removed_bytes": removed_bytes,
+                "removed_temp_files": removed_temp_files,
+                "kept_files": len(self._pending_spool_files()),
+            }
+
+        for spool_path in self._pending_spool_files():
+            spool_height = self._spool_file_height(spool_path)
+            if spool_height is None or spool_height > int(indexed_height):
+                continue
+            removed_bytes += spool_path.stat().st_size
+            removed_files += 1
+            spool_path.unlink(missing_ok=True)
+
+        return {
+            "indexed_height": int(indexed_height),
+            "removed_files": removed_files,
+            "removed_bytes": removed_bytes,
+            "removed_temp_files": removed_temp_files,
+            "kept_files": len(self._pending_spool_files()),
+        }
+
+    async def drain_spool(
+        self, *, timeout_seconds: float = 60.0
+    ) -> dict[str, Any]:
+        worker_started = False
+        if self._queue is None and self._worker_task is None:
+            self._start_worker()
+            await self._replay_spool()
+            worker_started = True
+
+        timed_out = False
+        try:
+            await asyncio.wait_for(self.flush(), timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            timed_out = True
+
+        compacted = await self.compact_spool()
+        status = await self.get_status()
+        return {
+            "worker_started": worker_started,
+            "timed_out": timed_out,
+            "timeout_seconds": timeout_seconds,
+            "compacted": compacted,
+            "status": status,
+        }
 
     def _spool_entry_metadata(
         self, spool_path: Path, payload: BdsBlockPayload | None = None
