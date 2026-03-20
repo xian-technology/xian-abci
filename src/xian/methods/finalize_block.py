@@ -47,35 +47,47 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
     }
 
     decoded_entries = []
-    for tx_bytes in req.txs:
-        try:
-            tx, _ = decode_transaction_bytes(tx_bytes)
-        except Exception as e:
-            decoded_entries.append(
-                {
-                    "tx_bytes": tx_bytes,
-                    "error": _error_tx_result(
-                        f"Error decoding transaction: {e}"
-                    ),
-                }
-            )
-            continue
+    with self.profiler.scope("finalize_decode", block_scoped=True):
+        for tx_bytes in req.txs:
+            try:
+                tx, _ = decode_transaction_bytes(tx_bytes)
+            except Exception as e:
+                decoded_entries.append(
+                    {
+                        "tx_bytes": tx_bytes,
+                        "error": _error_tx_result(
+                            f"Error decoding transaction: {e}"
+                        ),
+                    }
+                )
+                continue
 
-        # Attach metadata to the transaction
-        tx["b_meta"] = self.current_block_meta
-        decoded_entries.append({"tx": tx, "tx_bytes": tx_bytes})
+            # Attach metadata to the transaction
+            tx["b_meta"] = self.current_block_meta
+            decoded_entries.append({"tx": tx, "tx_bytes": tx_bytes})
 
     decoded_txs = [entry["tx"] for entry in decoded_entries if "tx" in entry]
     processed_results = None
 
-    parallel_execution = self.parallel_block_executor.execute(
-        txs=decoded_txs,
-        tx_processor=self.tx_processor,
-        enabled_fees=self.enable_tx_fee,
-        rewards_handler=self.rewards_handler,
-    )
+    with self.profiler.scope("finalize_parallel", block_scoped=True):
+        parallel_execution = self.parallel_block_executor.execute(
+            txs=decoded_txs,
+            tx_processor=self.tx_processor,
+            enabled_fees=self.enable_tx_fee,
+            rewards_handler=self.rewards_handler,
+        )
     if parallel_execution is not None:
         processed_results, parallel_stats = parallel_execution
+        self.profiler.set_block_metadata(
+            parallel_enabled=True,
+            parallel_worker_count=parallel_stats.worker_count,
+            parallel_planned_stage_count=parallel_stats.planned_stage_count,
+            parallel_planned_parallelizable_transactions=(
+                parallel_stats.planned_parallelizable_transactions
+            ),
+            parallel_speculative_accepted=parallel_stats.speculative_accepted,
+            parallel_serial_fallbacks=parallel_stats.serial_fallbacks,
+        )
         logger.info(
             "Parallel block execution accepted "
             f"{parallel_stats.speculative_accepted}/{len(decoded_txs)} "
@@ -85,175 +97,194 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
 
     processed_iter = iter(processed_results or [])
 
-    for entry in decoded_entries:
-        if "error" in entry:
-            tx_results.append(entry["error"])
-            continue
+    with self.profiler.scope("finalize_tx_loop", block_scoped=True):
+        for entry in decoded_entries:
+            if "error" in entry:
+                tx_results.append(entry["error"])
+                continue
 
-        tx = entry["tx"]
-        tx_bytes = entry["tx_bytes"]
-        try:
-            if processed_results is not None:
-                result = next(processed_iter)
-            else:
-                result = self.tx_processor.process_tx(
-                    tx,
-                    enabled_fees=self.enable_tx_fee,
-                    rewards_handler=self.rewards_handler,
+            tx = entry["tx"]
+            tx_bytes = entry["tx_bytes"]
+            try:
+                if processed_results is not None:
+                    result = next(processed_iter)
+                else:
+                    result = self.tx_processor.process_tx(
+                        tx,
+                        enabled_fees=self.enable_tx_fee,
+                        rewards_handler=self.rewards_handler,
+                    )
+            except Exception as e:
+                tx_results.append(_error_tx_result(f"Error processing tx: {e}"))
+                continue
+
+            tx_result = result.get("tx_result")
+            if tx_result is None:
+                tx_results.append(
+                    _error_tx_result(
+                        "Transaction processor returned no tx_result"
+                    )
                 )
-        except Exception as e:
-            tx_results.append(_error_tx_result(f"Error processing tx: {e}"))
-            continue
+                continue
 
-        tx_result = result.get("tx_result")
-        if tx_result is None:
-            tx_results.append(
-                _error_tx_result("Transaction processor returned no tx_result")
-            )
-            continue
-
-        self.nonce_storage.set_nonce_by_tx(tx)
-        tx_hash = tx_result.get("hash")
-        if not tx_hash:
-            tx_results.append(
-                _error_tx_result("Transaction processor returned no tx hash")
-            )
-            continue
-        self.fingerprint_hashes.append(tx_hash)
-        parsed_tx_result = json.dumps(stringify_decimals(tx_result))
-        logger.debug(f"Parsed tx result: {parsed_tx_result}")
-
-        tx_events = []
-
-        if tx_result["status"] == 0:
-            translation_table = str.maketrans({".": "_", ":": "__"})
-            state_changes = []
-            for state in tx_result["state"]:
-                state_key = state["key"].translate(translation_table)
-                state_value = str(state["value"])
-                state_changes.append(
-                    EventAttribute(key=state_key, value=state_value)
+            self.nonce_storage.set_nonce_by_tx(tx)
+            tx_hash = tx_result.get("hash")
+            if not tx_hash:
+                tx_results.append(
+                    _error_tx_result(
+                        "Transaction processor returned no tx hash"
+                    )
                 )
-            if state_changes:
-                tx_events.append(
-                    Event(type="StateChange", attributes=state_changes)
-                )
+                continue
+            self.fingerprint_hashes.append(tx_hash)
+            parsed_tx_result = json.dumps(stringify_decimals(tx_result))
+            logger.debug(f"Parsed tx result: {parsed_tx_result}")
 
-            for contract_event in tx_result.get("events", []):
-                attrs = [
-                    EventAttribute(
-                        key="contract",
-                        value=str(contract_event.get("contract", "")),
-                        index=True,
-                    ),
-                    EventAttribute(
-                        key="signer",
-                        value=str(contract_event.get("signer", "")),
-                        index=True,
-                    ),
-                    EventAttribute(
-                        key="caller",
-                        value=str(contract_event.get("caller", "")),
-                        index=True,
-                    ),
-                ]
-                for key, value in contract_event.get(
-                    "data_indexed", {}
-                ).items():
-                    attrs.append(
+            tx_events = []
+
+            if tx_result["status"] == 0:
+                translation_table = str.maketrans({".": "_", ":": "__"})
+                state_changes = []
+                for state in tx_result["state"]:
+                    state_key = state["key"].translate(translation_table)
+                    state_value = str(state["value"])
+                    state_changes.append(
+                        EventAttribute(key=state_key, value=state_value)
+                    )
+                if state_changes:
+                    tx_events.append(
+                        Event(type="StateChange", attributes=state_changes)
+                    )
+
+                for contract_event in tx_result.get("events", []):
+                    attrs = [
                         EventAttribute(
-                            key=str(key),
-                            value=str(value),
+                            key="contract",
+                            value=str(contract_event.get("contract", "")),
                             index=True,
-                        )
-                    )
-                for key, value in contract_event.get("data", {}).items():
-                    attrs.append(
+                        ),
                         EventAttribute(
-                            key=str(key),
-                            value=str(value),
-                            index=False,
+                            key="signer",
+                            value=str(contract_event.get("signer", "")),
+                            index=True,
+                        ),
+                        EventAttribute(
+                            key="caller",
+                            value=str(contract_event.get("caller", "")),
+                            index=True,
+                        ),
+                    ]
+                    for key, value in contract_event.get(
+                        "data_indexed", {}
+                    ).items():
+                        attrs.append(
+                            EventAttribute(
+                                key=str(key),
+                                value=str(value),
+                                index=True,
+                            )
+                        )
+                    for key, value in contract_event.get("data", {}).items():
+                        attrs.append(
+                            EventAttribute(
+                                key=str(key),
+                                value=str(value),
+                                index=False,
+                            )
+                        )
+                    tx_events.append(
+                        Event(
+                            type=str(
+                                contract_event.get("event", "ContractEvent")
+                            ),
+                            attributes=attrs,
                         )
                     )
-                tx_events.append(
-                    Event(
-                        type=str(contract_event.get("event", "ContractEvent")),
-                        attributes=attrs,
-                    )
+
+            tx_results.append(
+                ExecTxResult(
+                    code=tx_result["status"],
+                    data=parsed_tx_result.encode(),
+                    gas_used=0,
+                    events=tx_events,
                 )
-
-        tx_results.append(
-            ExecTxResult(
-                code=tx_result["status"],
-                data=parsed_tx_result.encode(),
-                gas_used=0,
-                events=tx_events,
             )
-        )
 
-        # Save data to BDS - Add tx data to batch
-        if self.block_service_mode:
-            cometbft_hash = hash_bytes(tx_bytes).upper()
-            tx_result["hash"] = cometbft_hash
-            bds_payload = tx | {
-                k: v
-                for k, v in result.items()
-                if k not in {"access", "base_writes", "reward_deltas"}
-            }
-            asyncio.create_task(
-                self.bds.add_to_batch(bds_payload, block_datetime)
-            )
+            # Save data to BDS - Add tx data to batch
+            if self.block_service_mode:
+                cometbft_hash = hash_bytes(tx_bytes).upper()
+                tx_result["hash"] = cometbft_hash
+                bds_payload = tx | {
+                    k: v
+                    for k, v in result.items()
+                    if k not in {"access", "base_writes", "reward_deltas"}
+                }
+                asyncio.create_task(
+                    self.bds.add_to_batch(bds_payload, block_datetime)
+                )
 
     if self.static_rewards:
-        try:
-            reward_writes.append(
-                self.rewards_handler.distribute_static_rewards(
-                    master_reward=self.static_rewards_amount_validators,
-                    foundation_reward=self.static_rewards_amount_foundation,
-                )
-            )
-        except Exception as e:
-            logger.error(f"STATIC REWARD ERROR: {e} for block")
-
-    reward_hash = hash_from_rewards(reward_writes)
-    validator_updates = self.validator_handler.build_validator_updates(height)
-
-    self.fingerprint_hashes.append(reward_hash)
-
-    # Apply any state patches for this block and include hash in fingerprint
-    state_patch_applied = False
-    if hasattr(self, "state_patch_manager"):
-        patch_hash, applied_patches = (
-            self.state_patch_manager.apply_patches_for_block(height, nanos)
-        )
-
-        # If patches were applied, include the hash in fingerprint hashes
-        if patch_hash:
-            self.fingerprint_hashes.append(patch_hash)
-            state_patch_applied = True
-            logger.info(
-                f"Added state patch hash to block fingerprint: {patch_hash}"
-            )
-
-            # If BDS is enabled, record state patches directly
-            if self.block_service_mode and applied_patches:
-                asyncio.create_task(
-                    self.bds.add_state_patches(
-                        applied_patches, self.current_block_meta, block_datetime
+        with self.profiler.scope("finalize_rewards", block_scoped=True):
+            try:
+                reward_writes.append(
+                    self.rewards_handler.distribute_static_rewards(
+                        master_reward=self.static_rewards_amount_validators,
+                        foundation_reward=self.static_rewards_amount_foundation,
                     )
                 )
+            except Exception as e:
+                logger.error(f"STATIC REWARD ERROR: {e} for block")
 
-    # Save data to BDS - Process batch
-    if self.block_service_mode:
-        # Commit all changes to BDS
-        asyncio.create_task(self.bds.commit_batch())
+    with self.profiler.scope("finalize_fingerprint", block_scoped=True):
+        reward_hash = hash_from_rewards(reward_writes)
+        validator_updates = self.validator_handler.build_validator_updates(
+            height
+        )
 
-    # No transactions and no state patches = no change to ABCI state, use previous block hash.
-    # Otherwise, compute a new hash from the fingerprint hashes.
-    self.merkle_root_hash = (
-        latest_block_hash
-        if (len(req.txs) == 0 and not state_patch_applied)
-        else hash_list(self.fingerprint_hashes)
+        self.fingerprint_hashes.append(reward_hash)
+
+        # Apply any state patches for this block and include hash in fingerprint
+        state_patch_applied = False
+        if hasattr(self, "state_patch_manager"):
+            patch_hash, applied_patches = (
+                self.state_patch_manager.apply_patches_for_block(height, nanos)
+            )
+
+            # If patches were applied, include the hash in fingerprint hashes
+            if patch_hash:
+                self.fingerprint_hashes.append(patch_hash)
+                state_patch_applied = True
+                logger.info(
+                    f"Added state patch hash to block fingerprint: {patch_hash}"
+                )
+
+                # If BDS is enabled, record state patches directly
+                if self.block_service_mode and applied_patches:
+                    asyncio.create_task(
+                        self.bds.add_state_patches(
+                            applied_patches,
+                            self.current_block_meta,
+                            block_datetime,
+                        )
+                    )
+        # Save data to BDS - Process batch
+        if self.block_service_mode:
+            # Commit all changes to BDS
+            asyncio.create_task(self.bds.commit_batch())
+
+        # No transactions and no state patches = no change to ABCI state, use previous block hash.
+        # Otherwise, compute a new hash from the fingerprint hashes.
+        self.merkle_root_hash = (
+            latest_block_hash
+            if (len(req.txs) == 0 and not state_patch_applied)
+            else hash_list(self.fingerprint_hashes)
+        )
+
+    self.profiler.set_block_metadata(
+        decoded_tx_count=len(decoded_txs),
+        error_tx_count=sum(1 for entry in decoded_entries if "error" in entry),
+        finalized_tx_result_count=len(tx_results),
+        static_reward_writes=len(reward_writes),
     )
 
     return ResponseFinalizeBlock(

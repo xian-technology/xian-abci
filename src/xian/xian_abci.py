@@ -25,6 +25,7 @@ from xian.methods import (
 )
 from xian.nonce import NonceStorage
 from xian.parallel_executor import ParallelBlockExecutor
+from xian.perf import PerfTracker
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
 from xian.services.bds.bds import BDS
@@ -79,9 +80,21 @@ class Xian:
             storage_home=constants.STORAGE_HOME,
             tracer_mode=self.tracer_mode,
         )
+        self.chain_id = self.genesis.get("chain_id", None)
+        if self.chain_id is None:
+            raise ValueError("No value set for 'chain_id' in genesis block")
+        self.profiler = PerfTracker.from_env(
+            cometbft_home=constants.COMETBFT_HOME,
+            node_name=self.cometbft_config.get("moniker", ""),
+            chain_id=self.chain_id,
+            tracer_mode=self.tracer_mode,
+        )
         self.nonce_storage = NonceStorage(self.client)
         self.validator_handler = ValidatorHandler(self)
-        self.tx_processor = TxProcessor(client=self.client)
+        self.tx_processor = TxProcessor(
+            client=self.client,
+            profiler=self.profiler,
+        )
         self.simulator = TransactionSimulator(
             client=self.client,
             get_block_meta=lambda: self.current_block_meta,
@@ -90,7 +103,6 @@ class Xian:
         self.current_block_meta: dict = None
         self.fingerprint_hashes = []
         self.merkle_root_hash = None
-        self.chain_id = self.genesis.get("chain_id", None)
 
         xian_config = self.cometbft_config.get("xian", {})
         self.block_service_mode = xian_config.get("block_service_mode", False)
@@ -107,8 +119,6 @@ class Xian:
             ),
         )
         self.app_version = 1
-        if self.chain_id is None:
-            raise ValueError("No value set for 'chain_id' in genesis block")
 
         if self.genesis.get("abci_genesis", None) is None:
             raise ValueError(
@@ -171,7 +181,8 @@ class Xian:
         Guardian of the mempool: every node runs CheckTx before letting a transaction into its local mempool.
         The transaction may come from an external user or another node
         """
-        res = await check_tx.check_tx(self, raw_tx)
+        with self.profiler.scope("check_tx"):
+            res = await check_tx.check_tx(self, raw_tx)
         return res
 
     async def finalize_block(self, req):
@@ -179,8 +190,15 @@ class Xian:
         Contains the fields of the newly decided block.
         This method is equivalent to the call sequence BeginBlock, [DeliverTx], and EndBlock in the previous version of ABCI.
         """
-        res = await finalize_block.finalize_block(self, req)
-        return res
+        self.profiler.start_block(req.height, len(req.txs))
+        try:
+            with self.profiler.scope("finalize_block", block_scoped=True):
+                res = await finalize_block.finalize_block(self, req)
+            self.profiler.end_block(app_hash=res.app_hash.hex())
+            return res
+        except Exception as exc:
+            self.profiler.end_block(error=f"{type(exc).__name__}: {exc}")
+            raise
 
     async def commit(self):
         """
@@ -193,14 +211,16 @@ class Xian:
         """
         Contains all information on the proposed block needed to fully execute it.
         """
-        res = await process_proposal.process_proposal(self, req)
+        with self.profiler.scope("process_proposal"):
+            res = await process_proposal.process_proposal(self, req)
         return res
 
     async def prepare_proposal(self, req):
         """
         RequestPrepareProposal contains a preliminary set of transactions txs that CometBFT retrieved from the mempool, called raw proposal. The Application can modify this set and return a modified set of transactions via ResponsePrepareProposal.txs .
         """
-        res = await prepare_proposal.prepare_proposal(self, req)
+        with self.profiler.scope("block_packing"):
+            res = await prepare_proposal.prepare_proposal(self, req)
         return res
 
     async def query(self, req):

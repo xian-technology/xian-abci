@@ -1,4 +1,5 @@
 import hashlib
+import time
 
 from contracting.execution.executor import Executor
 from loguru import logger
@@ -11,13 +12,15 @@ from xian.utils.tx import format_dictionary, tx_hash_from_tx
 
 
 class TxProcessor:
-    def __init__(self, client, metering=False):
+    def __init__(self, client, metering=False, profiler=None):
         self.client = client
+        self.profiler = profiler
         self.executor = Executor(
             driver=self.client.raw_driver, metering=metering
         )
 
     def process_tx(self, tx, enabled_fees=False, rewards_handler=None):
+        started_ns = time.perf_counter_ns()
         self.client.raw_driver.clear_transaction_reads()
         environment = self.get_environment(tx=tx)
 
@@ -85,12 +88,19 @@ class TxProcessor:
             }
         finally:
             self.client.raw_driver.clear_transaction_reads()
+            if self.profiler is not None:
+                self.profiler.observe(
+                    "tx_process_total",
+                    time.perf_counter_ns() - started_ns,
+                    block_scoped=True,
+                )
 
     def execute_tx(
         self, transaction, stamp_cost, environment: dict = {}, metering=False
     ):
         # TODO better error handling of anything in here
         logger.debug("Executing transaction...")
+        started_ns = time.perf_counter_ns()
 
         try:
             # Execute transaction
@@ -124,64 +134,84 @@ class TxProcessor:
                 }
             )
             return None
+        finally:
+            if self.profiler is not None:
+                self.profiler.observe(
+                    "tx_execute",
+                    time.perf_counter_ns() - started_ns,
+                    block_scoped=True,
+                )
 
     def process_tx_output(
         self, output, transaction, stamp_cost, rewards_handler
     ):
-        # self.executor.driver.pending_writes.clear()
-        # Log out to the node logs if the tx fails
-        logger.debug(f"status code = {output['status_code']}")
+        started_ns = time.perf_counter_ns()
+        try:
+            # self.executor.driver.pending_writes.clear()
+            # Log out to the node logs if the tx fails
+            logger.debug(f"status code = {output['status_code']}")
 
-        if output["status_code"] > 0:
-            logger.error(
-                f"TX executed unsuccessfully. "
-                f"{output['stamps_used']} stamps used. "
-                f"{len(output['writes'])} writes. "
-                f"Result = {output['result']}"
+            if output["status_code"] > 0:
+                logger.error(
+                    f"TX executed unsuccessfully. "
+                    f"{output['stamps_used']} stamps used. "
+                    f"{len(output['writes'])} writes. "
+                    f"Result = {output['result']}"
+                )
+
+            tx_hash = tx_hash_from_tx(transaction)
+
+            rewards = None
+            reward_deltas = {}
+            if output["status_code"] == 0 and rewards_handler is not None:
+                rewards, reward_deltas = (
+                    rewards_handler.build_tx_reward_outputs(
+                        total_stamps_to_split=output["stamps_used"],
+                        contract=transaction["payload"]["contract"],
+                    )
+                )
+
+            base_writes = self.determine_writes_from_output(
+                status_code=output["status_code"],
+                ouput_writes=output["writes"],
+                stamps_used=output["stamps_used"],
+                stamp_cost=stamp_cost,
+                tx_sender=transaction["payload"]["sender"],
             )
+            writes = self.materialize_writes(base_writes, reward_deltas)
+            reads = frozenset(self.client.raw_driver.transaction_reads.keys())
 
-        tx_hash = tx_hash_from_tx(transaction)
+            for write in writes:
+                self.client.raw_driver.set(
+                    key=write["key"], value=write["value"]
+                )
 
-        rewards = None
-        reward_deltas = {}
-        if output["status_code"] == 0 and rewards_handler is not None:
-            rewards, reward_deltas = rewards_handler.build_tx_reward_outputs(
-                total_stamps_to_split=output["stamps_used"],
-                contract=transaction["payload"]["contract"],
-            )
+            tx_output = {
+                "hash": tx_hash,
+                "transaction": transaction,
+                "status": output["status_code"],
+                "state": writes,
+                "events": output["events"],
+                "stamps_used": output["stamps_used"],
+                "result": safe_repr(output["result"]),
+                "rewards": rewards if rewards else None,
+            }
 
-        base_writes = self.determine_writes_from_output(
-            status_code=output["status_code"],
-            ouput_writes=output["writes"],
-            stamps_used=output["stamps_used"],
-            stamp_cost=stamp_cost,
-            tx_sender=transaction["payload"]["sender"],
-        )
-        writes = self.materialize_writes(base_writes, reward_deltas)
-        reads = frozenset(self.client.raw_driver.transaction_reads.keys())
+            tx_output = format_dictionary(tx_output)
 
-        for write in writes:
-            self.client.raw_driver.set(key=write["key"], value=write["value"])
-
-        tx_output = {
-            "hash": tx_hash,
-            "transaction": transaction,
-            "status": output["status_code"],
-            "state": writes,
-            "events": output["events"],
-            "stamps_used": output["stamps_used"],
-            "result": safe_repr(output["result"]),
-            "rewards": rewards if rewards else None,
-        }
-
-        tx_output = format_dictionary(tx_output)
-
-        return {
-            "tx_result": tx_output,
-            "reads": reads,
-            "base_writes": base_writes,
-            "reward_deltas": reward_deltas,
-        }
+            return {
+                "tx_result": tx_output,
+                "reads": reads,
+                "base_writes": base_writes,
+                "reward_deltas": reward_deltas,
+            }
+        finally:
+            if self.profiler is not None:
+                self.profiler.observe(
+                    "tx_process_output",
+                    time.perf_counter_ns() - started_ns,
+                    block_scoped=True,
+                )
 
     def apply_tx_result(self, tx_result: dict) -> None:
         for write in tx_result["state"]:
