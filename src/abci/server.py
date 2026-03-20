@@ -3,6 +3,7 @@ TCP Server that communicates with Tendermint
 """
 
 import asyncio
+import inspect
 import io
 import os
 import platform
@@ -36,7 +37,7 @@ class ProtocolHandler:
 
     async def process(self, req_type: str, req) -> bytes:
         handler = getattr(self, req_type, self.no_match)
-        if asyncio.iscoroutinefunction(handler):
+        if inspect.iscoroutinefunction(handler):
             return await handler(req)
         else:
             return handler(req)
@@ -160,6 +161,9 @@ class ABCIServer:
             if on_windows:
                 loop.run_until_complete(_stop())
         finally:
+            close_handler = getattr(self.protocol.app, "close", None)
+            if inspect.iscoroutinefunction(close_handler):
+                loop.run_until_complete(close_handler())
             loop.stop()
             asyncio.set_event_loop(None)
             loop.close()

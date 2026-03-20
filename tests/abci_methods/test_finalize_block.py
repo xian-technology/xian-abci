@@ -1,7 +1,7 @@
 import logging
 import unittest
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
@@ -109,3 +109,50 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             response.finalize_block.tx_results[0].code, c.ErrorCode
         )
         set_nonce.assert_not_called()
+
+    async def test_finalize_block_enqueues_bds_payload_when_enabled(self):
+        tx_result = {
+            "hash": "ABC123",
+            "status": 0,
+            "state": [
+                {"key": "currency.balances:alice", "value": "99"},
+            ],
+            "events": [],
+            "stamps_used": 1,
+            "result": "ok",
+        }
+        self.app.block_service_mode = True
+        self.app.bds = type("FakeBDS", (), {"enqueue_block": AsyncMock()})()
+
+        with (
+            patch(
+                "xian.methods.finalize_block.decode_transaction_bytes",
+                return_value=(
+                    {
+                        "payload": {
+                            "sender": "alice",
+                            "nonce": 1,
+                            "contract": "currency",
+                            "function": "transfer",
+                        },
+                        "metadata": {"signature": "sig"},
+                    },
+                    "{}",
+                ),
+            ),
+            patch.object(
+                self.app.tx_processor,
+                "process_tx",
+                return_value={"tx_result": tx_result},
+            ),
+            patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
+        ):
+            await self.process_request(
+                Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
+            )
+
+        self.app.bds.enqueue_block.assert_awaited_once()
+        payload = self.app.bds.enqueue_block.await_args.args[0]
+        self.assertEqual(payload.block_meta["height"], 0)
+        self.assertEqual(payload.transactions[0].tx_index, 0)
+        self.assertEqual(payload.transactions[0].payload["sender"], "alice")

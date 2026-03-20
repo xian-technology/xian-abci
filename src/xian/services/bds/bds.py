@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from timeit import default_timer as timer
 from typing import Any
@@ -10,6 +11,7 @@ from xian_py.decompiler import ContractDecompiler
 from xian.services.bds import sql
 from xian.services.bds.config import BdsConfig
 from xian.services.bds.database import DB
+from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.services.bds.serializer import (
     canonical_decimal,
     canonical_json_value,
@@ -26,6 +28,8 @@ class BDS:
     def __init__(self, config: BdsConfig):
         self.config = config
         self.db = DB(config)
+        self._queue: asyncio.Queue[BdsBlockPayload | None] | None = None
+        self._worker_task: asyncio.Task | None = None
 
     async def init(self, cometbft_genesis: dict):
         await self.db.init_pool()
@@ -34,8 +38,54 @@ class BDS:
         if not await self.db.has_entries("blocks"):
             await self.process_genesis_block(cometbft_genesis)
 
+        self._start_worker()
         logger.info("BDS service initialized")
         return self
+
+    def _start_worker(self) -> None:
+        if self._queue is not None and self._worker_task is not None:
+            return
+
+        self._queue = asyncio.Queue(maxsize=max(self.config.queue_max_size, 1))
+        self._worker_task = asyncio.create_task(
+            self._run_worker(), name="xian-bds-worker"
+        )
+
+    async def _run_worker(self) -> None:
+        assert self._queue is not None
+
+        while True:
+            payload = await self._queue.get()
+            try:
+                if payload is None:
+                    return
+                await self.persist_block(payload)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.exception(f"BDS worker failed to persist block: {exc}")
+            finally:
+                self._queue.task_done()
+
+    async def enqueue_block(self, payload: BdsBlockPayload) -> None:
+        if self._queue is None:
+            raise RuntimeError("BDS worker is not initialized")
+        await self._queue.put(payload)
+
+    async def flush(self) -> None:
+        if self._queue is None:
+            return
+        await self._queue.join()
+
+    async def close(self) -> None:
+        if self._queue is None:
+            return
+        await self.flush()
+        await self._queue.put(None)
+        if self._worker_task is not None:
+            await self._worker_task
+        self._worker_task = None
+        self._queue = None
 
     async def _prepare_schema(self) -> None:
         await self.db.execute(sql.create_meta())
@@ -187,38 +237,29 @@ class BDS:
             f"Saved genesis block to BDS in {timer() - start_time:.3f} seconds"
         )
 
-    async def persist_block(
-        self,
-        *,
-        block_meta: dict[str, Any],
-        block_time: datetime,
-        app_hash: str,
-        transactions: list[dict[str, Any]],
-        state_patches: list[dict[str, Any]] | None = None,
-        state_patch_hash: str | None = None,
-    ) -> None:
+    async def persist_block(self, payload: BdsBlockPayload) -> None:
         start_time = timer()
-        created_at = utc_datetime(block_time)
-        state_patches = state_patches or []
+        created_at = utc_datetime(payload.block_time)
+        state_patches = payload.state_patches or []
 
         try:
             async with self.db.pool.acquire() as connection:
                 async with connection.transaction():
                     await connection.execute(
                         sql.insert_block(),
-                        block_meta["height"],
-                        block_meta["hash"],
-                        block_meta["nanos"],
+                        payload.block_meta["height"],
+                        payload.block_meta["hash"],
+                        payload.block_meta["nanos"],
                         created_at,
-                        len(transactions),
-                        app_hash,
+                        len(payload.transactions),
+                        payload.app_hash,
                         created_at,
                     )
 
                     touched_keys = {
                         state_change["key"]
-                        for tx in transactions
-                        for state_change in tx["tx_result"]["state"]
+                        for tx in payload.transactions
+                        for state_change in tx.tx_result["state"]
                     }
                     touched_keys.update(
                         patch["key"]
@@ -229,10 +270,10 @@ class BDS:
                         connection, touched_keys
                     )
 
-                    for tx in transactions:
+                    for tx in payload.transactions:
                         await self._persist_transaction(
                             connection,
-                            block_meta=block_meta,
+                            block_meta=payload.block_meta,
                             block_time=created_at,
                             current_index=current_index,
                             tx=tx,
@@ -241,13 +282,13 @@ class BDS:
                     if state_patches:
                         await self._persist_state_patches(
                             connection,
-                            block_meta=block_meta,
+                            block_meta=payload.block_meta,
                             block_time=created_at,
                             current_index=current_index,
                             state_patches=state_patches,
-                            state_patch_hash=state_patch_hash
-                            or f"STATE_PATCH_{block_meta['height']}",
-                            tx_index=len(transactions),
+                            state_patch_hash=payload.state_patch_hash
+                            or f"STATE_PATCH_{payload.block_meta['height']}",
+                            tx_index=len(payload.transactions),
                         )
         except Exception as exc:
             logger.exception(f"Failed to persist block to BDS: {exc}")
@@ -255,7 +296,7 @@ class BDS:
 
         logger.debug(
             "Saved block {} to BDS in {:.3f} seconds",
-            block_meta["height"],
+            payload.block_meta["height"],
             timer() - start_time,
         )
 
@@ -266,12 +307,12 @@ class BDS:
         block_meta: dict[str, Any],
         block_time: datetime,
         current_index: dict[str, tuple[int | None, str | None]],
-        tx: dict[str, Any],
+        tx: BdsTransactionPayload,
     ) -> None:
-        tx_result = tx["tx_result"]
-        payload = tx["payload"]
+        tx_result = tx.tx_result
+        payload = tx.payload
         tx_hash = tx_result["hash"]
-        tx_index = int(tx["tx_index"])
+        tx_index = int(tx.tx_index)
 
         await connection.execute(
             sql.insert_transaction(),
@@ -289,7 +330,7 @@ class BDS:
             tx_result["stamps_used"],
             canonical_result_value(tx_result.get("result")),
             canonical_json_value(payload),
-            canonical_json_value(tx["envelope"]),
+            canonical_json_value(tx.envelope),
             block_time,
         )
 

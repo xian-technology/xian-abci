@@ -35,6 +35,7 @@ class BdsConfig:
     pool_max_size: int = 10
     statement_timeout_ms: int = 0
     application_name: str = "xian-bds"
+    queue_max_size: int = 128
 
     @classmethod
     def from_runtime_settings(
@@ -117,5 +118,12 @@ class BdsConfig:
                     env.get("XIAN_BDS_APPLICATION_NAME"),
                     default="xian-bds",
                 )
+            ),
+            queue_max_size=_coerce_int(
+                _first_non_empty(
+                    bds_settings.get("queue_max_size"),
+                    env.get("XIAN_BDS_QUEUE_MAX_SIZE"),
+                ),
+                default=128,
             ),
         )

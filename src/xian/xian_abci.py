@@ -239,6 +239,10 @@ class Xian:
         res = await query.query(self, req)
         return res
 
+    async def close(self):
+        if self.block_service_mode and hasattr(self, "bds"):
+            await self.bds.close()
+
 
 def cleanup_old_logs(logs_dir: str, days: int = 3):
     """Clean up log files older than specified days on startup"""

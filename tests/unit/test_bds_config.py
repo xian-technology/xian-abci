@@ -18,6 +18,7 @@ class BdsConfigTests(unittest.TestCase):
                     "pool_max_size": 6,
                     "statement_timeout_ms": 5000,
                     "application_name": "xian-bds-test",
+                    "queue_max_size": 42,
                 }
             },
             {
@@ -35,6 +36,7 @@ class BdsConfigTests(unittest.TestCase):
         self.assertEqual(config.pool_max_size, 6)
         self.assertEqual(config.statement_timeout_ms, 5000)
         self.assertEqual(config.application_name, "xian-bds-test")
+        self.assertEqual(config.queue_max_size, 42)
 
     def test_from_runtime_settings_falls_back_to_environment(self):
         config = BdsConfig.from_runtime_settings(
@@ -50,6 +52,7 @@ class BdsConfigTests(unittest.TestCase):
                 "XIAN_BDS_POOL_MAX_SIZE": "9",
                 "XIAN_BDS_STATEMENT_TIMEOUT_MS": "2500",
                 "XIAN_BDS_APPLICATION_NAME": "xian-bds-stack",
+                "XIAN_BDS_QUEUE_MAX_SIZE": "256",
             },
         )
 
@@ -62,6 +65,7 @@ class BdsConfigTests(unittest.TestCase):
         self.assertEqual(config.pool_max_size, 9)
         self.assertEqual(config.statement_timeout_ms, 2500)
         self.assertEqual(config.application_name, "xian-bds-stack")
+        self.assertEqual(config.queue_max_size, 256)
 
 
 if __name__ == "__main__":

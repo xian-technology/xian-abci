@@ -13,6 +13,15 @@ Completed on `main` in the current rewrite:
 - the old `CustomEncoder` path was replaced by canonical runtime-based
   serialization
 - state patch queries now read from BDS instead of the JSON file directly
+- first-class BDS-backed ABCI query endpoints now exist for blocks,
+  transactions, events, contracts, and state history
+- `xian-docs-web` now documents the read-surface split:
+  raw ABCI for current state, BDS-backed ABCI for indexed/history reads,
+  GraphQL only as an optional convenience layer
+- BDS now uses a canonical `BdsBlockPayload`
+- BDS writes now go through a dedicated sequential in-process worker instead
+  of waiting on direct Postgres writes in `FinalizeBlock`
+- graceful node shutdown now flushes the BDS queue
 - BDS query paths now include:
   - `/state`
   - `/state_history`
@@ -25,12 +34,13 @@ Completed on `main` in the current rewrite:
 
 Still worth doing next:
 
-- add first-class BDS block / transaction / event query endpoints
-- decide whether BDS ingestion should stay in-process or move to a dedicated
-  sequential worker / external indexer
+- add a local durable spool / replay path so BDS can catch up after downtime
+- decide later whether that worker should stay in-process or become a separate
+  replayable external indexer
 - add replay/backfill capability for BDS after DB downtime
 - benchmark and tune large-table index strategy on realistic chain data
-- document the BDS query surface in `xian-docs-web`
+- expose queue lag / worker health operationally
+- document eventual-consistency expectations for BDS-backed queries
 
 ## Goal
 

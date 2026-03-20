@@ -5,6 +5,7 @@ from loguru import logger
 from cometbft.abci.v1beta2.types_pb2 import Event, EventAttribute
 from cometbft.abci.v1beta3.types_pb2 import ExecTxResult, ResponseFinalizeBlock
 from xian.constants import Constants as c
+from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.utils.block import (
     convert_cometbft_time_to_datetime,
     get_latest_block_hash,
@@ -221,16 +222,16 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 cometbft_hash = hash_bytes(tx_bytes).upper()
                 tx_result["hash"] = cometbft_hash
                 bds_transactions.append(
-                    {
-                        "tx_index": block_tx_index,
-                        "envelope": {
+                    BdsTransactionPayload(
+                        tx_index=block_tx_index,
+                        envelope={
                             key: value
                             for key, value in tx.items()
                             if key != "b_meta"
                         },
-                        "payload": tx["payload"],
-                        "tx_result": tx_result,
-                    }
+                        payload=tx["payload"],
+                        tx_result=tx_result,
+                    )
                 )
 
     if self.static_rewards:
@@ -279,14 +280,16 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         )
 
         if self.block_service_mode:
-            with self.profiler.scope("finalize_bds_commit"):
-                await self.bds.persist_block(
-                    block_meta=self.current_block_meta,
-                    block_time=block_datetime,
-                    app_hash=self.merkle_root_hash.hex().upper(),
-                    transactions=bds_transactions,
-                    state_patches=applied_patches,
-                    state_patch_hash=patch_hash,
+            with self.profiler.scope("finalize_bds_enqueue"):
+                await self.bds.enqueue_block(
+                    BdsBlockPayload(
+                        block_meta=self.current_block_meta.copy(),
+                        block_time=block_datetime,
+                        app_hash=self.merkle_root_hash.hex().upper(),
+                        transactions=bds_transactions,
+                        state_patches=applied_patches,
+                        state_patch_hash=patch_hash,
+                    )
                 )
 
     self.profiler.set_block_metadata(
