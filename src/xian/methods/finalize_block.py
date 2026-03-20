@@ -14,10 +14,12 @@ from xian.utils.block import (
 from xian.utils.encoding import (
     convert_binary_to_hex,
     decode_transaction_bytes,
+    encode_abci_json,
     hash_bytes,
-    stringify_decimals,
 )
 from xian.utils.hash import hash_from_rewards, hash_list
+
+STATE_CHANGE_TRANSLATION_TABLE = str.maketrans({".": "_", ":": "__"})
 
 
 def _error_tx_result(message: str) -> ExecTxResult:
@@ -45,6 +47,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         "hash": hash,
         "chain_id": self.chain_id,
     }
+    self.tx_processor.reset_block_cache()
 
     decoded_entries = []
     with self.profiler.scope("finalize_decode", block_scoped=True):
@@ -113,6 +116,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         tx,
                         enabled_fees=self.enable_tx_fee,
                         rewards_handler=self.rewards_handler,
+                        track_access=False,
                     )
             except Exception as e:
                 tx_results.append(_error_tx_result(f"Error processing tx: {e}"))
@@ -137,16 +141,18 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 )
                 continue
             self.fingerprint_hashes.append(tx_hash)
-            parsed_tx_result = json.dumps(stringify_decimals(tx_result))
-            logger.debug(f"Parsed tx result: {parsed_tx_result}")
+            parsed_tx_result = encode_abci_json(tx_result)
+            if self.transaction_trace_logging:
+                logger.debug(f"Parsed tx result: {parsed_tx_result.decode()}")
 
             tx_events = []
 
             if tx_result["status"] == 0:
-                translation_table = str.maketrans({".": "_", ":": "__"})
                 state_changes = []
                 for state in tx_result["state"]:
-                    state_key = state["key"].translate(translation_table)
+                    state_key = state["key"].translate(
+                        STATE_CHANGE_TRANSLATION_TABLE
+                    )
                     state_value = str(state["value"])
                     state_changes.append(
                         EventAttribute(key=state_key, value=state_value)
@@ -204,7 +210,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
             tx_results.append(
                 ExecTxResult(
                     code=tx_result["status"],
-                    data=parsed_tx_result.encode(),
+                    data=parsed_tx_result,
                     gas_used=0,
                     events=tx_events,
                 )

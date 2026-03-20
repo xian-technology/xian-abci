@@ -8,28 +8,63 @@ from xian_runtime_types.time import Datetime
 
 from xian.parallel_planner import TransactionAccess
 from xian.utils.block import is_compiled_key, nanoseconds_to_utc_datetime
-from xian.utils.tx import format_dictionary, tx_hash_from_tx
+from xian.utils.tx import tx_hash_from_tx
 
 
 class TxProcessor:
-    def __init__(self, client, metering=False, profiler=None):
+    def __init__(
+        self,
+        client,
+        metering=False,
+        profiler=None,
+        trace_logging: bool = False,
+    ):
         self.client = client
         self.profiler = profiler
+        self.trace_logging = trace_logging
         self.executor = Executor(
             driver=self.client.raw_driver, metering=metering
         )
-
-    def process_tx(self, tx, enabled_fees=False, rewards_handler=None):
-        started_ns = time.perf_counter_ns()
-        self.client.raw_driver.clear_transaction_reads()
-        environment = self.get_environment(tx=tx)
-
-        stamp_cost = (
-            self.client.get_var(
-                contract="stamp_cost", variable="S", arguments=["value"]
-            )
-            or 1
+        self.stamp_cost_key = self.client.raw_driver.make_key(
+            "stamp_cost",
+            "S",
+            ["value"],
         )
+        self.cached_stamp_cost = None
+
+    def reset_block_cache(self) -> None:
+        self.cached_stamp_cost = None
+
+    def get_stamp_cost(self):
+        if self.cached_stamp_cost is None:
+            self.cached_stamp_cost = (
+                self.client.get_var(
+                    contract="stamp_cost",
+                    variable="S",
+                    arguments=["value"],
+                )
+                or 1
+            )
+        return self.cached_stamp_cost
+
+    def update_stamp_cost_cache(self, base_writes: dict) -> None:
+        if self.stamp_cost_key in base_writes:
+            self.cached_stamp_cost = base_writes[self.stamp_cost_key]
+
+    def process_tx(
+        self,
+        tx,
+        enabled_fees=False,
+        rewards_handler=None,
+        *,
+        track_access: bool = False,
+    ):
+        started_ns = time.perf_counter_ns()
+        driver = self.client.raw_driver
+        previous_read_tracking = driver.track_transaction_reads
+        driver.set_transaction_read_tracking(track_access)
+        environment = self.get_environment(tx=tx)
+        stamp_cost = self.get_stamp_cost()
 
         try:
             # Execute the transaction
@@ -55,39 +90,50 @@ class TxProcessor:
                 transaction=tx,
                 stamp_cost=stamp_cost,
                 rewards_handler=rewards_handler,
+                track_access=track_access,
             )
             tx_result = processed["tx_result"]
-
-            access = self.build_access_record(
-                tx=tx,
-                status_code=output["status_code"],
-                reads=processed["reads"],
-                base_writes=processed["base_writes"],
-                reward_deltas=processed["reward_deltas"],
-            )
+            self.update_stamp_cost_cache(processed["base_writes"])
             tx_result = self.prune_tx_result(tx_result)
 
-            return {
+            response = {
                 "tx_result": tx_result,
                 "stamp_rewards_amount": output["stamps_used"],
                 "stamp_rewards_contract": tx["payload"]["contract"],
-                "base_writes": processed["base_writes"],
-                "reward_deltas": processed["reward_deltas"],
-                "access": access,
             }
+            if track_access:
+                response.update(
+                    {
+                        "base_writes": processed["base_writes"],
+                        "reward_deltas": processed["reward_deltas"],
+                        "access": self.build_access_record(
+                            tx=tx,
+                            status_code=output["status_code"],
+                            reads=processed["reads"],
+                            base_writes=processed["base_writes"],
+                            reward_deltas=processed["reward_deltas"],
+                        ),
+                    }
+                )
+            return response
         except Exception as e:
             logger.error(e)
-
-            return {
+            response = {
                 "tx_result": None,
                 "stamp_rewards_amount": 0,
                 "stamp_rewards_contract": None,
-                "base_writes": {},
-                "reward_deltas": {},
-                "access": None,
             }
+            if track_access:
+                response.update(
+                    {
+                        "base_writes": {},
+                        "reward_deltas": {},
+                        "access": None,
+                    }
+                )
+            return response
         finally:
-            self.client.raw_driver.clear_transaction_reads()
+            driver.set_transaction_read_tracking(previous_read_tracking)
             if self.profiler is not None:
                 self.profiler.observe(
                     "tx_process_total",
@@ -98,8 +144,8 @@ class TxProcessor:
     def execute_tx(
         self, transaction, stamp_cost, environment: dict = {}, metering=False
     ):
-        # TODO better error handling of anything in here
-        logger.debug("Executing transaction...")
+        if self.trace_logging:
+            logger.debug("Executing transaction...")
         started_ns = time.perf_counter_ns()
 
         try:
@@ -143,14 +189,18 @@ class TxProcessor:
                 )
 
     def process_tx_output(
-        self, output, transaction, stamp_cost, rewards_handler
+        self,
+        output,
+        transaction,
+        stamp_cost,
+        rewards_handler,
+        *,
+        track_access: bool = False,
     ):
         started_ns = time.perf_counter_ns()
         try:
-            # self.executor.driver.pending_writes.clear()
-            # Log out to the node logs if the tx fails
-            logger.debug(f"status code = {output['status_code']}")
-
+            if self.trace_logging:
+                logger.debug(f"status code = {output['status_code']}")
             if output["status_code"] > 0:
                 logger.error(
                     f"TX executed unsuccessfully. "
@@ -179,7 +229,11 @@ class TxProcessor:
                 tx_sender=transaction["payload"]["sender"],
             )
             writes = self.materialize_writes(base_writes, reward_deltas)
-            reads = frozenset(self.client.raw_driver.transaction_reads.keys())
+            reads = (
+                frozenset(self.client.raw_driver.transaction_reads.keys())
+                if track_access
+                else frozenset()
+            )
 
             for write in writes:
                 self.client.raw_driver.set(
@@ -196,8 +250,6 @@ class TxProcessor:
                 "result": safe_repr(output["result"]),
                 "rewards": rewards if rewards else None,
             }
-
-            tx_output = format_dictionary(tx_output)
 
             return {
                 "tx_result": tx_output,

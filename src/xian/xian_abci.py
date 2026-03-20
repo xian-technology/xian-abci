@@ -91,9 +91,14 @@ class Xian:
         )
         self.nonce_storage = NonceStorage(self.client)
         self.validator_handler = ValidatorHandler(self)
+        xian_config = self.cometbft_config.get("xian", {})
+        self.transaction_trace_logging = xian_config.get(
+            "transaction_trace_logging", False
+        )
         self.tx_processor = TxProcessor(
             client=self.client,
             profiler=self.profiler,
+            trace_logging=self.transaction_trace_logging,
         )
         self.simulator = TransactionSimulator(
             client=self.client,
@@ -104,7 +109,6 @@ class Xian:
         self.fingerprint_hashes = []
         self.merkle_root_hash = None
 
-        xian_config = self.cometbft_config.get("xian", {})
         self.block_service_mode = xian_config.get("block_service_mode", False)
 
         self.pruning_enabled = xian_config.get("pruning_enabled", False)

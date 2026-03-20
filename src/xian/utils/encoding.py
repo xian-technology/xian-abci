@@ -111,3 +111,32 @@ def stringify_decimals(obj):
             return obj
     except Exception:
         return ""
+
+
+def normalize_for_abci_json(obj):
+    if isinstance(obj, ContractingDecimal):
+        return str(obj)
+    if isinstance(obj, decimal.Decimal):
+        return str(obj)
+    if isinstance(obj, Datetime):
+        return str(obj)
+    if isinstance(obj, bytes):
+        try:
+            return obj.decode("utf-8")
+        except UnicodeDecodeError:
+            return str(obj)
+    if isinstance(obj, dict):
+        normalized = []
+        for key, value in obj.items():
+            assert isinstance(key, str), "Non-string key types not allowed."
+            normalized.append((key, normalize_for_abci_json(value)))
+        normalized.sort(key=lambda item: item[0])
+        return {key: value for key, value in normalized}
+    if isinstance(obj, list):
+        return [normalize_for_abci_json(elem) for elem in obj]
+    return obj
+
+
+def encode_abci_json(obj) -> bytes:
+    normalized = normalize_for_abci_json(obj)
+    return json.dumps(normalized, separators=(",", ":")).encode("utf-8")

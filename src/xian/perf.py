@@ -91,6 +91,15 @@ class _ActiveBlock:
 class NoopPerfTracker:
     enabled = False
 
+    def observe(
+        self,
+        name: str,
+        duration_ns: int,
+        *,
+        block_scoped: bool = False,
+    ) -> None:
+        return None
+
     @contextmanager
     def scope(
         self,

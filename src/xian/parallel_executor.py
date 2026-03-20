@@ -27,6 +27,7 @@ def _speculative_process_tx(task: dict) -> dict:
         task["tx"],
         enabled_fees=task["enabled_fees"],
         rewards_handler=rewards_handler,
+        track_access=True,
     )
 
 
@@ -120,6 +121,7 @@ class ParallelBlockExecutor:
                     tx,
                     enabled_fees=enabled_fees,
                     rewards_handler=rewards_handler,
+                    track_access=True,
                 )
                 access = self._normalize_access(
                     index=index,
@@ -130,6 +132,9 @@ class ParallelBlockExecutor:
                 result["tx_result"]["state"] = tx_processor.materialize_writes(
                     result.get("base_writes", {}),
                     result.get("reward_deltas", {}),
+                )
+                tx_processor.update_stamp_cost_cache(
+                    result.get("base_writes", {})
                 )
                 tx_processor.apply_tx_result(result["tx_result"])
                 speculative_accepted += 1

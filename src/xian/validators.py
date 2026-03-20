@@ -32,7 +32,7 @@ class ValidatorHandler:
         return bytes.fromhex(data)
 
     def build_validator_updates(self, height) -> list[ValidatorUpdate]:
-        validators_state = self.get_validators_from_state()
+        validators_state = self.get_validators_from_state() or []
         validators_tendermint = self.get_tendermint_validators()
         if len(validators_tendermint) == 0:
             logging.error("Failed to get validators from tendermint")
