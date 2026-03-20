@@ -19,6 +19,10 @@ class BdsConfigTests(unittest.TestCase):
                     "statement_timeout_ms": 5000,
                     "application_name": "xian-bds-test",
                     "queue_max_size": 42,
+                    "spool_dir": "/var/lib/xian/bds-spool",
+                    "spool_warn_entries": 512,
+                    "spool_warn_bytes": 1073741824,
+                    "disk_free_warn_bytes": 4294967296,
                 }
             },
             {
@@ -37,6 +41,10 @@ class BdsConfigTests(unittest.TestCase):
         self.assertEqual(config.statement_timeout_ms, 5000)
         self.assertEqual(config.application_name, "xian-bds-test")
         self.assertEqual(config.queue_max_size, 42)
+        self.assertEqual(config.spool_dir, "/var/lib/xian/bds-spool")
+        self.assertEqual(config.spool_warn_entries, 512)
+        self.assertEqual(config.spool_warn_bytes, 1_073_741_824)
+        self.assertEqual(config.disk_free_warn_bytes, 4_294_967_296)
 
     def test_from_runtime_settings_falls_back_to_environment(self):
         config = BdsConfig.from_runtime_settings(
@@ -54,6 +62,9 @@ class BdsConfigTests(unittest.TestCase):
                 "XIAN_BDS_APPLICATION_NAME": "xian-bds-stack",
                 "XIAN_BDS_QUEUE_MAX_SIZE": "256",
                 "XIAN_BDS_SPOOL_DIR": "/tmp/xian-bds-spool",
+                "XIAN_BDS_SPOOL_WARN_ENTRIES": "1024",
+                "XIAN_BDS_SPOOL_WARN_BYTES": "2147483648",
+                "XIAN_BDS_DISK_FREE_WARN_BYTES": "8589934592",
             },
         )
 
@@ -68,6 +79,9 @@ class BdsConfigTests(unittest.TestCase):
         self.assertEqual(config.application_name, "xian-bds-stack")
         self.assertEqual(config.queue_max_size, 256)
         self.assertEqual(config.spool_dir, "/tmp/xian-bds-spool")
+        self.assertEqual(config.spool_warn_entries, 1024)
+        self.assertEqual(config.spool_warn_bytes, 2_147_483_648)
+        self.assertEqual(config.disk_free_warn_bytes, 8_589_934_592)
 
 
 if __name__ == "__main__":

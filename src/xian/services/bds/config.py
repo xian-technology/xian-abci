@@ -37,6 +37,9 @@ class BdsConfig:
     application_name: str = "xian-bds"
     queue_max_size: int = 128
     spool_dir: str | None = None
+    spool_warn_entries: int = 256
+    spool_warn_bytes: int = 536_870_912
+    disk_free_warn_bytes: int = 2_147_483_648
 
     @classmethod
     def from_runtime_settings(
@@ -132,4 +135,25 @@ class BdsConfig:
                 default=128,
             ),
             spool_dir=str(spool_dir) if isinstance(spool_dir, str) else None,
+            spool_warn_entries=_coerce_int(
+                _first_non_empty(
+                    bds_settings.get("spool_warn_entries"),
+                    env.get("XIAN_BDS_SPOOL_WARN_ENTRIES"),
+                ),
+                default=256,
+            ),
+            spool_warn_bytes=_coerce_int(
+                _first_non_empty(
+                    bds_settings.get("spool_warn_bytes"),
+                    env.get("XIAN_BDS_SPOOL_WARN_BYTES"),
+                ),
+                default=536_870_912,
+            ),
+            disk_free_warn_bytes=_coerce_int(
+                _first_non_empty(
+                    bds_settings.get("disk_free_warn_bytes"),
+                    env.get("XIAN_BDS_DISK_FREE_WARN_BYTES"),
+                ),
+                default=2_147_483_648,
+            ),
         )

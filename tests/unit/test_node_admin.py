@@ -146,6 +146,10 @@ blocks_to_keep = 100000
                     bds_pool_max_size=6,
                     bds_statement_timeout_ms=5000,
                     bds_application_name="xian-bds-test",
+                    bds_spool_dir="/var/lib/xian/bds-spool",
+                    bds_spool_warn_entries=512,
+                    bds_spool_warn_bytes=1_073_741_824,
+                    bds_disk_free_warn_bytes=4_294_967_296,
                 )
 
             rendered_config = load_toml(config_path)
@@ -194,6 +198,21 @@ blocks_to_keep = 100000
             self.assertEqual(
                 rendered_config["xian"]["bds"]["application_name"],
                 "xian-bds-test",
+            )
+            self.assertEqual(
+                rendered_config["xian"]["bds"]["spool_dir"],
+                "/var/lib/xian/bds-spool",
+            )
+            self.assertEqual(
+                rendered_config["xian"]["bds"]["spool_warn_entries"], 512
+            )
+            self.assertEqual(
+                rendered_config["xian"]["bds"]["spool_warn_bytes"],
+                1_073_741_824,
+            )
+            self.assertEqual(
+                rendered_config["xian"]["bds"]["disk_free_warn_bytes"],
+                4_294_967_296,
             )
             self.assertEqual(rendered_genesis["chain_id"], "xian-local-1")
             self.assertIn("address", rendered_validator_key)

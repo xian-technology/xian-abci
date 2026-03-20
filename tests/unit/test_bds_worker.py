@@ -86,11 +86,13 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertFalse(status["worker_running"])
             self.assertEqual(status["spool_pending_count"], 2)
+            self.assertGreater(status["spool_total_bytes"], 0)
             self.assertEqual(status["spool_oldest_pending"]["block_height"], 11)
             self.assertEqual(status["spool_newest_pending"]["block_height"], 12)
             self.assertEqual(status["indexed"]["indexed_height"], 9)
             self.assertEqual(status["height_lag"], 3)
             self.assertTrue(status["catching_up"])
+            self.assertIsInstance(status["alerts"], list)
 
     async def test_spool_entries_return_ordered_metadata(self):
         with TemporaryDirectory() as spool_dir:

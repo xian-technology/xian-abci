@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from timeit import default_timer as timer
@@ -182,6 +183,9 @@ class BDS:
         self, *, current_block_height: int | None = None
     ) -> dict[str, Any]:
         pending_spool = self._pending_spool_files()
+        spool_total_bytes = sum(
+            spool_path.stat().st_size for spool_path in pending_spool
+        )
         oldest_pending = (
             self._spool_entry_metadata(pending_spool[0])
             if pending_spool
@@ -221,6 +225,47 @@ class BDS:
 
         queue_depth = self._queue.qsize() if self._queue is not None else 0
         queue_capacity = max(self.config.queue_max_size, 1)
+        disk_usage = shutil.disk_usage(self.spool_dir)
+
+        alerts: list[dict[str, Any]] = []
+        if db_status != "ok":
+            alerts.append(
+                {
+                    "level": "error",
+                    "code": "db_unavailable",
+                    "message": "BDS database status is degraded",
+                }
+            )
+        if len(pending_spool) >= self.config.spool_warn_entries:
+            alerts.append(
+                {
+                    "level": "warning",
+                    "code": "spool_entries_high",
+                    "message": "BDS spool entry count exceeded warning threshold",
+                    "threshold": self.config.spool_warn_entries,
+                    "value": len(pending_spool),
+                }
+            )
+        if spool_total_bytes >= self.config.spool_warn_bytes:
+            alerts.append(
+                {
+                    "level": "warning",
+                    "code": "spool_bytes_high",
+                    "message": "BDS spool size exceeded warning threshold",
+                    "threshold": self.config.spool_warn_bytes,
+                    "value": spool_total_bytes,
+                }
+            )
+        if disk_usage.free <= self.config.disk_free_warn_bytes:
+            alerts.append(
+                {
+                    "level": "warning",
+                    "code": "disk_free_low",
+                    "message": "Low free disk space on BDS spool filesystem",
+                    "threshold": self.config.disk_free_warn_bytes,
+                    "value": disk_usage.free,
+                }
+            )
 
         return {
             "worker_running": self._worker_task is not None
@@ -230,8 +275,14 @@ class BDS:
             "queue_utilization": queue_depth / queue_capacity,
             "spool_dir": str(self.spool_dir),
             "spool_pending_count": len(pending_spool),
+            "spool_total_bytes": spool_total_bytes,
             "spool_oldest_pending": oldest_pending,
             "spool_newest_pending": newest_pending,
+            "storage": {
+                "filesystem_total_bytes": disk_usage.total,
+                "filesystem_used_bytes": disk_usage.used,
+                "filesystem_free_bytes": disk_usage.free,
+            },
             "db_status": db_status,
             "db_error": db_error,
             "indexed": indexed,
@@ -239,6 +290,7 @@ class BDS:
             "height_lag": height_lag,
             "catching_up": bool(pending_spool)
             or (isinstance(height_lag, int) and height_lag > 0),
+            "alerts": alerts,
         }
 
     async def get_spool_entries(

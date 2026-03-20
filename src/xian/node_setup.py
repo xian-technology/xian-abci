@@ -149,6 +149,10 @@ pool_min_size = 1
 pool_max_size = 10
 statement_timeout_ms = 0
 application_name = "xian-bds"
+spool_dir = ""
+spool_warn_entries = 256
+spool_warn_bytes = 536870912
+disk_free_warn_bytes = 2147483648
 """.strip()
 
 SUPPORTED_BLOCK_POLICY_MODES = {"on_demand", "idle_interval", "periodic"}
@@ -300,6 +304,10 @@ def render_cometbft_config(
     bds_pool_max_size: int = 10,
     bds_statement_timeout_ms: int = 0,
     bds_application_name: str = "xian-bds",
+    bds_spool_dir: str = "",
+    bds_spool_warn_entries: int = 256,
+    bds_spool_warn_bytes: int = 536_870_912,
+    bds_disk_free_warn_bytes: int = 2_147_483_648,
     proxy_app: str = "unix:///tmp/abci.sock",
     prometheus: bool = True,
 ) -> dict[str, Any]:
@@ -339,6 +347,10 @@ def render_cometbft_config(
             "pool_max_size": bds_pool_max_size,
             "statement_timeout_ms": bds_statement_timeout_ms,
             "application_name": bds_application_name,
+            "spool_dir": bds_spool_dir,
+            "spool_warn_entries": bds_spool_warn_entries,
+            "spool_warn_bytes": bds_spool_warn_bytes,
+            "disk_free_warn_bytes": bds_disk_free_warn_bytes,
         },
     }
     return config

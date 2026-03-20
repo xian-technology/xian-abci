@@ -47,6 +47,13 @@ class NodeSetupTests(unittest.TestCase):
         )
         self.assertEqual(config["xian"]["bds"]["database"], "xian")
         self.assertEqual(config["xian"]["bds"]["application_name"], "xian-bds")
+        self.assertEqual(config["xian"]["bds"]["spool_warn_entries"], 256)
+        self.assertEqual(
+            config["xian"]["bds"]["spool_warn_bytes"], 536_870_912
+        )
+        self.assertEqual(
+            config["xian"]["bds"]["disk_free_warn_bytes"], 2_147_483_648
+        )
 
     def test_render_config_applies_bds_settings(self):
         config = render_cometbft_config(
@@ -60,6 +67,10 @@ class NodeSetupTests(unittest.TestCase):
             bds_pool_max_size=6,
             bds_statement_timeout_ms=5000,
             bds_application_name="xian-bds-test",
+            bds_spool_dir="/var/lib/xian/bds-spool",
+            bds_spool_warn_entries=512,
+            bds_spool_warn_bytes=1_073_741_824,
+            bds_disk_free_warn_bytes=4_294_967_296,
         )
 
         self.assertEqual(config["xian"]["bds"]["host"], "postgres")
@@ -72,6 +83,16 @@ class NodeSetupTests(unittest.TestCase):
         self.assertEqual(config["xian"]["bds"]["statement_timeout_ms"], 5000)
         self.assertEqual(
             config["xian"]["bds"]["application_name"], "xian-bds-test"
+        )
+        self.assertEqual(
+            config["xian"]["bds"]["spool_dir"], "/var/lib/xian/bds-spool"
+        )
+        self.assertEqual(config["xian"]["bds"]["spool_warn_entries"], 512)
+        self.assertEqual(
+            config["xian"]["bds"]["spool_warn_bytes"], 1_073_741_824
+        )
+        self.assertEqual(
+            config["xian"]["bds"]["disk_free_warn_bytes"], 4_294_967_296
         )
 
     def test_render_config_supports_native_tracer_mode(self):

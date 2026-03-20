@@ -211,6 +211,34 @@ def build_parser() -> ArgumentParser:
         required=False,
         default="xian-bds",
     )
+    parser.add_argument(
+        "--bds-spool-dir",
+        type=str,
+        help="explicit spool directory for durable BDS block payloads",
+        required=False,
+        default="",
+    )
+    parser.add_argument(
+        "--bds-spool-warn-entries",
+        type=int,
+        help="warning threshold for queued BDS spool entries",
+        required=False,
+        default=256,
+    )
+    parser.add_argument(
+        "--bds-spool-warn-bytes",
+        type=int,
+        help="warning threshold for total BDS spool size in bytes",
+        required=False,
+        default=536_870_912,
+    )
+    parser.add_argument(
+        "--bds-disk-free-warn-bytes",
+        type=int,
+        help="warning threshold for free bytes on the BDS spool filesystem",
+        required=False,
+        default=2_147_483_648,
+    )
     return parser
 
 
@@ -248,6 +276,10 @@ def main(argv: list[str] | None = None) -> int:
         bds_pool_max_size=args.bds_pool_max_size,
         bds_statement_timeout_ms=args.bds_statement_timeout_ms,
         bds_application_name=args.bds_application_name,
+        bds_spool_dir=args.bds_spool_dir,
+        bds_spool_warn_entries=args.bds_spool_warn_entries,
+        bds_spool_warn_bytes=args.bds_spool_warn_bytes,
+        bds_disk_free_warn_bytes=args.bds_disk_free_warn_bytes,
     )
     print("Make sure that port 26657 is open for the REST API")
     print("Make sure that port 26656 is open for P2P Node communication")
