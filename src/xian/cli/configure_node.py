@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from argparse import ArgumentParser, BooleanOptionalAction
 
+from contracting.execution.tracer import SUPPORTED_TRACER_MODES
+
 from xian.node_admin import configure_existing_home
 from xian.node_setup import SUPPORTED_BLOCK_POLICY_MODES
 
@@ -112,6 +114,13 @@ def build_parser() -> ArgumentParser:
         default="0s",
     )
     parser.add_argument(
+        "--tracer-mode",
+        choices=sorted(SUPPORTED_TRACER_MODES),
+        help="execution tracer backend for contract metering",
+        required=False,
+        default="python_line_v1",
+    )
+    parser.add_argument(
         "--parallel-execution-enabled",
         action=BooleanOptionalAction,
         help="enable speculative parallel block execution",
@@ -153,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
         blocks_to_keep=args.blocks_to_keep,
         block_policy_mode=args.block_policy_mode,
         block_policy_interval=args.block_policy_interval,
+        tracer_mode=args.tracer_mode,
         parallel_execution_enabled=args.parallel_execution_enabled,
         parallel_execution_workers=args.parallel_execution_workers,
         parallel_execution_min_transactions=(

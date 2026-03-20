@@ -72,7 +72,13 @@ class Xian:
             logger.error(e)
             raise SystemExit()
 
-        self.client = ContractingClient(storage_home=constants.STORAGE_HOME)
+        self.tracer_mode = self.cometbft_config.get("xian", {}).get(
+            "tracer_mode", "python_line_v1"
+        )
+        self.client = ContractingClient(
+            storage_home=constants.STORAGE_HOME,
+            tracer_mode=self.tracer_mode,
+        )
         self.nonce_storage = NonceStorage(self.client)
         self.validator_handler = ValidatorHandler(self)
         self.tx_processor = TxProcessor(client=self.client)

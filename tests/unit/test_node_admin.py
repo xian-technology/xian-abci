@@ -165,6 +165,9 @@ blocks_to_keep = 100000
             self.assertEqual(rendered_config["rpc"]["cors_allowed_origins"], [])
             self.assertTrue(rendered_config["xian"]["pruning_enabled"])
             self.assertEqual(rendered_config["xian"]["blocks_to_keep"], 5000)
+            self.assertEqual(
+                rendered_config["xian"]["tracer_mode"], "python_line_v1"
+            )
             self.assertEqual(rendered_genesis["chain_id"], "xian-local-1")
             self.assertIn("address", rendered_validator_key)
             self.assertEqual(

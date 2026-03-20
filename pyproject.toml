@@ -29,6 +29,11 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 
+[project.optional-dependencies]
+native = [
+    "xian-native-tracer>=0.1.0,<0.2",
+]
+
 [project.urls]
 Repository = "https://github.com/xian-technology/xian-abci"
 
@@ -88,3 +93,4 @@ ignore = ["E501"]
 xian-contracting = { path = "../xian-contracting", editable = true }
 xian-py = { path = "../xian-py", editable = true }
 xian-runtime-types = { path = "../xian-contracting/packages/xian-runtime-types", editable = true }
+xian-native-tracer = { path = "../xian-contracting/packages/xian-native-tracer", editable = true }

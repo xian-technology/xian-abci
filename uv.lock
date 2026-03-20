@@ -967,6 +967,11 @@ dependencies = [
     { name = "xian-runtime-types" },
 ]
 
+[package.optional-dependencies]
+native = [
+    { name = "xian-native-tracer" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "grpcio-tools" },
@@ -984,9 +989,11 @@ requires-dist = [
     { name = "protobuf", specifier = "==6.33.5" },
     { name = "pynacl", specifier = ">=1.6.2,<2" },
     { name = "xian-contracting", editable = "../xian-contracting" },
+    { name = "xian-native-tracer", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-native-tracer" },
     { name = "xian-py", editable = "../xian-py" },
     { name = "xian-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
 ]
+provides-extras = ["native"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1015,8 +1022,10 @@ requires-dist = [
     { name = "cachetools", specifier = ">=5,<8" },
     { name = "lmdb", specifier = ">=1.6,<2" },
     { name = "pynacl", specifier = ">=1.5.0,<2" },
+    { name = "xian-native-tracer", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-native-tracer" },
     { name = "xian-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
 ]
+provides-extras = ["native"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1024,6 +1033,11 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.0.0,<8" },
     { name = "ruff", specifier = ">=0.15.6,<0.16" },
 ]
+
+[[package]]
+name = "xian-native-tracer"
+version = "0.1.0"
+source = { editable = "../xian-contracting/packages/xian-native-tracer" }
 
 [[package]]
 name = "xian-py"

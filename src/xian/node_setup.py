@@ -6,6 +6,7 @@ import secrets
 from pathlib import Path
 from typing import Any, Sequence
 
+from contracting.execution.tracer import SUPPORTED_TRACER_MODES
 from nacl.encoding import Base64Encoder, HexEncoder
 from nacl.signing import SigningKey
 from xian_runtime_types.encoding import encode
@@ -132,6 +133,7 @@ namespace = "cometbft"
 block_service_mode = false
 pruning_enabled = false
 blocks_to_keep = 100000
+tracer_mode = "python_line_v1"
 parallel_execution_enabled = false
 parallel_execution_workers = 0
 parallel_execution_min_transactions = 8
@@ -166,6 +168,14 @@ def resolve_block_policy(
         return False, interval
 
     return True, interval
+
+
+def resolve_tracer_mode(mode: str = "python_line_v1") -> str:
+    if mode not in SUPPORTED_TRACER_MODES:
+        raise ValueError(
+            f"tracer_mode must be one of {sorted(SUPPORTED_TRACER_MODES)}"
+        )
+    return mode
 
 
 def _normalize_private_key(private_key_hex: str | None) -> bytes:
@@ -264,6 +274,7 @@ def render_cometbft_config(
     blocks_to_keep: int = 100000,
     block_policy_mode: str = "on_demand",
     block_policy_interval: str = "0s",
+    tracer_mode: str = "python_line_v1",
     parallel_execution_enabled: bool = False,
     parallel_execution_workers: int = 0,
     parallel_execution_min_transactions: int = 8,
@@ -275,6 +286,7 @@ def render_cometbft_config(
         mode=block_policy_mode,
         interval=block_policy_interval,
     )
+    resolved_tracer_mode = resolve_tracer_mode(tracer_mode)
     config["proxy_app"] = proxy_app
     config["moniker"] = moniker
     config["consensus"]["create_empty_blocks"] = create_empty_blocks
@@ -288,6 +300,7 @@ def render_cometbft_config(
         "block_service_mode": service_node,
         "pruning_enabled": enable_pruning,
         "blocks_to_keep": blocks_to_keep,
+        "tracer_mode": resolved_tracer_mode,
         "parallel_execution_enabled": parallel_execution_enabled,
         "parallel_execution_workers": parallel_execution_workers,
         "parallel_execution_min_transactions": (

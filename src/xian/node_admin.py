@@ -182,6 +182,7 @@ def configure_existing_home(
     blocks_to_keep: int = 100000,
     block_policy_mode: str = "on_demand",
     block_policy_interval: str = "0s",
+    tracer_mode: str = "python_line_v1",
     parallel_execution_enabled: bool = False,
     parallel_execution_workers: int = 0,
     parallel_execution_min_transactions: int = 8,
@@ -201,6 +202,7 @@ def configure_existing_home(
         blocks_to_keep=blocks_to_keep,
         block_policy_mode=block_policy_mode,
         block_policy_interval=block_policy_interval,
+        tracer_mode=tracer_mode,
         parallel_execution_enabled=parallel_execution_enabled,
         parallel_execution_workers=parallel_execution_workers,
         parallel_execution_min_transactions=(

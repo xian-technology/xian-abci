@@ -39,10 +39,21 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(config["xian"]["block_service_mode"])
         self.assertTrue(config["xian"]["pruning_enabled"])
         self.assertEqual(config["xian"]["blocks_to_keep"], 5000)
+        self.assertEqual(config["xian"]["tracer_mode"], "python_line_v1")
         self.assertTrue(config["xian"]["parallel_execution_enabled"])
         self.assertEqual(config["xian"]["parallel_execution_workers"], 4)
         self.assertEqual(
             config["xian"]["parallel_execution_min_transactions"], 12
+        )
+
+    def test_render_config_supports_native_tracer_mode(self):
+        config = render_cometbft_config(
+            moniker="validator-1",
+            tracer_mode="native_instruction_v1",
+        )
+
+        self.assertEqual(
+            config["xian"]["tracer_mode"], "native_instruction_v1"
         )
 
     def test_render_config_supports_periodic_block_policy(self):
