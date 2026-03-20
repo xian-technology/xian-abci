@@ -386,6 +386,19 @@ def select_block_by_hash():
     """
 
 
+def select_index_status():
+    return """
+    SELECT
+        (SELECT COUNT(*) FROM blocks) AS indexed_block_count,
+        (SELECT height FROM blocks ORDER BY height DESC LIMIT 1) AS indexed_height,
+        (SELECT block_hash FROM blocks ORDER BY height DESC LIMIT 1) AS indexed_block_hash,
+        (SELECT block_time FROM blocks ORDER BY height DESC LIMIT 1) AS indexed_block_time,
+        (SELECT block_time_iso FROM blocks ORDER BY height DESC LIMIT 1) AS indexed_block_time_iso,
+        (SELECT tx_count FROM blocks ORDER BY height DESC LIMIT 1) AS indexed_tx_count,
+        (SELECT app_hash FROM blocks ORDER BY height DESC LIMIT 1) AS indexed_app_hash;
+    """
+
+
 def select_transaction_by_hash():
     return """
     SELECT

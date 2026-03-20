@@ -148,6 +148,93 @@ class BDS:
     def _pending_spool_files(self) -> list[Path]:
         return sorted(self.spool_dir.glob("*.json"))
 
+    def _spool_entry_metadata(
+        self, spool_path: Path, payload: BdsBlockPayload | None = None
+    ) -> dict[str, Any]:
+        loaded_payload = payload or self._read_spool_file(spool_path)
+        return {
+            "file": spool_path.name,
+            "size_bytes": spool_path.stat().st_size,
+            "block_height": int(loaded_payload.block_meta["height"]),
+            "block_hash": str(loaded_payload.block_meta["hash"]),
+            "block_time": utc_datetime(loaded_payload.block_time).isoformat(),
+            "tx_count": len(loaded_payload.transactions),
+            "state_patch_count": len(loaded_payload.state_patches),
+            "app_hash": loaded_payload.app_hash,
+        }
+
+    async def get_status(
+        self, *, current_block_height: int | None = None
+    ) -> dict[str, Any]:
+        pending_spool = self._pending_spool_files()
+        oldest_pending = (
+            self._spool_entry_metadata(pending_spool[0])
+            if pending_spool
+            else None
+        )
+        newest_pending = (
+            self._spool_entry_metadata(pending_spool[-1])
+            if pending_spool
+            else None
+        )
+
+        db_status = "ok"
+        db_error = None
+        indexed = {
+            "indexed_block_count": 0,
+            "indexed_height": None,
+            "indexed_block_hash": None,
+            "indexed_block_time": None,
+            "indexed_block_time_iso": None,
+            "indexed_tx_count": None,
+            "indexed_app_hash": None,
+        }
+        try:
+            row = await self.db.fetchrow(sql.select_index_status())
+            if row is not None:
+                indexed.update(dict(row))
+        except Exception as exc:
+            db_status = "error"
+            db_error = f"{type(exc).__name__}: {exc}"
+
+        indexed_height = indexed["indexed_height"]
+        height_lag = None
+        if isinstance(current_block_height, int) and isinstance(
+            indexed_height, int
+        ):
+            height_lag = max(current_block_height - indexed_height, 0)
+
+        queue_depth = self._queue.qsize() if self._queue is not None else 0
+        queue_capacity = max(self.config.queue_max_size, 1)
+
+        return {
+            "worker_running": self._worker_task is not None
+            and not self._worker_task.done(),
+            "queue_depth": queue_depth,
+            "queue_capacity": queue_capacity,
+            "queue_utilization": queue_depth / queue_capacity,
+            "spool_dir": str(self.spool_dir),
+            "spool_pending_count": len(pending_spool),
+            "spool_oldest_pending": oldest_pending,
+            "spool_newest_pending": newest_pending,
+            "db_status": db_status,
+            "db_error": db_error,
+            "indexed": indexed,
+            "current_block_height": current_block_height,
+            "height_lag": height_lag,
+            "catching_up": bool(pending_spool)
+            or (isinstance(height_lag, int) and height_lag > 0),
+        }
+
+    async def get_spool_entries(
+        self, limit: int = 100, offset: int = 0
+    ) -> list[dict[str, Any]]:
+        pending_spool = self._pending_spool_files()
+        selected = pending_spool[offset : offset + limit]
+        return [
+            self._spool_entry_metadata(spool_path) for spool_path in selected
+        ]
+
     async def _prepare_schema(self) -> None:
         await self.db.execute(sql.create_meta())
         current_version = await self.db.fetchval(sql.select_schema_version())

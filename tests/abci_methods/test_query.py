@@ -33,6 +33,56 @@ ACCOUNT = "c93dee52d7dc6cc43af44007c3b1dae5b730ccf18a9e6fb43521f8e4064561e6"
 
 
 class _FakeBDS:
+    async def get_status(self, current_block_height=None):
+        return {
+            "worker_running": True,
+            "queue_depth": 2,
+            "queue_capacity": 128,
+            "queue_utilization": 2 / 128,
+            "spool_dir": "/tmp/xian-bds-spool",
+            "spool_pending_count": 2,
+            "spool_oldest_pending": {
+                "block_height": 11,
+                "block_hash": "BLOCK-11",
+            },
+            "spool_newest_pending": {
+                "block_height": 12,
+                "block_hash": "BLOCK-12",
+            },
+            "db_status": "ok",
+            "db_error": None,
+            "indexed": {
+                "indexed_block_count": 12,
+                "indexed_height": 10,
+                "indexed_block_hash": "BLOCK-10",
+                "indexed_block_time": 10,
+                "indexed_block_time_iso": "2026-01-01T00:00:10+00:00",
+                "indexed_tx_count": 3,
+                "indexed_app_hash": "APP-10",
+            },
+            "current_block_height": current_block_height,
+            "height_lag": (
+                current_block_height - 10
+                if isinstance(current_block_height, int)
+                else None
+            ),
+            "catching_up": True,
+        }
+
+    async def get_spool_entries(self, limit, offset):
+        return [
+            {
+                "file": "00000000000000000011-BLOCK-11.json",
+                "size_bytes": 128,
+                "block_height": 11,
+                "block_hash": "BLOCK-11",
+                "block_time": "2026-01-01T00:00:11+00:00",
+                "tx_count": 2,
+                "state_patch_count": 0,
+                "app_hash": "APP-11",
+            }
+        ]
+
     async def get_blocks(self, limit, offset):
         return [{"height": 12, "block_hash": "BLOCK-12", "tx_count": 3}]
 
@@ -230,6 +280,29 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result, list)
         self.assertEqual(result[0]["hash"], "PATCH-1")
         self.assertEqual(result[0]["block_height"], 12)
+
+    async def test_bds_status_and_spool_queries_use_bds(self):
+        self.app.block_service_mode = True
+        self.app.bds = _FakeBDS()
+        self.app.current_block_meta = {"height": 12, "nanos": 0}
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/bds_status"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        status = json.loads(response.query.value)
+        self.assertTrue(status["worker_running"])
+        self.assertEqual(status["spool_pending_count"], 2)
+        self.assertEqual(status["height_lag"], 2)
+        self.assertEqual(status["indexed"]["indexed_height"], 10)
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/bds_spool/limit=10/offset=0"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        spool_entries = json.loads(response.query.value)
+        self.assertEqual(spool_entries[0]["block_height"], 11)
+        self.assertEqual(spool_entries[0]["tx_count"], 2)
 
     async def test_block_and_transaction_queries_use_bds(self):
         self.app.block_service_mode = True

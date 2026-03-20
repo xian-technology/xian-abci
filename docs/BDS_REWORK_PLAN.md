@@ -24,6 +24,8 @@ Completed on `main` in the current rewrite:
 - graceful node shutdown now flushes the BDS queue
 - BDS now writes block payloads to a local durable spool before enqueueing
   them, so indexing can replay after node restarts or temporary DB downtime
+- BDS now exposes operator-facing status/spool inspection queries for queue
+  depth, indexed head, lag, and pending spooled blocks
 - BDS query paths now include:
   - `/state`
   - `/state_history`
@@ -38,9 +40,9 @@ Still worth doing next:
 
 - decide later whether that worker should stay in-process or become a separate
   replayable external indexer
-- add replay/backfill capability for BDS after DB downtime
+- add full historical replay/backfill for nodes that did not have BDS enabled
+  from the start
 - benchmark and tune large-table index strategy on realistic chain data
-- expose queue lag / worker health operationally
 - document the local spool / replay behavior and operational expectations
 - add an explicit operator path to inspect and drain the spool safely
 - decide whether startup should block on spool catch-up or continue with

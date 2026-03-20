@@ -99,6 +99,21 @@ async def query(self, req) -> ResponseQuery:
             elif path_parts[0] == "blocks":
                 result = await self.bds.get_blocks(limit, offset)
 
+            # http://localhost:26657/abci_query?path="/bds_status"
+            elif path_parts[0] == "bds_status":
+                current_height = None
+                if isinstance(self.current_block_meta, dict):
+                    height = self.current_block_meta.get("height")
+                    if isinstance(height, int):
+                        current_height = height
+                result = await self.bds.get_status(
+                    current_block_height=current_height
+                )
+
+            # http://localhost:26657/abci_query?path="/bds_spool/limit=10/offset=20"
+            elif path_parts[0] == "bds_spool":
+                result = await self.bds.get_spool_entries(limit, offset)
+
             # http://localhost:26657/abci_query?path="/block/123"
             elif path_parts[0] == "block":
                 result = await self.bds.get_block(int(key))
