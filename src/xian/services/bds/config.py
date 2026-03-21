@@ -23,6 +23,14 @@ def _coerce_int(value: object, *, default: int) -> int:
         return default
 
 
+def _coerce_float(value: object, *, default: float) -> float:
+    resolved = _first_non_empty(value, default=default)
+    try:
+        return float(resolved)
+    except (TypeError, ValueError):
+        return default
+
+
 @dataclass(frozen=True)
 class BdsConfig:
     dsn: str | None = None
@@ -36,6 +44,9 @@ class BdsConfig:
     statement_timeout_ms: int = 0
     application_name: str = "xian-bds"
     queue_max_size: int = 128
+    catchup_enabled: bool = True
+    catchup_poll_seconds: float = 1.0
+    rpc_url: str | None = None
     spool_dir: str | None = None
     spool_warn_entries: int = 256
     spool_warn_bytes: int = 536_870_912
@@ -56,6 +67,20 @@ class BdsConfig:
         dsn = _first_non_empty(
             bds_settings.get("dsn"),
             env.get("XIAN_BDS_DSN"),
+        )
+        catchup_enabled = _first_non_empty(
+            bds_settings.get("catchup_enabled"),
+            env.get("XIAN_BDS_CATCHUP_ENABLED"),
+            default=True,
+        )
+        catchup_poll_seconds = _first_non_empty(
+            bds_settings.get("catchup_poll_seconds"),
+            env.get("XIAN_BDS_CATCHUP_POLL_SECONDS"),
+            default=1.0,
+        )
+        rpc_url = _first_non_empty(
+            bds_settings.get("rpc_url"),
+            env.get("XIAN_BDS_RPC_URL"),
         )
         spool_dir = _first_non_empty(
             bds_settings.get("spool_dir"),
@@ -134,6 +159,13 @@ class BdsConfig:
                 ),
                 default=128,
             ),
+            catchup_enabled=str(catchup_enabled).lower()
+            not in {"0", "false", "no", "off"},
+            catchup_poll_seconds=_coerce_float(
+                catchup_poll_seconds,
+                default=1.0,
+            ),
+            rpc_url=str(rpc_url) if isinstance(rpc_url, str) else None,
             spool_dir=str(spool_dir) if isinstance(spool_dir, str) else None,
             spool_warn_entries=_coerce_int(
                 _first_non_empty(

@@ -27,20 +27,31 @@ GENESIS_TX_HASH = "GENESIS"
 GENESIS_CREATED_AT = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
+class _NoopRawDriver:
+    def set(self, key: str, value: Any) -> None:
+        return None
+
+    def hard_apply(self, nanos: int) -> None:
+        return None
+
+
 class BDS:
     WORKER_RETRY_DELAY_SECONDS = 2.0
+    CATCHUP_RETRY_DELAY_SECONDS = 2.0
     CLOSE_FLUSH_TIMEOUT_SECONDS = 1.0
 
     def __init__(self, config: BdsConfig):
         self.config = config
         self.db = DB(config)
         self.spool_dir = Path(config.spool_dir or ".bds-spool")
-        self._queue: (
-            asyncio.Queue[tuple[BdsBlockPayload, Path] | None] | None
-        ) = None
+        self._pending_payloads: dict[int, BdsBlockPayload] = {}
+        self._pending_event = asyncio.Event()
         self._worker_task: asyncio.Task | None = None
-        self._queued_spool_paths: set[str] = set()
+        self._catchup_task: asyncio.Task | None = None
+        self._indexed_height: int | None = None
         self._last_enqueue_error: dict[str, Any] | None = None
+        self._block_source = None
+        self._reindexer = None
 
     async def open_storage(self) -> None:
         await self.db.init_pool()
@@ -76,33 +87,33 @@ class BDS:
         return self
 
     async def start(self) -> None:
+        await self._refresh_indexed_height()
         self._start_worker()
         await self._replay_spool()
+        await self._start_catchup()
 
     def _start_worker(self) -> None:
-        if self._queue is not None and self._worker_task is not None:
+        if self._worker_task is not None:
             return
 
-        self._queue = asyncio.Queue(maxsize=max(self.config.queue_max_size, 1))
         self._worker_task = asyncio.create_task(
             self._run_worker(), name="xian-bds-worker"
         )
 
     async def _run_worker(self) -> None:
-        assert self._queue is not None
-
         while True:
-            queued = await self._queue.get()
-            spool_path: Path | None = None
+            await self._pending_event.wait()
             try:
-                if queued is None:
-                    return
-                payload, spool_path = queued
+                payload = self._pop_next_pending_payload()
+                if payload is None:
+                    self._pending_event.clear()
+                    continue
                 while True:
                     try:
                         if await self.persist_block(payload):
-                            if spool_path.exists():
-                                spool_path.unlink()
+                            self._indexed_height = int(
+                                payload.block_meta["height"]
+                            )
                             break
                         await asyncio.sleep(self.WORKER_RETRY_DELAY_SECONDS)
                     except asyncio.CancelledError:
@@ -115,27 +126,32 @@ class BDS:
             except asyncio.CancelledError:
                 raise
             finally:
-                if spool_path is not None:
-                    self._queued_spool_paths.discard(str(spool_path))
-                self._queue.task_done()
-                self._fill_queue_from_spool()
+                if self._has_next_pending_payload():
+                    self._pending_event.set()
+                else:
+                    self._pending_event.clear()
 
     async def enqueue_block(self, payload: BdsBlockPayload) -> None:
-        if self._queue is None:
+        if self._worker_task is None:
             raise RuntimeError("BDS worker is not initialized")
-        spool_path = self._write_spool_file(payload)
-        self._queue_payload(spool_path, payload=payload)
+        if not self._enqueue_pending_payload(payload):
+            self._record_enqueue_error(
+                "pending_buffer_full",
+                "BDS pending buffer is full; block will be recovered via catch-up",
+            )
 
     async def _replay_spool(self) -> None:
-        self._fill_queue_from_spool()
+        for spool_path in self._pending_spool_files():
+            self._enqueue_pending_payload(self._read_spool_file(spool_path))
 
     async def flush(self) -> None:
-        if self._queue is None:
+        if self._worker_task is None:
             return
-        await self._queue.join()
+        while self._pending_payloads:
+            await asyncio.sleep(0.05)
 
     async def close(self) -> None:
-        if self._queue is not None:
+        if self._worker_task is not None:
             try:
                 await asyncio.wait_for(
                     self.flush(), timeout=self.CLOSE_FLUSH_TIMEOUT_SECONDS
@@ -145,12 +161,20 @@ class BDS:
                     "Timed out waiting for BDS queue flush; pending blocks remain in {}",
                     self.spool_dir,
                 )
+        if self._catchup_task is not None:
+            self._catchup_task.cancel()
+            await asyncio.gather(self._catchup_task, return_exceptions=True)
         if self._worker_task is not None:
             self._worker_task.cancel()
             await asyncio.gather(self._worker_task, return_exceptions=True)
         self._worker_task = None
-        self._queue = None
-        self._queued_spool_paths.clear()
+        self._catchup_task = None
+        self._pending_payloads.clear()
+        self._pending_event.clear()
+        if self._block_source is not None:
+            await self._block_source.close()
+            self._block_source = None
+        self._reindexer = None
         await self.db.close_pool()
 
     def _spool_file_path(self, payload: BdsBlockPayload) -> Path:
@@ -180,7 +204,6 @@ class BDS:
         self.spool_dir.mkdir(parents=True, exist_ok=True)
         for path in self.spool_dir.glob("*.json*"):
             path.unlink(missing_ok=True)
-        self._queued_spool_paths.clear()
 
     def _record_enqueue_error(self, code: str, message: str) -> None:
         self._last_enqueue_error = {
@@ -192,37 +215,29 @@ class BDS:
     def _clear_enqueue_error(self) -> None:
         self._last_enqueue_error = None
 
-    def _queue_payload(
-        self,
-        spool_path: Path,
-        *,
-        payload: BdsBlockPayload | None = None,
-    ) -> bool:
-        if self._queue is None:
-            return False
-        spool_key = str(spool_path)
-        if spool_key in self._queued_spool_paths:
+    def _enqueue_pending_payload(self, payload: BdsBlockPayload) -> bool:
+        height = int(payload.block_meta["height"])
+        if self._indexed_height is not None and height <= self._indexed_height:
             return True
-        if payload is None:
-            payload = self._read_spool_file(spool_path)
-        try:
-            self._queue.put_nowait((payload, spool_path))
-        except asyncio.QueueFull:
-            self._record_enqueue_error(
-                "queue_full",
-                "BDS in-memory queue is full; block remains on disk spool",
-            )
+        if height in self._pending_payloads:
+            return True
+        if len(self._pending_payloads) >= max(self.config.queue_max_size, 1):
             return False
-        self._queued_spool_paths.add(spool_key)
+        self._pending_payloads[height] = payload
+        self._pending_event.set()
         self._clear_enqueue_error()
         return True
 
-    def _fill_queue_from_spool(self) -> None:
-        if self._queue is None:
-            return
-        for spool_path in self._pending_spool_files():
-            if not self._queue_payload(spool_path):
-                break
+    def _next_expected_height(self) -> int:
+        if self._indexed_height is None:
+            return 0
+        return int(self._indexed_height) + 1
+
+    def _has_next_pending_payload(self) -> bool:
+        return self._next_expected_height() in self._pending_payloads
+
+    def _pop_next_pending_payload(self) -> BdsBlockPayload | None:
+        return self._pending_payloads.pop(self._next_expected_height(), None)
 
     def _spool_file_height(self, spool_path: Path) -> int | None:
         prefix, _, _ = spool_path.name.partition("-")
@@ -278,7 +293,7 @@ class BDS:
         self, *, timeout_seconds: float = 60.0
     ) -> dict[str, Any]:
         worker_started = False
-        if self._queue is None and self._worker_task is None:
+        if self._worker_task is None:
             self._start_worker()
             await self._replay_spool()
             worker_started = True
@@ -358,7 +373,7 @@ class BDS:
         ):
             height_lag = max(current_block_height - indexed_height, 0)
 
-        queue_depth = self._queue.qsize() if self._queue is not None else 0
+        queue_depth = len(self._pending_payloads)
         queue_capacity = max(self.config.queue_max_size, 1)
         disk_usage = shutil.disk_usage(self.spool_dir)
 
@@ -405,6 +420,8 @@ class BDS:
         return {
             "worker_running": self._worker_task is not None
             and not self._worker_task.done(),
+            "catchup_running": self._catchup_task is not None
+            and not self._catchup_task.done(),
             "queue_depth": queue_depth,
             "queue_capacity": queue_capacity,
             "queue_utilization": queue_depth / queue_capacity,
@@ -425,9 +442,87 @@ class BDS:
             "current_block_height": current_block_height,
             "height_lag": height_lag,
             "catching_up": bool(pending_spool)
+            or bool(self._pending_payloads)
             or (isinstance(height_lag, int) and height_lag > 0),
             "alerts": alerts,
         }
+
+    async def _refresh_indexed_height(self) -> int | None:
+        indexed_height = await self.db.fetchval(
+            "SELECT MAX(height) FROM blocks"
+        )
+        self._indexed_height = (
+            int(indexed_height) if indexed_height is not None else None
+        )
+        return self._indexed_height
+
+    async def _start_catchup(self) -> None:
+        if not self.config.catchup_enabled or self._catchup_task is not None:
+            return
+        if not self.config.rpc_url:
+            return
+        await self._ensure_catchup_runtime()
+        self._catchup_task = asyncio.create_task(
+            self._run_catchup(), name="xian-bds-catchup"
+        )
+
+    async def _ensure_catchup_runtime(self) -> None:
+        if self._block_source is not None and self._reindexer is not None:
+            return
+        from xian.services.bds.reindex import BdsReindexer, CometBftRpcClient
+        from xian.utils.state_patches import StatePatchManager
+
+        patch_file_path = (
+            Path(__file__).resolve().parents[2]
+            / "tools"
+            / "state_patches"
+            / "state_patches.json"
+        )
+        state_patch_manager = StatePatchManager(_NoopRawDriver())
+        if patch_file_path.exists():
+            state_patch_manager.load_patches(str(patch_file_path))
+        self._block_source = CometBftRpcClient(self.config.rpc_url)
+        self._reindexer = BdsReindexer(
+            bds=self,
+            block_source=self._block_source,
+            state_patch_manager=state_patch_manager,
+        )
+
+    async def _run_catchup(self) -> None:
+        while True:
+            try:
+                await self._catch_up_once()
+                await asyncio.sleep(self.config.catchup_poll_seconds)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.exception(f"BDS catch-up failed: {exc}")
+                await asyncio.sleep(self.CATCHUP_RETRY_DELAY_SECONDS)
+
+    async def _catch_up_once(self) -> None:
+        if not self.config.catchup_enabled:
+            return
+        await self._ensure_catchup_runtime()
+        latest_height = await self._block_source.latest_height()
+        indexed_height = (
+            self._indexed_height if self._indexed_height is not None else 0
+        )
+        highest_pending = max(self._pending_payloads, default=indexed_height)
+        target_height = max(int(latest_height), int(highest_pending))
+        next_height = indexed_height + 1
+
+        while next_height <= target_height:
+            if len(self._pending_payloads) >= max(
+                self.config.queue_max_size, 1
+            ):
+                return
+            if next_height in self._pending_payloads:
+                next_height += 1
+                continue
+            payload = await self._reindexer.build_payload(next_height)
+            if not self._enqueue_pending_payload(payload):
+                return
+            next_height += 1
 
     async def get_spool_entries(
         self, limit: int = 100, offset: int = 0

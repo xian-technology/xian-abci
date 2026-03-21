@@ -19,6 +19,9 @@ class BdsConfigTests(unittest.TestCase):
                     "statement_timeout_ms": 5000,
                     "application_name": "xian-bds-test",
                     "queue_max_size": 42,
+                    "catchup_enabled": False,
+                    "catchup_poll_seconds": 2.5,
+                    "rpc_url": "http://127.0.0.1:26657",
                     "spool_dir": "/var/lib/xian/bds-spool",
                     "spool_warn_entries": 512,
                     "spool_warn_bytes": 1073741824,
@@ -41,6 +44,9 @@ class BdsConfigTests(unittest.TestCase):
         self.assertEqual(config.statement_timeout_ms, 5000)
         self.assertEqual(config.application_name, "xian-bds-test")
         self.assertEqual(config.queue_max_size, 42)
+        self.assertFalse(config.catchup_enabled)
+        self.assertEqual(config.catchup_poll_seconds, 2.5)
+        self.assertEqual(config.rpc_url, "http://127.0.0.1:26657")
         self.assertEqual(config.spool_dir, "/var/lib/xian/bds-spool")
         self.assertEqual(config.spool_warn_entries, 512)
         self.assertEqual(config.spool_warn_bytes, 1_073_741_824)
@@ -61,6 +67,9 @@ class BdsConfigTests(unittest.TestCase):
                 "XIAN_BDS_STATEMENT_TIMEOUT_MS": "2500",
                 "XIAN_BDS_APPLICATION_NAME": "xian-bds-stack",
                 "XIAN_BDS_QUEUE_MAX_SIZE": "256",
+                "XIAN_BDS_CATCHUP_ENABLED": "true",
+                "XIAN_BDS_CATCHUP_POLL_SECONDS": "0.5",
+                "XIAN_BDS_RPC_URL": "http://rpc.example:26657",
                 "XIAN_BDS_SPOOL_DIR": "/tmp/xian-bds-spool",
                 "XIAN_BDS_SPOOL_WARN_ENTRIES": "1024",
                 "XIAN_BDS_SPOOL_WARN_BYTES": "2147483648",
@@ -78,10 +87,23 @@ class BdsConfigTests(unittest.TestCase):
         self.assertEqual(config.statement_timeout_ms, 2500)
         self.assertEqual(config.application_name, "xian-bds-stack")
         self.assertEqual(config.queue_max_size, 256)
+        self.assertTrue(config.catchup_enabled)
+        self.assertEqual(config.catchup_poll_seconds, 0.5)
+        self.assertEqual(config.rpc_url, "http://rpc.example:26657")
         self.assertEqual(config.spool_dir, "/tmp/xian-bds-spool")
         self.assertEqual(config.spool_warn_entries, 1024)
         self.assertEqual(config.spool_warn_bytes, 2_147_483_648)
         self.assertEqual(config.disk_free_warn_bytes, 8_589_934_592)
+
+    def test_from_runtime_settings_handles_invalid_catchup_poll_seconds(self):
+        config = BdsConfig.from_runtime_settings(
+            {},
+            {
+                "XIAN_BDS_CATCHUP_POLL_SECONDS": "not-a-float",
+            },
+        )
+
+        self.assertEqual(config.catchup_poll_seconds, 1.0)
 
 
 if __name__ == "__main__":

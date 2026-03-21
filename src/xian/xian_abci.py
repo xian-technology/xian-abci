@@ -6,6 +6,7 @@ import signal
 import sys
 from dataclasses import replace
 from datetime import datetime, timedelta
+from urllib.parse import urlsplit, urlunsplit
 
 from contracting.client import ContractingClient
 from loguru import logger
@@ -47,6 +48,24 @@ get_logger("urllib3").setLevel(30)
 get_logger("asyncio").setLevel(30)
 
 LOG_RETENTION_DAYS = 3
+
+
+def resolve_local_rpc_url(cometbft_config: dict) -> str:
+    laddr = str(
+        cometbft_config.get("rpc", {}).get("laddr", "tcp://127.0.0.1:26657")
+    )
+    normalized = laddr
+    if not normalized.startswith(("http://", "https://")):
+        normalized = normalized.replace("tcp://", "http://").replace(
+            "unix://", "http://"
+        )
+    normalized = normalized.rstrip("/")
+    parts = urlsplit(normalized)
+    host = parts.hostname or "127.0.0.1"
+    if host in {"0.0.0.0", "::"}:
+        netloc = f"127.0.0.1:{parts.port or 26657}"
+        return urlunsplit((parts.scheme or "http", netloc, parts.path, "", ""))
+    return normalized
 
 
 def load_module(module_path, original_module_path):
@@ -130,6 +149,11 @@ class Xian:
             self.bds_config = replace(
                 self.bds_config,
                 spool_dir=str(constants.STORAGE_HOME / "bds-spool"),
+            )
+        if self.bds_config.rpc_url is None:
+            self.bds_config = replace(
+                self.bds_config,
+                rpc_url=resolve_local_rpc_url(self.cometbft_config),
             )
 
         self.pruning_enabled = xian_config.get("pruning_enabled", False)

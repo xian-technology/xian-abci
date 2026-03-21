@@ -22,8 +22,15 @@ Completed on `main` in the current rewrite:
 - BDS writes now go through a dedicated sequential in-process worker instead
   of waiting on direct Postgres writes in `FinalizeBlock`
 - graceful node shutdown now flushes the BDS queue
-- BDS now writes block payloads to a local durable spool before enqueueing
-  them, so indexing can replay after node restarts or temporary DB downtime
+- BDS now buffers live finalized blocks in memory and persists them in strict
+  contiguous block order
+- BDS now auto-detects height gaps and catches up from local CometBFT RPC in
+  the background while newer live blocks continue to arrive
+- BDS can therefore receive block `N+2`, keep it pending, fetch `N+1`
+  locally, then persist `N+1` followed by `N+2`
+- the local spool remains available for offline maintenance, snapshot import,
+  and explicit recovery flows, but it is no longer the primary hot-path
+  durability mechanism
 - BDS now exposes operator-facing status/spool inspection queries for queue
   depth, indexed head, lag, and pending spooled blocks
 - BDS now has a local `xian-bds-reindex` path for full historical backfill
@@ -48,6 +55,9 @@ Still worth doing next:
 - decide later whether that worker should stay in-process or become a separate
   replayable external indexer
 - benchmark and tune large-table index strategy on realistic chain data
+- decide whether live buffering should gain an optional on-disk write-ahead
+  mode for operators who prefer durability over the lowest possible hot-path
+  latency
 - decide whether startup should block on spool catch-up or continue with
   eventual consistency
 - extend reindex/backfill to work against explicit archival RPC sources as a
