@@ -114,6 +114,41 @@ def build_parser() -> ArgumentParser:
         default="0s",
     )
     parser.add_argument(
+        "--statesync-enable",
+        action=BooleanOptionalAction,
+        help="enable CometBFT state sync using trusted application snapshots",
+        required=False,
+        default=False,
+    )
+    parser.add_argument(
+        "--statesync-rpc-server",
+        action="append",
+        default=[],
+        help="trusted CometBFT RPC server for state sync; specify at least twice",
+        required=False,
+    )
+    parser.add_argument(
+        "--statesync-trust-height",
+        type=int,
+        help="trusted height for CometBFT state sync",
+        required=False,
+        default=0,
+    )
+    parser.add_argument(
+        "--statesync-trust-hash",
+        type=str,
+        help="trusted block hash for CometBFT state sync",
+        required=False,
+        default="",
+    )
+    parser.add_argument(
+        "--statesync-trust-period",
+        type=str,
+        help="light-client trust period for CometBFT state sync",
+        required=False,
+        default="168h0m0s",
+    )
+    parser.add_argument(
         "--tracer-mode",
         choices=sorted(SUPPORTED_TRACER_MODES),
         help="execution tracer backend for contract metering",
@@ -288,6 +323,11 @@ def main(argv: list[str] | None = None) -> int:
         blocks_to_keep=args.blocks_to_keep,
         block_policy_mode=args.block_policy_mode,
         block_policy_interval=args.block_policy_interval,
+        statesync_enable=args.statesync_enable,
+        statesync_rpc_servers=args.statesync_rpc_server,
+        statesync_trust_height=args.statesync_trust_height,
+        statesync_trust_hash=args.statesync_trust_hash,
+        statesync_trust_period=args.statesync_trust_period,
         tracer_mode=args.tracer_mode,
         metrics_enabled=args.metrics_enabled,
         metrics_host=args.metrics_host,

@@ -2,11 +2,19 @@ import binascii
 import json
 import marshal
 from datetime import UTC, datetime
+from pathlib import Path
 
 from loguru import logger
 from xian_runtime_types.encoding import convert_dict
 
 from xian.constants import Constants as c
+
+
+def _latest_block_path(storage_home: Path | None = None) -> Path:
+    resolved_storage_home = (
+        Path(storage_home) if storage_home is not None else c.STORAGE_HOME
+    )
+    return resolved_storage_home / "__latest_block.json"
 
 
 def nanoseconds_to_utc_datetime(nanoseconds: int) -> datetime:
@@ -77,19 +85,24 @@ def is_compiled_key(key):
     return False
 
 
-def create_latest_block_json_if_not_exists():
+def create_latest_block_json_if_not_exists(
+    storage_home: Path | None = None,
+):
+    latest_block_path = _latest_block_path(storage_home)
+    latest_block_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with open(f"{c.STORAGE_HOME}/__latest_block.json", "x") as f:
+        with open(latest_block_path, "x") as f:
             json.dump({"hash": "", "height": 0}, f)
     except FileExistsError:
         pass
 
 
-def get_latest_block_hash():
+def get_latest_block_hash(storage_home: Path | None = None):
     # Get the latest block hash from the json file
-    create_latest_block_json_if_not_exists()
+    latest_block_path = _latest_block_path(storage_home)
+    create_latest_block_json_if_not_exists(storage_home)
     try:
-        with open(f"{c.STORAGE_HOME}/__latest_block.json", "r") as f:
+        with open(latest_block_path, "r") as f:
             latest_block = json.load(f)
             latest_hash = bytes.fromhex(latest_block.get("hash"))
     except FileNotFoundError:
@@ -100,17 +113,18 @@ def get_latest_block_hash():
     return latest_hash
 
 
-def set_latest_block_hash(h):
+def set_latest_block_hash(h, storage_home: Path | None = None):
     # Set the latest block hash in the json file
-    create_latest_block_json_if_not_exists()
+    latest_block_path = _latest_block_path(storage_home)
+    create_latest_block_json_if_not_exists(storage_home)
     try:
-        with open(f"{c.STORAGE_HOME}/__latest_block.json", "r") as f:
+        with open(latest_block_path, "r") as f:
             latest_block = json.load(f)
 
         # Update the hash while keeping the height intact
         latest_block["hash"] = h.hex()
 
-        with open(f"{c.STORAGE_HOME}/__latest_block.json", "w") as f:
+        with open(latest_block_path, "w") as f:
             json.dump(latest_block, f)
     except FileNotFoundError:
         raise Exception("__latest_block.json not found")
@@ -118,11 +132,12 @@ def set_latest_block_hash(h):
         raise Exception("Error decoding __latest_block.json")
 
 
-def get_latest_block_height():
+def get_latest_block_height(storage_home: Path | None = None):
     # Get the latest block height from the json file
-    create_latest_block_json_if_not_exists()
+    latest_block_path = _latest_block_path(storage_home)
+    create_latest_block_json_if_not_exists(storage_home)
     try:
-        with open(f"{c.STORAGE_HOME}/__latest_block.json", "r") as f:
+        with open(latest_block_path, "r") as f:
             latest_block = json.load(f)
             latest_height = latest_block.get("height")
     except FileNotFoundError:
@@ -133,17 +148,18 @@ def get_latest_block_height():
     return latest_height
 
 
-def set_latest_block_height(h):
+def set_latest_block_height(h, storage_home: Path | None = None):
     # Set the latest block height in the json file
-    create_latest_block_json_if_not_exists()
+    latest_block_path = _latest_block_path(storage_home)
+    create_latest_block_json_if_not_exists(storage_home)
     try:
-        with open(f"{c.STORAGE_HOME}/__latest_block.json", "r") as f:
+        with open(latest_block_path, "r") as f:
             latest_block = json.load(f)
 
         # Update the height while keeping the hash intact
         latest_block["height"] = h
 
-        with open(f"{c.STORAGE_HOME}/__latest_block.json", "w") as f:
+        with open(latest_block_path, "w") as f:
             json.dump(latest_block, f)
     except FileNotFoundError:
         raise Exception("__latest_block.json not found")

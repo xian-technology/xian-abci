@@ -137,6 +137,14 @@ blocks_to_keep = 100000
                     enable_pruning=True,
                     blocks_to_keep=5000,
                     allow_cors=False,
+                    statesync_enable=True,
+                    statesync_rpc_servers=[
+                        "http://rpc-1.internal:26657",
+                        "http://rpc-2.internal:26657",
+                    ],
+                    statesync_trust_height=120,
+                    statesync_trust_hash="ab" * 32,
+                    statesync_trust_period="336h0m0s",
                     metrics_enabled=True,
                     metrics_host="0.0.0.0",
                     metrics_port=9208,
@@ -180,6 +188,18 @@ blocks_to_keep = 100000
             self.assertEqual(rendered_config["db_backend"], "rocksdb")
             self.assertEqual(rendered_config["db_dir"], "custom-data")
             self.assertEqual(rendered_config["rpc"]["cors_allowed_origins"], [])
+            self.assertTrue(rendered_config["statesync"]["enable"])
+            self.assertEqual(
+                rendered_config["statesync"]["rpc_servers"],
+                "http://rpc-1.internal:26657,http://rpc-2.internal:26657",
+            )
+            self.assertEqual(rendered_config["statesync"]["trust_height"], 120)
+            self.assertEqual(
+                rendered_config["statesync"]["trust_hash"], "ab" * 32
+            )
+            self.assertEqual(
+                rendered_config["statesync"]["trust_period"], "336h0m0s"
+            )
             self.assertTrue(rendered_config["xian"]["pruning_enabled"])
             self.assertEqual(rendered_config["xian"]["blocks_to_keep"], 5000)
             self.assertEqual(

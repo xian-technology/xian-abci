@@ -198,6 +198,47 @@ def resolve_tracer_mode(mode: str = "python_line_v1") -> str:
     return mode
 
 
+def resolve_statesync_settings(
+    *,
+    enable: bool = False,
+    rpc_servers: Sequence[str] | None = None,
+    trust_height: int = 0,
+    trust_hash: str = "",
+    trust_period: str = "168h0m0s",
+) -> dict[str, Any]:
+    if not enable:
+        return {
+            "enable": False,
+            "rpc_servers": "",
+            "trust_height": 0,
+            "trust_hash": "",
+            "trust_period": trust_period,
+        }
+
+    normalized_servers = [
+        server.strip() for server in (rpc_servers or []) if server.strip()
+    ]
+    if len(normalized_servers) < 2:
+        raise ValueError(
+            "statesync requires at least two RPC servers for light-client "
+            "verification"
+        )
+    if trust_height <= 0:
+        raise ValueError("statesync_trust_height must be greater than zero")
+    if not isinstance(trust_hash, str) or not trust_hash:
+        raise ValueError(
+            "statesync_trust_hash must be provided when statesync is enabled"
+        )
+
+    return {
+        "enable": True,
+        "rpc_servers": ",".join(normalized_servers),
+        "trust_height": trust_height,
+        "trust_hash": trust_hash,
+        "trust_period": trust_period,
+    }
+
+
 def _normalize_private_key(private_key_hex: str | None) -> bytes:
     if private_key_hex is None:
         return secrets.token_bytes(32)
@@ -294,6 +335,11 @@ def render_cometbft_config(
     blocks_to_keep: int = 100000,
     block_policy_mode: str = "on_demand",
     block_policy_interval: str = "0s",
+    statesync_enable: bool = False,
+    statesync_rpc_servers: Sequence[str] | None = None,
+    statesync_trust_height: int = 0,
+    statesync_trust_hash: str = "",
+    statesync_trust_period: str = "168h0m0s",
     tracer_mode: str = "python_line_v1",
     metrics_enabled: bool = True,
     metrics_host: str = "127.0.0.1",
@@ -324,6 +370,13 @@ def render_cometbft_config(
         mode=block_policy_mode,
         interval=block_policy_interval,
     )
+    resolved_statesync = resolve_statesync_settings(
+        enable=statesync_enable,
+        rpc_servers=statesync_rpc_servers,
+        trust_height=statesync_trust_height,
+        trust_hash=statesync_trust_hash,
+        trust_period=statesync_trust_period,
+    )
     resolved_tracer_mode = resolve_tracer_mode(tracer_mode)
     config["proxy_app"] = proxy_app
     config["moniker"] = moniker
@@ -334,6 +387,11 @@ def render_cometbft_config(
     config["p2p"]["seeds"] = ",".join(seed_nodes or [])
     config["rpc"]["cors_allowed_origins"] = ["*"] if allow_cors else []
     config["instrumentation"]["prometheus"] = prometheus
+    config["statesync"]["enable"] = resolved_statesync["enable"]
+    config["statesync"]["rpc_servers"] = resolved_statesync["rpc_servers"]
+    config["statesync"]["trust_height"] = resolved_statesync["trust_height"]
+    config["statesync"]["trust_hash"] = resolved_statesync["trust_hash"]
+    config["statesync"]["trust_period"] = resolved_statesync["trust_period"]
     config["xian"] = {
         "block_service_mode": service_node,
         "pruning_enabled": enable_pruning,

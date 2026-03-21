@@ -1,7 +1,6 @@
 import unittest
 from contracting.storage.driver import Driver
 from contracting.execution.executor import Executor
-from contracting.constants import STAMPS_PER_TAU
 from xian.processor import TxProcessor
 from contracting.client import ContractingClient
 import contracting

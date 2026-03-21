@@ -8,6 +8,7 @@ from xian.node_setup import (
     generate_validator_material,
     materialize_cometbft_home,
     render_cometbft_config,
+    resolve_statesync_settings,
 )
 from xian.toml_utils import load as load_toml
 
@@ -102,6 +103,48 @@ class NodeSetupTests(unittest.TestCase):
         )
 
         self.assertEqual(config["xian"]["tracer_mode"], "native_instruction_v1")
+
+    def test_render_config_supports_state_sync(self):
+        config = render_cometbft_config(
+            moniker="validator-1",
+            statesync_enable=True,
+            statesync_rpc_servers=[
+                "http://rpc-1.internal:26657",
+                "http://rpc-2.internal:26657",
+            ],
+            statesync_trust_height=120,
+            statesync_trust_hash="ab" * 32,
+            statesync_trust_period="336h0m0s",
+        )
+
+        self.assertTrue(config["statesync"]["enable"])
+        self.assertEqual(
+            config["statesync"]["rpc_servers"],
+            "http://rpc-1.internal:26657,http://rpc-2.internal:26657",
+        )
+        self.assertEqual(config["statesync"]["trust_height"], 120)
+        self.assertEqual(config["statesync"]["trust_hash"], "ab" * 32)
+        self.assertEqual(config["statesync"]["trust_period"], "336h0m0s")
+
+    def test_resolve_statesync_settings_rejects_incomplete_config(self):
+        with self.assertRaisesRegex(ValueError, "at least two RPC servers"):
+            resolve_statesync_settings(
+                enable=True,
+                rpc_servers=["http://rpc-1.internal:26657"],
+                trust_height=120,
+                trust_hash="ab" * 32,
+            )
+
+        with self.assertRaisesRegex(ValueError, "greater than zero"):
+            resolve_statesync_settings(
+                enable=True,
+                rpc_servers=[
+                    "http://rpc-1.internal:26657",
+                    "http://rpc-2.internal:26657",
+                ],
+                trust_height=0,
+                trust_hash="ab" * 32,
+            )
 
     def test_render_config_supports_periodic_block_policy(self):
         config = render_cometbft_config(

@@ -32,7 +32,9 @@ from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
 from xian.services.bds.bds import BDS
 from xian.services.bds.config import BdsConfig
+from xian.services.state_sync import StateSnapshotManager
 from xian.simulator import TransactionSimulator
+from xian.utils.block import get_latest_block_height
 from xian.utils.cometbft import (
     load_genesis_data,
     load_tendermint_config,
@@ -93,6 +95,10 @@ class Xian:
             tracer_mode=self.tracer_mode,
         )
         self.nonce_storage = NonceStorage(self.client)
+        self.state_snapshot_manager = StateSnapshotManager(
+            storage_home=constants.STORAGE_HOME,
+            chain_id=self.chain_id,
+        )
         self.validator_handler = ValidatorHandler(self)
         xian_config = self.cometbft_config.get("xian", {})
         self.transaction_trace_logging = xian_config.get(
@@ -244,6 +250,37 @@ class Xian:
         with self.profiler.scope("block_packing"):
             res = await prepare_proposal.prepare_proposal(self, req)
         return res
+
+    async def list_snapshots(self, req):
+        del req
+        return self.state_snapshot_manager.list_snapshots_response()
+
+    async def offer_snapshot(self, req):
+        current_height = get_latest_block_height(
+            self.client.raw_driver.storage_home
+        )
+        return self.state_snapshot_manager.offer_snapshot_response(
+            req.snapshot,
+            app_hash=req.app_hash,
+            current_height=current_height,
+        )
+
+    async def load_snapshot_chunk(self, req):
+        return self.state_snapshot_manager.load_snapshot_chunk_response(
+            height=req.height,
+            format_version=req.format,
+            chunk_index=req.chunk,
+        )
+
+    async def apply_snapshot_chunk(self, req):
+        response = self.state_snapshot_manager.apply_snapshot_chunk_response(
+            index=req.index,
+            chunk=req.chunk,
+            sender=req.sender,
+        )
+        if response.result == response.ACCEPT:
+            self.nonce_storage.flush_pending()
+        return response
 
     async def query(self, req):
         """

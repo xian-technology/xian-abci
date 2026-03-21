@@ -98,7 +98,7 @@ def check_enough_stamps(
 
     # Prevent people from sending their entire balances for free by checking if that is what they are doing.
     if contract == "currency" and function == "transfer":
-        # If you have less than 2 transactions worth of tau after trying to send your amount, fail.
+        # If you have less than 2 transactions worth of native token after trying to send your amount, fail.
         if ((balance - amount) * stamps_per_tau) / 6 < 2:
             raise TransactionException(
                 "Transaction sender has too few stamps for this transaction"
