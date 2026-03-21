@@ -212,9 +212,12 @@ async def query(self, req) -> ResponseQuery:
         ):
             v = encode_str(str(result))
             type_of_data = "decimal"
-        elif isinstance(result, dict) or isinstance(result, list):
+        elif isinstance(result, dict):
             v = encode_str(json.dumps(result, cls=Encoder))
-            type_of_data = "str"
+            type_of_data = "dict"
+        elif isinstance(result, list):
+            v = encode_str(json.dumps(result, cls=Encoder))
+            type_of_data = "list"
         else:
             v = encode_str(str(result))
             type_of_data = "str"

@@ -64,6 +64,22 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(queued_first[1].name.endswith("-A.json"))
             self.assertTrue(queued_second[1].name.endswith("-B.json"))
 
+    async def test_enqueue_block_does_not_block_when_queue_is_full(self):
+        with TemporaryDirectory() as spool_dir:
+            bds = _RecordingBDS(spool_dir)
+            Path(spool_dir).mkdir(parents=True, exist_ok=True)
+            bds._queue = asyncio.Queue(maxsize=1)
+
+            await bds.enqueue_block(_payload(7, "A"))
+            await bds.enqueue_block(_payload(8, "B"))
+
+            self.assertEqual(bds._queue.qsize(), 1)
+            self.assertEqual(len(list(Path(spool_dir).glob("*.json"))), 2)
+            self.assertEqual(
+                bds._last_enqueue_error["code"],
+                "queue_full",
+            )
+
     async def test_status_reports_spool_and_index_lag(self):
         with TemporaryDirectory() as spool_dir:
             bds = _RecordingBDS(spool_dir)
@@ -93,6 +109,7 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(status["height_lag"], 3)
             self.assertTrue(status["catching_up"])
             self.assertIsInstance(status["alerts"], list)
+            self.assertIsNone(status["last_enqueue_error"])
 
     async def test_spool_entries_return_ordered_metadata(self):
         with TemporaryDirectory() as spool_dir:

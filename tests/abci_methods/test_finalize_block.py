@@ -61,6 +61,9 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                 "xian.methods.finalize_block.decode_transaction_bytes",
                 return_value=({"payload": {}}, "{}"),
             ),
+            patch(
+                "xian.methods.finalize_block.validate_consensus_transaction"
+            ),
             patch.object(
                 self.app.tx_processor,
                 "process_tx",
@@ -90,6 +93,9 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             patch(
                 "xian.methods.finalize_block.decode_transaction_bytes",
                 return_value=({"payload": {}}, "{}"),
+            ),
+            patch(
+                "xian.methods.finalize_block.validate_consensus_transaction"
             ),
             patch.object(
                 self.app.tx_processor,
@@ -140,6 +146,9 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                     "{}",
                 ),
             ),
+            patch(
+                "xian.methods.finalize_block.validate_consensus_transaction"
+            ),
             patch.object(
                 self.app.tx_processor,
                 "process_tx",
@@ -156,3 +165,53 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload.block_meta["height"], 0)
         self.assertEqual(payload.transactions[0].tx_index, 0)
         self.assertEqual(payload.transactions[0].payload["sender"], "alice")
+
+    async def test_finalize_block_ignores_bds_enqueue_failures(self):
+        tx_result = {
+            "hash": "ABC123",
+            "status": 0,
+            "state": [],
+            "events": [],
+            "stamps_used": 1,
+            "result": "ok",
+        }
+        self.app.block_service_mode = True
+        self.app.bds = type(
+            "FakeBDS",
+            (),
+            {"enqueue_block": AsyncMock(side_effect=RuntimeError("bds down"))},
+        )()
+
+        with (
+            patch(
+                "xian.methods.finalize_block.decode_transaction_bytes",
+                return_value=(
+                    {
+                        "payload": {
+                            "sender": "alice",
+                            "nonce": 1,
+                            "contract": "currency",
+                            "function": "transfer",
+                        },
+                        "metadata": {"signature": "sig"},
+                    },
+                    "{}",
+                ),
+            ),
+            patch(
+                "xian.methods.finalize_block.validate_consensus_transaction"
+            ),
+            patch.object(
+                self.app.tx_processor,
+                "process_tx",
+                return_value={"tx_result": tx_result},
+            ),
+            patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
+        ):
+            response = await self.process_request(
+                Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
+            )
+
+        self.assertEqual(len(response.finalize_block.tx_results), 1)
+        self.assertEqual(response.finalize_block.tx_results[0].code, c.OkCode)
+        self.app.bds.enqueue_block.assert_awaited_once()

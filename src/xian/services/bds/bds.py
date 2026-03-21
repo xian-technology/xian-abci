@@ -39,6 +39,8 @@ class BDS:
             asyncio.Queue[tuple[BdsBlockPayload, Path] | None] | None
         ) = None
         self._worker_task: asyncio.Task | None = None
+        self._queued_spool_paths: set[str] = set()
+        self._last_enqueue_error: dict[str, Any] | None = None
 
     async def open_storage(self) -> None:
         await self.db.init_pool()
@@ -91,6 +93,7 @@ class BDS:
 
         while True:
             queued = await self._queue.get()
+            spool_path: Path | None = None
             try:
                 if queued is None:
                     return
@@ -112,20 +115,19 @@ class BDS:
             except asyncio.CancelledError:
                 raise
             finally:
+                if spool_path is not None:
+                    self._queued_spool_paths.discard(str(spool_path))
                 self._queue.task_done()
+                self._fill_queue_from_spool()
 
     async def enqueue_block(self, payload: BdsBlockPayload) -> None:
         if self._queue is None:
             raise RuntimeError("BDS worker is not initialized")
         spool_path = self._write_spool_file(payload)
-        await self._queue.put((payload, spool_path))
+        self._queue_payload(spool_path, payload=payload)
 
     async def _replay_spool(self) -> None:
-        if self._queue is None:
-            return
-        for spool_path in self._pending_spool_files():
-            payload = self._read_spool_file(spool_path)
-            await self._queue.put((payload, spool_path))
+        self._fill_queue_from_spool()
 
     async def flush(self) -> None:
         if self._queue is None:
@@ -148,6 +150,7 @@ class BDS:
             await asyncio.gather(self._worker_task, return_exceptions=True)
         self._worker_task = None
         self._queue = None
+        self._queued_spool_paths.clear()
         await self.db.close_pool()
 
     def _spool_file_path(self, payload: BdsBlockPayload) -> Path:
@@ -177,6 +180,49 @@ class BDS:
         self.spool_dir.mkdir(parents=True, exist_ok=True)
         for path in self.spool_dir.glob("*.json*"):
             path.unlink(missing_ok=True)
+        self._queued_spool_paths.clear()
+
+    def _record_enqueue_error(self, code: str, message: str) -> None:
+        self._last_enqueue_error = {
+            "code": code,
+            "message": message,
+            "recorded_at": utc_datetime(datetime.now()).isoformat(),
+        }
+
+    def _clear_enqueue_error(self) -> None:
+        self._last_enqueue_error = None
+
+    def _queue_payload(
+        self,
+        spool_path: Path,
+        *,
+        payload: BdsBlockPayload | None = None,
+    ) -> bool:
+        if self._queue is None:
+            return False
+        spool_key = str(spool_path)
+        if spool_key in self._queued_spool_paths:
+            return True
+        if payload is None:
+            payload = self._read_spool_file(spool_path)
+        try:
+            self._queue.put_nowait((payload, spool_path))
+        except asyncio.QueueFull:
+            self._record_enqueue_error(
+                "queue_full",
+                "BDS in-memory queue is full; block remains on disk spool",
+            )
+            return False
+        self._queued_spool_paths.add(spool_key)
+        self._clear_enqueue_error()
+        return True
+
+    def _fill_queue_from_spool(self) -> None:
+        if self._queue is None:
+            return
+        for spool_path in self._pending_spool_files():
+            if not self._queue_payload(spool_path):
+                break
 
     def _spool_file_height(self, spool_path: Path) -> int | None:
         prefix, _, _ = spool_path.name.partition("-")
@@ -374,6 +420,7 @@ class BDS:
             },
             "db_status": db_status,
             "db_error": db_error,
+            "last_enqueue_error": self._last_enqueue_error,
             "indexed": indexed,
             "current_block_height": current_block_height,
             "height_lag": height_lag,

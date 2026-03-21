@@ -223,6 +223,66 @@ def validate_transaction(client, nonce_storage, tx):
     check_contract_name(contract, func, name)
 
 
+class SequentialNonceTracker:
+    """Deterministic per-block/proposal nonce tracker.
+
+    This intentionally does not use node-local mempool pending nonce state.
+    It starts from committed nonce state and advances only for transactions
+    accepted into the current proposal/block validation pass.
+    """
+
+    def __init__(self, committed_nonce_getter: Callable[[str], int | None]):
+        self._committed_nonce_getter = committed_nonce_getter
+        self._latest_nonces: dict[str, int] = {}
+
+    def expected_nonce(self, sender: str) -> int:
+        current_nonce = self._latest_nonces.get(sender)
+        if current_nonce is None:
+            current_nonce = self._committed_nonce_getter(sender)
+        if current_nonce is None:
+            return 0
+        return current_nonce + 1
+
+    def validate_and_advance(self, tx: dict) -> None:
+        sender = tx["payload"]["sender"]
+        tx_nonce = tx["payload"]["nonce"]
+        expected_nonce = self.expected_nonce(sender)
+        if tx_nonce != expected_nonce:
+            raise TransactionException(
+                f"Transaction nonce is invalid. Expected {expected_nonce}, got {tx_nonce}"
+            )
+        self._latest_nonces[sender] = tx_nonce
+
+
+def validate_transaction_static(tx: dict, *, chain_id: str) -> None:
+    check_tx_formatting(tx)
+
+    sender, signature, payload = unpack_transaction(tx)
+    if not verify(sender, payload, signature):
+        raise TransactionException("Bad signature")
+
+    tx_chain_id = tx["payload"].get("chain_id", "")
+    if tx_chain_id != chain_id:
+        raise TransactionException("Wrong chain_id")
+
+    name = tx["payload"]["kwargs"].get("name")
+    check_contract_name(
+        tx["payload"]["contract"],
+        tx["payload"]["function"],
+        name,
+    )
+
+
+def validate_consensus_transaction(
+    tx: dict,
+    *,
+    chain_id: str,
+    nonce_tracker: SequentialNonceTracker,
+) -> None:
+    validate_transaction_static(tx, chain_id=chain_id)
+    nonce_tracker.validate_and_advance(tx)
+
+
 def dict_has_keys(d: dict, keys: set):
     key_set = set(d.keys())
     return len(keys ^ key_set) == 0

@@ -18,6 +18,10 @@ from xian.utils.encoding import (
     hash_bytes,
 )
 from xian.utils.hash import hash_from_rewards, hash_list
+from xian.utils.tx import (
+    SequentialNonceTracker,
+    validate_consensus_transaction,
+)
 
 STATE_CHANGE_TRANSLATION_TABLE = str.maketrans({".": "_", ":": "__"})
 
@@ -51,6 +55,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
     self.tx_processor.reset_block_cache()
 
     decoded_entries = []
+    nonce_tracker = SequentialNonceTracker(self.nonce_storage.get_nonce)
     with self.profiler.scope("finalize_decode", block_scoped=True):
         for tx_bytes in req.txs:
             try:
@@ -66,7 +71,24 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 )
                 continue
 
-            # Attach metadata to the transaction
+            try:
+                validate_consensus_transaction(
+                    tx,
+                    chain_id=self.chain_id,
+                    nonce_tracker=nonce_tracker,
+                )
+            except Exception as e:
+                decoded_entries.append(
+                    {
+                        "tx_bytes": tx_bytes,
+                        "error": _error_tx_result(
+                            f"Invalid transaction in block: {e}"
+                        ),
+                    }
+                )
+                continue
+            # Attach block metadata only after consensus validation, since it
+            # is not part of the canonical signed transaction shape.
             tx["b_meta"] = self.current_block_meta
             decoded_entries.append({"tx": tx, "tx_bytes": tx_bytes})
 
@@ -281,16 +303,21 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
 
         if self.block_service_mode:
             with self.profiler.scope("finalize_bds_enqueue"):
-                await self.bds.enqueue_block(
-                    BdsBlockPayload(
-                        block_meta=self.current_block_meta.copy(),
-                        block_time=block_datetime,
-                        app_hash=self.merkle_root_hash.hex().upper(),
-                        transactions=bds_transactions,
-                        state_patches=applied_patches,
-                        state_patch_hash=patch_hash,
+                try:
+                    await self.bds.enqueue_block(
+                        BdsBlockPayload(
+                            block_meta=self.current_block_meta.copy(),
+                            block_time=block_datetime,
+                            app_hash=self.merkle_root_hash.hex().upper(),
+                            transactions=bds_transactions,
+                            state_patches=applied_patches,
+                            state_patch_hash=patch_hash,
+                        )
                     )
-                )
+                except Exception as exc:
+                    logger.exception(
+                        f"BDS enqueue failed for block {height}: {exc}"
+                    )
 
     self.profiler.set_block_metadata(
         decoded_tx_count=len(decoded_txs),

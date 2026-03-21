@@ -203,7 +203,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         result = json.loads(response.query.value)
 
         self.assertEqual(response.query.code, Constants.OkCode)
-        self.assertEqual(response.query.info, "str")
+        self.assertEqual(response.query.info, "dict")
         self.assertEqual(response.query.key, encoded_payload.encode("utf-8"))
         self.assertEqual(result["status"], Constants.OkCode)
         self.assertEqual(result["payload"], payload)
@@ -233,7 +233,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(response.query.value)
 
         self.assertEqual(response.query.code, Constants.OkCode)
-        self.assertEqual(response.query.info, "str")
+        self.assertEqual(response.query.info, "dict")
         self.assertEqual(payload["enabled"], False)
         self.assertEqual(payload["recent_blocks"], [])
 
@@ -268,14 +268,14 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             Request(query=RequestQuery(path="/contract_methods/currency"))
         )
         self.assertEqual(response.query.code, Constants.OkCode)
-        self.assertEqual(response.query.info, "str")
+        self.assertEqual(response.query.info, "dict")
 
     async def test_contract_vars_query(self):
         response = await self.process_request(
             Request(query=RequestQuery(path="/contract_vars/currency"))
         )
         self.assertEqual(response.query.code, Constants.OkCode)
-        self.assertEqual(response.query.info, "str")
+        self.assertEqual(response.query.info, "dict")
 
     async def test_state_patches_query_uses_bds(self):
         self.app.block_service_mode = True
@@ -285,7 +285,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(response.query.code, Constants.OkCode)
-        self.assertEqual(response.query.info, "str")
+        self.assertEqual(response.query.info, "list")
 
         result = json.loads(response.query.value)
         self.assertIsInstance(result, list)
