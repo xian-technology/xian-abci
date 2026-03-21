@@ -14,9 +14,11 @@ from xian.utils.block import (
     compile_contract_from_source,
     get_latest_block_hash,
     get_latest_block_height,
+    get_latest_block_nanos,
     is_compiled_key,
     set_latest_block_hash,
     set_latest_block_height,
+    set_latest_block_nanos,
 )
 
 
@@ -54,6 +56,7 @@ def build_exported_state(
     run_state: dict[str, Any],
     latest_block_hash: bytes | None = None,
     latest_block_height: int | None = None,
+    latest_block_nanos: int | None = None,
     storage_home: Path | None = None,
 ) -> dict[str, Any]:
     block_hash = latest_block_hash or get_latest_block_hash(storage_home)
@@ -62,10 +65,16 @@ def build_exported_state(
         if latest_block_height is not None
         else get_latest_block_height(storage_home)
     )
+    block_nanos = (
+        latest_block_nanos
+        if latest_block_nanos is not None
+        else get_latest_block_nanos(storage_home)
+    )
 
     exported_state = {
         "hash": block_hash.hex(),
         "number": block_height,
+        "nanos": block_nanos,
         "origin": {
             "signature": "",
             "sender": "",
@@ -165,11 +174,14 @@ def import_state(
 
     latest_block_hash = bytes.fromhex(exported_state.get("hash", ""))
     latest_block_height = int(exported_state.get("number", 0))
+    latest_block_nanos = int(exported_state.get("nanos", 0))
     set_latest_block_hash(latest_block_hash, resolved_storage_home)
     set_latest_block_height(latest_block_height, resolved_storage_home)
+    set_latest_block_nanos(latest_block_nanos, resolved_storage_home)
 
     return {
         "height": latest_block_height,
         "app_hash": latest_block_hash.hex(),
+        "nanos": latest_block_nanos,
         "keys_imported": len(writes),
     }

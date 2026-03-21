@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import secrets
 from copy import deepcopy
-from datetime import datetime
 
 from contracting.client import ContractingClient
 from contracting.execution.executor import Executor
@@ -11,7 +10,10 @@ from loguru import logger
 from xian_runtime_types.encoding import convert_dict, safe_repr
 from xian_runtime_types.time import Datetime
 
-from xian.utils.block import nanoseconds_to_utc_datetime
+from xian.utils.block import (
+    get_latest_block_nanos,
+    nanoseconds_to_utc_datetime,
+)
 from xian.utils.encoding import stringify_decimals
 from xian.utils.tx import format_dictionary
 
@@ -148,11 +150,12 @@ class TransactionSimulator:
         salt = secrets.token_hex(32)
         block_nanos = block_meta.get("nanos")
         if block_nanos is None:
-            now = Datetime._from_datetime(datetime.now())
-        else:
-            now = Datetime._from_datetime(
-                nanoseconds_to_utc_datetime(block_nanos)
+            block_nanos = get_latest_block_nanos(
+                self.client.raw_driver.storage_home
             )
+        now = Datetime._from_datetime(
+            nanoseconds_to_utc_datetime(int(block_nanos or 0))
+        )
         return {
             "block_hash": salt,
             "block_num": block_meta.get("height", block_num),

@@ -92,7 +92,7 @@ def create_latest_block_json_if_not_exists(
     latest_block_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with open(latest_block_path, "x") as f:
-            json.dump({"hash": "", "height": 0}, f)
+            json.dump({"hash": "", "height": 0, "nanos": 0}, f)
     except FileExistsError:
         pass
 
@@ -148,6 +148,21 @@ def get_latest_block_height(storage_home: Path | None = None):
     return latest_height
 
 
+def get_latest_block_nanos(storage_home: Path | None = None):
+    latest_block_path = _latest_block_path(storage_home)
+    create_latest_block_json_if_not_exists(storage_home)
+    try:
+        with open(latest_block_path, "r") as f:
+            latest_block = json.load(f)
+            latest_nanos = latest_block.get("nanos", 0)
+    except FileNotFoundError:
+        raise Exception("__latest_block.json not found")
+    except json.JSONDecodeError:
+        raise Exception("Error decoding __latest_block.json")
+
+    return int(latest_nanos or 0)
+
+
 def set_latest_block_height(h, storage_home: Path | None = None):
     # Set the latest block height in the json file
     latest_block_path = _latest_block_path(storage_home)
@@ -158,6 +173,23 @@ def set_latest_block_height(h, storage_home: Path | None = None):
 
         # Update the height while keeping the hash intact
         latest_block["height"] = h
+
+        with open(latest_block_path, "w") as f:
+            json.dump(latest_block, f)
+    except FileNotFoundError:
+        raise Exception("__latest_block.json not found")
+    except json.JSONDecodeError:
+        raise Exception("Error decoding __latest_block.json")
+
+
+def set_latest_block_nanos(nanos, storage_home: Path | None = None):
+    latest_block_path = _latest_block_path(storage_home)
+    create_latest_block_json_if_not_exists(storage_home)
+    try:
+        with open(latest_block_path, "r") as f:
+            latest_block = json.load(f)
+
+        latest_block["nanos"] = int(nanos)
 
         with open(latest_block_path, "w") as f:
             json.dump(latest_block, f)
