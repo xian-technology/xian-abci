@@ -9,7 +9,11 @@ from unittest.mock import patch
 
 from contracting.client import ContractingClient
 
-from xian.parallel_executor import ParallelBlockExecutor
+from xian.parallel_executor import (
+    _WORKER_RUNTIMES,
+    ParallelBlockExecutor,
+    _get_worker_runtime,
+)
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
 from xian.utils.encoding import stringify_decimals
@@ -323,6 +327,29 @@ class TestParallelBlockExecutor(unittest.TestCase):
 
         executor.close()
         self.assertEqual(created_executors[0].shutdown_calls, 1)
+
+    def test_worker_runtime_reuses_client_and_processor(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_home = str(Path(temp_dir) / "xian")
+            _WORKER_RUNTIMES.clear()
+
+            first = _get_worker_runtime(
+                storage_home=storage_home,
+                use_rewards_handler=False,
+            )
+            second = _get_worker_runtime(
+                storage_home=storage_home,
+                use_rewards_handler=False,
+            )
+            third = _get_worker_runtime(
+                storage_home=storage_home,
+                use_rewards_handler=True,
+            )
+
+            self.assertIs(first, second)
+            self.assertIsNot(first, third)
+            self.assertIsNone(first.rewards_handler)
+            self.assertIsNotNone(third.rewards_handler)
 
 
 if __name__ == "__main__":

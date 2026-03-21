@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from contracting.client import ContractingClient
+from contracting.storage.driver import Driver
 from loguru import logger
 
 from xian.parallel_planner import ParallelExecutionPlanner, TransactionAccess
@@ -13,22 +14,60 @@ from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
 
 
-def _speculative_process_tx(task: dict) -> dict:
+@dataclass
+class _WorkerRuntime:
+    client: ContractingClient
+    tx_processor: TxProcessor
+    rewards_handler: RewardsHandler | None
+
+
+_WORKER_RUNTIMES: dict[tuple[str, bool], _WorkerRuntime] = {}
+
+
+def _get_worker_runtime(
+    *,
+    storage_home: str,
+    use_rewards_handler: bool,
+) -> _WorkerRuntime:
+    key = (storage_home, use_rewards_handler)
+    runtime = _WORKER_RUNTIMES.get(key)
+    if runtime is not None:
+        return runtime
+
+    driver = Driver(storage_home=Path(storage_home), bypass_cache=True)
     client = ContractingClient(
-        storage_home=Path(task["storage_home"]),
+        storage_home=Path(storage_home),
+        driver=driver,
         submission_filename=None,
     )
-    tx_processor = TxProcessor(client=client)
-    rewards_handler = (
-        RewardsHandler(client=client) if task["use_rewards_handler"] else None
+    runtime = _WorkerRuntime(
+        client=client,
+        tx_processor=TxProcessor(client=client),
+        rewards_handler=(
+            RewardsHandler(client=client) if use_rewards_handler else None
+        ),
     )
+    _WORKER_RUNTIMES[key] = runtime
+    return runtime
 
-    return tx_processor.process_tx(
-        task["tx"],
-        enabled_fees=task["enabled_fees"],
-        rewards_handler=rewards_handler,
-        track_access=True,
+
+def _speculative_process_tx(task: dict) -> dict:
+    runtime = _get_worker_runtime(
+        storage_home=task["storage_home"],
+        use_rewards_handler=task["use_rewards_handler"],
     )
+    runtime.client.raw_driver.flush_cache()
+    runtime.tx_processor.reset_block_cache()
+
+    try:
+        return runtime.tx_processor.process_tx(
+            task["tx"],
+            enabled_fees=task["enabled_fees"],
+            rewards_handler=runtime.rewards_handler,
+            track_access=True,
+        )
+    finally:
+        runtime.client.raw_driver.flush_cache()
 
 
 @dataclass(frozen=True)
