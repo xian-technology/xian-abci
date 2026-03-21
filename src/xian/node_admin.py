@@ -195,6 +195,7 @@ def configure_existing_home(
     parallel_execution_enabled: bool = False,
     parallel_execution_workers: int = 0,
     parallel_execution_min_transactions: int = 8,
+    pending_nonce_reservation_ttl_seconds: float = 60.0,
     bds_dsn: str = "",
     bds_host: str = "",
     bds_port: int = 5432,
@@ -239,6 +240,9 @@ def configure_existing_home(
         parallel_execution_workers=parallel_execution_workers,
         parallel_execution_min_transactions=(
             parallel_execution_min_transactions
+        ),
+        pending_nonce_reservation_ttl_seconds=(
+            pending_nonce_reservation_ttl_seconds
         ),
         bds_dsn=bds_dsn,
         bds_host=bds_host,

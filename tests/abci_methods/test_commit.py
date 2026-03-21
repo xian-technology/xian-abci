@@ -38,6 +38,7 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
         return await deserialize(raw)
 
     async def test_commit(self):
+        self.app.nonce_storage.set_nonce("alice", 3)
         self.app.nonce_storage.set_pending_nonce("alice", 3)
         request = Request(commit=RequestCommit())
 
@@ -47,6 +48,19 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.commit.retain_height, 0)
         hard_apply.assert_called_once_with("0")
         self.assertEqual(self.app.nonce_storage.pending_nonces, {})
+
+    async def test_commit_preserves_future_pending_nonces(self):
+        self.app.nonce_storage.set_nonce("alice", 3)
+        self.app.nonce_storage.set_pending_nonce("alice", 5)
+        request = Request(commit=RequestCommit())
+
+        with patch.object(self.app.client.raw_driver, "hard_apply") as hard_apply:
+            response = await self.process_request(request)
+
+        self.assertEqual(response.commit.retain_height, 0)
+        hard_apply.assert_called_once_with("0")
+        self.assertEqual(self.app.nonce_storage.get_pending_nonce("alice"), 5)
+        self.assertEqual(self.app.nonce_storage.get_next_nonce("alice"), 6)
 
 
 if __name__ == "__main__":

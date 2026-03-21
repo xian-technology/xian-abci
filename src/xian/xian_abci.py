@@ -94,13 +94,19 @@ class Xian:
             chain_id=self.chain_id,
             tracer_mode=self.tracer_mode,
         )
-        self.nonce_storage = NonceStorage(self.client)
         self.state_snapshot_manager = StateSnapshotManager(
             storage_home=constants.STORAGE_HOME,
             chain_id=self.chain_id,
         )
         self.validator_handler = ValidatorHandler(self)
         xian_config = self.cometbft_config.get("xian", {})
+        self.nonce_storage = NonceStorage(
+            self.client,
+            reservation_ttl_seconds=xian_config.get(
+                "pending_nonce_reservation_ttl_seconds",
+                60.0,
+            ),
+        )
         self.transaction_trace_logging = xian_config.get(
             "transaction_trace_logging", False
         )
@@ -291,6 +297,7 @@ class Xian:
         return res
 
     async def close(self):
+        self.parallel_block_executor.close()
         await self.metrics_service.close()
         if self.block_service_mode and hasattr(self, "bds"):
             await self.bds.close()

@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 from cometbft.abci.v1beta3.types_pb2 import ResponseCheckTx
@@ -9,17 +10,19 @@ from xian.utils.tx import unpack_transaction, validate_transaction, verify
 async def check_tx(self, raw_tx) -> ResponseCheckTx:
     try:
         tx, payload_str = decode_transaction_bytes(raw_tx)
-        validate_transaction(self.client, self.nonce_storage, tx)
+        tx_hash = hashlib.sha256(raw_tx).hexdigest()
+        validate_transaction(
+            self.client,
+            self.nonce_storage,
+            tx,
+            tx_hash=tx_hash,
+        )
         sender, signature, payload = unpack_transaction(tx)
         if not verify(sender, payload_str, signature):
             return ResponseCheckTx(code=c.ErrorCode, log="Bad signature")
         payload_json = json.loads(payload)
         if payload_json["chain_id"] != self.chain_id:
             return ResponseCheckTx(code=c.ErrorCode, log="Wrong chain_id")
-        self.nonce_storage.set_pending_nonce(
-            sender=payload_json["sender"],
-            value=payload_json["nonce"],
-        )
         return ResponseCheckTx(code=c.OkCode)
     except Exception as e:
         return ResponseCheckTx(code=c.ErrorCode, log=f"{type(e).__name__}: {e}")

@@ -5,6 +5,7 @@ import unittest
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from contracting.client import ContractingClient
 
@@ -279,6 +280,49 @@ class TestParallelBlockExecutor(unittest.TestCase):
 
             self.assertEqual(result["tx_result"]["status"], 0)
             self.assertIsNone(result["tx_result"]["rewards"])
+
+    def test_parallel_executor_reuses_process_pool_between_blocks(self):
+        created_executors = []
+
+        class FakeExecutor:
+            def __init__(self, *args, **kwargs):
+                self.map_calls = 0
+                self.shutdown_calls = 0
+                created_executors.append(self)
+
+            def map(self, fn, tasks):
+                self.map_calls += 1
+                return [{"tx_result": {}, "access": None} for _ in tasks]
+
+            def shutdown(self, wait=True, cancel_futures=False):
+                self.shutdown_calls += 1
+
+        executor = ParallelBlockExecutor(
+            storage_home=Path("/tmp/xian-test"),
+            enabled=True,
+            workers=2,
+            min_transactions=1,
+        )
+
+        with patch("xian.parallel_executor.ProcessPoolExecutor", FakeExecutor):
+            first = executor._speculate_many(
+                txs=[{"payload": {"sender": "alice"}}],
+                enabled_fees=False,
+                rewards_handler=None,
+            )
+            second = executor._speculate_many(
+                txs=[{"payload": {"sender": "bob"}}],
+                enabled_fees=False,
+                rewards_handler=None,
+            )
+
+        self.assertEqual(len(first), 1)
+        self.assertEqual(len(second), 1)
+        self.assertEqual(len(created_executors), 1)
+        self.assertEqual(created_executors[0].map_calls, 2)
+
+        executor.close()
+        self.assertEqual(created_executors[0].shutdown_calls, 1)
 
 
 if __name__ == "__main__":

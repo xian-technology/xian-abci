@@ -141,6 +141,7 @@ metrics_bds_refresh_seconds = 5.0
 parallel_execution_enabled = false
 parallel_execution_workers = 0
 parallel_execution_min_transactions = 8
+pending_nonce_reservation_ttl_seconds = 60.0
 
 [xian.bds]
 dsn = ""
@@ -348,6 +349,7 @@ def render_cometbft_config(
     parallel_execution_enabled: bool = False,
     parallel_execution_workers: int = 0,
     parallel_execution_min_transactions: int = 8,
+    pending_nonce_reservation_ttl_seconds: float = 60.0,
     bds_dsn: str = "",
     bds_host: str = "",
     bds_port: int = 5432,
@@ -405,6 +407,9 @@ def render_cometbft_config(
         "parallel_execution_workers": parallel_execution_workers,
         "parallel_execution_min_transactions": (
             parallel_execution_min_transactions
+        ),
+        "pending_nonce_reservation_ttl_seconds": (
+            pending_nonce_reservation_ttl_seconds
         ),
         "bds": {
             "dsn": bds_dsn,

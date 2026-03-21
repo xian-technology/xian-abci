@@ -162,12 +162,18 @@ def check_contract_name(contract, function, name):
         raise TransactionException("Transaction contract name is invalid")
 
 
-def validate_transaction(client, nonce_storage, tx):
+def validate_transaction(
+    client,
+    nonce_storage,
+    tx,
+    *,
+    tx_hash: str,
+):
     # Check transaction formatting
     check_tx_formatting(tx)
 
     # Check if nonce is greater than the current nonce
-    nonce_storage.check_nonce(tx)
+    nonce_storage.check_nonce(tx, tx_hash=tx_hash)
 
     # Get the senders balance and the current stamp rate
     try:

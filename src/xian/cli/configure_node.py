@@ -205,6 +205,16 @@ def build_parser() -> ArgumentParser:
         default=8,
     )
     parser.add_argument(
+        "--pending-nonce-reservation-ttl-seconds",
+        type=float,
+        help=(
+            "local mempool reservation TTL for sender nonces before stale "
+            "pending transactions stop blocking retries"
+        ),
+        required=False,
+        default=60.0,
+    )
+    parser.add_argument(
         "--bds-dsn",
         type=str,
         help="PostgreSQL DSN for the optional Blockchain Data Service",
@@ -337,6 +347,9 @@ def main(argv: list[str] | None = None) -> int:
         parallel_execution_workers=args.parallel_execution_workers,
         parallel_execution_min_transactions=(
             args.parallel_execution_min_transactions
+        ),
+        pending_nonce_reservation_ttl_seconds=(
+            args.pending_nonce_reservation_ttl_seconds
         ),
         bds_dsn=args.bds_dsn,
         bds_host=args.bds_host,

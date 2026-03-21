@@ -54,6 +54,8 @@ class ParallelBlockExecutor:
         self.workers = max(int(workers), 0)
         self.min_transactions = max(int(min_transactions), 1)
         self.planner = ParallelExecutionPlanner()
+        self._mp_context = multiprocessing.get_context("spawn")
+        self._executor: ProcessPoolExecutor | None = None
 
     def is_enabled_for_block(self, tx_count: int) -> bool:
         return (
@@ -80,6 +82,7 @@ class ParallelBlockExecutor:
                 rewards_handler=rewards_handler,
             )
         except Exception:
+            self.close()
             logger.exception(
                 "Parallel speculation failed; falling back to serial block execution"
             )
@@ -177,11 +180,21 @@ class ParallelBlockExecutor:
         if self.workers == 1:
             return [_speculative_process_tx(task) for task in tasks]
 
-        with ProcessPoolExecutor(
-            max_workers=self.workers,
-            mp_context=multiprocessing.get_context("spawn"),
-        ) as executor:
-            return list(executor.map(_speculative_process_tx, tasks))
+        return list(self._get_executor().map(_speculative_process_tx, tasks))
+
+    def _get_executor(self) -> ProcessPoolExecutor:
+        if self._executor is None:
+            self._executor = ProcessPoolExecutor(
+                max_workers=self.workers,
+                mp_context=self._mp_context,
+            )
+        return self._executor
+
+    def close(self) -> None:
+        if self._executor is None:
+            return
+        self._executor.shutdown(wait=True, cancel_futures=False)
+        self._executor = None
 
     @staticmethod
     def _normalize_access(

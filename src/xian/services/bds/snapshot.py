@@ -261,7 +261,7 @@ def _safe_extract_snapshot(archive: tarfile.TarFile, destination: Path) -> None:
             and member_path != destination_resolved
         ):
             raise ValueError(f"unsafe snapshot member path: {member.name}")
-    archive.extractall(destination)
+    archive.extractall(path=destination, filter="data")
 
 
 async def export_bds_snapshot(

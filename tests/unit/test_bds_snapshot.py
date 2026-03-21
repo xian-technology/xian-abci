@@ -226,6 +226,41 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(import_result["indexed_height"], 12)
 
+    async def test_import_snapshot_rejects_unsafe_link_member(self):
+        status = {
+            "indexed": {"indexed_height": None},
+            "spool_pending_count": 0,
+        }
+        bds = _FakeBds(_FakeConnection({}), status)
+
+        with TemporaryDirectory() as temp_dir:
+            snapshot_path = Path(temp_dir) / "snapshot.tar.gz"
+            metadata_path = Path(temp_dir) / "metadata.json"
+            metadata_path.write_text(
+                json.dumps(
+                    {
+                        "snapshot_format_version": 1,
+                        "schema_version": 2,
+                        "tables": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with tarfile.open(snapshot_path, "w:gz") as archive:
+                archive.add(metadata_path, arcname="metadata.json")
+                link_info = tarfile.TarInfo("blocks.jsonl")
+                link_info.type = tarfile.SYMTYPE
+                link_info.linkname = "/etc/passwd"
+                archive.addfile(link_info)
+
+            with self.assertRaises(tarfile.TarError):
+                await import_bds_snapshot(
+                    bds=bds,
+                    snapshot_path=snapshot_path,
+                    clear_spool=False,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
