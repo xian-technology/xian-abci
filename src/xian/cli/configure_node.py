@@ -69,7 +69,8 @@ def build_parser() -> ArgumentParser:
         "--validator-privkey",
         type=str,
         help="validator private key as a 64-character hex string",
-        required=True,
+        required=False,
+        default=None,
     )
     parser.add_argument(
         "--prometheus",
