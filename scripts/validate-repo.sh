@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 uv_cache_dir="${UV_CACHE_DIR:-/tmp/uv-cache}"
+python_version="${XIAN_ABCI_VALIDATE_PYTHON:-3.14}"
 
 if command -v uv >/dev/null 2>&1; then
   uv_bin="uv"
@@ -17,11 +18,11 @@ fi
 
 cd "${repo_root}"
 
-UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" sync --group dev
-UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run python build_proto.py
+UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" sync --python "${python_version}" --group dev
+UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run --python "${python_version}" python build_proto.py
 git diff --exit-code -- src/cometbft src/gogoproto src/tendermint
-UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run ruff check .
-UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run ruff format --check .
+UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run --python "${python_version}" ruff check .
+UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run --python "${python_version}" ruff format --check .
 
 pytest_args=("$@")
 if [[ "${XIAN_ABCI_COVERAGE:-0}" == "1" ]]; then
@@ -39,7 +40,7 @@ if [[ "${XIAN_ABCI_COVERAGE:-0}" == "1" ]]; then
 fi
 
 if ((${#pytest_args[@]})); then
-  UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run pytest "${pytest_args[@]}"
+  UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run --python "${python_version}" pytest "${pytest_args[@]}"
 else
-  UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run pytest
+  UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run --python "${python_version}" pytest
 fi
