@@ -5,6 +5,10 @@
 - This repo is not the operator UX surface. New node lifecycle commands belong in `xian-cli`.
 - Long term, this repo should be a universal Xian node runtime, not a home for network-specific genesis data.
 
+## Shared Convention
+- Follow the shared repo convention in `xian-meta/docs/REPO_CONVENTIONS.md`.
+- Keep this repo aligned with that standard for `README.md`, `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, and folder-level `README.md` files at major architectural boundaries.
+
 ## Project Layout
 - `src/xian/methods/`: ABCI request handlers.
 - `src/xian/services/`: background services such as simulator and BDS support.
