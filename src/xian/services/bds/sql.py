@@ -568,6 +568,28 @@ def select_events_by_contract_event():
     """
 
 
+def select_events_by_contract_event_after_id():
+    return """
+    SELECT
+        id,
+        block_height,
+        tx_hash,
+        tx_index,
+        event_index,
+        contract,
+        event,
+        signer,
+        caller,
+        data_indexed,
+        data,
+        created_at
+    FROM events
+    WHERE contract = $1 AND event = $2 AND id > $3
+    ORDER BY id ASC
+    LIMIT $4;
+    """
+
+
 def select_state():
     return """
     SELECT

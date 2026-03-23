@@ -93,6 +93,15 @@ async def query(self, req) -> ResponseQuery:
                 except (ValueError, TypeError):
                     offset = 0
 
+            after_id = None
+            if "after_id" in params:
+                try:
+                    after_id = int(params["after_id"])
+                    if after_id < 0:
+                        after_id = 0
+                except (ValueError, TypeError):
+                    after_id = None
+
             # http://localhost:26657/abci_query?path="/keys/currency.balances"
             if path_parts[0] == "keys":
                 list_of_keys = self.client.raw_driver.keys(path_parts[1])
@@ -149,7 +158,11 @@ async def query(self, req) -> ResponseQuery:
             # http://localhost:26657/abci_query?path="/events/<contract>/<event>/limit=10/offset=20"
             elif path_parts[0] == "events":
                 result = await self.bds.get_events(
-                    path_parts[1], path_parts[2], limit, offset
+                    path_parts[1],
+                    path_parts[2],
+                    limit,
+                    offset,
+                    after_id=after_id,
                 )
 
             # http://localhost:26657/abci_query?path="/state/currency.balances"

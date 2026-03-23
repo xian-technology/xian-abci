@@ -107,8 +107,16 @@ class _FakeBDS:
     async def get_events_for_tx(self, tx_hash):
         return [{"tx_hash": tx_hash, "event": "Transfer"}]
 
-    async def get_events(self, contract, event, limit, offset):
-        return [{"contract": contract, "event": event}]
+    async def get_events(
+        self, contract, event, limit, offset, *, after_id=None
+    ):
+        return [
+            {
+                "id": after_id + 1 if after_id is not None else 1,
+                "contract": contract,
+                "event": event,
+            }
+        ]
 
     async def get_state_patches(self, limit, offset):
         return [
@@ -384,6 +392,18 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             json.loads(response.query.value)[0]["contract"], "currency"
         )
+
+        response = await self.process_request(
+            Request(
+                query=RequestQuery(
+                    path="/events/currency/Transfer/after_id=41/limit=10"
+                )
+            )
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        self.assertEqual(payload[0]["id"], 42)
+        self.assertEqual(payload[0]["event"], "Transfer")
 
     async def test_state_patch_history_queries(self):
         self.app.block_service_mode = True

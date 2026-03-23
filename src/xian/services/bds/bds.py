@@ -1043,12 +1043,24 @@ class BDS:
         return [dict(row) for row in rows]
 
     async def get_events(
-        self, contract: str, event: str, limit: int = 100, offset: int = 0
+        self,
+        contract: str,
+        event: str,
+        limit: int = 100,
+        offset: int = 0,
+        *,
+        after_id: int | None = None,
     ):
-        rows = await self.db.fetch(
-            sql.select_events_by_contract_event(),
-            [contract, event, limit, offset],
-        )
+        if after_id is not None:
+            rows = await self.db.fetch(
+                sql.select_events_by_contract_event_after_id(),
+                [contract, event, after_id, limit],
+            )
+        else:
+            rows = await self.db.fetch(
+                sql.select_events_by_contract_event(),
+                [contract, event, limit, offset],
+            )
         return [dict(row) for row in rows]
 
     async def get_state(self, key: str, limit: int = 100, offset: int = 0):
