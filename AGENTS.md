@@ -8,6 +8,8 @@
 ## Shared Convention
 - Follow the shared repo convention in `xian-meta/docs/REPO_CONVENTIONS.md`.
 - Keep this repo aligned with that standard for `README.md`, `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, and folder-level `README.md` files at major architectural boundaries.
+- Follow the shared change workflow in `xian-meta/docs/CHANGE_WORKFLOW.md`.
+- Before push, review whether `xian-docs-web` needs updates and run the local validation path from this file.
 
 ## Project Layout
 - `src/xian/methods/`: ABCI request handlers.
