@@ -1,4 +1,5 @@
 import logging
+import json
 import unittest
 from io import BytesIO
 from unittest.mock import patch
@@ -46,6 +47,27 @@ def make_signed_tx_bytes(*, nonce: int) -> bytes:
     signature = signing_key.sign(payload_str.encode("utf-8")).signature.hex()
     tx = {"metadata": {"signature": signature}, "payload": payload}
     return encode_transaction_bytes(_canonical_json(tx))
+
+
+def make_signed_tx_bytes_with_raw_spacing(*, nonce: int) -> bytes:
+    signing_key = nacl.signing.SigningKey(SEED)
+    sender = signing_key.verify_key.encode(
+        encoder=nacl.encoding.HexEncoder
+    ).decode("ascii")
+
+    payload = {
+        "chain_id": "xian-testnet-1",
+        "contract": "currency",
+        "function": "transfer",
+        "kwargs": {"amount": 1, "to": sender},
+        "nonce": nonce,
+        "sender": sender,
+        "stamps_supplied": 100,
+    }
+    payload_str = _canonical_json(payload)
+    signature = signing_key.sign(payload_str.encode("utf-8")).signature.hex()
+    tx = {"metadata": {"signature": signature}, "payload": payload}
+    return encode_transaction_bytes(json.dumps(tx))
 
 
 SENDER = nacl.signing.SigningKey(SEED).verify_key.encode(
@@ -123,6 +145,16 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
             self.app.nonce_storage.get_pending_nonce(SENDER),
             VALID_NONCE,
         )
+
+    async def test_check_tx_accepts_canonical_signature_with_default_json_wire_format(
+        self,
+    ):
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+        tx_bytes = make_signed_tx_bytes_with_raw_spacing(nonce=VALID_NONCE)
+
+        response = await self.process_request(self.make_request(tx_bytes))
+
+        self.assertEqual(response.check_tx.code, c.OkCode)
 
     async def test_check_tx_expires_stale_pending_reservations(self):
         self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)

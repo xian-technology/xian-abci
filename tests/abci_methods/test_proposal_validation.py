@@ -68,6 +68,34 @@ def make_signed_tx_bytes(
     return encode_transaction_bytes(_canonical_json(tx))
 
 
+def make_signed_tx_bytes_with_raw_spacing(
+    *,
+    nonce: int,
+    chain_id: str = "xian-testnet-1",
+) -> bytes:
+    signing_key = nacl.signing.SigningKey(SEED)
+    sender = signing_key.verify_key.encode(
+        encoder=nacl.encoding.HexEncoder
+    ).decode("ascii")
+
+    payload = {
+        "chain_id": chain_id,
+        "contract": "currency",
+        "function": "transfer",
+        "kwargs": {"amount": "1", "to": sender},
+        "nonce": nonce,
+        "sender": sender,
+        "stamps_supplied": 100,
+    }
+    payload_str = _canonical_json(payload)
+    signature = signing_key.sign(payload_str.encode("utf-8")).signature.hex()
+    tx = {
+        "metadata": {"signature": signature},
+        "payload": payload,
+    }
+    return encode_transaction_bytes(json.dumps(tx))
+
+
 async def deserialize(raw: bytes) -> Response:
     return next(read_messages(BytesIO(raw), Response))
 
@@ -120,6 +148,18 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(list(response.prepare_proposal.txs), [tx_one])
+
+    async def test_prepare_proposal_accepts_canonical_signature_with_default_json_wire_format(
+        self,
+    ):
+        tx = make_signed_tx_bytes_with_raw_spacing(nonce=0)
+
+        response = await self.process_request(
+            "prepare_proposal",
+            Request(prepare_proposal=RequestPrepareProposal(txs=[tx])),
+        )
+
+        self.assertEqual(list(response.prepare_proposal.txs), [tx])
 
     async def test_process_proposal_rejects_invalid_signature(self):
         invalid_tx = make_signed_tx_bytes(nonce=0, mutate_signature=True)

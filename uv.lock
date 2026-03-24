@@ -1068,10 +1068,12 @@ requires-dist = [
     { name = "bip-utils", marker = "extra == 'hd'", specifier = ">=2.9.3,<3" },
     { name = "eth-account", marker = "extra == 'eth'", specifier = ">=0.13.4,<0.14" },
     { name = "eth-utils", marker = "extra == 'eth'", specifier = ">=5.2.0,<6" },
+    { name = "fastapi", marker = "extra == 'app'", specifier = ">=0.116.0,<0.117" },
     { name = "pynacl", specifier = ">=1.5.0,<2" },
+    { name = "uvicorn", marker = "extra == 'app'", specifier = ">=0.35.0,<0.36" },
     { name = "xian-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
 ]
-provides-extras = ["hd", "eth"]
+provides-extras = ["hd", "eth", "app"]
 
 [package.metadata.requires-dev]
 dev = [

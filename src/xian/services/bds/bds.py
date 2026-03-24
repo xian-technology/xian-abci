@@ -838,7 +838,8 @@ class BDS:
             )
 
         reward_index = 0
-        for reward_type, rewards in tx_result.get("rewards", {}).items():
+        reward_groups = tx_result.get("rewards") or {}
+        for reward_type, rewards in reward_groups.items():
             for recipient_key, value in rewards.items():
                 await connection.execute(
                     sql.insert_reward(),

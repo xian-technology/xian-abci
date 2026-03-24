@@ -175,6 +175,47 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(event_insert[9], str)
         self.assertEqual(json.loads(event_insert[9]), {"amount": "5"})
 
+    async def test_persist_transaction_accepts_null_rewards(self):
+        bds = BDS(BdsConfig())
+        connection = _FakeConnection()
+
+        tx = BdsTransactionPayload(
+            tx_index=0,
+            envelope={
+                "metadata": {"signature": "deadbeef"},
+                "payload": {"sender": "alice"},
+            },
+            payload={
+                "sender": "alice",
+                "nonce": 1,
+                "contract": "currency",
+                "function": "transfer",
+                "kwargs": {"to": "bob", "amount": "5"},
+            },
+            tx_result={
+                "hash": "TX-NULL-REWARDS",
+                "status": 1,
+                "stamps_used": 12,
+                "result": "failed",
+                "state": [],
+                "events": [],
+                "rewards": None,
+            },
+        )
+
+        await bds._persist_transaction(
+            connection,
+            block_meta={"height": 1, "hash": "BLOCK-1", "nanos": 1},
+            block_time=datetime(2026, 1, 1, tzinfo=UTC),
+            current_index={},
+            tx=tx,
+        )
+
+        reward_queries = [
+            query for query, _ in connection.execute_calls if query == sql.insert_reward()
+        ]
+        self.assertEqual(reward_queries, [])
+
 
 if __name__ == "__main__":
     unittest.main()
