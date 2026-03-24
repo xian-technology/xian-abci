@@ -110,7 +110,10 @@ class TestABCIStatePatch(unittest.IsolatedAsyncioTestCase):
     def get_now_from_nanos(self, nanos):
         """Convert nanos to a Datetime object, just like the processor does."""
         return Datetime._from_datetime(
-            datetime.datetime.utcfromtimestamp(math.ceil(nanos / 1e9))
+            datetime.datetime.fromtimestamp(
+                math.ceil(nanos / 1e9),
+                tz=datetime.timezone.utc,
+            ).replace(tzinfo=None)
         )
     
     def create_execution_environment(self, app):
