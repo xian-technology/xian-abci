@@ -1,6 +1,7 @@
 import json
 import logging
 import unittest
+from datetime import UTC, datetime
 from io import BytesIO
 
 from fixtures.mock_constants import MockConstants
@@ -55,7 +56,9 @@ class _FakeBDS:
                 "indexed_block_count": 12,
                 "indexed_height": 10,
                 "indexed_block_hash": "BLOCK-10",
-                "indexed_block_time": 10,
+                "indexed_block_time": datetime(
+                    2026, 1, 1, 0, 0, 10, tzinfo=UTC
+                ),
                 "indexed_block_time_iso": "2026-01-01T00:00:10+00:00",
                 "indexed_tx_count": 3,
                 "indexed_app_hash": "APP-10",
@@ -314,6 +317,10 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status["spool_pending_count"], 2)
         self.assertEqual(status["height_lag"], 2)
         self.assertEqual(status["indexed"]["indexed_height"], 10)
+        self.assertEqual(
+            status["indexed"]["indexed_block_time"],
+            "2026-01-01T00:00:10+00:00",
+        )
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/bds_spool/limit=10/offset=0"))

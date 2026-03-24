@@ -2,6 +2,7 @@ import binascii
 import decimal
 import hashlib
 import json
+from datetime import datetime
 from typing import Tuple
 
 from loguru import logger
@@ -118,6 +119,8 @@ def normalize_for_abci_json(obj):
         return str(obj)
     if isinstance(obj, decimal.Decimal):
         return str(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
     if isinstance(obj, Datetime):
         return str(obj)
     if isinstance(obj, bytes):

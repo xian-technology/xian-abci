@@ -1,13 +1,10 @@
-import json
-
 from contracting.compilation import parser
 from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal
-from xian_runtime_types.encoding import Encoder
 
 from cometbft.abci.v1beta1.types_pb2 import ResponseQuery
 from xian.constants import Constants as c
-from xian.utils.encoding import encode_str
+from xian.utils.encoding import encode_abci_json, encode_str
 
 
 async def query(self, req) -> ResponseQuery:
@@ -226,10 +223,10 @@ async def query(self, req) -> ResponseQuery:
             v = encode_str(str(result))
             type_of_data = "decimal"
         elif isinstance(result, dict):
-            v = encode_str(json.dumps(result, cls=Encoder))
+            v = encode_abci_json(result)
             type_of_data = "dict"
         elif isinstance(result, list):
-            v = encode_str(json.dumps(result, cls=Encoder))
+            v = encode_abci_json(result)
             type_of_data = "list"
         else:
             v = encode_str(str(result))
