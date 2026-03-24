@@ -62,11 +62,8 @@ cometbft node --rpc.laddr tcp://0.0.0.0:26657
 
 If you need supervision, use `xian-stack`, Docker, `systemd`, or `launchd`.
 
-## Boundary Notes
-
-- Operator flows belong in `xian-cli`.
-- Runtime/backend orchestration belongs in `xian-stack`.
-- Canonical chain fixtures and manifests belong in `xian-configs`.
-- Reusable bootstrap logic should live in importable helpers such as
-  `src/xian/genesis_builder.py`, `src/xian/node_admin.py`, and
-  `src/xian/state_export.py`, not in ad hoc scripts.
+Operator flows belong in `xian-cli`. Runtime/backend orchestration belongs in
+`xian-stack`. Canonical chain fixtures and manifests belong in `xian-configs`.
+Reusable bootstrap logic should live in importable helpers such as
+`src/xian/genesis_builder.py`, `src/xian/node_admin.py`, and
+`src/xian/state_export.py`, not in ad hoc scripts.
