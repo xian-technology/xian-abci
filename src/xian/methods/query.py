@@ -211,6 +211,9 @@ async def query(self, req) -> ResponseQuery:
         if result is None:
             v = None
             type_of_data = None
+        elif isinstance(result, bool):
+            v = encode_str("True" if result else "False")
+            type_of_data = "bool"
         elif isinstance(result, str):
             v = encode_str(result)
             type_of_data = "str"

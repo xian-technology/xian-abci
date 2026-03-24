@@ -199,6 +199,23 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.query.value, b"123.45")
 
+    async def test_get_query_preserves_boolean_type(self):
+        self.app.client.raw_driver.set(
+            f"currency.signers:{ACCOUNT}",
+            True,
+        )
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path=f"/get/currency.signers:{ACCOUNT}"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.info, "bool")
+        self.assertEqual(
+            response.query.key,
+            f"currency.signers:{ACCOUNT}".encode("utf-8"),
+        )
+        self.assertEqual(response.query.value, b"True")
+
     async def test_simulate_tx_query(self):
         payload = {
             "sender": "alice",
