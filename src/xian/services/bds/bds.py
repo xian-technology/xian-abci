@@ -17,6 +17,7 @@ from xian.services.bds.database import DB
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.services.bds.serializer import (
     canonical_decimal,
+    canonical_json_text,
     canonical_json_value,
     canonical_result_value,
     utc_datetime,
@@ -25,6 +26,16 @@ from xian.services.bds.serializer import (
 GENESIS_BLOCK_HASH = "GENESIS"
 GENESIS_TX_HASH = "GENESIS"
 GENESIS_CREATED_AT = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def _jsonb_param(value: Any) -> str:
+    return canonical_json_text(value)
+
+
+def _nullable_jsonb_param(value: Any) -> str | None:
+    if value is None:
+        return None
+    return canonical_json_text(value)
 
 
 class _NoopRawDriver:
@@ -619,19 +630,23 @@ class BDS:
                     True,
                     0,
                     0,
-                    {"status": "ok", "genesis_entries": len(genesis_state)},
-                    {"kind": "genesis"},
-                    {
-                        "kind": "genesis",
-                        "genesis": canonical_json_value(genesis_state),
-                    },
+                    _jsonb_param(
+                        {"status": "ok", "genesis_entries": len(genesis_state)}
+                    ),
+                    _jsonb_param({"kind": "genesis"}),
+                    _jsonb_param(
+                        {
+                            "kind": "genesis",
+                            "genesis": canonical_json_value(genesis_state),
+                        }
+                    ),
                     block_time,
                 )
 
                 current_index: dict[str, tuple[int | None, str | None]] = {}
                 for write_index, state in enumerate(genesis_state):
                     key = state["key"]
-                    value = canonical_json_value(state["value"])
+                    value = _jsonb_param(state["value"])
                     previous_change_id, previous_tx_hash = current_index.get(
                         key, (None, None)
                     )
@@ -782,15 +797,17 @@ class BDS:
             tx_result["status"] == 0,
             tx_result["status"],
             tx_result["stamps_used"],
-            canonical_result_value(tx_result.get("result")),
-            canonical_json_value(payload),
-            canonical_json_value(tx.envelope),
+            _nullable_jsonb_param(
+                canonical_result_value(tx_result.get("result"))
+            ),
+            _jsonb_param(payload),
+            _jsonb_param(tx.envelope),
             block_time,
         )
 
         for write_index, state_change in enumerate(tx_result["state"]):
             key = state_change["key"]
-            value = canonical_json_value(state_change["value"])
+            value = _jsonb_param(state_change["value"])
             previous_change_id, previous_tx_hash = current_index.get(
                 key, (None, None)
             )
@@ -847,8 +864,8 @@ class BDS:
                 str(event.get("event", "ContractEvent")),
                 str(event.get("signer", "")),
                 str(event.get("caller", "")),
-                canonical_json_value(event.get("data_indexed", {})),
-                canonical_json_value(event.get("data", {})),
+                _jsonb_param(event.get("data_indexed", {})),
+                _jsonb_param(event.get("data", {})),
                 block_time,
             )
 
@@ -893,30 +910,34 @@ class BDS:
             True,
             0,
             0,
-            {
-                "patch_count": len(state_patches),
-                "comment": "State Patch Pseudo-Transaction",
-            },
-            {"kind": "state_patch"},
-            {
-                "kind": "state_patch",
-                "patches": canonical_json_value(
-                    [
-                        {
-                            "key": patch["key"],
-                            "value": patch["value"],
-                            "comment": patch.get("comment", ""),
-                        }
-                        for patch in state_patches
-                    ]
-                ),
-            },
+            _jsonb_param(
+                {
+                    "patch_count": len(state_patches),
+                    "comment": "State Patch Pseudo-Transaction",
+                }
+            ),
+            _jsonb_param({"kind": "state_patch"}),
+            _jsonb_param(
+                {
+                    "kind": "state_patch",
+                    "patches": canonical_json_value(
+                        [
+                            {
+                                "key": patch["key"],
+                                "value": patch["value"],
+                                "comment": patch.get("comment", ""),
+                            }
+                            for patch in state_patches
+                        ]
+                    ),
+                }
+            ),
             block_time,
         )
 
         for write_index, patch in enumerate(state_patches):
             key = patch["key"]
-            value = canonical_json_value(patch["value"])
+            value = _jsonb_param(patch["value"])
             previous_change_id, previous_tx_hash = current_index.get(
                 key, (None, None)
             )
@@ -953,7 +974,7 @@ class BDS:
             block_meta["hash"],
             block_meta["nanos"],
             len(state_patches),
-            canonical_json_value(
+            _jsonb_param(
                 [
                     {
                         "key": patch["key"],

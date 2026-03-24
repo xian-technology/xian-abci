@@ -205,11 +205,14 @@ class Xian:
         self = cls(constants=constants)
         if self.block_service_mode:
             self.bds = BDS(self.bds_config)
-            await self.bds.initialize_storage(cometbft_genesis=self.genesis)
+            self._bds_storage_initialized = False
         return self
 
     async def start_runtime(self):
         if self.block_service_mode and hasattr(self, "bds"):
+            if not getattr(self, "_bds_storage_initialized", False):
+                await self.bds.initialize_storage(cometbft_genesis=self.genesis)
+                self._bds_storage_initialized = True
             await self.bds.start()
         await self.metrics_service.start()
 
