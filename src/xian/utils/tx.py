@@ -1,10 +1,8 @@
 import hashlib
 from typing import Callable
 
-import nacl
-import nacl.encoding
-import nacl.signing
 from loguru import logger
+from xian_accounts import verify_message
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import decode, encode
 
@@ -17,15 +15,7 @@ from xian.formatting import (
 
 
 def verify(vk: str, msg: str, signature: str):
-    vk = bytes.fromhex(vk)
-    msg = msg.encode()
-    signature = bytes.fromhex(signature)
-    vk = nacl.signing.VerifyKey(vk)
-    try:
-        vk.verify(msg, signature)
-    except nacl.exceptions.BadSignatureError:
-        return False
-    return True
+    return verify_message(vk, msg, signature)
 
 
 def unpack_transaction(tx):

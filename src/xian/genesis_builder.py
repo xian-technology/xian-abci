@@ -11,7 +11,7 @@ from typing import Any
 
 from contracting.client import ContractingClient
 from contracting.storage.driver import Driver
-from xian_py.wallet import Wallet
+from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import encode
 
 from xian.config_paths import (
@@ -96,7 +96,7 @@ def _build_genesis_block(
     with open(config_path, "r", encoding="utf-8") as handle:
         contract_config = json.load(handle)
 
-    wallet = Wallet(private_key=founder_private_key)
+    wallet = Ed25519Account(founder_private_key)
     substitutions = {
         "founder_privkey": founder_private_key,
         "founder_private_key": founder_private_key,
@@ -243,7 +243,7 @@ def build_single_validator_genesis(
     registration_fee: int = 100000,
     contracts_dir: Path | None = None,
 ) -> dict[str, Any]:
-    founder_wallet = Wallet(private_key=founder_private_key)
+    founder_wallet = Ed25519Account(founder_private_key)
     return build_local_network_genesis(
         chain_id=chain_id,
         founder_private_key=founder_private_key,
@@ -273,7 +273,7 @@ def build_local_network_genesis(
     if not validators:
         raise ValueError("at least one validator is required")
 
-    founder_wallet = Wallet(private_key=founder_private_key)
+    founder_wallet = Ed25519Account(founder_private_key)
     genesis_nodes = [
         validator["account_public_key"] for validator in validators
     ]

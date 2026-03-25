@@ -5,8 +5,8 @@ from pathlib import Path
 
 from contracting.client import ContractingClient
 from contracting.stdlib.bridge.hashing import sha3
+from xian_accounts import Ed25519Account
 from xian_runtime_types.time import Datetime
-from xian_py.wallet import Wallet
 
 from xian.utils.block import compile_contract_from_source
 from xian.tools.genesis_upgrades.token_upgrade import (
@@ -158,7 +158,7 @@ class TestTokenUpgrade(unittest.TestCase):
         for contract_name, contract in self.token_contracts.items():
             with self.subTest(contract=contract_name):
                 private_key = "ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8"
-                wallet = Wallet(private_key)
+                wallet = Ed25519Account(private_key)
                 public_key = wallet.public_key
                 deadline = create_deadline()
                 spender = "some_spender"

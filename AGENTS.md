@@ -50,6 +50,6 @@
 - Container/runtime smoke path, when relevant: `make init`, `make up`, `make down`
 
 ## Notes
-- Local `uv` development depends on sibling checkouts of `../xian-contracting` and `../xian-py`.
+- Local `uv` development depends on a sibling checkout of `../xian-contracting`.
 - If you touch genesis or config rendering, keep `xian-cli` integration in mind and avoid baking in network-specific assumptions.
 - Treat `src/xian/tools/` as a transition area. Prefer new importable code under `src/xian/` when possible.

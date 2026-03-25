@@ -972,9 +972,9 @@ dependencies = [
     { name = "prometheus-client" },
     { name = "protobuf" },
     { name = "pynacl" },
+    { name = "xian-accounts" },
     { name = "xian-contract-tools" },
     { name = "xian-contracting" },
-    { name = "xian-py" },
     { name = "xian-runtime-types" },
 ]
 
@@ -1000,10 +1000,10 @@ requires-dist = [
     { name = "prometheus-client", specifier = ">=0.22.1,<0.23" },
     { name = "protobuf", specifier = "==6.33.5" },
     { name = "pynacl", specifier = ">=1.6.2,<2" },
+    { name = "xian-accounts", editable = "../xian-contracting/packages/xian-accounts" },
     { name = "xian-contract-tools", editable = "../xian-contracting/packages/xian-contract-tools" },
     { name = "xian-contracting", editable = "../xian-contracting" },
     { name = "xian-native-tracer", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-native-tracer" },
-    { name = "xian-py", editable = "../xian-py" },
     { name = "xian-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
 ]
 provides-extras = ["native"]
@@ -1016,6 +1016,17 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.0.0,<8" },
     { name = "ruff", specifier = ">=0.15.6,<0.16" },
 ]
+
+[[package]]
+name = "xian-accounts"
+version = "0.1.0"
+source = { editable = "../xian-contracting/packages/xian-accounts" }
+dependencies = [
+    { name = "pynacl" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pynacl", specifier = ">=1.5.0,<2" }]
 
 [[package]]
 name = "xian-contract-tools"
@@ -1062,38 +1073,6 @@ dev = [
 name = "xian-native-tracer"
 version = "0.1.0"
 source = { editable = "../xian-contracting/packages/xian-native-tracer" }
-
-[[package]]
-name = "xian-py"
-version = "0.4.8"
-source = { editable = "../xian-py" }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "pynacl" },
-    { name = "xian-contract-tools" },
-    { name = "xian-runtime-types" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.9.0,<4" },
-    { name = "bip-utils", marker = "extra == 'hd'", specifier = ">=2.9.3,<3" },
-    { name = "eth-account", marker = "extra == 'eth'", specifier = ">=0.13.4,<0.14" },
-    { name = "eth-utils", marker = "extra == 'eth'", specifier = ">=5.2.0,<6" },
-    { name = "fastapi", marker = "extra == 'app'", specifier = ">=0.116.0,<0.117" },
-    { name = "pynacl", specifier = ">=1.5.0,<2" },
-    { name = "uvicorn", marker = "extra == 'app'", specifier = ">=0.35.0,<0.36" },
-    { name = "xian-contract-tools", editable = "../xian-contracting/packages/xian-contract-tools" },
-    { name = "xian-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
-]
-provides-extras = ["hd", "eth", "app"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9.0.2,<10" },
-    { name = "pytest-cov", specifier = ">=7.0.0,<8" },
-    { name = "ruff", specifier = ">=0.15.6,<0.16" },
-]
 
 [[package]]
 name = "xian-runtime-types"

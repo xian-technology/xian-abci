@@ -1,12 +1,15 @@
+import datetime
+import os
 import unittest
-from xian_runtime_types.time import Datetime
+
 from contracting.client import ContractingClient
 from contracting.storage.driver import Driver
 from contracting.stdlib.bridge.hashing import sha3
-from xian_py.wallet import Wallet
+from xian_accounts import Ed25519Account
 from xian.config_paths import resolve_contracts_dir
-import datetime
-import os
+from xian_runtime_types.time import Datetime
+
+
 class TestCurrencyContract(unittest.TestCase):
     def setUp(self):
 
@@ -128,7 +131,7 @@ class TestCurrencyContract(unittest.TestCase):
     def test_permit_valid(self):
         # GIVEN a valid permit setup
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         deadline = str(self.create_deadline())
         spender = "some_spender"
@@ -147,7 +150,7 @@ class TestCurrencyContract(unittest.TestCase):
     def test_permit_expired(self):
         # GIVEN a permit setup with an expired deadline
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         deadline = self.create_deadline(minutes=-1)  # Past deadline
         spender = "some_spender"
@@ -163,7 +166,7 @@ class TestCurrencyContract(unittest.TestCase):
     def test_permit_invalid_signature(self):
         # GIVEN a permit setup with an invalid signature
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         deadline = self.create_deadline()
         spender = "some_spender"
@@ -179,7 +182,7 @@ class TestCurrencyContract(unittest.TestCase):
     def test_permit_double_spending(self):
         # GIVEN a permit setup with a double spending attempt
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         deadline = self.create_deadline()
         spender = "some_spender"
@@ -196,7 +199,7 @@ class TestCurrencyContract(unittest.TestCase):
     def test_permit_overwrites_previous_allowance(self):
         # GIVEN an initial allowance setup
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         spender = "some_spender"
         initial_value = 500
@@ -515,7 +518,7 @@ class TestCurrencyContract(unittest.TestCase):
         # GIVEN
         receiver = 'bob'
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         rate = 1
 
@@ -539,7 +542,7 @@ class TestCurrencyContract(unittest.TestCase):
         # GIVEN
         receiver = 'bob'
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         rate = 1
 
@@ -560,7 +563,7 @@ class TestCurrencyContract(unittest.TestCase):
         # GIVEN
         receiver = 'bob'
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         rate = 1
 
@@ -578,7 +581,7 @@ class TestCurrencyContract(unittest.TestCase):
         # GIVEN
         receiver = 'bob'
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         rate = 1
 
@@ -595,7 +598,7 @@ class TestCurrencyContract(unittest.TestCase):
         # GIVEN
         receiver = 'bob'
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         rate = 1
 
@@ -612,7 +615,7 @@ class TestCurrencyContract(unittest.TestCase):
         # GIVEN
         receiver = 'bob'
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         rate = 1
 
@@ -629,7 +632,7 @@ class TestCurrencyContract(unittest.TestCase):
         # GIVEN
         receiver = 'bob'
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         rate = 1
 
@@ -647,7 +650,7 @@ class TestCurrencyContract(unittest.TestCase):
         # GIVEN
         receiver = 'bob'
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         rate = 1
 
@@ -666,7 +669,7 @@ class TestCurrencyContract(unittest.TestCase):
         # GIVEN
         receiver = 'bob'
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
-        wallet = Wallet(private_key)
+        wallet = Ed25519Account(private_key)
         public_key = wallet.public_key
         rate = 1
         environment={"now": Datetime(year=2023, month=1, day=13)}

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from xian_py.wallet import Wallet
+from xian_accounts import Ed25519Account
 
 from xian.genesis_builder import (
     build_cometbft_genesis,
@@ -60,7 +60,7 @@ class GenesisBuilderTests(unittest.TestCase):
                 contracts_dir=contracts_dir,
             )
 
-        wallet = Wallet(private_key=founder_private_key)
+        wallet = Ed25519Account(founder_private_key)
         state_by_key = {
             entry["key"]: entry["value"] for entry in genesis_block["genesis"]
         }
@@ -219,7 +219,7 @@ class GenesisBuilderTests(unittest.TestCase):
         founder_private_key = (
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         )
-        wallet = Wallet(private_key=founder_private_key)
+        wallet = Ed25519Account(founder_private_key)
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             contracts_dir = Path(tmp_dir) / "contracts"
@@ -328,8 +328,8 @@ class GenesisBuilderTests(unittest.TestCase):
         validator_two_private_key = (
             "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
         )
-        founder_wallet = Wallet(private_key=founder_private_key)
-        validator_two_wallet = Wallet(private_key=validator_two_private_key)
+        founder_wallet = Ed25519Account(founder_private_key)
+        validator_two_wallet = Ed25519Account(validator_two_private_key)
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             contracts_dir = Path(tmp_dir) / "contracts"

@@ -7,7 +7,7 @@ from typing import Any
 
 from contracting import constants as contracting_constants
 from contracting.storage.driver import Driver
-from xian_py.wallet import Wallet
+from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import decode, encode
 
 from xian.utils.block import (
@@ -100,7 +100,7 @@ def build_exported_state(
     exported_state["nonces"] = nonces
 
     if founder_private_key:
-        founder_wallet = Wallet(private_key=founder_private_key)
+        founder_wallet = Ed25519Account(founder_private_key)
         exported_state["origin"]["sender"] = founder_wallet.public_key
         exported_state["origin"]["signature"] = founder_wallet.sign_msg(
             hash_state_changes(exported_state["genesis"])

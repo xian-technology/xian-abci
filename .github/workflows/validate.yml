@@ -39,12 +39,6 @@ jobs:
           repository: xian-technology/xian-contracting
           path: xian-contracting
 
-      - name: Check out xian-py
-        uses: actions/checkout@v6
-        with:
-          repository: xian-technology/xian-py
-          path: xian-py
-
       - name: Check out xian-configs
         uses: actions/checkout@v6
         with:
