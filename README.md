@@ -38,6 +38,16 @@ uv run xian-state-snapshot --help
 - Consensus-sensitive behavior belongs in reusable code, not ad hoc scripts or
   one-off operator commands.
 
+## How It Fits
+
+- use `xian-abci` when you need the actual node application or backend-oriented
+  node tooling
+- use `xian-cli` when you want the operator-facing UX around manifests,
+  profiles, health, and recovery flows
+- use `xian-stack` when you want the local Docker/Compose runtime and smoke
+  flows
+- use `xian-deploy` when you want remote Linux host deployment
+
 ## Key Directories
 
 - `src/xian/methods/`: ABCI request handlers and query surfaces
@@ -54,6 +64,13 @@ uv run xian-state-snapshot --help
 - state export, state snapshots, and state sync helpers
 - node setup, home configuration, and genesis-building primitives
 - BDS indexing and optional dashboard services
+- backend-oriented CLI entrypoints such as:
+  - `xian-configure-node`
+  - `xian-export-state`
+  - `xian-state-snapshot`
+  - `xian-bds-reindex`
+  - `xian-bds-snapshot`
+  - `xian-bds-spool`
 
 ## Validation
 

@@ -1,11 +1,17 @@
 # Scripts
 
 ## Purpose
-- This folder contains validation and maintenance helpers for the repo.
+
+This folder contains the thin script surface that exists outside the importable
+runtime code.
 
 ## Contents
-- `validate-repo.sh`: the preferred full validation entrypoint
+
+- `validate-repo.sh`: the preferred full validation entrypoint for local and CI
+  use
 
 ## Notes
-- Prefer importable helpers in `src/xian/` for reusable logic. Keep this folder thin.
 
+- Keep this folder deliberately small.
+- Prefer importable helpers in `src/xian/` for reusable logic, and keep shell
+  scripts here only when they are truly repo-level maintenance entrypoints.
