@@ -17,6 +17,7 @@ dependencies = [
     "prometheus-client>=0.22.1,<0.23",
     "protobuf==6.33.5",
     "pynacl>=1.6.2,<2",
+    "xian-contract-tools>=0.1.0,<0.2",
     "xian-contracting",
     "xian-py",
     "xian-runtime-types>=0.1.0,<0.2",
@@ -94,6 +95,7 @@ select = ["E", "F", "I"]
 ignore = ["E501"]
 
 [tool.uv.sources]
+xian-contract-tools = { path = "../xian-contracting/packages/xian-contract-tools", editable = true }
 xian-contracting = { path = "../xian-contracting", editable = true }
 xian-py = { path = "../xian-py", editable = true }
 xian-runtime-types = { path = "../xian-contracting/packages/xian-runtime-types", editable = true }

@@ -14,7 +14,7 @@ from loguru import logger
 STATIC_DIR = Path(__file__).parent / "static"
 
 try:
-    from xian_py.decompiler import ContractDecompiler
+    from xian_contract_tools import ContractDecompiler
 
     _decompiler = ContractDecompiler()
 except Exception:

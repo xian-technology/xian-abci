@@ -9,7 +9,7 @@ from timeit import default_timer as timer
 from typing import Any
 
 from loguru import logger
-from xian_py.decompiler import ContractDecompiler
+from xian_contract_tools import ContractDecompiler
 
 from xian.services.bds import sql
 from xian.services.bds.config import BdsConfig

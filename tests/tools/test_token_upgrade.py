@@ -1,18 +1,18 @@
 import unittest
-from xian_runtime_types.time import Datetime
-from contracting.client import ContractingClient
-from xian.utils.block import compile_contract_from_source
-from xian_py.decompiler import ContractDecompiler
-from xian_py.wallet import Wallet
-from contracting.stdlib.bridge.hashing import sha3
 import datetime
 import json
-import os
 from pathlib import Path
+
+from contracting.client import ContractingClient
+from contracting.stdlib.bridge.hashing import sha3
+from xian_runtime_types.time import Datetime
+from xian_py.wallet import Wallet
+
+from xian.utils.block import compile_contract_from_source
 from xian.tools.genesis_upgrades.token_upgrade import (
-    process_genesis_data,
     find_code_entries,
     is_xsc001_token,
+    process_genesis_data,
 )
 
 
