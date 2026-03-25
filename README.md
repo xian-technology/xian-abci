@@ -1,33 +1,59 @@
-[![CI](https://github.com/xian-technology/xian-abci/actions/workflows/validate.yml/badge.svg)](https://github.com/xian-technology/xian-abci/actions/workflows/validate.yml)
-
 # xian-abci
 
 `xian-abci` is the CometBFT-facing Xian node application. It owns deterministic
-chain behavior, ABCI request handling, node setup primitives, state export and
-restore flows, and node-facing services such as BDS and the optional dashboard.
+chain behavior, ABCI request handling, state export and restore flows, and
+node-adjacent services such as BDS and the optional dashboard.
 
-## Scope
+## Quick Start
 
-This repo owns:
+Run the ABCI application:
 
-- ABCI methods and block-processing logic
-- node setup, node admin, genesis building, and state snapshot helpers
-- in-process transaction simulation, rewards, validator handling, and metrics
-- optional node-adjacent services such as BDS and the dashboard
+```bash
+uv run xian-abci
+```
 
-This repo does not own:
+Run the optional dashboard against a local CometBFT RPC endpoint:
 
-- end-user operator UX such as `network join` or `node start`
-- Docker or Compose topology
-- canonical network manifests and chain asset bundles
+```bash
+uv run xian-dashboard --rpc-url http://127.0.0.1:26657
+```
+
+Inspect the backend-oriented CLI surface:
+
+```bash
+uv run xian-configure-node --help
+uv run xian-export-state --help
+uv run xian-state-snapshot --help
+```
+
+## Principles
+
+- `xian-abci` owns deterministic node behavior and backend primitives, not the
+  full operator UX.
+- Process supervision, Docker topology, and operator workflows belong in
+  `xian-stack`, `xian-cli`, or external tooling such as `systemd`.
+- BDS, metrics, snapshots, and the dashboard are part of the node-adjacent
+  runtime surface, but the core ABCI path should remain understandable without
+  them.
+- Consensus-sensitive behavior belongs in reusable code, not ad hoc scripts or
+  one-off operator commands.
 
 ## Key Directories
 
 - `src/xian/methods/`: ABCI request handlers and query surfaces
-- `src/xian/`: node services, setup helpers, state export/sync, and shared utilities
-- `src/xian/cli/`: backend/operator entrypoints owned by this repo
+- `src/xian/services/`: BDS, dashboard, metrics, state sync, and related services
+- `src/xian/cli/`: backend-oriented command entrypoints owned by this repo
+- `src/xian/`: node setup helpers, state export/import, and shared runtime code
 - `scripts/`: repo validation and protobuf generation helpers
-- `tests/`: unit, integration, and system coverage for node behavior
+- `tests/`: unit, integration, governance, and system coverage
+
+## What It Covers
+
+- deterministic transaction processing and block finalization
+- node queries and simulation
+- state export, state snapshots, and state sync helpers
+- node setup, home configuration, and genesis-building primitives
+- BDS indexing and optional dashboard services
 
 ## Validation
 
@@ -46,24 +72,3 @@ The BDS-backed test paths expect Postgres at
 - [docs/BACKLOG.md](docs/BACKLOG.md)
 - [docs/README.md](docs/README.md)
 - [docs/LEGACY_CHAIN_ASSETS.md](docs/LEGACY_CHAIN_ASSETS.md)
-
-## Runtime Surface
-
-`xian-abci` exposes single-process entrypoints. It does not own a bundled
-process manager:
-
-```bash
-uv run xian-abci
-uv run xian-dashboard --rpc-url http://127.0.0.1:26657
-uv run xian-configure-node --help
-uv run xian-export-state --help
-cometbft node --rpc.laddr tcp://0.0.0.0:26657
-```
-
-If you need supervision, use `xian-stack`, Docker, `systemd`, or `launchd`.
-
-Operator flows belong in `xian-cli`. Runtime/backend orchestration belongs in
-`xian-stack`. Canonical chain fixtures and manifests belong in `xian-configs`.
-Reusable bootstrap logic should live in importable helpers such as
-`src/xian/genesis_builder.py`, `src/xian/node_admin.py`, and
-`src/xian/state_export.py`, not in ad hoc scripts.
