@@ -216,6 +216,108 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(reward_queries, [])
 
+    async def test_persist_transaction_indexes_nested_contract_deployments(self):
+        bds = BDS(BdsConfig())
+        connection = _FakeConnection()
+
+        tx = BdsTransactionPayload(
+            tx_index=0,
+            envelope={
+                "metadata": {"signature": "deadbeef"},
+                "payload": {"sender": "alice"},
+            },
+            payload={
+                "sender": "alice",
+                "nonce": 1,
+                "contract": "con_factory",
+                "function": "deploy_children",
+                "kwargs": {},
+            },
+            tx_result={
+                "hash": "TX-FACTORY",
+                "status": 0,
+                "stamps_used": 42,
+                "result": {"ok": True},
+                "state": [
+                    {"key": "con_child_a.__source__", "value": "source-a"},
+                    {"key": "con_child_a.__code__", "value": "code-a"},
+                    {
+                        "key": "con_child_a.__submitted__",
+                        "value": {"__time__": [2026, 1, 1, 12, 30, 15]},
+                    },
+                    {"key": "con_child_b.__code__", "value": "code-b"},
+                ],
+                "events": [],
+                "rewards": {},
+            },
+        )
+
+        await bds._persist_transaction(
+            connection,
+            block_meta={"height": 7, "hash": "BLOCK-7", "nanos": 7},
+            block_time=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+            current_index={},
+            tx=tx,
+        )
+
+        contract_upserts = [
+            args
+            for query, args in connection.execute_calls
+            if query == sql.upsert_contract()
+        ]
+        self.assertEqual(len(contract_upserts), 2)
+        self.assertEqual(contract_upserts[0][0], "con_child_a")
+        self.assertEqual(contract_upserts[0][4], "source-a")
+        self.assertEqual(
+            contract_upserts[0][3],
+            datetime(2026, 1, 1, 12, 30, 15, tzinfo=UTC),
+        )
+        self.assertEqual(contract_upserts[1][0], "con_child_b")
+        self.assertEqual(contract_upserts[1][4], "code-b")
+        self.assertEqual(
+            contract_upserts[1][3],
+            datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+        )
+
+    async def test_process_genesis_block_prefers_source_for_contract_indexing(self):
+        bds = BDS(BdsConfig())
+        connection = _FakeConnection()
+        bds.db.pool = _FakePool(connection)
+
+        await bds.process_genesis_block(
+            {
+                "abci_genesis": {
+                    "genesis": [
+                        {
+                            "key": "con_token.__source__",
+                            "value": "source-token",
+                        },
+                        {
+                            "key": "con_token.__code__",
+                            "value": "code-token",
+                        },
+                        {
+                            "key": "con_token.__submitted__",
+                            "value": {"__time__": [2026, 1, 2, 3, 4, 5]},
+                        },
+                    ]
+                }
+            }
+        )
+
+        contract_upserts = [
+            args
+            for query, args in connection.execute_calls
+            if query == sql.upsert_contract()
+        ]
+        self.assertEqual(len(contract_upserts), 1)
+        self.assertEqual(contract_upserts[0][0], "con_token")
+        self.assertEqual(contract_upserts[0][4], "source-token")
+        self.assertEqual(
+            contract_upserts[0][3],
+            datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

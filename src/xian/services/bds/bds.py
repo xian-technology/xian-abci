@@ -675,20 +675,24 @@ class BDS:
                         block_time,
                     )
 
-                    if key.endswith(".__source__") or key.endswith(".__code__"):
-                        contract_name = key.split(".", 1)[0]
-                        submission_time = self.get_submission_time(
-                            genesis_state, contract_name
-                        )
-                        await connection.execute(
-                            sql.upsert_contract(),
-                            contract_name,
-                            GENESIS_TX_HASH,
-                            0,
-                            submission_time,
-                            state["value"],
-                            self.is_XSC0001(state["value"]),
-                        )
+                for contract_name, record in self._collect_contract_records(
+                    genesis_state
+                ).items():
+                    display_source = record["source"] or record["code"]
+                    if display_source is None:
+                        continue
+                    submission_time = record[
+                        "submitted_at"
+                    ] or self.get_submission_time(genesis_state, contract_name)
+                    await connection.execute(
+                        sql.upsert_contract(),
+                        contract_name,
+                        GENESIS_TX_HASH,
+                        0,
+                        submission_time,
+                        display_source,
+                        self.is_XSC0001(display_source),
+                    )
 
         logger.debug(
             f"Saved genesis block to BDS in {timer() - start_time:.3f} seconds"
@@ -866,31 +870,23 @@ class BDS:
                 block_time,
             )
 
-        if (
-            tx_result["status"] == 0
-            and payload["contract"] == "submission"
-            and payload["function"] == "submit_contract"
-        ):
-            contract_name = payload["kwargs"]["name"]
-            source = None
-            code = None
-            for state_change in tx_result.get("state", []):
-                key = state_change.get("key")
-                if key == f"{contract_name}.__source__":
-                    source = state_change.get("value")
-                elif key == f"{contract_name}.__code__":
-                    code = state_change.get("value")
-
-            display_source = source or code or payload["kwargs"]["code"]
-            await connection.execute(
-                sql.upsert_contract(),
-                contract_name,
-                tx_hash,
-                block_meta["height"],
-                block_time,
-                display_source,
-                self.is_XSC0001(display_source),
-            )
+        if tx_result["status"] == 0:
+            for contract_name, record in self._collect_contract_records(
+                tx_result.get("state", [])
+            ).items():
+                display_source = record["source"] or record["code"]
+                if display_source is None:
+                    continue
+                submission_time = record["submitted_at"] or block_time
+                await connection.execute(
+                    sql.upsert_contract(),
+                    contract_name,
+                    tx_hash,
+                    block_meta["height"],
+                    submission_time,
+                    display_source,
+                    self.is_XSC0001(display_source),
+                )
 
     async def _persist_state_patches(
         self,
@@ -1168,3 +1164,65 @@ class BDS:
                 time_value = item["value"].get("__time__")
                 return utc_datetime(datetime(*time_value))
         return GENESIS_CREATED_AT
+
+    def _submission_time_from_state_value(self, value: Any) -> datetime | None:
+        if isinstance(value, dict):
+            time_value = value.get("__time__")
+            if isinstance(time_value, list | tuple) and len(time_value) >= 6:
+                return utc_datetime(datetime(*time_value[:6]))
+
+        if all(
+            hasattr(value, attribute)
+            for attribute in (
+                "year",
+                "month",
+                "day",
+                "hour",
+                "minute",
+                "second",
+            )
+        ):
+            return utc_datetime(
+                datetime(
+                    value.year,
+                    value.month,
+                    value.day,
+                    value.hour,
+                    value.minute,
+                    value.second,
+                )
+            )
+
+        return None
+
+    def _collect_contract_records(
+        self, state_changes: list[dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        contracts: dict[str, dict[str, Any]] = {}
+
+        for state_change in state_changes:
+            if not isinstance(state_change, dict):
+                continue
+            key = state_change.get("key")
+            if not isinstance(key, str) or "." not in key:
+                continue
+
+            contract_name, variable = key.split(".", 1)
+            if variable not in {"__source__", "__code__", "__submitted__"}:
+                continue
+
+            record = contracts.setdefault(
+                contract_name,
+                {"source": None, "code": None, "submitted_at": None},
+            )
+
+            if variable == "__source__":
+                record["source"] = state_change.get("value")
+            elif variable == "__code__":
+                record["code"] = state_change.get("value")
+            else:
+                record["submitted_at"] = self._submission_time_from_state_value(
+                    state_change.get("value")
+                )
+
+        return contracts
