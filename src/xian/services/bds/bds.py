@@ -9,7 +9,6 @@ from timeit import default_timer as timer
 from typing import Any
 
 from loguru import logger
-from xian_contract_tools import ContractDecompiler
 
 from xian.services.bds import sql
 from xian.services.bds.config import BdsConfig
@@ -676,11 +675,8 @@ class BDS:
                         block_time,
                     )
 
-                    if key.endswith(".__code__"):
+                    if key.endswith(".__source__") or key.endswith(".__code__"):
                         contract_name = key.split(".", 1)[0]
-                        original_code = ContractDecompiler().decompile(
-                            state["value"]
-                        )
                         submission_time = self.get_submission_time(
                             genesis_state, contract_name
                         )
@@ -690,8 +686,8 @@ class BDS:
                             GENESIS_TX_HASH,
                             0,
                             submission_time,
-                            original_code,
-                            self.is_XSC0001(original_code),
+                            state["value"],
+                            self.is_XSC0001(state["value"]),
                         )
 
         logger.debug(
@@ -875,15 +871,25 @@ class BDS:
             and payload["contract"] == "submission"
             and payload["function"] == "submit_contract"
         ):
-            code = payload["kwargs"]["code"]
+            contract_name = payload["kwargs"]["name"]
+            source = None
+            code = None
+            for state_change in tx_result.get("state", []):
+                key = state_change.get("key")
+                if key == f"{contract_name}.__source__":
+                    source = state_change.get("value")
+                elif key == f"{contract_name}.__code__":
+                    code = state_change.get("value")
+
+            display_source = source or code or payload["kwargs"]["code"]
             await connection.execute(
                 sql.upsert_contract(),
-                payload["kwargs"]["name"],
+                contract_name,
                 tx_hash,
                 block_meta["height"],
                 block_time,
-                code,
-                self.is_XSC0001(code),
+                display_source,
+                self.is_XSC0001(display_source),
             )
 
     async def _persist_state_patches(

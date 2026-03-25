@@ -13,13 +13,6 @@ from loguru import logger
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-try:
-    from xian_contract_tools import ContractDecompiler
-
-    _decompiler = ContractDecompiler()
-except Exception:
-    _decompiler = None
-
 
 def normalize_rpc_url(address: str) -> str:
     if address.startswith(("http://", "https://")):
@@ -685,19 +678,10 @@ async def handle_contract(request: web.Request) -> web.Response:
         methods = await _abci_query(session, rpc, f"contract_methods/{name}")
         variables = await _abci_query(session, rpc, f"contract_vars/{name}")
 
-        source = None
-        if code and _decompiler:
-            try:
-                source = _decompiler.decompile(code)
-            except Exception:
-                source = code
-        elif code:
-            source = code
-
         return web.json_response(
             {
                 "name": name,
-                "code": source,
+                "code": code,
                 "methods": (
                     methods.get("methods", methods)
                     if isinstance(methods, dict)

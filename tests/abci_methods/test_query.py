@@ -290,6 +290,18 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.query.code, Constants.OkCode)
         self.assertEqual(response.query.info, "str")
+        source = response.query.value.decode("utf-8")
+        self.assertIn("@export", source)
+        self.assertNotIn("@__export", source)
+
+    async def test_contract_code_query(self):
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/contract_code/currency"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.info, "str")
+        code = response.query.value.decode("utf-8")
+        self.assertIn("@__export('currency')", code)
 
     async def test_contract_methods_query(self):
         response = await self.process_request(

@@ -32,6 +32,16 @@ async def query(self, req) -> ResponseQuery:
 
         # http://localhost:26657/abci_query?path="/contract/con_some_contract"
         elif path_parts[0] == "contract":
+            result = self.client.raw_driver.get_contract_source(
+                path_parts[1]
+            ) or self.client.raw_driver.get_contract(path_parts[1])
+
+        # http://localhost:26657/abci_query?path="/contract_source/con_some_contract"
+        elif path_parts[0] == "contract_source":
+            result = self.client.raw_driver.get_contract_source(path_parts[1])
+
+        # http://localhost:26657/abci_query?path="/contract_code/con_some_contract"
+        elif path_parts[0] == "contract_code":
             result = self.client.raw_driver.get_contract(path_parts[1])
 
         # http://localhost:26657/abci_query?path="/contract_methods/con_some_contract"

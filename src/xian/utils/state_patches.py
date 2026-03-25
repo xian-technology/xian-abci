@@ -1,6 +1,4 @@
-import binascii
 import json
-import marshal
 import os
 
 from contracting.compilation.compiler import ContractingCompiler
@@ -10,20 +8,17 @@ from xian_runtime_types.encoding import convert_dict
 from xian.utils.encoding import hash_bytes
 
 
-def compile_contract_from_source(s: dict):
-    """Transform and compile contract code, returning both transformed source and bytecode."""
+def build_contract_artifacts_from_source(s: dict):
+    """Build canonical source and canonical runtime code for a contract."""
 
     contract_name = s["key"].split(".")[0]
     compiler = ContractingCompiler(module_name=contract_name)
 
+    normalized_source = compiler.normalize_source(s["value"])
     transformed_code = compiler.parse_to_code(s["value"])
 
-    compiled_code = compiler.compile(s["value"])
-    serialized_code = marshal.dumps(compiled_code)
-    hexadecimal_string = binascii.hexlify(serialized_code).decode()
-
-    logger.info(f"Transformed and compiled contract code for {contract_name}")
-    return transformed_code, hexadecimal_string
+    logger.info(f"Built contract artifacts for {contract_name}")
+    return normalized_source, transformed_code
 
 
 def hash_from_state_changes(state_changes):
@@ -101,23 +96,25 @@ class StatePatchManager:
             applied_patches.append(applied_patch)
 
             parts = key.split(".")
-            if len(parts) > 1 and parts[1] == "__code__":
+            if len(parts) > 1 and parts[1] == "__source__":
                 contract_name = parts[0]
                 try:
-                    _, compiled_code = compile_contract_from_source(patch)
+                    _, transformed_code = build_contract_artifacts_from_source(
+                        patch
+                    )
                     applied_patches.append(
                         {
-                            "key": f"{contract_name}.__compiled__",
-                            "value": compiled_code,
-                            "comment": f"Compiled bytecode for {comment}",
+                            "key": f"{contract_name}.__code__",
+                            "value": transformed_code,
+                            "comment": f"Canonical runtime code for {comment}",
                         }
                     )
                 except Exception as e:
                     logger.error(
-                        f"Failed to compile contract code for {contract_name}: {e}"
+                        f"Failed to build contract artifacts for {contract_name}: {e}"
                     )
                     logger.error(
-                        "Skipping compiled patch payload and continuing"
+                        "Skipping derived contract patch and continuing"
                     )
 
         patch_hash = hash_from_state_changes(patches)
@@ -148,28 +145,30 @@ class StatePatchManager:
             # Check if this is a contract code patch
             # Contract code key format: con_contract_name.__code__
             parts = key.split(".")
-            if len(parts) > 1 and parts[1] == "__code__":
+            if len(parts) > 1 and parts[1] == "__source__":
                 contract_name = parts[0]
 
-                logger.info(f"Processing contract code patch: {contract_name}")
+                logger.info(
+                    f"Processing contract source patch: {contract_name}"
+                )
 
                 try:
-                    transformed_code, compiled_code = (
-                        compile_contract_from_source(patch)
+                    normalized_source, transformed_code = (
+                        build_contract_artifacts_from_source(patch)
                     )
 
-                    self.raw_driver.set(key, transformed_code)
+                    self.raw_driver.set(key, normalized_source)
                     self.raw_driver.set(
-                        f"{contract_name}.__compiled__", compiled_code
+                        f"{contract_name}.__code__", transformed_code
                     )
 
                     logger.info(
-                        f"Contract code patch applied for {contract_name}"
+                        f"Contract source patch applied for {contract_name}"
                     )
                 except Exception as e:
                     # Log the error but continue processing other patches
                     logger.error(
-                        f"Failed to compile contract code for {contract_name}: {e}"
+                        f"Failed to build contract artifacts for {contract_name}: {e}"
                     )
                     logger.error(
                         "Skipping this patch and continuing with others"

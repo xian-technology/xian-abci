@@ -52,7 +52,6 @@ On import, Xian rebuilds:
 
 - LMDB state
 - nonce keys
-- `__compiled__` contract entries
 - latest block height/hash metadata
 
 ## Operator Tooling

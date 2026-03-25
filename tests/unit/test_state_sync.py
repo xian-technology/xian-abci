@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from contracting import constants as contracting_constants
+from contracting.compilation.compiler import ContractingCompiler
 from contracting.storage.driver import Driver
 from xian_runtime_types.decimal import ContractingDecimal
 
@@ -21,7 +22,15 @@ value = Variable()
 @construct
 def seed():
     value.set(1)
+
+
+@export
+def get():
+    return value.get()
 """.strip()
+CANONICAL_CONTRACT_SOURCE = ContractingCompiler(
+    module_name="demo"
+).normalize_source(CONTRACT_SOURCE)
 
 
 class StateSyncTests(unittest.TestCase):
@@ -55,10 +64,13 @@ class StateSyncTests(unittest.TestCase):
 
             target_driver = Driver(storage_home=target_home)
             self.assertEqual(
-                target_driver.get("demo.__code__"),
-                CONTRACT_SOURCE,
+                target_driver.get("demo.__source__"),
+                CANONICAL_CONTRACT_SOURCE,
             )
-            self.assertIsNotNone(target_driver.get("demo.__compiled__"))
+            self.assertIn(
+                "def ____():",
+                target_driver.get("demo.__code__"),
+            )
             self.assertEqual(target_driver.get("demo.count"), 7)
             self.assertEqual(
                 target_driver.get("demo.price"),
@@ -126,7 +138,7 @@ class StateSyncTests(unittest.TestCase):
     @staticmethod
     def _seed_state(storage_home: Path) -> None:
         driver = Driver(storage_home=storage_home)
-        driver.set_contract("demo", CONTRACT_SOURCE, owner="alice")
+        driver.set_contract_from_source("demo", CONTRACT_SOURCE, owner="alice")
         driver.set("demo.count", 7)
         driver.set("demo.price", ContractingDecimal("1.25"))
         driver.set(

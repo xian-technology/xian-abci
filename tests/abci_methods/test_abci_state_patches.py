@@ -283,7 +283,7 @@ def get_balance(account: str):
         contract_patch = {
             "30": [
                 {
-                    "key": "con_test_token.__code__",
+                    "key": "con_test_token.__source__",
                     "value": contract_code,
                     "comment": "Test contract code patch - the patch manager will compile this"
                 },
@@ -312,9 +312,9 @@ def get_balance(account: str):
         
         # No need to submit the contract again - it's already loaded via the state patch
         
-        # Verify that both the code and compiled code were set
+        # Verify that both canonical source and runtime code were set
+        self.assertIsNotNone(new_app.client.raw_driver.get("con_test_token.__source__"))
         self.assertIsNotNone(new_app.client.raw_driver.get("con_test_token.__code__"))
-        self.assertIsNotNone(new_app.client.raw_driver.get("con_test_token.__compiled__"))
         
         # Note: The stored code will be the transformed code, not the original source code
         stored_code = new_app.client.raw_driver.get("con_test_token.__code__")
@@ -425,7 +425,7 @@ def get_balance(account: str):
         contract_patches = {
             "30": [
                 {
-                    "key": "con_update_test.__code__",
+                    "key": "con_update_test.__source__",
                     "value": original_contract_code,
                     "comment": "Initial contract deployment"
                 },
@@ -437,7 +437,7 @@ def get_balance(account: str):
             ],
             "40": [
                 {
-                    "key": "con_update_test.__code__",
+                    "key": "con_update_test.__source__",
                     "value": updated_contract_code,
                     "comment": "Contract update adding get_balance method"
                 }
@@ -542,14 +542,14 @@ def transfer(amount, to):  # Missing type annotations - linting error
         error_patches = {
             "50": [
                 {
-                    "key": "con_syntax_error.__code__",
+                    "key": "con_syntax_error.__source__",
                     "value": syntax_error_contract,
                     "comment": "Contract with syntax error"
                 }
             ],
             "60": [
                 {
-                    "key": "con_linting_error.__code__",
+                    "key": "con_linting_error.__source__",
                     "value": linting_error_contract,
                     "comment": "Contract with linting error"
                 }
@@ -574,6 +574,7 @@ def transfer(amount, to):  # Missing type annotations - linting error
         await new_handler.process("finalize_block", request_50)
         
         # The contract should not be set in state due to syntax error
+        self.assertIsNone(new_app.client.raw_driver.get("con_syntax_error.__source__"))
         self.assertIsNone(new_app.client.raw_driver.get("con_syntax_error.__code__"))
         
         # Process block 60 - should handle linting error gracefully
@@ -584,6 +585,7 @@ def transfer(amount, to):  # Missing type annotations - linting error
         await new_handler.process("finalize_block", request_60)
         
         # The contract should not be set in state due to linting error
+        self.assertIsNone(new_app.client.raw_driver.get("con_linting_error.__source__"))
         self.assertIsNone(new_app.client.raw_driver.get("con_linting_error.__code__"))
     
     async def test_multiple_contract_patches_same_block(self):
@@ -640,7 +642,7 @@ def transfer(amount: int, to: str):
         multi_patches = {
             "70": [
                 {
-                    "key": "con_token1.__code__",
+                    "key": "con_token1.__source__",
                     "value": contract_code_1,
                     "comment": "First token contract"
                 },
@@ -650,7 +652,7 @@ def transfer(amount: int, to: str):
                     "comment": "Initialize first token balance"
                 },
                 {
-                    "key": "con_token2.__code__",
+                    "key": "con_token2.__source__",
                     "value": contract_code_2,
                     "comment": "Second token contract"
                 },
@@ -679,7 +681,9 @@ def transfer(amount: int, to: str):
         
         # Verify both contracts were deployed and work correctly
         # Both contracts should be in state
+        self.assertIsNotNone(new_app.client.raw_driver.get("con_token1.__source__"))
         self.assertIsNotNone(new_app.client.raw_driver.get("con_token1.__code__"))
+        self.assertIsNotNone(new_app.client.raw_driver.get("con_token2.__source__"))
         self.assertIsNotNone(new_app.client.raw_driver.get("con_token2.__code__"))
         
         # Verify initial balances for both tokens
@@ -754,7 +758,7 @@ def buy(base: str, quote: str, amount: int):
         dependency_patches = {
             "80": [
                 {
-                    "key": "con_currency.__code__",
+                    "key": "con_currency.__source__",
                     "value": currency_contract,
                     "comment": "Base currency contract"
                 },
@@ -766,7 +770,7 @@ def buy(base: str, quote: str, amount: int):
             ],
             "81": [
                 {
-                    "key": "con_exchange.__code__",
+                    "key": "con_exchange.__source__",
                     "value": exchange_contract,
                     "comment": "Exchange contract that depends on currency"
                 }
@@ -794,7 +798,9 @@ def buy(base: str, quote: str, amount: int):
         await new_handler.process("finalize_block", request_81)
         
         # Verify both contracts were deployed
+        self.assertIsNotNone(new_app.client.raw_driver.get("con_currency.__source__"))
         self.assertIsNotNone(new_app.client.raw_driver.get("con_currency.__code__"))
+        self.assertIsNotNone(new_app.client.raw_driver.get("con_exchange.__source__"))
         self.assertIsNotNone(new_app.client.raw_driver.get("con_exchange.__code__"))
         
         # Verify the exchange contract can create a market
@@ -886,7 +892,7 @@ def get_allowance(owner: str, spender: str):
         orm_patches = {
             "90": [
                 {
-                    "key": "con_complex_orm.__code__",
+                    "key": "con_complex_orm.__source__",
                     "value": complex_orm_contract,
                     "comment": "Contract with complex ORM structures"
                 },
@@ -929,6 +935,7 @@ def get_allowance(owner: str, spender: str):
         await new_handler.process("finalize_block", request_90)
         
         # Verify the contract was deployed
+        self.assertIsNotNone(new_app.client.raw_driver.get("con_complex_orm.__source__"))
         self.assertIsNotNone(new_app.client.raw_driver.get("con_complex_orm.__code__"))
         
         # Verify variable values were set correctly
@@ -1011,7 +1018,7 @@ def private_function():
         privatization_patch = {
             "50": [
                 {
-                    "key": "con_privatization_test.__code__",
+                    "key": "con_privatization_test.__source__",
                     "value": contract_code,
                     "comment": "Test contract for privatization"
                 }

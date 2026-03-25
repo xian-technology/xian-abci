@@ -8,7 +8,6 @@ from contracting.stdlib.bridge.hashing import sha3
 from xian_accounts import Ed25519Account
 from xian_runtime_types.time import Datetime
 
-from xian.utils.block import compile_contract_from_source
 from xian.tools.genesis_upgrades.token_upgrade import (
     find_code_entries,
     is_xsc001_token,
@@ -46,32 +45,29 @@ class TestTokenUpgrade(unittest.TestCase):
             "con_stk006.__code__",
         ]
 
-        # Find and submit all XSC001 tokens
+        # Apply the final genesis state in order so duplicate keys resolve the
+        # same way they do during real genesis import.
+        final_state = {}
+        for entry in self.updated_genesis["abci_genesis"]["genesis"]:
+            final_state[entry["key"]] = entry.get("value")
+
+        for key, value in final_state.items():
+            self.client.raw_driver.set(key, value)
+
+        # Find all final XSC001 token contracts from their resolved runtime code.
         self.token_contracts = {}
-        for idx, entry in enumerate(
-            self.updated_genesis["abci_genesis"]["genesis"]
-        ):
-            key = entry.get("key", "")
+        for key, value in final_state.items():
             if (
                 key.endswith(".__code__")
-                and is_xsc001_token(entry["value"])
+                and is_xsc001_token(value)
                 and "pixel" not in key
                 and key.startswith("con_")
                 and key not in self.EXCLUDED_CONTRACTS
             ):
-
                 contract_name = key.replace(".__code__", "")
-                print(f"Submitting {contract_name}")
-                compiled_code = compile_contract_from_source(entry)
-                self.client.raw_driver.set(
-                    f"{contract_name}.__compiled__", compiled_code
-                )
-                self.client.raw_driver.set(key, entry.get("value"))
                 self.token_contracts[contract_name] = self.client.get_contract(
                     contract_name
                 )
-            else:
-                self.client.raw_driver.set(key, entry.get("value"))
 
     def tearDown(self):
         self.client.flush()

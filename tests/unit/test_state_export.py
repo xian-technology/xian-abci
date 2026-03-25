@@ -26,7 +26,6 @@ class StateExportTests(unittest.TestCase):
         contract_state = {
             "con_b.value": 2,
             "con_a.value": 1,
-            "con_skip.__compiled__": "ignore",
             "con_none.value": None,
         }
         run_state = {

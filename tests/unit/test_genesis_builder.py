@@ -72,7 +72,6 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertEqual(
             state_by_key["con_seed.owner_value"], wallet.public_key
         )
-        self.assertNotIn("con_seed.__compiled__", state_by_key)
 
     def test_write_and_update_cometbft_genesis(self):
         abci_genesis = {

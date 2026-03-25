@@ -11,11 +11,9 @@ from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import decode, encode
 
 from xian.utils.block import (
-    compile_contract_from_source,
     get_latest_block_hash,
     get_latest_block_height,
     get_latest_block_nanos,
-    is_compiled_key,
     set_latest_block_hash,
     set_latest_block_height,
     set_latest_block_nanos,
@@ -90,7 +88,7 @@ def build_exported_state(
     nonces = sorted(nonces, key=lambda item: item["key"])
 
     for key, value in contract_state.items():
-        if not is_compiled_key(key) and value is not None:
+        if value is not None:
             exported_state["genesis"].append({"key": key, "value": value})
 
     exported_state["genesis"] = sorted(
@@ -152,16 +150,6 @@ def import_state(
         key = entry["key"]
         value = entry["value"]
         writes[key] = value
-        if key.endswith(f"{contracting_constants.INDEX_SEPARATOR}__code__"):
-            contract_name = key.split(contracting_constants.INDEX_SEPARATOR, 1)[
-                0
-            ]
-            writes[
-                (
-                    f"{contract_name}{contracting_constants.INDEX_SEPARATOR}"
-                    "__compiled__"
-                )
-            ] = compile_contract_from_source(entry)
 
     for nonce in exported_state.get("nonces", []):
         writes[

@@ -17,7 +17,6 @@ from xian_runtime_types.encoding import encode
 from xian.config_paths import (
     resolve_contracts_dir as resolve_configs_contracts_dir,
 )
-from xian.utils.block import is_compiled_key
 
 TEMPLATE_ARG_PATTERN = re.compile(r"%%(.*?)%%")
 DEFAULT_CONSENSUS_PARAMS = {
@@ -152,7 +151,7 @@ def _build_genesis_block(
     }
 
     for key, value in contracting.raw_driver.pending_writes.items():
-        if value is None or is_compiled_key(key):
+        if value is None:
             continue
         genesis_block["genesis"].append({"key": key, "value": value})
 
