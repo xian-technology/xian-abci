@@ -337,7 +337,6 @@ class TxProcessor:
             "block_num": block_meta["height"],  # block number
             "__input_hash": self.get_timestamp_hash_from_tx(nanos, signature),
             "now": self.get_now_from_nanos(nanos=nanos),
-            "AUXILIARY_SALT": signature,
             "chain_id": chain_id,
         }
 

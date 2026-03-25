@@ -43,6 +43,67 @@ class SimulatorTests(unittest.TestCase):
             self.assertEqual(environment["now"].month, 1)
             self.assertEqual(environment["now"].day, 1)
 
+    def test_make_environment_is_deterministic_for_same_payload(self):
+        with TemporaryDirectory() as tmpdir:
+            storage_home = Path(tmpdir)
+
+            simulator = object.__new__(TransactionSimulator)
+            simulator.client = SimpleNamespace(
+                raw_driver=SimpleNamespace(storage_home=storage_home)
+            )
+            simulator.get_block_meta = lambda: {
+                "height": 7,
+                "nanos": 1_710_000_000_123_000_000,
+                "chain_id": "xian-local",
+            }
+
+            payload = {
+                "sender": "alice",
+                "contract": "con_game",
+                "function": "roll",
+                "kwargs": {"sides": 6},
+            }
+
+            first = simulator._make_environment(payload)
+            second = simulator._make_environment(payload)
+
+            self.assertEqual(first["block_hash"], second["block_hash"])
+            self.assertEqual(first["__input_hash"], second["__input_hash"])
+
+    def test_make_environment_changes_input_hash_for_different_payloads(self):
+        with TemporaryDirectory() as tmpdir:
+            storage_home = Path(tmpdir)
+
+            simulator = object.__new__(TransactionSimulator)
+            simulator.client = SimpleNamespace(
+                raw_driver=SimpleNamespace(storage_home=storage_home)
+            )
+            simulator.get_block_meta = lambda: {
+                "height": 7,
+                "nanos": 1_710_000_000_123_000_000,
+                "chain_id": "xian-local",
+            }
+
+            left = simulator._make_environment(
+                {
+                    "sender": "alice",
+                    "contract": "con_game",
+                    "function": "roll",
+                    "kwargs": {"sides": 6},
+                }
+            )
+            right = simulator._make_environment(
+                {
+                    "sender": "alice",
+                    "contract": "con_game",
+                    "function": "roll",
+                    "kwargs": {"sides": 20},
+                }
+            )
+
+            self.assertEqual(left["block_hash"], right["block_hash"])
+            self.assertNotEqual(left["__input_hash"], right["__input_hash"])
+
 
 if __name__ == "__main__":
     unittest.main()

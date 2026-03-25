@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import hashlib
 import json
-import secrets
 from copy import deepcopy
 
 from contracting.client import ContractingClient
@@ -72,7 +72,7 @@ class TransactionSimulator:
                 stamps=9_999_999 * stamp_cost,
                 stamp_cost=stamp_cost,
                 kwargs=convert_dict(payload.get("kwargs", {})),
-                environment=self._make_environment(),
+                environment=self._make_environment(payload),
                 auto_commit=False,
                 metering=True,
             )
@@ -143,24 +143,45 @@ class TransactionSimulator:
             "kwargs": kwargs,
         }
 
-    def _make_environment(self, block_num: int = 1) -> dict:
+    @staticmethod
+    def _payload_hash(payload: dict) -> str:
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha3_256(encoded).hexdigest()
+
+    def _make_environment(
+        self, payload: dict | None = None, block_num: int = 1
+    ) -> dict:
         block_meta = (
             (self.get_block_meta() or {}) if self.get_block_meta else {}
         )
-        salt = secrets.token_hex(32)
         block_nanos = block_meta.get("nanos")
         if block_nanos is None:
             block_nanos = get_latest_block_nanos(
                 self.client.raw_driver.storage_home
             )
+        payload_hash = self._payload_hash(payload or {})
+        block_hash = block_meta.get("hash")
+        if block_hash is None:
+            block_hash = hashlib.sha3_256(
+                (
+                    f"simulate:block:{block_meta.get('chain_id') or ''}:"
+                    f"{block_meta.get('height', block_num)}:{int(block_nanos or 0)}"
+                ).encode("utf-8")
+            ).hexdigest()
+        input_hash = hashlib.sha3_256(
+            f"{int(block_nanos or 0)}:{payload_hash}".encode("utf-8")
+        ).hexdigest()
         now = Datetime._from_datetime(
             nanoseconds_to_utc_datetime(int(block_nanos or 0))
         )
         return {
-            "block_hash": salt,
+            "block_hash": block_hash,
             "block_num": block_meta.get("height", block_num),
-            "__input_hash": salt,
+            "__input_hash": input_hash,
             "now": now,
-            "AUXILIARY_SALT": salt,
             "chain_id": block_meta.get("chain_id"),
         }
