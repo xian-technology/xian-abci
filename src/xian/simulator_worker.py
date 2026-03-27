@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import pickle
 import sys
 import traceback
@@ -9,8 +8,7 @@ from pathlib import Path
 from contracting.client import ContractingClient
 from contracting.storage.driver import Driver
 
-from xian.simulator import TransactionSimulator
-from xian.simulator import restore_driver_state
+from xian.simulator import TransactionSimulator, restore_driver_state
 
 
 def main() -> int:

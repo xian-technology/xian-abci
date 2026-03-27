@@ -439,9 +439,7 @@ def render_cometbft_config(
         "metrics_port": metrics_port,
         "metrics_bds_refresh_seconds": metrics_bds_refresh_seconds,
         "simulation_enabled": resolved_simulation["enabled"],
-        "simulation_max_concurrency": resolved_simulation[
-            "max_concurrency"
-        ],
+        "simulation_max_concurrency": resolved_simulation["max_concurrency"],
         "simulation_timeout_ms": resolved_simulation["timeout_ms"],
         "simulation_max_stamps": resolved_simulation["max_stamps"],
         "parallel_execution_enabled": parallel_execution_enabled,

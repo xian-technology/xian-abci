@@ -141,7 +141,9 @@ class TransactionSimulator:
                 stamps=max(int(max_stamps or 1_000_000), 1),
                 stamp_cost=stamp_cost,
                 kwargs=convert_dict(payload.get("kwargs", {})),
-                environment=self._make_environment(payload, block_meta=block_meta),
+                environment=self._make_environment(
+                    payload, block_meta=block_meta
+                ),
                 auto_commit=False,
                 metering=True,
             )
@@ -241,6 +243,8 @@ class TransactionSimulator:
             "now": now,
             "chain_id": block_meta.get("chain_id"),
         }
+
+
 class QuerySimulationService:
     def __init__(
         self,
@@ -352,8 +356,7 @@ class QuerySimulationService:
             detail = stderr.decode("utf-8", errors="replace").strip()
             if not detail:
                 detail = (
-                    "Simulation worker exited with code "
-                    f"{process.returncode}"
+                    f"Simulation worker exited with code {process.returncode}"
                 )
             raise RuntimeError(detail)
 

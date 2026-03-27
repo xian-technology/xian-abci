@@ -46,7 +46,9 @@ class RewardsHandler:
         contract_costs=None,
     ):
         developer_ratio = self._as_decimal(developer_ratio)
-        developer_total = self._as_decimal(total_stamps_to_split) * developer_ratio
+        developer_total = (
+            self._as_decimal(total_stamps_to_split) * developer_ratio
+        )
 
         send_map = defaultdict(lambda: ContractingDecimal("0"))
         developer_records = []
@@ -174,13 +176,16 @@ class RewardsHandler:
             logger.error("Reward configuration is incomplete.")
             return None, {}, []
 
-        master_reward, foundation_reward, developer_mapping, developer_records = (
-            self.calculate_tx_output_rewards(
-                total_stamps_to_split=total_stamps_to_split,
-                contract=contract,
-                foundation_owner=foundation_owner,
-                contract_costs=contract_costs,
-            )
+        (
+            master_reward,
+            foundation_reward,
+            developer_mapping,
+            developer_records,
+        ) = self.calculate_tx_output_rewards(
+            total_stamps_to_split=total_stamps_to_split,
+            contract=contract,
+            foundation_owner=foundation_owner,
+            contract_costs=contract_costs,
         )
 
         rewards = {
@@ -269,11 +274,9 @@ class RewardsHandler:
             foundation_reward,
             developer_mapping,
             _developer_records,
-        ) = (
-            self.calculate_tx_output_rewards(
-                total_stamps_to_split=stamp_rewards_amount,
-                contract=stamp_rewards_contract,
-            )
+        ) = self.calculate_tx_output_rewards(
+            total_stamps_to_split=stamp_rewards_amount,
+            contract=stamp_rewards_contract,
         )
 
         stamp_cost = driver.get("stamp_cost.S:value")

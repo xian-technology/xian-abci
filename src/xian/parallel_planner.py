@@ -97,9 +97,7 @@ class ParallelExecutionPlanner:
             return True
 
         stage_reads = set().union(*(item.reads for item in stage))
-        stage_prefix_reads = set().union(
-            *(item.prefix_reads for item in stage)
-        )
+        stage_prefix_reads = set().union(*(item.prefix_reads for item in stage))
         stage_writes = set().union(*(item.writes for item in stage))
         stage_additive_writes = set().union(
             *(item.additive_writes for item in stage)
@@ -123,17 +121,13 @@ class ParallelExecutionPlanner:
         if self._prefix_conflicts(access.prefix_reads, stage_writes):
             return True
 
-        if self._prefix_conflicts(
-            access.prefix_reads, stage_additive_writes
-        ):
+        if self._prefix_conflicts(access.prefix_reads, stage_additive_writes):
             return True
 
         if self._prefix_conflicts(stage_prefix_reads, access.writes):
             return True
 
-        if self._prefix_conflicts(
-            stage_prefix_reads, access.additive_writes
-        ):
+        if self._prefix_conflicts(stage_prefix_reads, access.additive_writes):
             return True
 
         if access.additive_writes & stage_reads:
@@ -149,7 +143,9 @@ class ParallelExecutionPlanner:
         prefixes: set[str] | frozenset[str],
         keys: set[str] | frozenset[str],
     ) -> bool:
-        return any(key.startswith(prefix) for prefix in prefixes for key in keys)
+        return any(
+            key.startswith(prefix) for prefix in prefixes for key in keys
+        )
 
     def _make_stage(self, stage: list[TransactionAccess]) -> ParallelStage:
         return ParallelStage(

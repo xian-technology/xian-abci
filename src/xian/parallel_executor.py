@@ -287,7 +287,7 @@ class ParallelBlockExecutor:
         return False
 
     @staticmethod
-    def _prefix_conflicts(
-        prefixes: frozenset[str], keys: set[str]
-    ) -> bool:
-        return any(key.startswith(prefix) for prefix in prefixes for key in keys)
+    def _prefix_conflicts(prefixes: frozenset[str], keys: set[str]) -> bool:
+        return any(
+            key.startswith(prefix) for prefix in prefixes for key in keys
+        )
