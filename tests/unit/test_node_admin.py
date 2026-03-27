@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import tarfile
@@ -61,6 +62,55 @@ class NodeAdminTests(unittest.TestCase):
             self.assertFalse((home / "data" / "old.txt").exists())
             self.assertFalse((home / "xian" / "old.txt").exists())
             self.assertEqual(archive_path, "snapshot.tar.gz")
+
+    def test_apply_snapshot_archive_verifies_expected_sha256(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = Path(tmp_dir)
+
+            archive_stream = io.BytesIO()
+            with tarfile.open(fileobj=archive_stream, mode="w:gz") as archive:
+                payload = b"new state"
+                info = tarfile.TarInfo("data/new.txt")
+                info.size = len(payload)
+                archive.addfile(info, io.BytesIO(payload))
+
+            archive_bytes = archive_stream.getvalue()
+            expected_sha256 = hashlib.sha256(archive_bytes).hexdigest()
+
+            with patch(
+                "xian.node_admin._download_binary_url",
+                return_value=archive_bytes,
+            ):
+                archive_path = apply_snapshot_archive(
+                    "https://example.invalid/snapshot.tar.gz",
+                    home,
+                    expected_sha256=expected_sha256,
+                )
+
+            self.assertEqual(archive_path, "snapshot.tar.gz")
+            self.assertTrue((home / "data" / "new.txt").exists())
+
+    def test_apply_snapshot_archive_rejects_wrong_sha256(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = Path(tmp_dir)
+
+            archive_stream = io.BytesIO()
+            with tarfile.open(fileobj=archive_stream, mode="w:gz") as archive:
+                payload = b"new state"
+                info = tarfile.TarInfo("data/new.txt")
+                info.size = len(payload)
+                archive.addfile(info, io.BytesIO(payload))
+
+            with patch(
+                "xian.node_admin._download_binary_url",
+                return_value=archive_stream.getvalue(),
+            ):
+                with self.assertRaises(ValueError):
+                    apply_snapshot_archive(
+                        "https://example.invalid/snapshot.tar.gz",
+                        home,
+                        expected_sha256="deadbeef",
+                    )
 
     def test_configure_existing_home_renders_config_and_writes_files(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -223,7 +273,9 @@ blocks_to_keep = 100000
             self.assertTrue(
                 rendered_config["xian"]["transaction_trace_logging"]
             )
-            self.assertEqual(rendered_config["xian"]["app_log_level"], "WARNING")
+            self.assertEqual(
+                rendered_config["xian"]["app_log_level"], "WARNING"
+            )
             self.assertTrue(rendered_config["xian"]["app_log_json"])
             self.assertEqual(
                 rendered_config["xian"]["app_log_rotation_hours"], 4

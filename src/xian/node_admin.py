@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import tarfile
@@ -143,12 +144,32 @@ def _download_binary_url(url: str, *, timeout: float) -> bytes:
         return response.read()
 
 
-def apply_snapshot_archive(snapshot_url: str, home: Path) -> str:
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def apply_snapshot_archive(
+    snapshot_url: str,
+    home: Path,
+    *,
+    expected_sha256: str | None = None,
+) -> str:
     home.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=home) as tmp_dir:
         archive_path = _download_snapshot_archive(snapshot_url, Path(tmp_dir))
         if not tarfile.is_tarfile(archive_path):
             raise ValueError("snapshot archive must be a .tar or .tar.gz file")
+        if expected_sha256 is not None:
+            actual_sha256 = _sha256_file(archive_path)
+            if actual_sha256.lower() != expected_sha256.lower():
+                raise ValueError(
+                    "snapshot archive sha256 mismatch: "
+                    f"expected {expected_sha256}, got {actual_sha256}"
+                )
 
         for directory in (home / "data", home / "xian"):
             if directory.exists():
