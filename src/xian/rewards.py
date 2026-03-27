@@ -37,6 +37,81 @@ class RewardsHandler:
             rounded_reward = 0
         return ContractingDecimal(str(rounded_reward))
 
+    def _get_masternode_power(self, masternode: str):
+        power = self.client.get_var(
+            contract="masternodes",
+            variable="validator_power",
+            arguments=[masternode],
+        )
+        if power is None:
+            return decimal.Decimal("1")
+        normalized = self._as_decimal(power)
+        if normalized <= 0:
+            return decimal.Decimal("1")
+        return normalized
+
+    def _get_masternode_reward_key(self, masternode: str):
+        reward_key = self.client.get_var(
+            contract="masternodes",
+            variable="reward_keys",
+            arguments=[masternode],
+        )
+        if reward_key is None:
+            return masternode
+        if reward_key == "":
+            return masternode
+        return reward_key
+
+    def build_masternode_reward_outputs(
+        self, total_stamps_to_split, participant_ratio, masternodes
+    ):
+        masternode_total = (
+            self._as_decimal(total_stamps_to_split)
+            * self._as_decimal(participant_ratio)
+        )
+
+        weighted_nodes = []
+        for masternode in masternodes:
+            weighted_nodes.append(
+                (
+                    masternode,
+                    self._get_masternode_reward_key(masternode),
+                    self._get_masternode_power(masternode),
+                )
+            )
+
+        if len(weighted_nodes) == 0:
+            return {}, []
+
+        total_weight = decimal.Decimal("0")
+        for _, _, weight in weighted_nodes:
+            total_weight += weight
+
+        reward_mapping = defaultdict(lambda: ContractingDecimal("0"))
+        reward_records = []
+        allocated = decimal.Decimal("0")
+
+        for index, (masternode, reward_key, weight) in enumerate(weighted_nodes):
+            if index == len(weighted_nodes) - 1:
+                share = masternode_total - allocated
+            else:
+                share = (masternode_total * weight) / total_weight
+                allocated += share
+
+            share_amount = ContractingDecimal(str(share))
+            reward_mapping[reward_key] += share_amount
+            reward_records.append(
+                {
+                    "type": "masternode_reward",
+                    "recipient_key": reward_key,
+                    "source_contract": None,
+                    "validator_key": masternode,
+                    "value": share_amount,
+                }
+            )
+
+        return dict(reward_mapping), reward_records
+
     def find_developer_and_reward(
         self,
         total_stamps_to_split,
@@ -120,12 +195,15 @@ class RewardsHandler:
                 contract="foundation", variable="owner"
             )
 
-        master_reward = self.calculate_participant_reward(
-            participant_ratio=master_ratio,
-            number_of_participants=len(
-                self.client.get_var(contract="masternodes", variable="nodes")
-            ),
-            total_stamps_to_split=total_stamps_to_split,
+        masternodes = (
+            self.client.get_var(contract="masternodes", variable="nodes") or []
+        )
+        masternode_mapping, masternode_records = (
+            self.build_masternode_reward_outputs(
+                total_stamps_to_split=total_stamps_to_split,
+                participant_ratio=master_ratio,
+                masternodes=masternodes,
+            )
         )
 
         foundation_reward = self.calculate_participant_reward(
@@ -143,7 +221,8 @@ class RewardsHandler:
         )
 
         return (
-            master_reward,
+            masternode_mapping,
+            masternode_records,
             foundation_reward,
             developer_mapping,
             developer_records,
@@ -168,16 +247,13 @@ class RewardsHandler:
         foundation_owner = self.client.get_var(
             contract="foundation", variable="owner"
         )
-        masternodes = (
-            self.client.get_var(contract="masternodes", variable="nodes") or []
-        )
-
         if stamp_rate in (None, 0) or foundation_owner is None:
             logger.error("Reward configuration is incomplete.")
             return None, {}, []
 
         (
-            master_reward,
+            masternode_mapping,
+            masternode_records,
             foundation_reward,
             developer_mapping,
             developer_records,
@@ -213,23 +289,31 @@ class RewardsHandler:
                 }
             )
 
-        if master_reward:
+        for record in masternode_records:
             masternode_amount = ContractingDecimal(
-                str(master_reward / stamp_rate)
+                str(record["value"] / stamp_rate)
             )
-            for masternode in masternodes:
-                rewards["masternode_reward"][masternode] = masternode_amount
-                reward_deltas[f"currency.balances:{masternode}"] += (
+            recipient_key = record["recipient_key"]
+            existing_amount = rewards["masternode_reward"].get(recipient_key)
+            if existing_amount is None:
+                rewards["masternode_reward"][recipient_key] = (
                     masternode_amount
                 )
-                reward_records.append(
-                    {
-                        "type": "masternode_reward",
-                        "recipient_key": masternode,
-                        "source_contract": None,
-                        "value": masternode_amount,
-                    }
+            else:
+                rewards["masternode_reward"][recipient_key] = (
+                    existing_amount + masternode_amount
                 )
+            reward_deltas[f"currency.balances:{recipient_key}"] += (
+                masternode_amount
+            )
+            reward_records.append(
+                {
+                    "type": record["type"],
+                    "recipient_key": recipient_key,
+                    "source_contract": None,
+                    "value": masternode_amount,
+                }
+            )
 
         for developer, reward in developer_mapping.items():
             developer_amount = ContractingDecimal(str(reward / stamp_rate))
@@ -270,7 +354,8 @@ class RewardsHandler:
 
         driver = self.client.raw_driver
         (
-            master_reward,
+            masternode_mapping,
+            _masternode_records,
             foundation_reward,
             developer_mapping,
             _developer_records,
@@ -280,10 +365,9 @@ class RewardsHandler:
         )
 
         stamp_cost = driver.get("stamp_cost.S:value")
-        master_reward /= stamp_cost
         foundation_reward /= stamp_cost
 
-        rewards = self._distribute_masternode_rewards(driver, master_reward)
+        rewards = self._distribute_masternode_rewards(driver, masternode_mapping, stamp_cost)
         rewards.append(
             self._distribute_foundation_reward(driver, foundation_reward)
         )
@@ -295,13 +379,21 @@ class RewardsHandler:
 
         return rewards
 
-    def _distribute_masternode_rewards(self, driver, master_reward):
+    def _distribute_masternode_rewards(
+        self, driver, masternode_mapping, stamp_cost
+    ):
         rewards = []
-        for m in driver.get("masternodes.nodes"):
-            m_balance = driver.get(f"currency.balances:{m}") or 0
-            m_balance_after = round(m_balance + master_reward, c.DUST_EXPONENT)
+        for recipient_key, reward in masternode_mapping.items():
+            normalized_reward = reward / stamp_cost
+            m_balance = driver.get(f"currency.balances:{recipient_key}") or 0
+            m_balance_after = round(
+                m_balance + normalized_reward, c.DUST_EXPONENT
+            )
             rewards.append(
-                driver.set(f"currency.balances:{m}", m_balance_after)
+                driver.set(
+                    f"currency.balances:{recipient_key}",
+                    m_balance_after,
+                )
             )
         return rewards
 

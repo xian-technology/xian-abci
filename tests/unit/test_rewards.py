@@ -5,11 +5,16 @@ from xian.rewards import RewardsHandler
 
 
 class _FakeClient:
-    def __init__(self, developers=None):
+    def __init__(
+        self, developers=None, masternodes=None, validator_powers=None, reward_keys=None
+    ):
         developers = developers or {
             "con_parent": "alice",
             "con_child": "bob",
         }
+        masternodes = masternodes or []
+        validator_powers = validator_powers or {}
+        reward_keys = reward_keys or {}
         self._values = {
             ("rewards", "S", ("value",)): [
                 Decimal("0"),
@@ -19,10 +24,14 @@ class _FakeClient:
             ],
             ("stamp_cost", "S", ("value",)): Decimal("20"),
             ("foundation", "owner", ()): "foundation",
-            ("masternodes", "nodes", ()): [],
+            ("masternodes", "nodes", ()): masternodes,
         }
         for contract, developer in developers.items():
             self._values[(contract, "__developer__", ())] = developer
+        for masternode, power in validator_powers.items():
+            self._values[("masternodes", "validator_power", (masternode,))] = power
+        for masternode, reward_key in reward_keys.items():
+            self._values[("masternodes", "reward_keys", (masternode,))] = reward_key
 
     def get_var(self, contract, variable, arguments=None):
         args = tuple(arguments or ())
@@ -124,6 +133,68 @@ class RewardsHandlerTests(unittest.TestCase):
             {record["source_contract"] for record in reward_records},
             {"con_parent", "con_child"},
         )
+
+    def test_build_tx_reward_outputs_splits_masternode_rewards_by_power(self):
+        client = _FakeClient(
+            masternodes=["node1", "node2"],
+            validator_powers={
+                "node1": Decimal("30"),
+                "node2": Decimal("10"),
+            },
+            reward_keys={
+                "node1": "validator-reward-1",
+                "node2": "validator-reward-2",
+            },
+        )
+        client._values[("rewards", "S", ("value",))] = [
+            Decimal("0.40"),
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0.60"),
+        ]
+        handler = RewardsHandler(client=client)
+
+        rewards, reward_deltas, reward_records = handler.build_tx_reward_outputs(
+            total_stamps_to_split=100,
+            contract="con_parent",
+        )
+
+        self.assertEqual(
+            str(rewards["masternode_reward"]["validator-reward-1"]), "1.5"
+        )
+        self.assertEqual(
+            str(rewards["masternode_reward"]["validator-reward-2"]), "0.5"
+        )
+        self.assertEqual(
+            str(reward_deltas["currency.balances:validator-reward-1"]), "1.5"
+        )
+        self.assertEqual(
+            str(reward_deltas["currency.balances:validator-reward-2"]), "0.5"
+        )
+        self.assertEqual(
+            [record["recipient_key"] for record in reward_records if record["type"] == "masternode_reward"],
+            ["validator-reward-1", "validator-reward-2"],
+        )
+
+    def test_build_tx_reward_outputs_falls_back_to_equal_validator_weights(self):
+        client = _FakeClient(
+            masternodes=["node1", "node2"],
+        )
+        client._values[("rewards", "S", ("value",))] = [
+            Decimal("0.40"),
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0.60"),
+        ]
+        handler = RewardsHandler(client=client)
+
+        rewards, _reward_deltas, _reward_records = handler.build_tx_reward_outputs(
+            total_stamps_to_split=100,
+            contract="con_parent",
+        )
+
+        self.assertEqual(str(rewards["masternode_reward"]["node1"]), "1")
+        self.assertEqual(str(rewards["masternode_reward"]["node2"]), "1")
 
 
 if __name__ == "__main__":

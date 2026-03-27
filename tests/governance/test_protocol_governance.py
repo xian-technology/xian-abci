@@ -27,6 +27,49 @@ def add_member(account: str):
 """
 
 
+WEIGHTED_MEMBERSHIP_CONTRACT = """
+members = Variable()
+weights = Hash(default_value=0)
+
+@construct
+def seed(initial_members: list, initial_weights: dict):
+    members.set(initial_members)
+    for account in initial_members:
+        configured_weight = initial_weights.get(account)
+        if configured_weight is None:
+            configured_weight = 1
+        weights[account] = configured_weight
+
+@export
+def get_members():
+    return members.get()
+
+@export
+def is_member(account: str):
+    return account in members.get()
+
+@export
+def member_weight(account: str):
+    if account not in members.get():
+        return 0
+    return weights[account]
+
+@export
+def total_member_weight():
+    total = 0
+    for account in members.get():
+        total += weights[account]
+    return total
+
+@export
+def add_member(account: str, weight: int = 1):
+    current = members.get()
+    current.append(account)
+    members.set(current)
+    weights[account] = weight
+"""
+
+
 TARGET_CONTRACT = """
 value = Variable()
 
@@ -199,3 +242,79 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
         self.assertEqual(proposal["required_yes_votes"], 2)
         self.assertEqual(proposal["status"], "executed")
         self.assertEqual(target.get_value(), "snapshot")
+
+    def test_weighted_membership_uses_snapshot_weights_for_approval(self):
+        self.client.flush()
+        self.client.submit(
+            WEIGHTED_MEMBERSHIP_CONTRACT,
+            name="masternodes",
+            constructor_args={
+                "initial_members": ["node1", "node2", "node3"],
+                "initial_weights": {
+                    "node1": 40,
+                    "node2": 30,
+                    "node3": 30,
+                },
+            },
+        )
+        self.client.submit(
+            TARGET_CONTRACT,
+            name="con_target",
+        )
+        self.client.submit(
+            governance_contract_source(),
+            name="governance",
+            constructor_args={
+                "membership_contract_name": "masternodes",
+                "approval_threshold_numerator": 2,
+                "approval_threshold_denominator": 3,
+                "min_patch_delay_blocks": 2,
+                "emergency_patch_delay_blocks": 1,
+            },
+        )
+        governance = self.client.get_contract("governance")
+        membership = self.client.get_contract("masternodes")
+        target = self.client.get_contract("con_target")
+        environment = {
+            "now": Datetime(2026, 1, 1),
+            "block_num": 10,
+            "chain_id": "test-chain",
+        }
+
+        proposal = governance.propose_contract_call(
+            target_contract="con_target",
+            target_function="set_value",
+            kwargs={"next_value": "weighted"},
+            summary="weighted governance",
+            signer="node1",
+            environment=environment,
+        )
+        self.assertEqual(proposal["yes_votes"], 1)
+        self.assertEqual(proposal["yes_weight"], 40)
+        self.assertEqual(proposal["required_yes_weight"], 67)
+        self.assertEqual(proposal["status"], "pending")
+
+        membership.add_member(
+            account="node4",
+            weight=100,
+            signer="node1",
+            environment=environment,
+        )
+
+        with self.assertRaises(AssertionError):
+            governance.vote(
+                proposal_id=1,
+                support=True,
+                signer="node4",
+                environment=environment,
+            )
+
+        proposal = governance.vote(
+            proposal_id=1,
+            support=True,
+            signer="node2",
+            environment=environment,
+        )
+        self.assertEqual(proposal["status"], "executed")
+        self.assertEqual(proposal["yes_weight"], 70)
+        self.assertEqual(target.get_value(), "weighted")

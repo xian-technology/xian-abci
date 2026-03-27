@@ -1,9 +1,12 @@
-import unittest
-from xian_runtime_types.time import Datetime, Timedelta
-from contracting.client import ContractingClient
-from xian.config_paths import resolve_contracts_dir
 import datetime
 import os
+import unittest
+
+from contracting.client import ContractingClient
+from xian_runtime_types.time import Datetime, Timedelta
+
+from xian.config_paths import resolve_contracts_dir
+
 
 class TestMembersContract(unittest.TestCase):
     def setUp(self):
@@ -74,12 +77,20 @@ class TestMembersContract(unittest.TestCase):
         # THEN registration should be pending
         self.assertTrue(self.members.pending_registrations["new_member"])
         self.assertEqual(self.members.holdings["new_member"], 1000)
+        self.assertEqual(self.members.statuses["new_member"], "pending")
+        self.assertEqual(self.members.reward_keys["new_member"], "new_member")
+        self.assertEqual(self.members.requested_power["new_member"], 10)
 
     def test_propose_and_approve_new_member(self):
         # GIVEN a pending registration
         self.currency.approve(amount=1000, to="members", signer="new_member")
         self.currency.transfer(amount=1000, to="new_member", signer=self.deployer_vk)
-        self.members.register(signer="new_member")
+        self.members.register(
+            signer="new_member",
+            requested_validator_power=25,
+            reward_key="reward-wallet",
+            moniker="new-node",
+        )
         
         # WHEN proposing and voting
         self.members.propose_vote(
@@ -94,6 +105,10 @@ class TestMembersContract(unittest.TestCase):
         # THEN member should be added
         nodes = self.members.nodes.get()
         self.assertTrue("new_member" in nodes)
+        self.assertEqual(self.members.validator_power["new_member"], 25)
+        self.assertEqual(self.members.reward_keys["new_member"], "reward-wallet")
+        self.assertEqual(self.members.statuses["new_member"], "active")
+        self.assertFalse(self.members.pending_registrations["new_member"])
 
     def test_announce_and_leave(self):
         # GIVEN a node announcing leave
@@ -136,6 +151,72 @@ class TestMembersContract(unittest.TestCase):
                 environment={"now": future_time}
             )
 
+    def test_set_member_power_vote_updates_validator_power(self):
+        self.members.propose_vote(
+            type_of_vote="set_member_power",
+            arg={"member": "node2", "power": 42},
+            signer="node1",
+        )
+
+        self.members.vote(proposal_id=1, vote="yes", signer="node2")
+        self.members.vote(proposal_id=1, vote="yes", signer="node3")
+
+        self.assertEqual(self.members.validator_power["node2"], 42)
+        self.assertEqual(self.members.member_weight(account="node2"), 42)
+
+    def test_leave_refunds_registration_bond(self):
+        self.currency.approve(amount=1000, to="members", signer="new_member")
+        self.currency.transfer(amount=1000, to="new_member", signer=self.deployer_vk)
+        self.members.register(signer="new_member")
+        self.members.propose_vote(
+            type_of_vote="add_member",
+            arg="new_member",
+            signer="node1",
+        )
+        self.members.vote(proposal_id=1, vote="yes", signer="node2")
+        self.members.vote(proposal_id=1, vote="yes", signer="node3")
+
+        before_balance = self.currency.balances["new_member"]
+        current_time = Datetime(year=2024, month=1, day=1)
+        self.members.announce_leave(
+            signer="new_member", environment={"now": current_time}
+        )
+
+        future_time = Datetime(year=2024, month=1, day=8, hour=1)
+        self.members.leave(
+            signer="new_member", environment={"now": future_time}
+        )
+
+        self.assertEqual(self.members.statuses["new_member"], "left")
+        self.assertEqual(self.members.holdings["new_member"], 0)
+        self.assertEqual(self.currency.balances["new_member"], before_balance + 1000)
+
+    def test_vote_snapshot_excludes_members_added_after_proposal_creation(self):
+        self.currency.approve(amount=1000, to="members", signer="new_member")
+        self.currency.transfer(amount=1000, to="new_member", signer=self.deployer_vk)
+        self.members.register(signer="new_member")
+
+        self.members.propose_vote(
+            type_of_vote="change_registration_fee",
+            arg=2000,
+            signer="node1",
+        )
+
+        self.members.propose_vote(
+            type_of_vote="add_member",
+            arg="new_member",
+            signer="node1",
+        )
+        self.members.vote(proposal_id=2, vote="yes", signer="node2")
+        self.members.vote(proposal_id=2, vote="yes", signer="node3")
+
+        with self.assertRaises(AssertionError):
+            self.members.vote(
+                proposal_id=1,
+                vote="yes",
+                signer="new_member",
+            )
+
     def test_balance_stream(self):
         # GIVEN a balance stream
         base_time = datetime.datetime.now()
@@ -143,7 +224,7 @@ class TestMembersContract(unittest.TestCase):
         future_time = contracting_time + Timedelta(days=7)
         
         dao_balance_before = self.currency.balances["dao"]
-        res = self.members.balance_stream(stream_id="dao_funding_stream", environment={"now": future_time}, signer="anyone")
+        self.members.balance_stream(stream_id="dao_funding_stream", environment={"now": future_time}, signer="anyone")
         dao_balance_after = self.currency.balances["dao"]
 
         # THEN balance should be different
@@ -159,7 +240,7 @@ class TestMembersContract(unittest.TestCase):
         }
         
         # WHEN proposing and voting
-        propose_res =self.members.propose_vote(
+        self.members.propose_vote(
             type_of_vote="create_stream",
             arg=stream_args,
             signer="node1"
@@ -183,7 +264,7 @@ class TestMembersContract(unittest.TestCase):
         }
         
         # WHEN proposing and voting
-        propose_res = self.members.propose_vote(
+        self.members.propose_vote(
             type_of_vote="create_stream",
             arg=stream_args,
             signer="node1"
