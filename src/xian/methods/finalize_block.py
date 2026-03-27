@@ -382,7 +382,11 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         applied_patches = []
         if hasattr(self, "state_patch_manager"):
             patch_hash, applied_patches = (
-                self.state_patch_manager.apply_patches_for_block(height, nanos)
+                self.state_patch_manager.apply_patches_for_block(
+                    height,
+                    nanos,
+                    block_hash=hash,
+                )
             )
 
             # If patches were applied, include the hash in fingerprint hashes

@@ -10,6 +10,7 @@ from typing import Any
 
 from loguru import logger
 
+from xian.constants import Constants
 from xian.services.bds import sql
 from xian.services.bds.config import BdsConfig
 from xian.services.bds.database import DB
@@ -37,21 +38,14 @@ def _nullable_jsonb_param(value: Any) -> str | None:
     return canonical_json_text(value)
 
 
-class _NoopRawDriver:
-    def set(self, key: str, value: Any) -> None:
-        return None
-
-    def hard_apply(self, nanos: int) -> None:
-        return None
-
-
 class BDS:
     WORKER_RETRY_DELAY_SECONDS = 2.0
     CATCHUP_RETRY_DELAY_SECONDS = 2.0
     CLOSE_FLUSH_TIMEOUT_SECONDS = 1.0
 
-    def __init__(self, config: BdsConfig):
+    def __init__(self, config: BdsConfig, raw_driver=None):
         self.config = config
+        self.raw_driver = raw_driver
         self.db = DB(config)
         self.spool_dir = Path(config.spool_dir or ".bds-spool")
         self._pending_payloads: dict[int, BdsBlockPayload] = {}
@@ -480,17 +474,15 @@ class BDS:
         if self._block_source is not None and self._reindexer is not None:
             return
         from xian.services.bds.reindex import BdsReindexer, CometBftRpcClient
-        from xian.utils.state_patches import StatePatchManager
-
-        patch_file_path = (
-            Path(__file__).resolve().parents[2]
-            / "tools"
-            / "state_patches"
-            / "state_patches.json"
+        from xian.utils.state_patches import (
+            StatePatchManager,
+            resolve_state_patch_dir,
         )
-        state_patch_manager = StatePatchManager(_NoopRawDriver())
-        if patch_file_path.exists():
-            state_patch_manager.load_patches(str(patch_file_path))
+
+        state_patch_manager = StatePatchManager(self.raw_driver)
+        patch_dir_path = resolve_state_patch_dir(Constants)
+        if patch_dir_path.exists():
+            state_patch_manager.load_patches(str(patch_dir_path))
         self._block_source = CometBftRpcClient(self.config.rpc_url)
         self._reindexer = BdsReindexer(
             bds=self,
@@ -917,6 +909,26 @@ class BDS:
         state_patch_hash: str,
         tx_index: int,
     ) -> None:
+        flattened_changes = []
+        for execution in state_patches:
+            for change in execution.get("changes", []):
+                flattened_changes.append(
+                    {
+                        "patch_id": execution.get("patch_id"),
+                        "proposal_id": execution.get("proposal_id"),
+                        "bundle_hash": execution.get("bundle_hash"),
+                        "execution_hash": execution.get("execution_hash"),
+                        "activation_height": execution.get("activation_height"),
+                        "governance_contract": execution.get(
+                            "governance_contract"
+                        ),
+                        "emergency": execution.get("emergency", False),
+                        "key": change["key"],
+                        "value": change["value"],
+                        "comment": change.get("comment", ""),
+                    }
+                )
+
         await connection.execute(
             sql.insert_transaction(),
             state_patch_hash,
@@ -933,32 +945,24 @@ class BDS:
             0,
             _jsonb_param(
                 {
-                    "patch_count": len(state_patches),
-                    "comment": "State Patch Pseudo-Transaction",
+                    "bundle_count": len(state_patches),
+                    "patch_count": len(flattened_changes),
+                    "comment": "Governed state patch pseudo-transaction",
                 }
             ),
             _jsonb_param({"kind": "state_patch"}),
             _jsonb_param(
                 {
                     "kind": "state_patch",
-                    "patches": canonical_json_value(
-                        [
-                            {
-                                "key": patch["key"],
-                                "value": patch["value"],
-                                "comment": patch.get("comment", ""),
-                            }
-                            for patch in state_patches
-                        ]
-                    ),
+                    "executions": canonical_json_value(state_patches),
                 }
             ),
             block_time,
         )
 
-        for write_index, patch in enumerate(state_patches):
-            key = patch["key"]
-            value = _jsonb_param(patch["value"])
+        for write_index, change in enumerate(flattened_changes):
+            key = change["key"]
+            value = _jsonb_param(change["value"])
             previous_change_id, previous_tx_hash = current_index.get(
                 key, (None, None)
             )
@@ -994,17 +998,8 @@ class BDS:
             block_meta["height"],
             block_meta["hash"],
             block_meta["nanos"],
-            len(state_patches),
-            _jsonb_param(
-                [
-                    {
-                        "key": patch["key"],
-                        "value": patch["value"],
-                        "comment": patch.get("comment", ""),
-                    }
-                    for patch in state_patches
-                ]
-            ),
+            len(flattened_changes),
+            _jsonb_param(state_patches),
             block_time,
         )
 

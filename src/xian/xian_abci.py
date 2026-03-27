@@ -4,7 +4,6 @@ import importlib
 import signal
 import sys
 from dataclasses import replace
-from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from contracting.client import ContractingClient
@@ -44,7 +43,7 @@ from xian.utils.cometbft import (
     load_genesis_data,
     load_tendermint_config,
 )
-from xian.utils.state_patches import StatePatchManager
+from xian.utils.state_patches import StatePatchManager, resolve_state_patch_dir
 from xian.validators import ValidatorHandler
 
 get_logger("requests").setLevel(30)
@@ -92,6 +91,7 @@ def load_module(module_path, original_module_path):
 
 class Xian:
     def __init__(self, constants=Constants()):
+        self.constants = constants
         try:
             self.cometbft_config = load_tendermint_config(constants)
             self.genesis = load_genesis_data(constants)
@@ -204,16 +204,11 @@ class Xian:
         self.static_rewards_amount_validators = 1
         self.current_block_rewards = {}
 
-        # Initialize state patch manager
-        self.state_patch_manager = StatePatchManager(self.client.raw_driver)
-
-        # Set up the state patches file path
-        patch_file_path = (
-            Path(__file__).resolve().parent
-            / "tools"
-            / "state_patches"
-            / "state_patches.json"
+        self.state_patch_manager = StatePatchManager(
+            self.client.raw_driver,
+            chain_id=self.chain_id,
         )
+        patch_dir_path = resolve_state_patch_dir(self.constants)
 
         logger.bind(
             **build_log_fields(
@@ -239,29 +234,28 @@ class Xian:
             )
         ).info("Initialized Xian runtime")
 
-        if patch_file_path.exists():
+        if patch_dir_path.exists():
             logger.bind(
                 **build_log_fields(
                     stage="startup",
-                    extra={"state_patch_file": str(patch_file_path)},
+                    extra={"state_patch_dir": str(patch_dir_path)},
                 )
-            ).info("Loading configured state patches")
-            self.state_patch_manager.load_patches(str(patch_file_path))
+            ).info("Loading local state patch bundles")
+            self.state_patch_manager.load_patches(str(patch_dir_path))
         else:
             logger.bind(
                 **build_log_fields(
                     stage="startup",
-                    extra={"state_patch_file": str(patch_file_path)},
+                    extra={"state_patch_dir": str(patch_dir_path)},
                 )
-            ).warning("No state patches file found")
-            # Initialize with empty patches but still mark as loaded
+            ).warning("No local state patch bundle directory found")
             self.state_patch_manager.loaded = True
 
     @classmethod
     async def create(cls, constants=Constants()):
         self = cls(constants=constants)
         if self.block_service_mode:
-            self.bds = BDS(self.bds_config)
+            self.bds = BDS(self.bds_config, raw_driver=self.client.raw_driver)
             self._bds_storage_initialized = False
         return self
 

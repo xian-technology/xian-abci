@@ -4,11 +4,11 @@ import base64
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
+from contracting.storage.driver import Driver
 from loguru import logger
 
 from xian.constants import Constants
@@ -19,15 +19,7 @@ from xian.services.bds.runtime import resolve_bds_config
 from xian.services.bds.serializer import utc_datetime
 from xian.utils.cometbft import load_genesis_data, load_tendermint_config
 from xian.utils.encoding import decode_transaction_bytes, hash_bytes
-from xian.utils.state_patches import StatePatchManager
-
-
-class _NoopRawDriver:
-    def set(self, key: str, value: Any) -> None:
-        return None
-
-    def hard_apply(self, nanos: int) -> None:
-        return None
+from xian.utils.state_patches import StatePatchManager, resolve_state_patch_dir
 
 
 class RpcBlockSource(Protocol):
@@ -309,14 +301,11 @@ async def run_bds_reindex(
     bds = BDS(config=bds_config)
     await bds.initialize_storage(cometbft_genesis, reset=reset)
 
-    patch_file_path = (
-        Path(__file__).resolve().parents[2]
-        / "tools"
-        / "state_patches"
-        / "state_patches.json"
+    state_patch_manager = StatePatchManager(
+        Driver(storage_home=constants.STORAGE_HOME)
     )
-    state_patch_manager = StatePatchManager(_NoopRawDriver())
-    state_patch_manager.load_patches(str(patch_file_path))
+    patch_dir_path = resolve_state_patch_dir(constants)
+    state_patch_manager.load_patches(str(patch_dir_path))
 
     block_source = CometBftRpcClient(resolve_rpc_url(constants, rpc_url))
     reindexer = BdsReindexer(

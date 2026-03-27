@@ -72,6 +72,16 @@ async def query(self, req) -> ResponseQuery:
                 raw_payload
             )
 
+        # http://localhost:26657/abci_query?path="/state_patch_bundles"
+        elif path_parts[0] == "state_patch_bundles":
+            result = self.state_patch_manager.get_local_bundle_inventory()
+
+        # http://localhost:26657/abci_query?path="/scheduled_state_patches/123"
+        elif path_parts[0] == "scheduled_state_patches":
+            result = self.state_patch_manager.get_scheduled_patch_inventory(
+                int(path_parts[1])
+            )
+
         # Blockchain Data Service
         elif self.block_service_mode:
             if not hasattr(self, "bds"):

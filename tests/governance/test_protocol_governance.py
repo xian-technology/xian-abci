@@ -1,0 +1,201 @@
+import unittest
+from pathlib import Path
+
+from contracting.client import ContractingClient
+from xian_runtime_types.time import Datetime
+
+MEMBERSHIP_CONTRACT = """
+members = Variable()
+
+@construct
+def seed(initial_members: list):
+    members.set(initial_members)
+
+@export
+def get_members():
+    return members.get()
+
+@export
+def is_member(account: str):
+    return account in members.get()
+
+@export
+def add_member(account: str):
+    current = members.get()
+    current.append(account)
+    members.set(current)
+"""
+
+
+TARGET_CONTRACT = """
+value = Variable()
+
+@export
+def set_value(next_value: str):
+    value.set(next_value)
+
+@export
+def get_value():
+    return value.get()
+"""
+
+
+def governance_contract_source() -> str:
+    return (
+        Path(__file__).resolve().parents[3]
+        / "xian-configs"
+        / "contracts"
+        / "governance.s.py"
+    ).read_text(encoding="utf-8")
+
+
+class ProtocolGovernanceContractTests(unittest.TestCase):
+    def setUp(self):
+        self.client = ContractingClient(environment={"chain_id": "test-chain"})
+        self.client.flush()
+        self.client.submit(
+            MEMBERSHIP_CONTRACT,
+            name="masternodes",
+            constructor_args={"initial_members": ["node1", "node2"]},
+        )
+        self.client.submit(
+            TARGET_CONTRACT,
+            name="con_target",
+        )
+        self.client.submit(
+            governance_contract_source(),
+            name="governance",
+            constructor_args={
+                "membership_contract_name": "masternodes",
+                "approval_threshold_numerator": 1,
+                "approval_threshold_denominator": 1,
+                "min_patch_delay_blocks": 2,
+                "emergency_patch_delay_blocks": 1,
+            },
+        )
+        self.governance = self.client.get_contract("governance")
+        self.target = self.client.get_contract("con_target")
+
+    def test_contract_call_proposal_executes_after_threshold(self):
+        environment = {
+            "now": Datetime(2026, 1, 1),
+            "block_num": 10,
+            "chain_id": "test-chain",
+        }
+
+        proposal = self.governance.propose_contract_call(
+            target_contract="con_target",
+            target_function="set_value",
+            kwargs={"next_value": "hello"},
+            summary="update target",
+            signer="node1",
+            environment=environment,
+        )
+        self.assertEqual(proposal["status"], "pending")
+        self.assertIsNone(self.target.get_value())
+
+        proposal = self.governance.vote(
+            proposal_id=1,
+            support=True,
+            signer="node2",
+            environment=environment,
+        )
+        self.assertEqual(proposal["status"], "executed")
+        self.assertEqual(self.target.get_value(), "hello")
+
+    def test_state_patch_proposal_enforces_delay_and_schedules_patch(self):
+        environment = {
+            "now": Datetime(2026, 1, 1),
+            "block_num": 10,
+            "chain_id": "test-chain",
+        }
+
+        with self.assertRaises(AssertionError):
+            self.governance.propose_state_patch(
+                patch_id="patch-delay",
+                bundle_hash="abc123",
+                activation_height=11,
+                signer="node1",
+                environment=environment,
+            )
+
+        proposal = self.governance.propose_state_patch(
+            patch_id="patch-delay",
+            bundle_hash="abc123",
+            activation_height=11,
+            emergency=True,
+            signer="node1",
+            environment=environment,
+        )
+        self.assertEqual(proposal["status"], "pending")
+
+        proposal = self.governance.vote(
+            proposal_id=1,
+            support=True,
+            signer="node2",
+            environment=environment,
+        )
+        self.assertEqual(proposal["status"], "approved")
+        patch = self.governance.get_patch(patch_id="patch-delay")
+        self.assertEqual(patch["status"], "approved")
+        self.assertEqual(patch["activation_height"], 11)
+        self.assertTrue(
+            self.governance.is_patch_approved(patch_id="patch-delay")
+        )
+
+    def test_threshold_is_snapshotted_when_membership_changes_mid_vote(self):
+        self.client.flush()
+        self.client.submit(
+            MEMBERSHIP_CONTRACT,
+            name="masternodes",
+            constructor_args={"initial_members": ["node1", "node2", "node3"]},
+        )
+        self.client.submit(
+            TARGET_CONTRACT,
+            name="con_target",
+        )
+        self.client.submit(
+            governance_contract_source(),
+            name="governance",
+            constructor_args={
+                "membership_contract_name": "masternodes",
+                "approval_threshold_numerator": 2,
+                "approval_threshold_denominator": 3,
+                "min_patch_delay_blocks": 2,
+                "emergency_patch_delay_blocks": 1,
+            },
+        )
+        governance = self.client.get_contract("governance")
+        target = self.client.get_contract("con_target")
+        membership = self.client.get_contract("masternodes")
+        environment = {
+            "now": Datetime(2026, 1, 1),
+            "block_num": 10,
+            "chain_id": "test-chain",
+        }
+
+        proposal = governance.propose_contract_call(
+            target_contract="con_target",
+            target_function="set_value",
+            kwargs={"next_value": "snapshot"},
+            summary="update target",
+            signer="node1",
+            environment=environment,
+        )
+        self.assertEqual(proposal["required_yes_votes"], 2)
+        self.assertEqual(proposal["status"], "pending")
+
+        membership.add_member(
+            account="node4",
+            signer="node1",
+            environment=environment,
+        )
+        proposal = governance.vote(
+            proposal_id=1,
+            support=True,
+            signer="node2",
+            environment=environment,
+        )
+        self.assertEqual(proposal["required_yes_votes"], 2)
+        self.assertEqual(proposal["status"], "executed")
+        self.assertEqual(target.get_value(), "snapshot")
