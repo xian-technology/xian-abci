@@ -138,6 +138,10 @@ metrics_enabled = true
 metrics_host = "127.0.0.1"
 metrics_port = 9108
 metrics_bds_refresh_seconds = 5.0
+simulation_enabled = true
+simulation_max_concurrency = 2
+simulation_timeout_ms = 3000
+simulation_max_stamps = 1000000
 parallel_execution_enabled = false
 parallel_execution_workers = 0
 parallel_execution_min_transactions = 8
@@ -197,6 +201,27 @@ def resolve_tracer_mode(mode: str = "python_line_v1") -> str:
             f"tracer_mode must be one of {sorted(SUPPORTED_TRACER_MODES)}"
         )
     return mode
+
+
+def resolve_simulation_settings(
+    *,
+    enabled: bool = True,
+    max_concurrency: int = 2,
+    timeout_ms: int = 3000,
+    max_stamps: int = 1_000_000,
+) -> dict[str, Any]:
+    if max_concurrency <= 0:
+        raise ValueError("simulation_max_concurrency must be greater than zero")
+    if timeout_ms <= 0:
+        raise ValueError("simulation_timeout_ms must be greater than zero")
+    if max_stamps <= 0:
+        raise ValueError("simulation_max_stamps must be greater than zero")
+    return {
+        "enabled": enabled,
+        "max_concurrency": max_concurrency,
+        "timeout_ms": timeout_ms,
+        "max_stamps": max_stamps,
+    }
 
 
 def resolve_statesync_settings(
@@ -346,6 +371,10 @@ def render_cometbft_config(
     metrics_host: str = "127.0.0.1",
     metrics_port: int = 9108,
     metrics_bds_refresh_seconds: float = 5.0,
+    simulation_enabled: bool = True,
+    simulation_max_concurrency: int = 2,
+    simulation_timeout_ms: int = 3000,
+    simulation_max_stamps: int = 1_000_000,
     parallel_execution_enabled: bool = False,
     parallel_execution_workers: int = 0,
     parallel_execution_min_transactions: int = 8,
@@ -380,6 +409,12 @@ def render_cometbft_config(
         trust_period=statesync_trust_period,
     )
     resolved_tracer_mode = resolve_tracer_mode(tracer_mode)
+    resolved_simulation = resolve_simulation_settings(
+        enabled=simulation_enabled,
+        max_concurrency=simulation_max_concurrency,
+        timeout_ms=simulation_timeout_ms,
+        max_stamps=simulation_max_stamps,
+    )
     config["proxy_app"] = proxy_app
     config["moniker"] = moniker
     config["consensus"]["create_empty_blocks"] = create_empty_blocks
@@ -403,6 +438,12 @@ def render_cometbft_config(
         "metrics_host": metrics_host,
         "metrics_port": metrics_port,
         "metrics_bds_refresh_seconds": metrics_bds_refresh_seconds,
+        "simulation_enabled": resolved_simulation["enabled"],
+        "simulation_max_concurrency": resolved_simulation[
+            "max_concurrency"
+        ],
+        "simulation_timeout_ms": resolved_simulation["timeout_ms"],
+        "simulation_max_stamps": resolved_simulation["max_stamps"],
         "parallel_execution_enabled": parallel_execution_enabled,
         "parallel_execution_workers": parallel_execution_workers,
         "parallel_execution_min_transactions": (

@@ -149,6 +149,10 @@ blocks_to_keep = 100000
                     metrics_host="0.0.0.0",
                     metrics_port=9208,
                     metrics_bds_refresh_seconds=7.5,
+                    simulation_enabled=False,
+                    simulation_max_concurrency=4,
+                    simulation_timeout_ms=4500,
+                    simulation_max_stamps=750000,
                     bds_host="postgres",
                     bds_port=5544,
                     bds_database="xian_index",
@@ -210,6 +214,16 @@ blocks_to_keep = 100000
             self.assertEqual(rendered_config["xian"]["metrics_port"], 9208)
             self.assertEqual(
                 rendered_config["xian"]["metrics_bds_refresh_seconds"], 7.5
+            )
+            self.assertFalse(rendered_config["xian"]["simulation_enabled"])
+            self.assertEqual(
+                rendered_config["xian"]["simulation_max_concurrency"], 4
+            )
+            self.assertEqual(
+                rendered_config["xian"]["simulation_timeout_ms"], 4500
+            )
+            self.assertEqual(
+                rendered_config["xian"]["simulation_max_stamps"], 750000
             )
             self.assertEqual(rendered_config["xian"]["bds"]["host"], "postgres")
             self.assertEqual(rendered_config["xian"]["bds"]["port"], 5544)

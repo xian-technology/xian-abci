@@ -1,9 +1,10 @@
+import asyncio
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
-from xian.simulator import TransactionSimulator
+from xian.simulator import QuerySimulationService, TransactionSimulator
 from xian.utils.block import set_latest_block_nanos
 
 
@@ -103,6 +104,103 @@ class SimulatorTests(unittest.TestCase):
 
             self.assertEqual(left["block_hash"], right["block_hash"])
             self.assertNotEqual(left["__input_hash"], right["__input_hash"])
+
+
+class _TestQuerySimulationService(QuerySimulationService):
+    def __init__(self, **kwargs):
+        super().__init__(
+            storage_home=Path("/tmp"),
+            tracer_mode="python_line_v1",
+            **kwargs,
+        )
+        self.release_event = asyncio.Event()
+        self.response = {
+            "payload": {
+                "sender": "alice",
+                "contract": "currency",
+                "function": "balance_of",
+                "kwargs": {"account": "alice"},
+            },
+            "status": 0,
+            "state": [],
+            "stamps_used": 42,
+            "result": "100",
+        }
+        self.process = _DummyProcess()
+
+    async def _start_task_process(self, task: dict):
+        self.process = _DummyProcess()
+        return self.process
+
+    async def _wait_for_task_result(self, process, task: dict) -> dict:
+        await self.release_event.wait()
+        return self.response
+
+
+class _DummyProcess:
+    def __init__(self) -> None:
+        self.returncode = None
+
+    async def wait(self) -> None:
+        return None
+
+    def terminate(self) -> None:
+        self.returncode = -15
+
+    def kill(self) -> None:
+        self.returncode = -9
+
+
+class QuerySimulationServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_returns_disabled_result_when_simulation_is_off(self):
+        service = _TestQuerySimulationService(enabled=False)
+        payload = (
+            '{"sender":"alice","contract":"currency","function":"balance_of",'
+            '"kwargs":{"account":"alice"}}'
+        ).encode("utf-8").hex()
+
+        result = await service.simulate_encoded_transaction(payload)
+
+        self.assertEqual(result["status"], 1)
+        self.assertIn("disabled", result["result"])
+
+    async def test_rejects_requests_above_capacity(self):
+        service = _TestQuerySimulationService(
+            enabled=True,
+            max_concurrency=1,
+            timeout_ms=1000,
+        )
+        payload = (
+            '{"sender":"alice","contract":"currency","function":"balance_of",'
+            '"kwargs":{"account":"alice"}}'
+        ).encode("utf-8").hex()
+
+        first = asyncio.create_task(service.simulate_encoded_transaction(payload))
+        await asyncio.sleep(0)
+        second = await service.simulate_encoded_transaction(payload)
+        service.release_event.set()
+        first_result = await first
+
+        self.assertEqual(first_result["status"], 0)
+        self.assertEqual(second["status"], 1)
+        self.assertIn("capacity exceeded", second["result"])
+
+    async def test_times_out_long_running_simulations(self):
+        service = _TestQuerySimulationService(
+            enabled=True,
+            max_concurrency=1,
+            timeout_ms=1,
+        )
+        payload = (
+            '{"sender":"alice","contract":"currency","function":"balance_of",'
+            '"kwargs":{"account":"alice"}}'
+        ).encode("utf-8").hex()
+
+        result = await service.simulate_encoded_transaction(payload)
+        service.release_event.set()
+
+        self.assertEqual(result["status"], 1)
+        self.assertIn("timed out", result["result"])
 
 
 if __name__ == "__main__":

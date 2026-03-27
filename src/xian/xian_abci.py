@@ -34,7 +34,7 @@ from xian.rewards import RewardsHandler
 from xian.services.bds.bds import BDS
 from xian.services.bds.config import BdsConfig
 from xian.services.state_sync import StateSnapshotManager
-from xian.simulator import TransactionSimulator
+from xian.simulator import QuerySimulationService, snapshot_driver_state
 from xian.utils.block import get_latest_block_height
 from xian.utils.cometbft import (
     load_genesis_data,
@@ -134,9 +134,17 @@ class Xian:
             profiler=self.profiler,
             trace_logging=self.transaction_trace_logging,
         )
-        self.simulator = TransactionSimulator(
-            client=self.client,
+        self.simulator = QuerySimulationService(
+            storage_home=constants.STORAGE_HOME,
+            tracer_mode=self.tracer_mode,
             get_block_meta=lambda: self.current_block_meta,
+            get_state_snapshot=lambda: snapshot_driver_state(
+                self.client.raw_driver
+            ),
+            enabled=xian_config.get("simulation_enabled", True),
+            max_concurrency=xian_config.get("simulation_max_concurrency", 2),
+            timeout_ms=xian_config.get("simulation_timeout_ms", 3000),
+            max_stamps=xian_config.get("simulation_max_stamps", 1_000_000),
         )
         self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None
@@ -325,6 +333,7 @@ class Xian:
 
     async def close(self):
         self.parallel_block_executor.close()
+        self.simulator.close()
         await self.metrics_service.close()
         if self.block_service_mode and hasattr(self, "bds"):
             await self.bds.close()

@@ -68,7 +68,9 @@ async def query(self, req) -> ResponseQuery:
         # http://localhost:26657/abci_query?path="/simulate_tx/<encoded_payload>"
         elif path_parts[0] == "simulate_tx":
             raw_payload = path_parts[1]
-            result = self.simulator.simulate_encoded_transaction(raw_payload)
+            result = await self.simulator.simulate_encoded_transaction(
+                raw_payload
+            )
 
         # Blockchain Data Service
         elif self.block_service_mode:

@@ -8,6 +8,7 @@ from xian.node_setup import (
     generate_validator_material,
     materialize_cometbft_home,
     render_cometbft_config,
+    resolve_simulation_settings,
     resolve_statesync_settings,
 )
 from xian.toml_utils import load as load_toml
@@ -21,6 +22,10 @@ class NodeSetupTests(unittest.TestCase):
             service_node=True,
             enable_pruning=True,
             blocks_to_keep=5000,
+            simulation_enabled=True,
+            simulation_max_concurrency=3,
+            simulation_timeout_ms=2500,
+            simulation_max_stamps=500000,
             parallel_execution_enabled=True,
             parallel_execution_workers=4,
             parallel_execution_min_transactions=12,
@@ -41,6 +46,10 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(config["xian"]["pruning_enabled"])
         self.assertEqual(config["xian"]["blocks_to_keep"], 5000)
         self.assertEqual(config["xian"]["tracer_mode"], "python_line_v1")
+        self.assertTrue(config["xian"]["simulation_enabled"])
+        self.assertEqual(config["xian"]["simulation_max_concurrency"], 3)
+        self.assertEqual(config["xian"]["simulation_timeout_ms"], 2500)
+        self.assertEqual(config["xian"]["simulation_max_stamps"], 500000)
         self.assertTrue(config["xian"]["parallel_execution_enabled"])
         self.assertEqual(config["xian"]["parallel_execution_workers"], 4)
         self.assertEqual(
@@ -125,6 +134,16 @@ class NodeSetupTests(unittest.TestCase):
         self.assertEqual(config["statesync"]["trust_height"], 120)
         self.assertEqual(config["statesync"]["trust_hash"], "ab" * 32)
         self.assertEqual(config["statesync"]["trust_period"], "336h0m0s")
+
+    def test_resolve_simulation_settings_requires_positive_limits(self):
+        with self.assertRaises(ValueError):
+            resolve_simulation_settings(max_concurrency=0)
+
+        with self.assertRaises(ValueError):
+            resolve_simulation_settings(timeout_ms=0)
+
+        with self.assertRaises(ValueError):
+            resolve_simulation_settings(max_stamps=0)
 
     def test_resolve_statesync_settings_rejects_incomplete_config(self):
         with self.assertRaisesRegex(ValueError, "at least two RPC servers"):

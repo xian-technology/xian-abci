@@ -245,6 +245,27 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             100,
         )
 
+    async def test_simulate_tx_query_returns_structured_failure_when_disabled(
+        self,
+    ):
+        self.app.simulator.enabled = False
+        payload = {
+            "sender": "alice",
+            "contract": "currency",
+            "function": "balance_of",
+            "kwargs": {"account": ACCOUNT},
+        }
+        encoded_payload = json.dumps(payload).encode("utf-8").hex()
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path=f"/simulate_tx/{encoded_payload}"))
+        )
+        result = json.loads(response.query.value)
+
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(result["status"], Constants.ErrorCode)
+        self.assertIn("disabled", result["result"])
+
     async def test_health_query(self):
         response = await self.process_request(
             Request(query=RequestQuery(path="/health"))

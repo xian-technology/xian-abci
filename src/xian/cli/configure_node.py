@@ -185,6 +185,34 @@ def build_parser() -> ArgumentParser:
         default=5.0,
     )
     parser.add_argument(
+        "--simulation-enabled",
+        action=BooleanOptionalAction,
+        help="enable readonly transaction simulation on this node",
+        required=False,
+        default=True,
+    )
+    parser.add_argument(
+        "--simulation-max-concurrency",
+        type=int,
+        help="maximum concurrent simulation requests accepted by this node",
+        required=False,
+        default=2,
+    )
+    parser.add_argument(
+        "--simulation-timeout-ms",
+        type=int,
+        help="timeout in milliseconds for a single simulation request",
+        required=False,
+        default=3000,
+    )
+    parser.add_argument(
+        "--simulation-max-stamps",
+        type=int,
+        help="stamp budget cap used for readonly simulation requests",
+        required=False,
+        default=1_000_000,
+    )
+    parser.add_argument(
         "--parallel-execution-enabled",
         action=BooleanOptionalAction,
         help="enable speculative parallel block execution",
@@ -344,6 +372,10 @@ def main(argv: list[str] | None = None) -> int:
         metrics_host=args.metrics_host,
         metrics_port=args.metrics_port,
         metrics_bds_refresh_seconds=args.metrics_bds_refresh_seconds,
+        simulation_enabled=args.simulation_enabled,
+        simulation_max_concurrency=args.simulation_max_concurrency,
+        simulation_timeout_ms=args.simulation_timeout_ms,
+        simulation_max_stamps=args.simulation_max_stamps,
         parallel_execution_enabled=args.parallel_execution_enabled,
         parallel_execution_workers=args.parallel_execution_workers,
         parallel_execution_min_transactions=(
