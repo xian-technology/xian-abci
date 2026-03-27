@@ -216,6 +216,71 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(reward_queries, [])
 
+    async def test_persist_transaction_uses_reward_records_source_contract(self):
+        bds = BDS(BdsConfig())
+        connection = _FakeConnection()
+
+        tx = BdsTransactionPayload(
+            tx_index=0,
+            envelope={
+                "metadata": {"signature": "deadbeef"},
+                "payload": {"sender": "alice"},
+            },
+            payload={
+                "sender": "alice",
+                "nonce": 1,
+                "contract": "con_parent",
+                "function": "run",
+                "kwargs": {},
+            },
+            tx_result={
+                "hash": "TX-REWARD-RECORDS",
+                "status": 0,
+                "stamps_used": 25,
+                "result": {"ok": True},
+                "state": [],
+                "events": [],
+                "rewards": {
+                    "developer_reward": {"alice": "5"}
+                },
+                "reward_records": [
+                    {
+                        "type": "developer_reward",
+                        "recipient_key": "alice",
+                        "source_contract": "con_parent",
+                        "value": "3.5",
+                    },
+                    {
+                        "type": "developer_reward",
+                        "recipient_key": "bob",
+                        "source_contract": "con_child",
+                        "value": "1.5",
+                    },
+                ],
+            },
+        )
+
+        await bds._persist_transaction(
+            connection,
+            block_meta={"height": 1, "hash": "BLOCK-1", "nanos": 1},
+            block_time=datetime(2026, 1, 1, tzinfo=UTC),
+            current_index={},
+            tx=tx,
+        )
+
+        reward_inserts = [
+            args
+            for query, args in connection.execute_calls
+            if query == sql.insert_reward()
+        ]
+        self.assertEqual(len(reward_inserts), 2)
+        self.assertEqual(reward_inserts[0][5], "alice")
+        self.assertEqual(reward_inserts[0][6], "con_parent")
+        self.assertEqual(str(reward_inserts[0][7]), "3.5")
+        self.assertEqual(reward_inserts[1][5], "bob")
+        self.assertEqual(reward_inserts[1][6], "con_child")
+        self.assertEqual(str(reward_inserts[1][7]), "1.5")
+
     async def test_persist_transaction_indexes_nested_contract_deployments(self):
         bds = BDS(BdsConfig())
         connection = _FakeConnection()

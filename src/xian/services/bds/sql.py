@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _numeric_projection(column: str) -> str:
@@ -183,6 +183,7 @@ def create_rewards():
         reward_index INTEGER NOT NULL,
         type TEXT NOT NULL,
         recipient_key TEXT,
+        source_contract TEXT,
         value NUMERIC NOT NULL,
         created_at TIMESTAMPTZ NOT NULL,
         UNIQUE (block_height, tx_index, reward_index)
@@ -295,9 +296,9 @@ def insert_reward():
     return """
     INSERT INTO rewards(
         block_height, tx_hash, tx_index, reward_index, type, recipient_key,
-        value, created_at
+        source_contract, value, created_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     ON CONFLICT (block_height, tx_index, reward_index) DO NOTHING;
     """
 
@@ -742,13 +743,12 @@ def select_developer_rewards_summary():
         COALESCE(SUM(r.value), 0) AS total_rewards,
         COUNT(*) AS reward_count,
         COUNT(DISTINCT r.tx_hash) AS tx_count,
-        COUNT(DISTINCT t.contract) AS contract_count,
+        COUNT(DISTINCT r.source_contract) AS contract_count,
         MIN(r.block_height) AS first_block_height,
         MAX(r.block_height) AS last_block_height,
         MIN(r.created_at) AS first_reward_at,
         MAX(r.created_at) AS last_reward_at
     FROM rewards AS r
-    LEFT JOIN transactions AS t ON t.hash = r.tx_hash
     WHERE r.type = 'developer_reward'
       AND r.recipient_key = $1;
     """

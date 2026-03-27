@@ -838,21 +838,39 @@ class BDS:
             )
 
         reward_index = 0
-        reward_groups = tx_result.get("rewards") or {}
-        for reward_type, rewards in reward_groups.items():
-            for recipient_key, value in rewards.items():
+        reward_records = tx_result.get("reward_records") or []
+        if reward_records:
+            for record in reward_records:
                 await connection.execute(
                     sql.insert_reward(),
                     block_meta["height"],
                     tx_hash,
                     tx_index,
                     reward_index,
-                    reward_type,
-                    recipient_key,
-                    canonical_decimal(value),
+                    str(record.get("type", "")),
+                    record.get("recipient_key"),
+                    record.get("source_contract"),
+                    canonical_decimal(record.get("value", 0)),
                     block_time,
                 )
                 reward_index += 1
+        else:
+            reward_groups = tx_result.get("rewards") or {}
+            for reward_type, rewards in reward_groups.items():
+                for recipient_key, value in rewards.items():
+                    await connection.execute(
+                        sql.insert_reward(),
+                        block_meta["height"],
+                        tx_hash,
+                        tx_index,
+                        reward_index,
+                        reward_type,
+                        recipient_key,
+                        None,
+                        canonical_decimal(value),
+                        block_time,
+                    )
+                    reward_index += 1
 
         for event_index, event in enumerate(tx_result.get("events", [])):
             await connection.execute(

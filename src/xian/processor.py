@@ -214,11 +214,13 @@ class TxProcessor:
 
             rewards = None
             reward_deltas = {}
+            reward_records = []
             if output["status_code"] == 0 and rewards_handler is not None:
-                rewards, reward_deltas = (
+                rewards, reward_deltas, reward_records = (
                     rewards_handler.build_tx_reward_outputs(
                         total_stamps_to_split=output["stamps_used"],
                         contract=transaction["payload"]["contract"],
+                        contract_costs=output.get("contract_costs"),
                     )
                 )
 
@@ -254,6 +256,7 @@ class TxProcessor:
                 "stamps_used": output["stamps_used"],
                 "result": safe_repr(output["result"]),
                 "rewards": rewards if rewards else None,
+                "reward_records": reward_records or None,
             }
 
             return {

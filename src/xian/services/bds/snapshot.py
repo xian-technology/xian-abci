@@ -163,6 +163,7 @@ TABLE_SPECS = (
             "reward_index",
             "type",
             "recipient_key",
+            "source_contract",
             "value",
             "created_at",
         ),

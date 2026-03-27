@@ -11,6 +11,14 @@ class RewardsHandler:
     def __init__(self, client):
         self.client = client
 
+    @staticmethod
+    def _as_decimal(value):
+        if isinstance(value, dict):
+            value = value["__fixed__"]
+        if isinstance(value, decimal.Decimal):
+            return value
+        return decimal.Decimal(str(value))
+
     def calculate_participant_reward(
         self, participant_ratio, number_of_participants, total_stamps_to_split
     ):
@@ -30,37 +38,70 @@ class RewardsHandler:
         return ContractingDecimal(str(rounded_reward))
 
     def find_developer_and_reward(
-        self, total_stamps_to_split, contract, developer_ratio
+        self,
+        total_stamps_to_split,
+        contract,
+        developer_ratio,
+        foundation_owner,
+        contract_costs=None,
     ):
-        if isinstance(developer_ratio, dict):
-            developer_ratio = developer_ratio["__fixed__"]
-        if not isinstance(developer_ratio, decimal.Decimal):
-            developer_ratio = decimal.Decimal(str(developer_ratio))
+        developer_ratio = self._as_decimal(developer_ratio)
+        developer_total = self._as_decimal(total_stamps_to_split) * developer_ratio
 
-        send_map = defaultdict(lambda: 0)
-        recipient = self.client.get_var(
-            contract=contract, variable="__developer__"
-        )
-        if not recipient:
-            return {
-                self.client.get_var(
-                    contract="foundation", variable="owner"
-                ): ContractingDecimal(
-                    str(total_stamps_to_split * developer_ratio)
-                )
-            }
-        send_map[recipient] += ContractingDecimal(
-            str(total_stamps_to_split * developer_ratio)
-        )
-        send_map[recipient] /= len(send_map)
-        return dict(send_map)
+        send_map = defaultdict(lambda: ContractingDecimal("0"))
+        developer_records = []
+        weights = []
+        if isinstance(contract_costs, dict):
+            for source_contract, weight in sorted(contract_costs.items()):
+                normalized_weight = self._as_decimal(weight)
+                if normalized_weight > 0:
+                    weights.append((source_contract, normalized_weight))
 
-    def calculate_tx_output_rewards(self, total_stamps_to_split, contract):
+        if not weights:
+            weights = [(contract, decimal.Decimal("1"))]
+
+        total_weight = sum(weight for _, weight in weights)
+        allocated = decimal.Decimal("0")
+
+        for index, (source_contract, weight) in enumerate(weights):
+            if index == len(weights) - 1:
+                share = developer_total - allocated
+            else:
+                share = (developer_total * weight) / total_weight
+                allocated += share
+
+            recipient = self.client.get_var(
+                contract=source_contract, variable="__developer__"
+            )
+            if not recipient or recipient == "sys":
+                recipient = foundation_owner
+
+            share_amount = ContractingDecimal(str(share))
+            send_map[recipient] += share_amount
+            developer_records.append(
+                {
+                    "type": "developer_reward",
+                    "recipient_key": recipient,
+                    "source_contract": source_contract,
+                    "value": share_amount,
+                }
+            )
+
+        return dict(send_map), developer_records
+
+    def calculate_tx_output_rewards(
+        self,
+        total_stamps_to_split,
+        contract,
+        *,
+        foundation_owner=None,
+        contract_costs=None,
+    ):
         if not self.client.get_var(
             contract="rewards", variable="S", arguments=["value"]
         ):
             logger.error("Rewards not set up.")
-            return 0, 0, {}
+            return 0, 0, {}, []
         try:
             master_ratio, burn_ratio, foundation_ratio, developer_ratio = (
                 self.client.get_var(
@@ -70,6 +111,11 @@ class RewardsHandler:
         except TypeError:
             raise NotImplementedError(
                 "Driver could not get value for key rewards.S:value. Try setting up rewards."
+            )
+
+        if foundation_owner is None:
+            foundation_owner = self.client.get_var(
+                contract="foundation", variable="owner"
             )
 
         master_reward = self.calculate_participant_reward(
@@ -86,20 +132,33 @@ class RewardsHandler:
             total_stamps_to_split=total_stamps_to_split,
         )
 
-        developer_mapping = self.find_developer_and_reward(
+        developer_mapping, developer_records = self.find_developer_and_reward(
             total_stamps_to_split=total_stamps_to_split,
             contract=contract,
             developer_ratio=developer_ratio,
+            foundation_owner=foundation_owner,
+            contract_costs=contract_costs,
         )
 
-        return master_reward, foundation_reward, developer_mapping
+        return (
+            master_reward,
+            foundation_reward,
+            developer_mapping,
+            developer_records,
+        )
 
-    def build_tx_reward_outputs(self, total_stamps_to_split, contract):
+    def build_tx_reward_outputs(
+        self,
+        total_stamps_to_split,
+        contract,
+        *,
+        contract_costs=None,
+    ):
         reward_split = self.client.get_var(
             contract="rewards", variable="S", arguments=["value"]
         )
         if not reward_split or total_stamps_to_split <= 0:
-            return None, {}
+            return None, {}, []
 
         stamp_rate = self.client.get_var(
             contract="stamp_cost", variable="S", arguments=["value"]
@@ -115,10 +174,12 @@ class RewardsHandler:
             logger.error("Reward configuration is incomplete.")
             return None, {}
 
-        master_reward, foundation_reward, developer_mapping = (
+        master_reward, foundation_reward, developer_mapping, developer_records = (
             self.calculate_tx_output_rewards(
                 total_stamps_to_split=total_stamps_to_split,
                 contract=contract,
+                foundation_owner=foundation_owner,
+                contract_costs=contract_costs,
             )
         )
 
@@ -128,6 +189,7 @@ class RewardsHandler:
             "developer_reward": {},
         }
         reward_deltas = defaultdict(lambda: ContractingDecimal("0"))
+        reward_records = []
 
         if foundation_reward:
             foundation_amount = ContractingDecimal(
@@ -136,6 +198,14 @@ class RewardsHandler:
             rewards["foundation_reward"][foundation_owner] = foundation_amount
             reward_deltas[f"currency.balances:{foundation_owner}"] += (
                 foundation_amount
+            )
+            reward_records.append(
+                {
+                    "type": "foundation_reward",
+                    "recipient_key": foundation_owner,
+                    "source_contract": None,
+                    "value": foundation_amount,
+                }
             )
 
         if master_reward:
@@ -147,25 +217,42 @@ class RewardsHandler:
                 reward_deltas[f"currency.balances:{masternode}"] += (
                     masternode_amount
                 )
+                reward_records.append(
+                    {
+                        "type": "masternode_reward",
+                        "recipient_key": masternode,
+                        "source_contract": None,
+                        "value": masternode_amount,
+                    }
+                )
 
         for developer, reward in developer_mapping.items():
-            recipient = (
-                foundation_owner if developer in ("sys", None) else developer
-            )
             developer_amount = ContractingDecimal(str(reward / stamp_rate))
-            existing_amount = rewards["developer_reward"].get(recipient)
+            existing_amount = rewards["developer_reward"].get(developer)
             if existing_amount is None:
-                rewards["developer_reward"][recipient] = developer_amount
+                rewards["developer_reward"][developer] = developer_amount
             else:
-                rewards["developer_reward"][recipient] = (
+                rewards["developer_reward"][developer] = (
                     existing_amount + developer_amount
                 )
-            reward_deltas[f"currency.balances:{recipient}"] += developer_amount
+            reward_deltas[f"currency.balances:{developer}"] += developer_amount
+
+        for record in developer_records:
+            reward_records.append(
+                {
+                    "type": record["type"],
+                    "recipient_key": record["recipient_key"],
+                    "source_contract": record["source_contract"],
+                    "value": ContractingDecimal(
+                        str(record["value"] / stamp_rate)
+                    ),
+                }
+            )
 
         if not any(rewards.values()):
-            return None, {}
+            return None, {}, reward_records
 
-        return rewards, dict(reward_deltas)
+        return rewards, dict(reward_deltas), reward_records
 
     def distribute_rewards(self, stamp_rewards_amount, stamp_rewards_contract):
         if (
@@ -177,7 +264,12 @@ class RewardsHandler:
             return []
 
         driver = self.client.raw_driver
-        master_reward, foundation_reward, developer_mapping = (
+        (
+            master_reward,
+            foundation_reward,
+            developer_mapping,
+            _developer_records,
+        ) = (
             self.calculate_tx_output_rewards(
                 total_stamps_to_split=stamp_rewards_amount,
                 contract=stamp_rewards_contract,

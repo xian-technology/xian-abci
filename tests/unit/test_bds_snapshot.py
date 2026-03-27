@@ -6,6 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from xian.services.bds import sql
 from xian.services.bds.snapshot import (
     TABLE_SPECS,
     default_snapshot_output_path,
@@ -114,6 +115,7 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
             "reward_index": 0,
             "type": "stamp",
             "recipient_key": "currency.balances:alice",
+            "source_contract": "con_token",
             "value": Decimal("12.34"),
             "created_at": datetime(2026, 1, 1, tzinfo=UTC),
         }
@@ -125,15 +127,15 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             serialized["created_at"], "2026-01-01T00:00:00+00:00"
         )
-        self.assertEqual(restored[7], Decimal("12.34"))
-        self.assertEqual(restored[8], datetime(2026, 1, 1, tzinfo=UTC))
+        self.assertEqual(restored[8], Decimal("12.34"))
+        self.assertEqual(restored[9], datetime(2026, 1, 1, tzinfo=UTC))
 
     async def test_export_and_import_snapshot_roundtrip(self):
         rows_by_table = {
             "bds_meta": [
                 {
                     "key": "schema_version",
-                    "value": "2",
+                    "value": str(sql.SCHEMA_VERSION),
                     "updated_at": datetime(2026, 1, 1, tzinfo=UTC),
                 }
             ],
@@ -174,6 +176,7 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
                     "reward_index": 0,
                     "type": "stamp",
                     "recipient_key": "currency.balances:alice",
+                    "source_contract": "con_token",
                     "value": Decimal("12.34"),
                     "created_at": datetime(2026, 1, 1, tzinfo=UTC),
                 }
@@ -222,7 +225,7 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
                 import_connection.inserted["state_changes"][0][0], 5
             )
             self.assertEqual(
-                import_connection.inserted["rewards"][0][7], Decimal("12.34")
+                import_connection.inserted["rewards"][0][8], Decimal("12.34")
             )
             self.assertEqual(import_result["indexed_height"], 12)
 
@@ -240,7 +243,7 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
                 json.dumps(
                     {
                         "snapshot_format_version": 1,
-                        "schema_version": 2,
+                        "schema_version": sql.SCHEMA_VERSION,
                         "tables": {},
                     }
                 ),
