@@ -172,7 +172,7 @@ class RewardsHandler:
 
         if stamp_rate in (None, 0) or foundation_owner is None:
             logger.error("Reward configuration is incomplete.")
-            return None, {}
+            return None, {}, []
 
         master_reward, foundation_reward, developer_mapping, developer_records = (
             self.calculate_tx_output_rewards(

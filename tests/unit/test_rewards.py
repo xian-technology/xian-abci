@@ -30,6 +30,22 @@ class _FakeClient:
 
 
 class RewardsHandlerTests(unittest.TestCase):
+    def test_build_tx_reward_outputs_returns_safe_empty_triplet_when_config_incomplete(
+        self,
+    ):
+        client = _FakeClient()
+        client._values[("foundation", "owner", ())] = None
+        handler = RewardsHandler(client=client)
+
+        rewards, reward_deltas, reward_records = handler.build_tx_reward_outputs(
+            total_stamps_to_split=100,
+            contract="con_parent",
+        )
+
+        self.assertIsNone(rewards)
+        self.assertEqual(reward_deltas, {})
+        self.assertEqual(reward_records, [])
+
     def test_build_tx_reward_outputs_splits_developer_rewards_by_contract_cost(
         self,
     ):
