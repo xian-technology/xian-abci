@@ -158,11 +158,11 @@ def validate_transaction(
     tx,
     *,
     tx_hash: str,
+    chain_id: str,
 ):
-    # Check transaction formatting
-    check_tx_formatting(tx)
+    validate_transaction_static(tx, chain_id=chain_id)
 
-    # Check if nonce is greater than the current nonce
+    # Reserve the local mempool nonce only after static validation passes.
     nonce_storage.check_nonce(tx, tx_hash=tx_hash)
 
     # Get the senders balance and the current stamp rate
@@ -213,10 +213,6 @@ def validate_transaction(
         function=func,
         amount=amount,
     )
-
-    # Check if contract name is valid
-    name = tx["payload"]["kwargs"].get("name")
-    check_contract_name(contract, func, name)
 
 
 class SequentialNonceTracker:

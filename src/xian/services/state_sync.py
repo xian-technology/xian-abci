@@ -108,6 +108,7 @@ class IncomingSnapshotSession:
     expected_height: int
     expected_format: int
     expected_chunks: int
+    expected_chunk_size: int
     expected_app_hash_hex: str
     expected_snapshot_hash_hex: str
     next_index: int = 0
@@ -439,8 +440,16 @@ class StateSnapshotManager:
             )
         if req_snapshot.height <= current_height:
             return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
+        if req_snapshot.chunks <= 0:
+            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
+        if len(req_snapshot.hash) != 32:
+            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
         try:
             metadata = json.loads(req_snapshot.metadata.decode("utf-8"))
+            if not isinstance(metadata, dict):
+                raise ValueError("snapshot metadata must be an object")
+            metadata_height = int(metadata.get("height", -1))
+            metadata_chunk_size = int(metadata.get("chunk_size", 0))
         except Exception:
             return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
 
@@ -448,7 +457,9 @@ class StateSnapshotManager:
             return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
         if metadata.get("chain_id") != self.chain_id:
             return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
-        if int(metadata.get("height", -1)) != req_snapshot.height:
+        if metadata_height != req_snapshot.height:
+            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
+        if metadata_chunk_size <= 0 or metadata_chunk_size > self.chunk_size:
             return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
         if metadata.get("archive_sha256") != req_snapshot.hash.hex():
             return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
@@ -461,6 +472,7 @@ class StateSnapshotManager:
             expected_height=req_snapshot.height,
             expected_format=req_snapshot.format,
             expected_chunks=req_snapshot.chunks,
+            expected_chunk_size=metadata_chunk_size,
             expected_app_hash_hex=app_hash.hex(),
             expected_snapshot_hash_hex=req_snapshot.hash.hex(),
         )
@@ -508,6 +520,11 @@ class StateSnapshotManager:
                 result=ResponseApplySnapshotChunk.RETRY
             )
         if index < 0 or index >= session.expected_chunks:
+            return ResponseApplySnapshotChunk(
+                result=ResponseApplySnapshotChunk.REJECT_SNAPSHOT
+            )
+        if len(chunk) > session.expected_chunk_size:
+            self._reset_incoming_session()
             return ResponseApplySnapshotChunk(
                 result=ResponseApplySnapshotChunk.REJECT_SNAPSHOT
             )

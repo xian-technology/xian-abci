@@ -29,20 +29,21 @@ def _canonical_json(payload: dict) -> str:
 
 
 def make_signed_tx_bytes(*, nonce: int) -> bytes:
-    signing_key = nacl.signing.SigningKey(SEED)
-    sender = signing_key.verify_key.encode(
-        encoder=nacl.encoding.HexEncoder
-    ).decode("ascii")
+    return make_signed_tx_bytes_for_payload(
+        {
+            "chain_id": "xian-testnet-1",
+            "contract": "currency",
+            "function": "transfer",
+            "kwargs": {"amount": 1, "to": SENDER},
+            "nonce": nonce,
+            "sender": SENDER,
+            "stamps_supplied": 100,
+        }
+    )
 
-    payload = {
-        "chain_id": "xian-testnet-1",
-        "contract": "currency",
-        "function": "transfer",
-        "kwargs": {"amount": 1, "to": sender},
-        "nonce": nonce,
-        "sender": sender,
-        "stamps_supplied": 100,
-    }
+
+def make_signed_tx_bytes_for_payload(payload: dict) -> bytes:
+    signing_key = nacl.signing.SigningKey(SEED)
     payload_str = _canonical_json(payload)
     signature = signing_key.sign(payload_str.encode("utf-8")).signature.hex()
     tx = {"metadata": {"signature": signature}, "payload": payload}
@@ -51,17 +52,13 @@ def make_signed_tx_bytes(*, nonce: int) -> bytes:
 
 def make_signed_tx_bytes_with_raw_spacing(*, nonce: int) -> bytes:
     signing_key = nacl.signing.SigningKey(SEED)
-    sender = signing_key.verify_key.encode(
-        encoder=nacl.encoding.HexEncoder
-    ).decode("ascii")
-
     payload = {
         "chain_id": "xian-testnet-1",
         "contract": "currency",
         "function": "transfer",
-        "kwargs": {"amount": 1, "to": sender},
+        "kwargs": {"amount": 1, "to": SENDER},
         "nonce": nonce,
-        "sender": sender,
+        "sender": SENDER,
         "stamps_supplied": 100,
     }
     payload_str = _canonical_json(payload)
@@ -176,6 +173,73 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
                 self.app.nonce_storage.get_next_nonce(SENDER),
                 VALID_NONCE,
             )
+
+    async def test_check_tx_bad_signature_does_not_reserve_nonce(self):
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+        payload = {
+            "chain_id": "xian-testnet-1",
+            "contract": "currency",
+            "function": "transfer",
+            "kwargs": {"amount": 1, "to": SENDER},
+            "nonce": VALID_NONCE,
+            "sender": SENDER,
+            "stamps_supplied": 100,
+        }
+        tx_bytes = make_signed_tx_bytes_for_payload(payload)
+        tx_hex = tx_bytes.decode("utf-8")
+        tx_json = json.loads(bytes.fromhex(tx_hex).decode("utf-8"))
+        tx_json["metadata"]["signature"] = "00" * 64
+        tampered = encode_transaction_bytes(_canonical_json(tx_json))
+
+        response = await self.process_request(self.make_request(tampered))
+
+        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertIn("Bad signature", response.check_tx.log)
+        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+
+    async def test_check_tx_wrong_chain_id_does_not_reserve_nonce(self):
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+        payload = {
+            "chain_id": "wrong-chain",
+            "contract": "currency",
+            "function": "transfer",
+            "kwargs": {"amount": 1, "to": SENDER},
+            "nonce": VALID_NONCE,
+            "sender": SENDER,
+            "stamps_supplied": 100,
+        }
+        tx_bytes = make_signed_tx_bytes_for_payload(payload)
+
+        response = await self.process_request(self.make_request(tx_bytes))
+
+        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertIn("Wrong chain_id", response.check_tx.log)
+        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+
+    async def test_check_tx_rejects_duplicate_payload_wire_format(self):
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+        malicious_tx = (
+            '{"payload":{"chain_id":"xian-testnet-1","contract":"currency",'
+            '"function":"transfer","kwargs":{"amount":999,"to":"'
+            + SENDER
+            + '"},"nonce":6,"sender":"'
+            + SENDER
+            + '","stamps_supplied":100},"metadata":{"signature":"deadbeef"},'
+            '"payload":{"chain_id":"xian-testnet-1","contract":"currency",'
+            '"function":"transfer","kwargs":{"amount":1,"to":"'
+            + SENDER
+            + '"},"nonce":6,"sender":"'
+            + SENDER
+            + '","stamps_supplied":100}}'
+        )
+
+        response = await self.process_request(
+            self.make_request(encode_transaction_bytes(malicious_tx))
+        )
+
+        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertIn("Invalid payload", response.check_tx.log)
+        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 
 
 if __name__ == "__main__":

@@ -302,11 +302,11 @@ class TxProcessor:
             new_bal = 0
             try:
                 new_bal = sender_balance - to_deduct
-                assert new_bal > 0
             except TypeError:
                 pass
-            except AssertionError:
-                new_bal = 0
+            else:
+                if new_bal <= 0:
+                    new_bal = 0
 
             return {f"currency.balances:{tx_sender}": new_bal}
 

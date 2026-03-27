@@ -22,7 +22,8 @@ def decode_transaction_bytes(raw) -> Tuple[dict, str]:
     tx_json = json.loads(tx_str)
     payload_str = extract_payload_string(tx_str)
 
-    assert json.loads(payload_str) == tx_json["payload"], "Invalid payload"
+    if json.loads(payload_str) != tx_json["payload"]:
+        raise ValueError("Invalid payload")
     return tx_json, payload_str
 
 

@@ -5,6 +5,7 @@ from pathlib import Path
 from contracting import constants as contracting_constants
 from contracting.compilation.compiler import ContractingCompiler
 from contracting.storage.driver import Driver
+from cometbft.abci.v1beta1.types_pb2 import Snapshot
 from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.services.state_sync import StateSnapshotManager
@@ -134,6 +135,100 @@ class StateSyncTests(unittest.TestCase):
             )
             self.assertEqual(get_latest_block_height(target_home), 42)
             self.assertTrue(target_manager.list_snapshot_records())
+
+    def test_offer_snapshot_rejects_malformed_metadata_without_raising(self):
+        with tempfile.TemporaryDirectory() as target_dir:
+            target_home = Path(target_dir) / "xian"
+            manager = StateSnapshotManager(
+                storage_home=target_home,
+                chain_id="xian-test-1",
+                chunk_size=64,
+            )
+
+            response = manager.offer_snapshot_response(
+                Snapshot(
+                    height=43,
+                    format=1,
+                    chunks=1,
+                    hash=bytes.fromhex("ab" * 32),
+                    metadata=(
+                        b'{"snapshot_format_version":1,"chain_id":"xian-test-1",'
+                        b'"height":"not-an-int","app_hash":"'
+                        + ("cd" * 32).encode("ascii")
+                        + b'","archive_sha256":"'
+                        + ("ab" * 32).encode("ascii")
+                        + b'","chunk_size":64}'
+                    ),
+                ),
+                app_hash=bytes.fromhex("cd" * 32),
+                current_height=0,
+            )
+
+            self.assertEqual(response.result, response.REJECT)
+
+    def test_offer_snapshot_rejects_oversized_chunk_metadata(self):
+        with tempfile.TemporaryDirectory() as target_dir:
+            target_home = Path(target_dir) / "xian"
+            manager = StateSnapshotManager(
+                storage_home=target_home,
+                chain_id="xian-test-1",
+                chunk_size=64,
+            )
+
+            response = manager.offer_snapshot_response(
+                Snapshot(
+                    height=43,
+                    format=1,
+                    chunks=1,
+                    hash=bytes.fromhex("ab" * 32),
+                    metadata=(
+                        b'{"snapshot_format_version":1,"chain_id":"xian-test-1",'
+                        b'"height":43,"app_hash":"'
+                        + ("cd" * 32).encode("ascii")
+                        + b'","archive_sha256":"'
+                        + ("ab" * 32).encode("ascii")
+                        + b'","chunk_size":65}'
+                    ),
+                ),
+                app_hash=bytes.fromhex("cd" * 32),
+                current_height=0,
+            )
+
+            self.assertEqual(response.result, response.REJECT)
+
+    def test_apply_snapshot_chunk_rejects_oversized_chunk(self):
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as target_dir:
+            source_home = Path(source_dir) / "xian"
+            target_home = Path(target_dir) / "xian"
+            self._seed_state(source_home)
+
+            source_manager = StateSnapshotManager(
+                storage_home=source_home,
+                chain_id="xian-test-1",
+                chunk_size=64,
+            )
+            source_manager.export_snapshot()
+            record = source_manager.list_snapshot_records()[0]
+
+            target_manager = StateSnapshotManager(
+                storage_home=target_home,
+                chain_id="xian-test-1",
+                chunk_size=64,
+            )
+            offer = target_manager.offer_snapshot_response(
+                record.to_proto(),
+                app_hash=bytes.fromhex(record.app_hash_hex),
+                current_height=0,
+            )
+            self.assertEqual(offer.result, offer.ACCEPT)
+
+            response = target_manager.apply_snapshot_chunk_response(
+                index=0,
+                chunk=b"x" * 65,
+                sender="peer-1",
+            )
+
+            self.assertEqual(response.result, response.REJECT_SNAPSHOT)
 
     @staticmethod
     def _seed_state(storage_home: Path) -> None:

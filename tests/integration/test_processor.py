@@ -188,6 +188,19 @@ class TestProcessor(unittest.TestCase):
         self.assertEqual(now.second, 56)
         self.assertEqual(now.microsecond, 789123)
 
+    def test_failed_tx_stamp_deduction_floors_balance_at_zero(self):
+        self.d.set("currency.balances:bob", 1)
+
+        writes = self.tx_processor.determine_writes_from_output(
+            status_code=1,
+            ouput_writes={},
+            stamps_used=100,
+            stamp_cost=20,
+            tx_sender="bob",
+        )
+
+        self.assertEqual(writes, {"currency.balances:bob": 0})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -153,7 +153,7 @@ class TestEncoding(unittest.TestCase):
     def test_decode_transaction_bytes(self, name, tx_str, should_raise):
         tx_bytes = encode_transaction_bytes(tx_str)
         if should_raise:
-            with self.assertRaises(AssertionError) as context:
+            with self.assertRaises(ValueError) as context:
                 tx_json_decoded, payload_str = decode_transaction_bytes(
                     tx_bytes
                 )
