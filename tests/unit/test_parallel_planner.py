@@ -10,6 +10,7 @@ def access(
     index,
     sender,
     reads=(),
+    prefix_reads=(),
     writes=(),
     additive_writes=(),
     nonce=0,
@@ -20,6 +21,7 @@ def access(
         sender=sender,
         nonce=nonce,
         reads=frozenset(reads),
+        prefix_reads=frozenset(prefix_reads),
         writes=frozenset(writes),
         additive_writes=frozenset(additive_writes),
         status=status,
@@ -105,6 +107,30 @@ class TestParallelExecutionPlanner(unittest.TestCase):
                     0, "alice", additive_writes={"currency.balances:foundation"}
                 ),
                 access(1, "bob", reads={"currency.balances:foundation"}),
+            ]
+        )
+
+        self.assertEqual(plan.stage_count, 2)
+        self.assertEqual(plan.stages[0].tx_indexes, (0,))
+        self.assertEqual(plan.stages[1].tx_indexes, (1,))
+
+    def test_splits_stage_on_prefix_scan_after_write(self):
+        plan = self.planner.build(
+            [
+                access(0, "alice", writes={"con_scan.values:b"}),
+                access(1, "bob", prefix_reads={"con_scan.values:"}),
+            ]
+        )
+
+        self.assertEqual(plan.stage_count, 2)
+        self.assertEqual(plan.stages[0].tx_indexes, (0,))
+        self.assertEqual(plan.stages[1].tx_indexes, (1,))
+
+    def test_splits_stage_on_write_after_prefix_scan(self):
+        plan = self.planner.build(
+            [
+                access(0, "alice", prefix_reads={"con_scan.values:"}),
+                access(1, "bob", writes={"con_scan.values:b"}),
             ]
         )
 

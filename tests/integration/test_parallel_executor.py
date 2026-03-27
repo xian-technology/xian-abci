@@ -1,5 +1,6 @@
 import os
 import tempfile
+import textwrap
 import time
 import unittest
 from copy import deepcopy
@@ -262,6 +263,105 @@ class TestParallelBlockExecutor(unittest.TestCase):
                     parallel_client.raw_driver.get(key),
                     serial_client.raw_driver.get(key),
                 )
+
+    def test_parallel_executor_falls_back_for_prefix_scan_reads(self):
+        contract_code = textwrap.dedent(
+            """
+            values = Hash(default_value=0)
+            out = Variable()
+
+            @construct
+            def seed():
+                values['a'] = 1
+                out.set(0)
+
+            @export
+            def add_value(key: str, amount: int):
+                values[key] = amount
+
+            @export
+            def snapshot_sum():
+                out.set(sum(values.all()))
+                return out.get()
+            """
+        )
+
+        txs = [
+            self._tx(
+                sender="alice",
+                contract="con_scan",
+                function="add_value",
+                kwargs={"key": "b", "amount": 5},
+                nonce=0,
+                signature="sig-scan-1",
+            ),
+            self._tx(
+                sender="bob",
+                contract="con_scan",
+                function="snapshot_sum",
+                kwargs={},
+                nonce=0,
+                signature="sig-scan-2",
+            ),
+        ]
+
+        with (
+            tempfile.TemporaryDirectory() as serial_dir,
+            tempfile.TemporaryDirectory() as parallel_dir,
+        ):
+            serial_client = ContractingClient(
+                storage_home=Path(serial_dir) / "xian"
+            )
+            parallel_client = ContractingClient(
+                storage_home=Path(parallel_dir) / "xian"
+            )
+            serial_client.submit(contract_code, name="con_scan", signer="sys")
+            parallel_client.submit(
+                contract_code, name="con_scan", signer="sys"
+            )
+            serial_client.raw_driver.commit()
+            parallel_client.raw_driver.commit()
+
+            serial_processor = TxProcessor(client=serial_client)
+            parallel_processor = TxProcessor(client=parallel_client)
+
+            serial_results = [
+                serial_processor.process_tx(
+                    deepcopy(tx),
+                    enabled_fees=False,
+                    rewards_handler=None,
+                    track_access=True,
+                )
+                for tx in txs
+            ]
+
+            executor = ParallelBlockExecutor(
+                storage_home=Path(parallel_dir) / "xian",
+                enabled=True,
+                workers=1,
+                min_transactions=1,
+            )
+            parallel_results, stats = executor.execute(
+                txs=deepcopy(txs),
+                tx_processor=parallel_processor,
+                enabled_fees=False,
+                rewards_handler=None,
+            )
+
+            self.assertEqual(stats.speculative_accepted, 1)
+            self.assertEqual(stats.serial_fallbacks, 1)
+            self.assertEqual(
+                serial_results[1]["access"].prefix_reads,
+                frozenset({"con_scan.values:"}),
+            )
+            self.assertEqual(
+                parallel_results[1]["access"].prefix_reads,
+                frozenset({"con_scan.values:"}),
+            )
+            self.assertEqual(
+                parallel_client.raw_driver.get("con_scan.out"),
+                serial_client.raw_driver.get("con_scan.out"),
+            )
 
     def test_process_tx_without_reward_config_keeps_rewards_optional(self):
         with tempfile.TemporaryDirectory() as temp_dir:

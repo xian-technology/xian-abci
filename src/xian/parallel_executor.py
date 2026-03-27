@@ -265,6 +265,16 @@ class ParallelBlockExecutor:
         if access.reads & committed_additive_writes:
             return True
 
+        if ParallelBlockExecutor._prefix_conflicts(
+            access.prefix_reads, committed_writes
+        ):
+            return True
+
+        if ParallelBlockExecutor._prefix_conflicts(
+            access.prefix_reads, committed_additive_writes
+        ):
+            return True
+
         if access.writes & committed_writes:
             return True
 
@@ -275,3 +285,9 @@ class ParallelBlockExecutor:
             return True
 
         return False
+
+    @staticmethod
+    def _prefix_conflicts(
+        prefixes: frozenset[str], keys: set[str]
+    ) -> bool:
+        return any(key.startswith(prefix) for prefix in prefixes for key in keys)

@@ -110,6 +110,7 @@ class TxProcessor:
                             tx=tx,
                             status_code=output["status_code"],
                             reads=processed["reads"],
+                            prefix_reads=processed["prefix_reads"],
                             base_writes=processed["base_writes"],
                             reward_deltas=processed["reward_deltas"],
                         ),
@@ -234,6 +235,11 @@ class TxProcessor:
                 if track_access
                 else frozenset()
             )
+            prefix_reads = (
+                frozenset(self.client.raw_driver.transaction_read_prefixes)
+                if track_access
+                else frozenset()
+            )
 
             for write in writes:
                 self.client.raw_driver.set(
@@ -253,6 +259,7 @@ class TxProcessor:
             return {
                 "tx_result": tx_output,
                 "reads": reads,
+                "prefix_reads": prefix_reads,
                 "base_writes": base_writes,
                 "reward_deltas": reward_deltas,
             }
@@ -357,6 +364,7 @@ class TxProcessor:
         tx: dict,
         status_code: int,
         reads: frozenset[str],
+        prefix_reads: frozenset[str],
         base_writes: dict,
         reward_deltas: dict,
     ) -> TransactionAccess:
@@ -365,6 +373,7 @@ class TxProcessor:
             sender=tx["payload"]["sender"],
             nonce=tx["payload"].get("nonce", 0),
             reads=reads,
+            prefix_reads=prefix_reads,
             writes=frozenset(base_writes.keys()),
             additive_writes=frozenset(reward_deltas.keys()),
             status=status_code,

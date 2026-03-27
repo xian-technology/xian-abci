@@ -9,6 +9,7 @@ class TransactionAccess:
     sender: str
     nonce: int
     reads: frozenset[str]
+    prefix_reads: frozenset[str]
     writes: frozenset[str]
     additive_writes: frozenset[str]
     status: int
@@ -20,6 +21,7 @@ class TransactionAccess:
             sender=tx["payload"]["sender"],
             nonce=tx["payload"]["nonce"],
             reads=frozenset(output["reads"].keys()),
+            prefix_reads=frozenset(output.get("prefix_reads", ())),
             writes=frozenset(output["writes"].keys()),
             additive_writes=frozenset(),
             status=output["status_code"],
@@ -31,6 +33,7 @@ class ParallelStage:
     tx_indexes: tuple[int, ...]
     senders: frozenset[str]
     reads: frozenset[str]
+    prefix_reads: frozenset[str]
     writes: frozenset[str]
     additive_writes: frozenset[str]
 
@@ -94,6 +97,9 @@ class ParallelExecutionPlanner:
             return True
 
         stage_reads = set().union(*(item.reads for item in stage))
+        stage_prefix_reads = set().union(
+            *(item.prefix_reads for item in stage)
+        )
         stage_writes = set().union(*(item.writes for item in stage))
         stage_additive_writes = set().union(
             *(item.additive_writes for item in stage)
@@ -114,6 +120,22 @@ class ParallelExecutionPlanner:
         if access.reads & stage_additive_writes:
             return True
 
+        if self._prefix_conflicts(access.prefix_reads, stage_writes):
+            return True
+
+        if self._prefix_conflicts(
+            access.prefix_reads, stage_additive_writes
+        ):
+            return True
+
+        if self._prefix_conflicts(stage_prefix_reads, access.writes):
+            return True
+
+        if self._prefix_conflicts(
+            stage_prefix_reads, access.additive_writes
+        ):
+            return True
+
         if access.additive_writes & stage_reads:
             return True
 
@@ -122,11 +144,21 @@ class ParallelExecutionPlanner:
 
         return False
 
+    @staticmethod
+    def _prefix_conflicts(
+        prefixes: set[str] | frozenset[str],
+        keys: set[str] | frozenset[str],
+    ) -> bool:
+        return any(key.startswith(prefix) for prefix in prefixes for key in keys)
+
     def _make_stage(self, stage: list[TransactionAccess]) -> ParallelStage:
         return ParallelStage(
             tx_indexes=tuple(item.index for item in stage),
             senders=frozenset(item.sender for item in stage),
             reads=frozenset().union(*(item.reads for item in stage)),
+            prefix_reads=frozenset().union(
+                *(item.prefix_reads for item in stage)
+            ),
             writes=frozenset().union(*(item.writes for item in stage)),
             additive_writes=frozenset().union(
                 *(item.additive_writes for item in stage)
