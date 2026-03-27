@@ -12,7 +12,11 @@ from loguru import logger
 
 from abci.server import ABCIServer
 from abci.utils import get_logger
-from xian.app_logging import build_log_fields, configure_logging
+from xian.app_logging import (
+    build_log_fields,
+    configure_logging,
+    log_level_includes,
+)
 from xian.constants import Constants
 from xian.methods import (
     check_tx,
@@ -124,13 +128,22 @@ class Xian:
                 60.0,
             ),
         )
+        self.app_log_level = str(xian_config.get("app_log_level", "INFO")).upper()
         self.transaction_trace_logging = xian_config.get(
             "transaction_trace_logging", False
+        )
+        self.transaction_trace_debug_logging = (
+            self.transaction_trace_logging
+            and log_level_includes(self.app_log_level, "DEBUG")
+        )
+        self.transaction_trace_full_logging = (
+            self.transaction_trace_logging
+            and log_level_includes(self.app_log_level, "TRACE")
         )
         self.tx_processor = TxProcessor(
             client=self.client,
             profiler=self.profiler,
-            trace_logging=self.transaction_trace_logging,
+            trace_logging=self.transaction_trace_debug_logging,
         )
         self.simulator = QuerySimulationService(
             storage_home=constants.STORAGE_HOME,
@@ -213,6 +226,12 @@ class Xian:
                     ),
                     "transaction_trace_logging": (
                         self.transaction_trace_logging
+                    ),
+                    "transaction_trace_debug_logging": (
+                        self.transaction_trace_debug_logging
+                    ),
+                    "transaction_trace_full_logging": (
+                        self.transaction_trace_full_logging
                     ),
                 },
             )

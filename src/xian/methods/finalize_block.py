@@ -230,7 +230,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 continue
             self.fingerprint_hashes.append(tx_hash)
             parsed_tx_result = encode_abci_json(tx_result)
-            if self.transaction_trace_logging:
+            if self.transaction_trace_debug_logging:
                 logger.bind(
                     **build_log_fields(
                         stage="finalize_tx_result",
@@ -246,7 +246,22 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                             "event_count": len(tx_result.get("events", [])),
                         },
                     )
-                ).debug(parsed_tx_result.decode())
+                ).debug("Finalized transaction result")
+            if self.transaction_trace_full_logging:
+                logger.bind(
+                    **build_log_fields(
+                        stage="finalize_tx_result",
+                        tx=tx,
+                        tx_hash=tx_hash,
+                        block_height=height,
+                        block_hash=hash,
+                        tx_index=block_tx_index,
+                        status=tx_result["status"],
+                        extra={
+                            "payload_bytes": len(parsed_tx_result),
+                        },
+                    )
+                ).trace(parsed_tx_result.decode())
 
             tx_events = []
 

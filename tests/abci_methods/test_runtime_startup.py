@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
@@ -48,6 +48,62 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
         fake_bds.start.assert_awaited_once()
         fake_metrics.start.assert_awaited_once()
         self.assertTrue(self.app._bds_storage_initialized)
+
+    async def test_runtime_disables_debug_tx_traces_when_log_level_is_info(self):
+        with (
+            patch(
+                "xian.xian_abci.load_tendermint_config",
+                return_value={
+                    "moniker": "validator-1",
+                    "xian": {
+                        "transaction_trace_logging": True,
+                        "app_log_level": "INFO",
+                    },
+                },
+            ),
+            patch(
+                "xian.xian_abci.load_genesis_data",
+                return_value={
+                    "chain_id": "xian-testnet-1",
+                    "abci_genesis": {},
+                },
+            ),
+        ):
+            app = Xian(constants=MockConstants)
+
+        self.assertTrue(app.transaction_trace_logging)
+        self.assertFalse(app.transaction_trace_debug_logging)
+        self.assertFalse(app.transaction_trace_full_logging)
+        self.assertFalse(app.tx_processor.trace_logging)
+        await app.close()
+
+    async def test_runtime_enables_full_tx_traces_only_at_trace_level(self):
+        with (
+            patch(
+                "xian.xian_abci.load_tendermint_config",
+                return_value={
+                    "moniker": "validator-1",
+                    "xian": {
+                        "transaction_trace_logging": True,
+                        "app_log_level": "TRACE",
+                    },
+                },
+            ),
+            patch(
+                "xian.xian_abci.load_genesis_data",
+                return_value={
+                    "chain_id": "xian-testnet-1",
+                    "abci_genesis": {},
+                },
+            ),
+        ):
+            app = Xian(constants=MockConstants)
+
+        self.assertTrue(app.transaction_trace_logging)
+        self.assertTrue(app.transaction_trace_debug_logging)
+        self.assertTrue(app.transaction_trace_full_logging)
+        self.assertTrue(app.tx_processor.trace_logging)
+        await app.close()
 
 
 if __name__ == "__main__":

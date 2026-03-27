@@ -3,7 +3,11 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from xian.app_logging import build_log_fields, default_logs_directory
+from xian.app_logging import (
+    build_log_fields,
+    default_logs_directory,
+    log_level_includes,
+)
 
 
 class AppLoggingTests(unittest.TestCase):
@@ -48,6 +52,15 @@ class AppLoggingTests(unittest.TestCase):
         self.assertIn("tx_hash", fields)
         self.assertIn("reason=Bad signature", fields["context"])
         self.assertIn("sender=alice", fields["context"])
+
+    def test_log_level_includes_respects_verbosity(self):
+        self.assertTrue(log_level_includes("TRACE", "DEBUG"))
+        self.assertTrue(log_level_includes("DEBUG", "DEBUG"))
+        self.assertFalse(log_level_includes("INFO", "DEBUG"))
+        self.assertFalse(log_level_includes("WARNING", "TRACE"))
+
+        with self.assertRaises(ValueError):
+            log_level_includes("VERBOSE", "DEBUG")
 
 
 if __name__ == "__main__":

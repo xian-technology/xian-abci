@@ -22,6 +22,9 @@ SUPPORTED_APP_LOG_LEVELS = (
     "ERROR",
     "CRITICAL",
 )
+_APP_LOG_LEVEL_ORDER = {
+    level: index for index, level in enumerate(SUPPORTED_APP_LOG_LEVELS)
+}
 
 _PLAIN_LOG_FORMAT = (
     "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | "
@@ -138,6 +141,19 @@ def build_log_fields(
     return fields
 
 
+def log_level_includes(configured_level: str, target_level: str) -> bool:
+    normalized_configured = configured_level.upper()
+    normalized_target = target_level.upper()
+    configured_rank = _APP_LOG_LEVEL_ORDER.get(normalized_configured)
+    target_rank = _APP_LOG_LEVEL_ORDER.get(normalized_target)
+    if configured_rank is None or target_rank is None:
+        raise ValueError(
+            "log levels must be one of "
+            f"{list(_APP_LOG_LEVEL_ORDER.keys())}"
+        )
+    return configured_rank <= target_rank
+
+
 def configure_logging(
     constants: Constants = Constants(),
     config: dict[str, Any] | None = None,
@@ -168,7 +184,7 @@ def configure_logging(
     if not settings["json"]:
         sink_kwargs["format"] = _PLAIN_LOG_FORMAT
 
-    logger.add(sys.stderr, **sink_kwargs)
+    logger.add(sys.stderr, enqueue=True, **sink_kwargs)
     logger.add(
         logs_dir / "xian-abci-{time:YYYY-MM-DD_HH-mm-ss}.log",
         rotation=timedelta(hours=settings["rotation_hours"]),
