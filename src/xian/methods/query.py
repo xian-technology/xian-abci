@@ -213,6 +213,10 @@ async def query(self, req) -> ResponseQuery:
             elif path_parts[0] == "contracts":
                 result = await self.bds.get_contracts(limit, offset)
 
+            # http://localhost:26657/abci_query?path="/developer_rewards/<vk>"
+            elif path_parts[0] == "developer_rewards":
+                result = await self.bds.get_developer_rewards(key)
+
         else:
             error = f"Unknown query path: {path_parts[0]}"
             logger.error(error)

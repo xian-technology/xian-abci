@@ -1134,6 +1134,12 @@ class BDS:
         )
         return [dict(row) for row in rows]
 
+    async def get_developer_rewards(self, recipient_key: str):
+        row = await self.db.fetchrow(
+            sql.select_developer_rewards_summary(), [recipient_key]
+        )
+        return dict(row) if row is not None else None
+
     def is_XSC0001(self, code: str) -> bool:
         normalized = code.replace(" ", "")
         if "balances=Hash(" not in normalized:

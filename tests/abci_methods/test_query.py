@@ -153,6 +153,19 @@ class _FakeBDS:
             }
         ]
 
+    async def get_developer_rewards(self, recipient_key):
+        return {
+            "recipient_key": recipient_key,
+            "total_rewards": "42.5",
+            "reward_count": 6,
+            "tx_count": 4,
+            "contract_count": 3,
+            "first_block_height": 7,
+            "last_block_height": 12,
+            "first_reward_at": "2026-01-01T00:00:07+00:00",
+            "last_reward_at": "2026-01-01T00:00:12+00:00",
+        }
+
 
 async def deserialize(raw: bytes) -> Response:
     return next(read_messages(BytesIO(raw), Response))
@@ -488,6 +501,20 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             json.loads(response.query.value)[0]["key"],
             "currency.balances:alice",
         )
+
+    async def test_developer_rewards_query_uses_bds(self):
+        self.app.block_service_mode = True
+        self.app.bds = _FakeBDS()
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path=f"/developer_rewards/{ACCOUNT}"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.info, "dict")
+        payload = json.loads(response.query.value)
+        self.assertEqual(payload["recipient_key"], ACCOUNT)
+        self.assertEqual(payload["total_rewards"], "42.5")
+        self.assertEqual(payload["tx_count"], 4)
 
 
 if __name__ == "__main__":

@@ -189,6 +189,8 @@ def create_rewards():
     );
     CREATE INDEX IF NOT EXISTS idx_rewards_tx_hash ON rewards(tx_hash, reward_index);
     CREATE INDEX IF NOT EXISTS idx_rewards_block_height ON rewards(block_height DESC);
+    CREATE INDEX IF NOT EXISTS idx_rewards_type_recipient_height
+        ON rewards(type, recipient_key, block_height DESC);
     """
 
 
@@ -730,4 +732,23 @@ def select_state_changes_for_patch():
     FROM state_changes
     WHERE tx_hash = $1 AND origin_type = 'state_patch'
     ORDER BY write_index ASC;
+    """
+
+
+def select_developer_rewards_summary():
+    return """
+    SELECT
+        $1 AS recipient_key,
+        COALESCE(SUM(r.value), 0) AS total_rewards,
+        COUNT(*) AS reward_count,
+        COUNT(DISTINCT r.tx_hash) AS tx_count,
+        COUNT(DISTINCT t.contract) AS contract_count,
+        MIN(r.block_height) AS first_block_height,
+        MAX(r.block_height) AS last_block_height,
+        MIN(r.created_at) AS first_reward_at,
+        MAX(r.created_at) AS last_reward_at
+    FROM rewards AS r
+    LEFT JOIN transactions AS t ON t.hash = r.tx_hash
+    WHERE r.type = 'developer_reward'
+      AND r.recipient_key = $1;
     """
