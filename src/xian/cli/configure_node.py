@@ -6,7 +6,10 @@ from argparse import ArgumentParser, BooleanOptionalAction
 from contracting.execution.tracer import SUPPORTED_TRACER_MODES
 
 from xian.node_admin import configure_existing_home
-from xian.node_setup import SUPPORTED_BLOCK_POLICY_MODES
+from xian.node_setup import (
+    SUPPORTED_APP_LOG_LEVELS,
+    SUPPORTED_BLOCK_POLICY_MODES,
+)
 
 
 def build_parser() -> ArgumentParser:
@@ -183,6 +186,42 @@ def build_parser() -> ArgumentParser:
         help="refresh interval for BDS-derived Prometheus gauges",
         required=False,
         default=5.0,
+    )
+    parser.add_argument(
+        "--transaction-trace-logging",
+        action=BooleanOptionalAction,
+        help="emit per-transaction debug summaries during block execution",
+        required=False,
+        default=False,
+    )
+    parser.add_argument(
+        "--app-log-level",
+        choices=sorted(SUPPORTED_APP_LOG_LEVELS),
+        type=str,
+        help="application log level for stderr and rotated file logs",
+        required=False,
+        default="INFO",
+    )
+    parser.add_argument(
+        "--app-log-json",
+        action=BooleanOptionalAction,
+        help="emit application logs as structured JSON instead of plain text",
+        required=False,
+        default=False,
+    )
+    parser.add_argument(
+        "--app-log-rotation-hours",
+        type=int,
+        help="rotate application log files after this many hours",
+        required=False,
+        default=1,
+    )
+    parser.add_argument(
+        "--app-log-retention-days",
+        type=int,
+        help="retain rotated application logs for this many days",
+        required=False,
+        default=7,
     )
     parser.add_argument(
         "--simulation-enabled",
@@ -372,6 +411,11 @@ def main(argv: list[str] | None = None) -> int:
         metrics_host=args.metrics_host,
         metrics_port=args.metrics_port,
         metrics_bds_refresh_seconds=args.metrics_bds_refresh_seconds,
+        transaction_trace_logging=args.transaction_trace_logging,
+        app_log_level=args.app_log_level,
+        app_log_json=args.app_log_json,
+        app_log_rotation_hours=args.app_log_rotation_hours,
+        app_log_retention_days=args.app_log_retention_days,
         simulation_enabled=args.simulation_enabled,
         simulation_max_concurrency=args.simulation_max_concurrency,
         simulation_timeout_ms=args.simulation_timeout_ms,

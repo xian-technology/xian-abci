@@ -6,6 +6,7 @@ from loguru import logger
 from xian_runtime_types.encoding import convert_dict, safe_repr
 from xian_runtime_types.time import Datetime
 
+from xian.app_logging import build_log_fields
 from xian.parallel_planner import TransactionAccess
 from xian.utils.block import nanoseconds_to_utc_datetime
 from xian.utils.tx import tx_hash_from_tx
@@ -118,7 +119,13 @@ class TxProcessor:
                 )
             return response
         except Exception as e:
-            logger.error(e)
+            logger.bind(
+                **build_log_fields(
+                    stage="process_tx",
+                    tx=tx,
+                    extra={"error_type": type(e).__name__},
+                )
+            ).exception("Transaction processing failed unexpectedly")
             response = {
                 "tx_result": None,
                 "stamp_rewards_amount": 0,
@@ -146,7 +153,16 @@ class TxProcessor:
         self, transaction, stamp_cost, environment: dict = {}, metering=False
     ):
         if self.trace_logging:
-            logger.debug("Executing transaction...")
+            logger.bind(
+                **build_log_fields(
+                    stage="execute_tx",
+                    tx=transaction,
+                    extra={
+                        "stamp_cost": stamp_cost,
+                        "metering": metering,
+                    },
+                )
+            ).debug("Executing transaction")
         started_ns = time.perf_counter_ns()
 
         try:
@@ -163,22 +179,21 @@ class TxProcessor:
                 metering=metering,
             )
         except (TypeError, ValueError) as err:
-            import traceback
-
-            traceback.print_exc()
-            logger.error(err)
-            logger.debug(
-                {
-                    "transaction": transaction,
-                    "sender": transaction["payload"]["sender"],
-                    "contract_name": transaction["payload"]["contract"],
-                    "function_name": transaction["payload"]["function"],
-                    "stamps": transaction["payload"]["stamps_supplied"],
-                    "stamp_cost": stamp_cost,
-                    "kwargs": convert_dict(transaction["payload"]["kwargs"]),
-                    "environment": environment,
-                    "auto_commit": False,
-                }
+            logger.bind(
+                **build_log_fields(
+                    stage="execute_tx",
+                    tx=transaction,
+                    extra={
+                        "stamp_cost": stamp_cost,
+                        "stamps_supplied": transaction["payload"][
+                            "stamps_supplied"
+                        ],
+                        "metering": metering,
+                        "error_type": type(err).__name__,
+                    },
+                )
+            ).exception(
+                "Transaction execution failed before producing an executor result"
             )
             return None
         finally:
@@ -201,14 +216,30 @@ class TxProcessor:
         started_ns = time.perf_counter_ns()
         try:
             if self.trace_logging:
-                logger.debug(f"status code = {output['status_code']}")
+                logger.bind(
+                    **build_log_fields(
+                        stage="process_tx_output",
+                        tx=transaction,
+                        status=output["status_code"],
+                        extra={
+                            "stamps_used": output["stamps_used"],
+                            "write_count": len(output["writes"]),
+                        },
+                    )
+                ).debug("Processing executor output")
             if output["status_code"] > 0:
-                logger.error(
-                    f"TX executed unsuccessfully. "
-                    f"{output['stamps_used']} stamps used. "
-                    f"{len(output['writes'])} writes. "
-                    f"Result = {output['result']}"
-                )
+                logger.bind(
+                    **build_log_fields(
+                        stage="process_tx_output",
+                        tx=transaction,
+                        status=output["status_code"],
+                        extra={
+                            "stamps_used": output["stamps_used"],
+                            "write_count": len(output["writes"]),
+                            "result": safe_repr(output["result"]),
+                        },
+                    )
+                ).warning("Transaction execution returned a non-zero status")
 
             tx_hash = tx_hash_from_tx(transaction)
 
@@ -258,6 +289,21 @@ class TxProcessor:
                 "rewards": rewards if rewards else None,
                 "reward_records": reward_records or None,
             }
+
+            if self.trace_logging:
+                logger.bind(
+                    **build_log_fields(
+                        stage="tx_result",
+                        tx=transaction,
+                        tx_hash=tx_hash,
+                        status=output["status_code"],
+                        extra={
+                            "stamps_used": output["stamps_used"],
+                            "state_write_count": len(writes),
+                            "event_count": len(output["events"]),
+                        },
+                    )
+                ).debug("Produced transaction result")
 
             return {
                 "tx_result": tx_output,

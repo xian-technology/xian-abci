@@ -8,6 +8,7 @@ from xian.node_setup import (
     generate_validator_material,
     materialize_cometbft_home,
     render_cometbft_config,
+    resolve_app_logging_settings,
     resolve_simulation_settings,
     resolve_statesync_settings,
 )
@@ -29,6 +30,11 @@ class NodeSetupTests(unittest.TestCase):
             parallel_execution_enabled=True,
             parallel_execution_workers=4,
             parallel_execution_min_transactions=12,
+            transaction_trace_logging=True,
+            app_log_level="debug",
+            app_log_json=True,
+            app_log_rotation_hours=6,
+            app_log_retention_days=14,
             allow_cors=False,
         )
 
@@ -46,6 +52,11 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(config["xian"]["pruning_enabled"])
         self.assertEqual(config["xian"]["blocks_to_keep"], 5000)
         self.assertEqual(config["xian"]["tracer_mode"], "python_line_v1")
+        self.assertTrue(config["xian"]["transaction_trace_logging"])
+        self.assertEqual(config["xian"]["app_log_level"], "DEBUG")
+        self.assertTrue(config["xian"]["app_log_json"])
+        self.assertEqual(config["xian"]["app_log_rotation_hours"], 6)
+        self.assertEqual(config["xian"]["app_log_retention_days"], 14)
         self.assertTrue(config["xian"]["simulation_enabled"])
         self.assertEqual(config["xian"]["simulation_max_concurrency"], 3)
         self.assertEqual(config["xian"]["simulation_timeout_ms"], 2500)
@@ -144,6 +155,28 @@ class NodeSetupTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             resolve_simulation_settings(max_stamps=0)
+
+    def test_resolve_app_logging_settings_normalizes_and_validates(self):
+        resolved = resolve_app_logging_settings(
+            level="warning",
+            json_logging=True,
+            rotation_hours=2,
+            retention_days=9,
+        )
+
+        self.assertEqual(resolved["level"], "WARNING")
+        self.assertTrue(resolved["json"])
+        self.assertEqual(resolved["rotation_hours"], 2)
+        self.assertEqual(resolved["retention_days"], 9)
+
+        with self.assertRaisesRegex(ValueError, "app_log_level"):
+            resolve_app_logging_settings(level="verbose")
+
+        with self.assertRaisesRegex(ValueError, "rotation_hours"):
+            resolve_app_logging_settings(rotation_hours=0)
+
+        with self.assertRaisesRegex(ValueError, "retention_days"):
+            resolve_app_logging_settings(retention_days=0)
 
     def test_resolve_statesync_settings_rejects_incomplete_config(self):
         with self.assertRaisesRegex(ValueError, "at least two RPC servers"):

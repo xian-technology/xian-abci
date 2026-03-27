@@ -4,6 +4,7 @@ from loguru import logger
 
 from cometbft.abci.v1beta2.types_pb2 import Event, EventAttribute
 from cometbft.abci.v1beta3.types_pb2 import ExecTxResult, ResponseFinalizeBlock
+from xian.app_logging import build_log_fields
 from xian.constants import Constants as c
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.utils.block import (
@@ -26,8 +27,8 @@ from xian.utils.tx import (
 STATE_CHANGE_TRANSLATION_TABLE = str.maketrans({".": "_", ":": "__"})
 
 
-def _error_tx_result(message: str) -> ExecTxResult:
-    logger.error(message)
+def _error_tx_result(message: str, **log_context) -> ExecTxResult:
+    logger.bind(**build_log_fields(**log_context)).error(message)
     return ExecTxResult(
         code=c.ErrorCode,
         data=json.dumps({"error": message}).encode(),
@@ -53,6 +54,14 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         "chain_id": self.chain_id,
     }
     self.tx_processor.reset_block_cache()
+    logger.bind(
+        **build_log_fields(
+            stage="finalize_start",
+            block_height=height,
+            block_hash=hash,
+            extra={"tx_count": len(req.txs)},
+        )
+    ).info("Finalizing block")
 
     decoded_entries = []
     nonce_tracker = SequentialNonceTracker(self.nonce_storage.get_nonce)
@@ -65,7 +74,11 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                     {
                         "tx_bytes": tx_bytes,
                         "error": _error_tx_result(
-                            f"Error decoding transaction: {e}"
+                            f"Error decoding transaction: {e}",
+                            stage="finalize_decode",
+                            raw_tx=tx_bytes,
+                            block_height=height,
+                            block_hash=hash,
                         ),
                     }
                 )
@@ -82,7 +95,12 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                     {
                         "tx_bytes": tx_bytes,
                         "error": _error_tx_result(
-                            f"Invalid transaction in block: {e}"
+                            f"Invalid transaction in block: {e}",
+                            stage="finalize_decode",
+                            tx=tx,
+                            raw_tx=tx_bytes,
+                            block_height=height,
+                            block_hash=hash,
                         ),
                     }
                 )
@@ -93,6 +111,19 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
             decoded_entries.append({"tx": tx, "tx_bytes": tx_bytes})
 
     decoded_txs = [entry["tx"] for entry in decoded_entries if "tx" in entry]
+    logger.bind(
+        **build_log_fields(
+            stage="finalize_decode",
+            block_height=height,
+            block_hash=hash,
+            extra={
+                "decoded_tx_count": len(decoded_txs),
+                "rejected_tx_count": sum(
+                    1 for entry in decoded_entries if "error" in entry
+                ),
+            },
+        )
+    ).info("Finished block transaction validation")
     processed_results = None
 
     with self.profiler.scope("finalize_parallel", block_scoped=True):
@@ -114,12 +145,24 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
             parallel_speculative_accepted=parallel_stats.speculative_accepted,
             parallel_serial_fallbacks=parallel_stats.serial_fallbacks,
         )
-        logger.info(
-            "Parallel block execution accepted "
-            f"{parallel_stats.speculative_accepted}/{len(decoded_txs)} "
-            f"speculative results with {parallel_stats.serial_fallbacks} "
-            f"serial fallbacks across {parallel_stats.planned_stage_count} stages"
-        )
+        logger.bind(
+            **build_log_fields(
+                stage="finalize_parallel",
+                block_height=height,
+                block_hash=hash,
+                extra={
+                    "speculative_accepted": (
+                        parallel_stats.speculative_accepted
+                    ),
+                    "decoded_tx_count": len(decoded_txs),
+                    "serial_fallbacks": parallel_stats.serial_fallbacks,
+                    "planned_stage_count": (
+                        parallel_stats.planned_stage_count
+                    ),
+                    "worker_count": parallel_stats.worker_count,
+                },
+            )
+        ).info("Parallel block execution summary")
 
     processed_iter = iter(processed_results or [])
 
@@ -142,14 +185,30 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         track_access=False,
                     )
             except Exception as e:
-                tx_results.append(_error_tx_result(f"Error processing tx: {e}"))
+                tx_results.append(
+                    _error_tx_result(
+                        f"Error processing tx: {e}",
+                        stage="finalize_tx_loop",
+                        tx=tx,
+                        raw_tx=tx_bytes,
+                        block_height=height,
+                        block_hash=hash,
+                        tx_index=block_tx_index,
+                    )
+                )
                 continue
 
             tx_result = result.get("tx_result")
             if tx_result is None:
                 tx_results.append(
                     _error_tx_result(
-                        "Transaction processor returned no tx_result"
+                        "Transaction processor returned no tx_result",
+                        stage="finalize_tx_loop",
+                        tx=tx,
+                        raw_tx=tx_bytes,
+                        block_height=height,
+                        block_hash=hash,
+                        tx_index=block_tx_index,
                     )
                 )
                 continue
@@ -159,14 +218,35 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
             if not tx_hash:
                 tx_results.append(
                     _error_tx_result(
-                        "Transaction processor returned no tx hash"
+                        "Transaction processor returned no tx hash",
+                        stage="finalize_tx_loop",
+                        tx=tx,
+                        raw_tx=tx_bytes,
+                        block_height=height,
+                        block_hash=hash,
+                        tx_index=block_tx_index,
                     )
                 )
                 continue
             self.fingerprint_hashes.append(tx_hash)
             parsed_tx_result = encode_abci_json(tx_result)
             if self.transaction_trace_logging:
-                logger.debug(f"Parsed tx result: {parsed_tx_result.decode()}")
+                logger.bind(
+                    **build_log_fields(
+                        stage="finalize_tx_result",
+                        tx=tx,
+                        tx_hash=tx_hash,
+                        block_height=height,
+                        block_hash=hash,
+                        tx_index=block_tx_index,
+                        status=tx_result["status"],
+                        extra={
+                            "stamps_used": tx_result["stamps_used"],
+                            "state_write_count": len(tx_result["state"]),
+                            "event_count": len(tx_result.get("events", [])),
+                        },
+                    )
+                ).debug(parsed_tx_result.decode())
 
             tx_events = []
 
@@ -266,7 +346,14 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                     )
                 )
             except Exception as e:
-                logger.error(f"STATIC REWARD ERROR: {e} for block")
+                logger.bind(
+                    **build_log_fields(
+                        stage="finalize_rewards",
+                        block_height=height,
+                        block_hash=hash,
+                        extra={"error_type": type(e).__name__},
+                    )
+                ).exception("Static reward distribution failed for block")
 
     with self.profiler.scope("finalize_fingerprint", block_scoped=True):
         reward_hash = hash_from_rewards(reward_writes)
@@ -289,9 +376,14 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
             if patch_hash:
                 self.fingerprint_hashes.append(patch_hash)
                 state_patch_applied = True
-                logger.info(
-                    f"Added state patch hash to block fingerprint: {patch_hash}"
-                )
+                logger.bind(
+                    **build_log_fields(
+                        stage="finalize_fingerprint",
+                        block_height=height,
+                        block_hash=hash,
+                        extra={"patch_hash": patch_hash},
+                    )
+                ).info("Added state patch hash to block fingerprint")
 
         # No transactions and no state patches = no change to ABCI state, use previous block hash.
         # Otherwise, compute a new hash from the fingerprint hashes.
@@ -315,9 +407,14 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         )
                     )
                 except Exception as exc:
-                    logger.exception(
-                        f"BDS enqueue failed for block {height}: {exc}"
-                    )
+                    logger.bind(
+                        **build_log_fields(
+                            stage="finalize_bds_enqueue",
+                            block_height=height,
+                            block_hash=hash,
+                            extra={"error_type": type(exc).__name__},
+                        )
+                    ).exception("BDS enqueue failed for block")
 
     self.profiler.set_block_metadata(
         decoded_tx_count=len(decoded_txs),
@@ -325,6 +422,22 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         finalized_tx_result_count=len(tx_results),
         static_reward_writes=len(reward_writes),
     )
+    logger.bind(
+        **build_log_fields(
+            stage="finalize_complete",
+            block_height=height,
+            block_hash=hash,
+            extra={
+                "decoded_tx_count": len(decoded_txs),
+                "rejected_tx_count": sum(
+                    1 for entry in decoded_entries if "error" in entry
+                ),
+                "finalized_tx_result_count": len(tx_results),
+                "reward_write_count": len(reward_writes),
+                "app_hash": self.merkle_root_hash.hex().upper(),
+            },
+        )
+    ).info("Completed block finalization")
 
     return ResponseFinalizeBlock(
         validator_updates=validator_updates,

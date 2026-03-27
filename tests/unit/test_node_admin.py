@@ -149,6 +149,11 @@ blocks_to_keep = 100000
                     metrics_host="0.0.0.0",
                     metrics_port=9208,
                     metrics_bds_refresh_seconds=7.5,
+                    transaction_trace_logging=True,
+                    app_log_level="warning",
+                    app_log_json=True,
+                    app_log_rotation_hours=4,
+                    app_log_retention_days=12,
                     simulation_enabled=False,
                     simulation_max_concurrency=4,
                     simulation_timeout_ms=4500,
@@ -214,6 +219,17 @@ blocks_to_keep = 100000
             self.assertEqual(rendered_config["xian"]["metrics_port"], 9208)
             self.assertEqual(
                 rendered_config["xian"]["metrics_bds_refresh_seconds"], 7.5
+            )
+            self.assertTrue(
+                rendered_config["xian"]["transaction_trace_logging"]
+            )
+            self.assertEqual(rendered_config["xian"]["app_log_level"], "WARNING")
+            self.assertTrue(rendered_config["xian"]["app_log_json"])
+            self.assertEqual(
+                rendered_config["xian"]["app_log_rotation_hours"], 4
+            )
+            self.assertEqual(
+                rendered_config["xian"]["app_log_retention_days"], 12
             )
             self.assertFalse(rendered_config["xian"]["simulation_enabled"])
             self.assertEqual(

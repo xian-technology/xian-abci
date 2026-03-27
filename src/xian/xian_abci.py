@@ -1,11 +1,10 @@
 import asyncio
 import gc
 import importlib
-import os
 import signal
 import sys
 from dataclasses import replace
-from datetime import datetime, timedelta
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from contracting.client import ContractingClient
@@ -13,6 +12,7 @@ from loguru import logger
 
 from abci.server import ABCIServer
 from abci.utils import get_logger
+from xian.app_logging import build_log_fields, configure_logging
 from xian.constants import Constants
 from xian.methods import (
     check_tx,
@@ -46,8 +46,6 @@ from xian.validators import ValidatorHandler
 get_logger("requests").setLevel(30)
 get_logger("urllib3").setLevel(30)
 get_logger("asyncio").setLevel(30)
-
-LOG_RETENTION_DAYS = 3
 
 
 def resolve_local_rpc_url(cometbft_config: dict) -> str:
@@ -195,16 +193,46 @@ class Xian:
         self.state_patch_manager = StatePatchManager(self.client.raw_driver)
 
         # Set up the state patches file path
-        start_path = os.path.dirname(os.path.realpath(__file__))
-        patch_file_path = os.path.join(
-            start_path, "tools", "state_patches", "state_patches.json"
+        patch_file_path = (
+            Path(__file__).resolve().parent
+            / "tools"
+            / "state_patches"
+            / "state_patches.json"
         )
 
-        if os.path.exists(patch_file_path):
-            logger.info(f"Loading state patches from: {patch_file_path}")
-            self.state_patch_manager.load_patches(patch_file_path)
+        logger.bind(
+            **build_log_fields(
+                stage="startup",
+                extra={
+                    "chain_id": self.chain_id,
+                    "tracer_mode": self.tracer_mode,
+                    "service_node": self.block_service_mode,
+                    "simulation_enabled": self.simulator.enabled,
+                    "parallel_execution_enabled": (
+                        self.parallel_block_executor.enabled
+                    ),
+                    "transaction_trace_logging": (
+                        self.transaction_trace_logging
+                    ),
+                },
+            )
+        ).info("Initialized Xian runtime")
+
+        if patch_file_path.exists():
+            logger.bind(
+                **build_log_fields(
+                    stage="startup",
+                    extra={"state_patch_file": str(patch_file_path)},
+                )
+            ).info("Loading configured state patches")
+            self.state_patch_manager.load_patches(str(patch_file_path))
         else:
-            logger.warning(f"No state patches file found at {patch_file_path}")
+            logger.bind(
+                **build_log_fields(
+                    stage="startup",
+                    extra={"state_patch_file": str(patch_file_path)},
+                )
+            ).warning("No state patches file found")
             # Initialize with empty patches but still mark as loaded
             self.state_patch_manager.loaded = True
 
@@ -338,56 +366,15 @@ class Xian:
         if self.block_service_mode and hasattr(self, "bds"):
             await self.bds.close()
 
-
-def cleanup_old_logs(logs_dir: str, days: int = 3):
-    """Clean up log files older than specified days on startup"""
-    try:
-        threshold = datetime.now() - timedelta(days=days)
-        for f in os.listdir(logs_dir):
-            if not f.endswith(".log"):
-                continue
-
-            file_path = os.path.join(logs_dir, f)
-            file_time = datetime.fromtimestamp(os.path.getctime(file_path))
-
-            if file_time < threshold:
-                try:
-                    os.remove(file_path)
-                    logger.debug(f"Removed old log file: {f}")
-                except OSError as e:
-                    logger.error(f"Error removing old log file {f}: {e}")
-    except Exception as e:
-        logger.error(f"Error during log cleanup: {e}")
-
-
 def main():
-    logger.remove()
-    logger.add(sys.stderr, level="DEBUG")
-
-    start_path = os.path.dirname(os.path.realpath(__file__))
-    log_path = os.path.realpath(os.path.join(start_path, "..", ".."))
-    logs_dir = os.path.join(log_path, "logs")
-
-    os.makedirs(logs_dir, exist_ok=True)
-
-    # Clean up old logs on startup
-    cleanup_old_logs(logs_dir, days=LOG_RETENTION_DAYS)
-
-    logger.add(
-        os.path.join(log_path, "logs", "{time}.log"),
-        retention=timedelta(days=LOG_RETENTION_DAYS),
-        rotation=timedelta(hours=1),
-        format="{time} {level} {name} {message}",
-        level="DEBUG",
-        enqueue=True,
-        compression="zip",  # Compress old logs
-    )
+    constants = Constants()
+    configure_logging(constants)
 
     # Register signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
-    app = asyncio.run(Xian.create())
+    app = asyncio.run(Xian.create(constants=constants))
     ABCIServer(app=app).run()
 
 

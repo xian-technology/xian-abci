@@ -138,6 +138,11 @@ metrics_enabled = true
 metrics_host = "127.0.0.1"
 metrics_port = 9108
 metrics_bds_refresh_seconds = 5.0
+transaction_trace_logging = false
+app_log_level = "INFO"
+app_log_json = false
+app_log_rotation_hours = 1
+app_log_retention_days = 7
 simulation_enabled = true
 simulation_max_concurrency = 2
 simulation_timeout_ms = 3000
@@ -165,6 +170,15 @@ disk_free_warn_bytes = 2147483648
 """.strip()
 
 SUPPORTED_BLOCK_POLICY_MODES = {"on_demand", "idle_interval", "periodic"}
+SUPPORTED_APP_LOG_LEVELS = {
+    "TRACE",
+    "DEBUG",
+    "INFO",
+    "SUCCESS",
+    "WARNING",
+    "ERROR",
+    "CRITICAL",
+}
 
 
 def resolve_block_policy(
@@ -221,6 +235,33 @@ def resolve_simulation_settings(
         "max_concurrency": max_concurrency,
         "timeout_ms": timeout_ms,
         "max_stamps": max_stamps,
+    }
+
+
+def resolve_app_logging_settings(
+    *,
+    level: str = "INFO",
+    json_logging: bool = False,
+    rotation_hours: int = 1,
+    retention_days: int = 7,
+) -> dict[str, Any]:
+    if not isinstance(level, str):
+        raise ValueError("app_log_level must be a string")
+    normalized_level = level.upper()
+    if normalized_level not in SUPPORTED_APP_LOG_LEVELS:
+        raise ValueError(
+            "app_log_level must be one of "
+            f"{sorted(SUPPORTED_APP_LOG_LEVELS)}"
+        )
+    if rotation_hours <= 0:
+        raise ValueError("app_log_rotation_hours must be greater than zero")
+    if retention_days <= 0:
+        raise ValueError("app_log_retention_days must be greater than zero")
+    return {
+        "level": normalized_level,
+        "json": bool(json_logging),
+        "rotation_hours": rotation_hours,
+        "retention_days": retention_days,
     }
 
 
@@ -371,6 +412,11 @@ def render_cometbft_config(
     metrics_host: str = "127.0.0.1",
     metrics_port: int = 9108,
     metrics_bds_refresh_seconds: float = 5.0,
+    transaction_trace_logging: bool = False,
+    app_log_level: str = "INFO",
+    app_log_json: bool = False,
+    app_log_rotation_hours: int = 1,
+    app_log_retention_days: int = 7,
     simulation_enabled: bool = True,
     simulation_max_concurrency: int = 2,
     simulation_timeout_ms: int = 3000,
@@ -409,6 +455,12 @@ def render_cometbft_config(
         trust_period=statesync_trust_period,
     )
     resolved_tracer_mode = resolve_tracer_mode(tracer_mode)
+    resolved_app_logging = resolve_app_logging_settings(
+        level=app_log_level,
+        json_logging=app_log_json,
+        rotation_hours=app_log_rotation_hours,
+        retention_days=app_log_retention_days,
+    )
     resolved_simulation = resolve_simulation_settings(
         enabled=simulation_enabled,
         max_concurrency=simulation_max_concurrency,
@@ -438,6 +490,11 @@ def render_cometbft_config(
         "metrics_host": metrics_host,
         "metrics_port": metrics_port,
         "metrics_bds_refresh_seconds": metrics_bds_refresh_seconds,
+        "transaction_trace_logging": transaction_trace_logging,
+        "app_log_level": resolved_app_logging["level"],
+        "app_log_json": resolved_app_logging["json"],
+        "app_log_rotation_hours": resolved_app_logging["rotation_hours"],
+        "app_log_retention_days": resolved_app_logging["retention_days"],
         "simulation_enabled": resolved_simulation["enabled"],
         "simulation_max_concurrency": resolved_simulation["max_concurrency"],
         "simulation_timeout_ms": resolved_simulation["timeout_ms"],

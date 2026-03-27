@@ -14,6 +14,7 @@ from loguru import logger
 from xian_runtime_types.encoding import convert_dict, safe_repr
 from xian_runtime_types.time import Datetime
 
+from xian.app_logging import build_log_fields
 from xian.utils.block import (
     get_latest_block_nanos,
     nanoseconds_to_utc_datetime,
@@ -94,7 +95,13 @@ class TransactionSimulator:
                 max_stamps=max_stamps,
             )
         except Exception as exc:
-            logger.error(f"Simulation failed: {exc}")
+            logger.bind(
+                **build_log_fields(
+                    stage="simulate_tx",
+                    payload=normalized_payload,
+                    extra={"error_type": type(exc).__name__},
+                )
+            ).error("Simulation failed: {}", exc)
             return _simulation_error_result(
                 payload=normalized_payload,
                 message=f"Simulation error: {exc}",
@@ -284,6 +291,12 @@ class QuerySimulationService:
             )
 
         if not self.enabled:
+            logger.bind(
+                **build_log_fields(
+                    stage="simulate_tx",
+                    payload=normalized_payload,
+                )
+            ).info("Rejected readonly simulation because it is disabled")
             return _simulation_error_result(
                 payload=normalized_payload,
                 message="Simulation is disabled on this node",
@@ -291,6 +304,18 @@ class QuerySimulationService:
 
         async with self._counter_lock:
             if self._active_requests >= self.max_concurrency:
+                logger.bind(
+                    **build_log_fields(
+                        stage="simulate_tx",
+                        payload=normalized_payload,
+                        extra={
+                            "active_requests": self._active_requests,
+                            "simulation_max_concurrency": (
+                                self.max_concurrency
+                            ),
+                        },
+                    )
+                ).warning("Rejected readonly simulation because capacity is exhausted")
                 return _simulation_error_result(
                     payload=normalized_payload,
                     message=(
@@ -323,6 +348,13 @@ class QuerySimulationService:
             )
         except asyncio.TimeoutError:
             await self._terminate_process(process)
+            logger.bind(
+                **build_log_fields(
+                    stage="simulate_tx",
+                    payload=payload,
+                    extra={"simulation_timeout_ms": self.timeout_ms},
+                )
+            ).warning("Readonly simulation timed out")
             return _simulation_error_result(
                 payload=payload,
                 message=(
@@ -331,7 +363,13 @@ class QuerySimulationService:
                 ),
             )
         except Exception as exc:
-            logger.error(f"Simulation worker failed: {exc}")
+            logger.bind(
+                **build_log_fields(
+                    stage="simulate_tx",
+                    payload=payload,
+                    extra={"error_type": type(exc).__name__},
+                )
+            ).error("Simulation worker failed: {}", exc)
             return _simulation_error_result(
                 payload=payload,
                 message=f"Simulation error: {exc}",
