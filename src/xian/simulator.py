@@ -315,7 +315,9 @@ class QuerySimulationService:
                             ),
                         },
                     )
-                ).warning("Rejected readonly simulation because capacity is exhausted")
+                ).warning(
+                    "Rejected readonly simulation because capacity is exhausted"
+                )
                 return _simulation_error_result(
                     payload=normalized_payload,
                     message=(

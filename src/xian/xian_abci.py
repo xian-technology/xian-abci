@@ -128,7 +128,9 @@ class Xian:
                 60.0,
             ),
         )
-        self.app_log_level = str(xian_config.get("app_log_level", "INFO")).upper()
+        self.app_log_level = str(
+            xian_config.get("app_log_level", "INFO")
+        ).upper()
         self.transaction_trace_logging = xian_config.get(
             "transaction_trace_logging", False
         )
@@ -384,6 +386,7 @@ class Xian:
         await self.metrics_service.close()
         if self.block_service_mode and hasattr(self, "bds"):
             await self.bds.close()
+
 
 def main():
     constants = Constants()

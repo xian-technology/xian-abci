@@ -156,9 +156,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                     ),
                     "decoded_tx_count": len(decoded_txs),
                     "serial_fallbacks": parallel_stats.serial_fallbacks,
-                    "planned_stage_count": (
-                        parallel_stats.planned_stage_count
-                    ),
+                    "planned_stage_count": (parallel_stats.planned_stage_count),
                     "worker_count": parallel_stats.worker_count,
                 },
             )

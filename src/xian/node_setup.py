@@ -250,8 +250,7 @@ def resolve_app_logging_settings(
     normalized_level = level.upper()
     if normalized_level not in SUPPORTED_APP_LOG_LEVELS:
         raise ValueError(
-            "app_log_level must be one of "
-            f"{sorted(SUPPORTED_APP_LOG_LEVELS)}"
+            f"app_log_level must be one of {sorted(SUPPORTED_APP_LOG_LEVELS)}"
         )
     if rotation_hours <= 0:
         raise ValueError("app_log_rotation_hours must be greater than zero")

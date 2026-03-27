@@ -148,8 +148,7 @@ def log_level_includes(configured_level: str, target_level: str) -> bool:
     target_rank = _APP_LOG_LEVEL_ORDER.get(normalized_target)
     if configured_rank is None or target_rank is None:
         raise ValueError(
-            "log levels must be one of "
-            f"{list(_APP_LOG_LEVEL_ORDER.keys())}"
+            f"log levels must be one of {list(_APP_LOG_LEVEL_ORDER.keys())}"
         )
     return configured_rank <= target_rank
 
