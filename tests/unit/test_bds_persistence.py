@@ -1,6 +1,9 @@
 import json
 import unittest
 from datetime import UTC, datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from xian.services.bds import sql
 from xian.services.bds.bds import BDS
@@ -52,7 +55,44 @@ class _FakePool:
         return _FakeAcquireContext(self.connection)
 
 
+class _FakeCatchupRpcClient:
+    def __init__(self, rpc_url: str):
+        self.rpc_url = rpc_url
+
+
+class _FakeCatchupReindexer:
+    def __init__(self, *, bds, block_source, state_patch_manager):
+        self.bds = bds
+        self.block_source = block_source
+        self.state_patch_manager = state_patch_manager
+
+
 class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ensure_catchup_runtime_loads_empty_patch_inventory(self):
+        bds = BDS(BdsConfig())
+
+        with TemporaryDirectory() as temp_dir:
+            missing_patch_dir = Path(temp_dir) / "missing-state-patches"
+            with (
+                patch(
+                    "xian.services.bds.reindex.CometBftRpcClient",
+                    _FakeCatchupRpcClient,
+                ),
+                patch(
+                    "xian.services.bds.reindex.BdsReindexer",
+                    _FakeCatchupReindexer,
+                ),
+                patch(
+                    "xian.utils.state_patches.resolve_state_patch_dir",
+                    return_value=missing_patch_dir,
+                ),
+            ):
+                await bds._ensure_catchup_runtime()
+
+        self.assertIsNotNone(bds._reindexer)
+        self.assertTrue(bds._reindexer.state_patch_manager.loaded)
+        self.assertEqual(bds._reindexer.state_patch_manager.local_bundles, {})
+
     async def test_process_genesis_block_serializes_jsonb_columns(self):
         bds = BDS(BdsConfig())
         connection = _FakeConnection()

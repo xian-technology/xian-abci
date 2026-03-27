@@ -17,6 +17,28 @@ from xian.genesis_builder import (
 
 
 class GenesisBuilderTests(unittest.TestCase):
+    def test_local_contract_bundle_seeds_governed_zk_registry(self):
+        founder_private_key = (
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        )
+        contracts_dir = (
+            Path(__file__).resolve().parents[3]
+            / "xian-configs"
+            / "contracts"
+        )
+
+        genesis_block = build_genesis_block(
+            founder_private_key=founder_private_key,
+            network="local",
+            contracts_dir=contracts_dir,
+        )
+
+        state_by_key = {
+            entry["key"]: entry["value"] for entry in genesis_block["genesis"]
+        }
+        self.assertIn("zk_registry.__code__", state_by_key)
+        self.assertEqual(state_by_key["zk_registry.registry_owner"], "governance")
+
     def test_build_genesis_block_uses_importable_contract_bundle(self):
         founder_private_key = (
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"

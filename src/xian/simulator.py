@@ -11,7 +11,7 @@ from pathlib import Path
 from contracting.client import ContractingClient
 from contracting.execution.executor import Executor
 from loguru import logger
-from xian_runtime_types.encoding import convert_dict, safe_repr
+from xian_runtime_types.encoding import convert_dict
 from xian_runtime_types.time import Datetime
 
 from xian.app_logging import build_log_fields
@@ -19,7 +19,7 @@ from xian.utils.block import (
     get_latest_block_nanos,
     nanoseconds_to_utc_datetime,
 )
-from xian.utils.encoding import stringify_decimals
+from xian.utils.encoding import normalize_for_abci_json, stringify_decimals
 from xian.utils.tx import format_dictionary
 
 
@@ -165,7 +165,7 @@ class TransactionSimulator:
                 "status": output["status_code"],
                 "state": writes,
                 "stamps_used": output["stamps_used"],
-                "result": safe_repr(output["result"]),
+                "result": normalize_for_abci_json(output["result"]),
             }
             return stringify_decimals(format_dictionary(result))
         finally:

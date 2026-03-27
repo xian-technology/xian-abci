@@ -1037,8 +1037,9 @@ requires-dist = [
     { name = "pynacl", specifier = ">=1.5.0,<2" },
     { name = "xian-native-tracer", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-native-tracer" },
     { name = "xian-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
+    { name = "xian-zk", marker = "extra == 'zk'", editable = "../xian-contracting/packages/xian-zk" },
 ]
-provides-extras = ["native"]
+provides-extras = ["native", "zk"]
 
 [package.metadata.requires-dev]
 dev = [

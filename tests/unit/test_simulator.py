@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from xian.simulator import QuerySimulationService, TransactionSimulator
 from xian.utils.block import set_latest_block_nanos
+from xian_runtime_types.time import Datetime
 
 
 class SimulatorTests(unittest.TestCase):
@@ -104,6 +105,53 @@ class SimulatorTests(unittest.TestCase):
 
             self.assertEqual(left["block_hash"], right["block_hash"])
             self.assertNotEqual(left["__input_hash"], right["__input_hash"])
+
+    def test_execute_normalizes_structured_result_for_abci(self):
+        simulator = object.__new__(TransactionSimulator)
+        simulator.client = SimpleNamespace(
+            raw_driver=SimpleNamespace(
+                pending_writes={},
+                pending_reads={},
+                pending_deltas={},
+                transaction_reads={},
+                transaction_read_prefixes=set(),
+                transaction_writes={},
+                log_events=[],
+            ),
+            get_var=lambda **kwargs: 20,
+        )
+        simulator.executor = SimpleNamespace(
+            execute=lambda **kwargs: {
+                "status_code": 0,
+                "writes": {},
+                "stamps_used": 255,
+                "result": {
+                    "account": "alice",
+                    "registered_at": Datetime(2026, 3, 27, 21, 57, 0),
+                    "left_at": None,
+                },
+            }
+        )
+        simulator._make_environment = lambda payload, block_meta=None: {}
+
+        result = simulator._execute(
+            {
+                "sender": "alice",
+                "contract": "masternodes",
+                "function": "get_validator",
+                "kwargs": {"account": "alice"},
+            }
+        )
+
+        self.assertEqual(result["status"], 0)
+        self.assertEqual(
+            result["result"],
+            {
+                "account": "alice",
+                "registered_at": "2026-03-27 21:57:00",
+                "left_at": None,
+            },
+        )
 
 
 class _TestQuerySimulationService(QuerySimulationService):

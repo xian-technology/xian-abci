@@ -481,8 +481,7 @@ class BDS:
 
         state_patch_manager = StatePatchManager(self.raw_driver)
         patch_dir_path = resolve_state_patch_dir(Constants)
-        if patch_dir_path.exists():
-            state_patch_manager.load_patches(str(patch_dir_path))
+        state_patch_manager.load_patches(str(patch_dir_path))
         self._block_source = CometBftRpcClient(self.config.rpc_url)
         self._reindexer = BdsReindexer(
             bds=self,
