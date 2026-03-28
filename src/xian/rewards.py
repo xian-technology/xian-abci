@@ -65,10 +65,9 @@ class RewardsHandler:
     def build_masternode_reward_outputs(
         self, total_stamps_to_split, participant_ratio, masternodes
     ):
-        masternode_total = (
-            self._as_decimal(total_stamps_to_split)
-            * self._as_decimal(participant_ratio)
-        )
+        masternode_total = self._as_decimal(
+            total_stamps_to_split
+        ) * self._as_decimal(participant_ratio)
 
         weighted_nodes = []
         for masternode in masternodes:
@@ -91,7 +90,9 @@ class RewardsHandler:
         reward_records = []
         allocated = decimal.Decimal("0")
 
-        for index, (masternode, reward_key, weight) in enumerate(weighted_nodes):
+        for index, (masternode, reward_key, weight) in enumerate(
+            weighted_nodes
+        ):
             if index == len(weighted_nodes) - 1:
                 share = masternode_total - allocated
             else:
@@ -296,9 +297,7 @@ class RewardsHandler:
             recipient_key = record["recipient_key"]
             existing_amount = rewards["masternode_reward"].get(recipient_key)
             if existing_amount is None:
-                rewards["masternode_reward"][recipient_key] = (
-                    masternode_amount
-                )
+                rewards["masternode_reward"][recipient_key] = masternode_amount
             else:
                 rewards["masternode_reward"][recipient_key] = (
                     existing_amount + masternode_amount
@@ -367,7 +366,9 @@ class RewardsHandler:
         stamp_cost = driver.get("stamp_cost.S:value")
         foundation_reward /= stamp_cost
 
-        rewards = self._distribute_masternode_rewards(driver, masternode_mapping, stamp_cost)
+        rewards = self._distribute_masternode_rewards(
+            driver, masternode_mapping, stamp_cost
+        )
         rewards.append(
             self._distribute_foundation_reward(driver, foundation_reward)
         )
