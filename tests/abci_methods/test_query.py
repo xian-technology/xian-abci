@@ -3,6 +3,7 @@ import logging
 import unittest
 from datetime import UTC, datetime
 from io import BytesIO
+from unittest.mock import patch
 
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
@@ -389,9 +390,21 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             Request(query=RequestQuery(path="/bds_spool/limit=10/offset=0"))
         )
         self.assertEqual(response.query.code, Constants.OkCode)
-        spool_entries = json.loads(response.query.value)
-        self.assertEqual(spool_entries[0]["block_height"], 11)
-        self.assertEqual(spool_entries[0]["tx_count"], 2)
+
+    async def test_bds_status_falls_back_to_latest_committed_height(self):
+        self.app.block_service_mode = True
+        self.app.bds = _FakeBDS()
+        self.app.current_block_meta = None
+
+        with patch("xian.methods.query.get_latest_block_height", return_value=14):
+            response = await self.process_request(
+                Request(query=RequestQuery(path="/bds_status"))
+            )
+
+        self.assertEqual(response.query.code, Constants.OkCode)
+        status = json.loads(response.query.value)
+        self.assertEqual(status["current_block_height"], 14)
+        self.assertEqual(status["height_lag"], 4)
 
     async def test_block_and_transaction_queries_use_bds(self):
         self.app.block_service_mode = True

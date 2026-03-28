@@ -421,6 +421,9 @@ class BDS:
                 }
             )
 
+        has_spool_backlog = len(pending_spool) > 0
+        has_height_lag = isinstance(height_lag, int) and height_lag > 0
+
         return {
             "worker_running": self._worker_task is not None
             and not self._worker_task.done(),
@@ -445,9 +448,7 @@ class BDS:
             "indexed": indexed,
             "current_block_height": current_block_height,
             "height_lag": height_lag,
-            "catching_up": bool(pending_spool)
-            or bool(self._pending_payloads)
-            or (isinstance(height_lag, int) and height_lag > 0),
+            "catching_up": has_spool_backlog or has_height_lag,
             "alerts": alerts,
         }
 

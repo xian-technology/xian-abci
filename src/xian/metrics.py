@@ -10,6 +10,8 @@ from loguru import logger
 from prometheus_client import CollectorRegistry, start_http_server
 from prometheus_client.core import GaugeMetricFamily, InfoMetricFamily
 
+from xian.utils.block import get_latest_block_height
+
 
 @dataclass(frozen=True)
 class MetricsConfig:
@@ -355,6 +357,8 @@ class MetricsService:
             current_height = None
             if isinstance(self.app.current_block_meta, dict):
                 current_height = self.app.current_block_meta.get("height")
+            if current_height is None:
+                current_height = get_latest_block_height()
             self.last_bds_status = await self.app.bds.get_status(
                 current_block_height=current_height
             )

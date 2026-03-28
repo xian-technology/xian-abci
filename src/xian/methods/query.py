@@ -4,6 +4,7 @@ from xian_runtime_types.decimal import ContractingDecimal
 
 from cometbft.abci.v1beta1.types_pb2 import ResponseQuery
 from xian.constants import Constants as c
+from xian.utils.block import get_latest_block_height
 from xian.utils.encoding import encode_abci_json, encode_str
 
 
@@ -138,6 +139,8 @@ async def query(self, req) -> ResponseQuery:
                     height = self.current_block_meta.get("height")
                     if isinstance(height, int):
                         current_height = height
+                if current_height is None:
+                    current_height = get_latest_block_height()
                 result = await self.bds.get_status(
                     current_block_height=current_height
                 )
