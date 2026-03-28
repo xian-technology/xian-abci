@@ -2,7 +2,9 @@ import base64
 import hashlib
 import json
 import unittest
+from unittest.mock import patch
 
+from xian.dashboard import cli
 from xian.dashboard.app import (
     SubscriptionManager,
     _decode_block_tx_entry,
@@ -87,3 +89,23 @@ class DashboardTests(unittest.TestCase):
             decoded["tx_hash"],
             hashlib.sha256(base64.b64decode(raw_b64)).hexdigest().upper(),
         )
+
+    def test_cli_main_runs_dashboard_app(self) -> None:
+        with (
+            patch("xian.dashboard.cli.create_app", return_value=object()) as create_app,
+            patch("xian.dashboard.cli.web.run_app") as run_app,
+        ):
+            exit_code = cli.main(
+                [
+                    "--rpc-url",
+                    "http://127.0.0.1:26657",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    "18080",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        create_app.assert_called_once_with("http://127.0.0.1:26657")
+        run_app.assert_called_once()
