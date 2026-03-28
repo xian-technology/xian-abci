@@ -1,6 +1,13 @@
+import base64
+import hashlib
+import json
 import unittest
 
-from xian.dashboard.app import SubscriptionManager, normalize_rpc_url
+from xian.dashboard.app import (
+    SubscriptionManager,
+    _decode_block_tx_entry,
+    normalize_rpc_url,
+)
 
 
 class DashboardTests(unittest.TestCase):
@@ -57,4 +64,26 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(
             set(manager.match_event("currency", "Transfer")),
             {event_client, wildcard_client},
+        )
+
+    def test_decode_block_tx_entry_attaches_canonical_tx_hash(self) -> None:
+        tx = {
+            "payload": {
+                "sender": "alice",
+                "contract": "currency",
+                "function": "transfer",
+                "kwargs": {"amount": 1},
+            },
+            "metadata": {"signature": "deadbeef"},
+        }
+        raw_json = json.dumps(tx, separators=(",", ":")).encode("utf-8")
+        raw_hex = raw_json.hex().encode("utf-8")
+        raw_b64 = base64.b64encode(raw_hex).decode("utf-8")
+
+        decoded = _decode_block_tx_entry(raw_b64)
+
+        self.assertEqual(decoded["payload"]["contract"], "currency")
+        self.assertEqual(
+            decoded["tx_hash"],
+            hashlib.sha256(base64.b64decode(raw_b64)).hexdigest().upper(),
         )

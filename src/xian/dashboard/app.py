@@ -41,6 +41,17 @@ def _decode_tx_bytes(b64: str) -> dict | None:
         return None
 
 
+def _decode_block_tx_entry(b64: str) -> dict:
+    """Decode a block tx and attach the canonical tx hash when possible."""
+    entry = _decode_tx_bytes(b64) or {"raw": b64}
+    try:
+        raw_bytes = base64.b64decode(b64)
+        entry["tx_hash"] = hashlib.sha256(raw_bytes).hexdigest().upper()
+    except Exception:
+        pass
+    return entry
+
+
 def _decode_abci_value(b64: str) -> str | dict | list | None:
     """Decode a base64 ABCI response value."""
     try:
@@ -338,11 +349,13 @@ async def _handle_new_block(app: web.Application, event_data: dict) -> None:
 
     decoded_txs = []
     for raw_tx in txs_raw:
-        tx = _decode_tx_bytes(raw_tx)
-        if tx:
+        tx = _decode_block_tx_entry(raw_tx)
+        payload = tx.get("payload", {})
+        if payload:
             payload = tx.get("payload", {})
             decoded_txs.append(
                 {
+                    "tx_hash": tx.get("tx_hash"),
                     "contract": payload.get("contract"),
                     "function": payload.get("function"),
                     "sender": payload.get("sender"),
@@ -578,17 +591,7 @@ async def handle_block(request: web.Request) -> web.Response:
         block = result.get("block", {})
         txs_raw = (block.get("data") or {}).get("txs") or []
 
-        decoded_txs = []
-        for raw_tx in txs_raw:
-            tx = _decode_tx_bytes(raw_tx)
-            entry = tx if tx else {"raw": raw_tx}
-            # Compute the CometBFT tx hash (SHA-256 of raw bytes)
-            try:
-                raw_bytes = base64.b64decode(raw_tx)
-                entry["tx_hash"] = hashlib.sha256(raw_bytes).hexdigest().upper()
-            except Exception:
-                pass
-            decoded_txs.append(entry)
+        decoded_txs = [_decode_block_tx_entry(raw_tx) for raw_tx in txs_raw]
 
         result["decoded_txs"] = decoded_txs
         return web.json_response(result)
