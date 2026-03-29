@@ -148,7 +148,7 @@ tr.clickable{cursor:pointer}
 .tag{display:inline-block;font-size:.75rem;padding:3px 10px;border-radius:4px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);margin:2px 4px 2px 0;font-family:var(--mono)}
 
 /* ── validator ── */
-.validator-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}
+.validator-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:16px}
 .validator-metric{padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius)}
 .validator-metric-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:4px}
 .validator-metric-value{font-size:.95rem;font-family:var(--mono);word-break:break-all}
@@ -187,7 +187,7 @@ tr.clickable{cursor:pointer}
   .tabs{padding:0 12px}
   .main{padding:12px}
   .stats{grid-template-columns:1fr 1fr}
-  .validator-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .validator-summary{grid-template-columns:1fr}
   .data-key{width:100px}
   .data-val{max-width:calc(100% - 120px)}
   th,td{padding:8px 10px;font-size:.75rem}
@@ -1027,7 +1027,6 @@ function renderValidatorSet(){
 
   const selfAddress = normalizeHex(validatorInfo.address);
   const totalPower = validators.reduce((sum, validator)=>sum + Number(validator.voting_power || 0), 0);
-  const selfEntry = validators.find(validator => normalizeHex(validator.address) === selfAddress);
   const setHeight = validatorsResponse.block_height || "\u2014";
   const rows = validators
     .slice()
@@ -1049,11 +1048,6 @@ function renderValidatorSet(){
       '<div class="validator-metric"><div class="validator-metric-label">Set Height</div><div class="validator-metric-value">'+escHtml(String(setHeight))+'</div></div>'+
       '<div class="validator-metric"><div class="validator-metric-label">Validators</div><div class="validator-metric-value">'+escHtml(String(validators.length))+'</div></div>'+
       '<div class="validator-metric"><div class="validator-metric-label">Total Power</div><div class="validator-metric-value">'+escHtml(String(totalPower))+'</div></div>'+
-      '<div class="validator-metric"><div class="validator-metric-label">Local Role</div><div class="validator-metric-value">'+(
-        selfEntry
-          ? '<span class="validator-role active">active · power '+escHtml(String(selfEntry.voting_power || 0))+'</span>'
-          : '<span class="validator-role inactive">observer / inactive</span>'
-      )+'</div></div>'+
     '</div>'+
     '<div class="validator-table-wrap"><table class="validator-table"><thead><tr><th>Validator</th><th>Power</th><th>Priority</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
     (
