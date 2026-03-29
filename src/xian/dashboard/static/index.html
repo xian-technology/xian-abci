@@ -808,6 +808,7 @@ function startPollingLoops(){
 }
 
 function handleNewBlock(msg){
+  const previousLatestHeight = latestHeight;
   latestHeight = msg.height;
   lastBlockTime = msg.time;
   lastBlockHash = msg.hash;
@@ -835,7 +836,9 @@ function handleNewBlock(msg){
   /* prepend to explorer block list if visible */
   const eb = $("explorer-blocks");
   const eTbody = eb ? eb.querySelector("tbody") : null;
-  if(eTbody && explorerMaxHeight > 0){
+  const viewingLatestBlocksPage =
+    explorerMaxHeight > 0 && explorerMaxHeight >= previousLatestHeight;
+  if(eTbody && viewingLatestBlocksPage){
     explorerMaxHeight = msg.height;
     const tr2 = document.createElement("tr");
     tr2.className = "clickable";
@@ -1958,8 +1961,8 @@ async function refreshSlowData(){
     const subText = lastBlockTime ? timeAgo(lastBlockTime) : "\u2014";
     cards[0].innerHTML = '<div class="stat-label">Block Height</div><div class="stat-value">'+latestHeight.toLocaleString()+'</div><div class="stat-sub">'+subText+'</div>';
     cards[1].innerHTML = '<div class="stat-label">Peers</div><div class="stat-value">'+(netInfo.n_peers||"0")+'</div><div class="stat-sub">'+(netInfo.listening?"listening":"not listening")+'</div>';
-    cards[2].innerHTML = '<div class="stat-label">Validator</div><div class="stat-value small">'+(vi.address?truncHash(vi.address,8):"N/A")+'</div><div class="stat-sub">power: '+(vi.voting_power||"0")+'</div>';
-    cards[3].innerHTML = '<div class="stat-label">Moniker</div><div class="stat-value small">'+(ni.moniker||"\u2014")+'</div><div class="stat-sub">CometBFT '+(ni.version||"?")+'</div>';
+    cards[2].innerHTML = '<div class="stat-label">Validator</div><div class="stat-value">'+(vi.address?truncHash(vi.address,8):"N/A")+'</div><div class="stat-sub">power: '+(vi.voting_power||"0")+'</div>';
+    cards[3].innerHTML = '<div class="stat-label">Moniker</div><div class="stat-value">'+(ni.moniker||"\u2014")+'</div><div class="stat-sub">CometBFT '+(ni.version||"?")+'</div>';
   }
 
   /* node info card */
