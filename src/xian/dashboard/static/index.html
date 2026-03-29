@@ -148,14 +148,21 @@ tr.clickable{cursor:pointer}
 .tag{display:inline-block;font-size:.75rem;padding:3px 10px;border-radius:4px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);margin:2px 4px 2px 0;font-family:var(--mono)}
 
 /* ── validator ── */
-.validator-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:16px}
+#validator-set{display:flex;flex-direction:column;gap:16px;height:100%}
+.validator-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:0}
 .validator-metric{padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius)}
 .validator-metric-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:4px}
 .validator-metric-value{font-size:.95rem;font-family:var(--mono);word-break:break-all}
-.validator-table td,.validator-table th{font-size:.78rem;vertical-align:middle}
-.validator-table tbody tr{height:44px}
-.validator-table-wrap{max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius)}
-.validator-table-wrap table{margin:0}
+.validator-list{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.validator-list-header,.validator-row{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,0.7fr) minmax(0,0.9fr);gap:12px;align-items:center}
+.validator-list-header{padding:10px 16px;font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;flex:0 0 auto}
+.validator-list-body{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:auto}
+.validator-row{padding:0 16px;min-height:44px;flex:1 0 44px;border-bottom:1px solid var(--border);font-size:.78rem;font-family:var(--mono)}
+.validator-row:last-child{border-bottom:none}
+.validator-row.clickable{cursor:pointer}
+.validator-row.clickable:hover{background:var(--surface2)}
+.validator-cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.validator-cell:last-child{text-align:right}
 .validator-identity{display:inline-flex;align-items:center;gap:8px;min-height:20px}
 .validator-role{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.72rem;font-family:var(--mono);border:1px solid var(--border);line-height:1;white-space:nowrap}
 .validator-role.active{color:var(--green);background:rgba(16,185,129,.12)}
@@ -190,6 +197,7 @@ tr.clickable{cursor:pointer}
   .main{padding:12px}
   .stats{grid-template-columns:1fr 1fr}
   .validator-summary{grid-template-columns:1fr}
+  .validator-list-header,.validator-row{grid-template-columns:minmax(0,1.4fr) minmax(0,0.7fr) minmax(0,0.9fr)}
   .data-key{width:100px}
   .data-val{max-width:calc(100% - 120px)}
   th,td{padding:8px 10px;font-size:.75rem}
@@ -1045,11 +1053,11 @@ function renderValidatorSet(){
         '<span>'+escHtml(truncHash(validator.address || "\u2014", 6))+'</span>'+
         (isSelf ? ' <span class="validator-role active">self</span>' : '')+
       '</span>';
-      return '<tr'+rowClass+clickAttr+'>'+
-        '<td>'+identity+'</td>'+
-        '<td>'+escHtml(String(validator.voting_power || 0))+'</td>'+
-        '<td>'+escHtml(String(validator.proposer_priority || "\u2014"))+'</td>'+
-      '</tr>';
+      return '<div class="validator-row'+(rpcTarget ? ' clickable' : '')+'"'+clickAttr+'>'+
+        '<div class="validator-cell">'+identity+'</div>'+
+        '<div class="validator-cell">'+escHtml(String(validator.voting_power || 0))+'</div>'+
+        '<div class="validator-cell">'+escHtml(String(validator.proposer_priority || "\u2014"))+'</div>'+
+      '</div>';
     }).join("");
 
   container.innerHTML =
@@ -1058,7 +1066,10 @@ function renderValidatorSet(){
       '<div class="validator-metric"><div class="validator-metric-label">Validators</div><div class="validator-metric-value">'+escHtml(String(validators.length))+'</div></div>'+
       '<div class="validator-metric"><div class="validator-metric-label">Total Power</div><div class="validator-metric-value">'+escHtml(String(totalPower))+'</div></div>'+
     '</div>'+
-    '<div class="validator-table-wrap"><table class="validator-table"><thead><tr><th>Validator</th><th>Power</th><th>Priority</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<div class="validator-list">'+
+      '<div class="validator-list-header"><div>Validator</div><div>Power</div><div>Priority</div></div>'+
+      '<div class="validator-list-body">'+rows+'</div>'+
+    '</div>'+
     (
       validators.length > 8
         ? '<div class="summary-meta">Showing the full validator set in a scrollable panel so the overview row stays compact.</div>'
