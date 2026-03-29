@@ -56,19 +56,6 @@ a:hover{text-decoration:underline}
 .stat-value{font-size:1.5rem;font-weight:600;font-family:var(--mono);word-break:break-all}
 .stat-value.small{font-size:.9rem;font-weight:400}
 .stat-sub{font-size:.75rem;color:var(--text3);margin-top:4px}
-.summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:24px}
-.summary-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
-.summary-card.ok{border-color:rgba(16,185,129,.35)}
-.summary-card.warn{border-color:rgba(245,158,11,.35)}
-.summary-card.error{border-color:rgba(239,68,68,.35)}
-.summary-title{font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:8px}
-.summary-value{font-size:1.05rem;font-weight:600}
-.summary-meta{font-size:.78rem;color:var(--text2);margin-top:6px}
-.summary-alerts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-.summary-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--border);font-size:.76rem;font-family:var(--mono);color:var(--text2);background:var(--surface2)}
-.summary-pill.ok{color:var(--green);background:rgba(16,185,129,.12)}
-.summary-pill.warn{color:var(--amber);background:rgba(245,158,11,.12)}
-.summary-pill.error{color:var(--red);background:rgba(239,68,68,.12)}
 
 /* ── cards ── */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px;overflow:hidden}
@@ -129,6 +116,14 @@ tr.clickable{cursor:pointer}
 
 /* ── code block ── */
 .code-block{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;font-family:var(--mono);font-size:.8rem;line-height:1.7;overflow-x:auto;white-space:pre;color:var(--text);max-height:600px;overflow-y:auto;tab-size:4}
+.code-block.highlighted{padding:0;white-space:normal}
+.code-line{display:flex;min-width:max-content}
+.code-line.anchor-target{background:rgba(59,130,246,.08)}
+.line-no{flex:0 0 auto;min-width:56px;padding:0 14px;text-align:right;color:var(--text3);border-right:1px solid var(--border);user-select:none}
+.code-content{flex:1 1 auto;padding:0 16px;white-space:pre}
+.function-tags{display:flex;flex-wrap:wrap;gap:8px}
+.function-tag{appearance:none;background:var(--surface2);border:1px solid var(--border);border-radius:999px;color:var(--text2);cursor:pointer;font-family:var(--mono);font-size:.75rem;padding:6px 10px}
+.function-tag:hover{color:var(--accent);border-color:#334155}
 
 /* ── Python syntax highlighting ── */
 .py-kw{color:#c678dd}
@@ -160,6 +155,7 @@ tr.clickable{cursor:pointer}
 .validator-role.inactive{color:var(--text3);background:var(--surface2)}
 .mono{font-family:var(--mono)}
 .muted{color:var(--text3)}
+.summary-meta{font-size:.78rem;color:var(--text2);margin-top:6px}
 
 /* ── state query ── */
 .query-section{margin-top:24px}
@@ -186,7 +182,6 @@ tr.clickable{cursor:pointer}
   .tabs{padding:0 12px}
   .main{padding:12px}
   .stats{grid-template-columns:1fr 1fr}
-  .summary-grid{grid-template-columns:1fr}
   .data-key{width:100px}
   .data-val{max-width:calc(100% - 120px)}
   th,td{padding:8px 10px;font-size:.75rem}
@@ -216,13 +211,6 @@ tr.clickable{cursor:pointer}
   <!-- DASHBOARD -->
   <div class="section active" id="section-dashboard">
     <div class="stats" id="stats-row"></div>
-    <div class="summary-grid" id="operator-summary">
-      <div class="summary-card">
-        <div class="summary-title">Operational Summary</div>
-        <div class="summary-value"><span class="loading"></span> Loading...</div>
-      </div>
-    </div>
-
     <div class="monitor-grid">
       <div class="card">
         <div class="card-header">Node Information</div>
@@ -341,6 +329,9 @@ let explorerContractSort = "submitted_at";
 let explorerContractOrder = "desc";
 let explorerEventsOffset = 0;
 let selectedRpc = null;
+let defaultRpcUrl = null;
+let refreshSlowDataInterval = null;
+let refreshMonitoringInterval = null;
 
 /* ── helpers ── */
 function $(id){ return document.getElementById(id) }
@@ -419,6 +410,18 @@ function compactText(value, maxLen){
   if(text.length <= limit) return text;
   return text.slice(0, limit) + "\u2026";
 }
+function normalizeRpcUrl(value){
+  if(!value) return null;
+  try{
+    const url = new URL(String(value));
+    url.pathname = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/,"");
+  }catch(_){
+    return null;
+  }
+}
 function severityRank(level){
   if(level === "error") return 3;
   if(level === "warn") return 2;
@@ -445,6 +448,27 @@ function markRefreshed(){
 
 function peerRpcUrl(peer){
   if(!peer || typeof peer !== "object") return null;
+  const currentNode = latestStatusSnapshot && latestStatusSnapshot.node_info ? latestStatusSnapshot.node_info : {};
+  const currentMoniker = currentNode.moniker || "";
+  const peerMoniker = (peer.node_info || {}).moniker || "";
+  const activeRpc = normalizeRpcUrl(selectedRpc || defaultRpcUrl);
+  const nodeMatch = /^node-(\d+)$/.exec(currentMoniker);
+  const peerMatch = /^node-(\d+)$/.exec(peerMoniker);
+  if(activeRpc && nodeMatch && peerMatch){
+    try{
+      const activeUrl = new URL(activeRpc);
+      if(["127.0.0.1","localhost","::1"].includes(activeUrl.hostname)){
+        const basePort = Number(activeUrl.port || (activeUrl.protocol === "https:" ? 443 : 80));
+        const inferredPort = basePort + (Number(peerMatch[1]) - Number(nodeMatch[1])) * 100;
+        if(inferredPort > 0){
+          return `${activeUrl.protocol}//127.0.0.1:${inferredPort}`;
+        }
+      }
+    }catch(_){
+      /* fall through to advertised peer RPC */
+    }
+  }
+
   const nodeInfo = peer.node_info || {};
   const other = nodeInfo.other || {};
   const rpcAddress = other.rpc_address;
@@ -468,12 +492,19 @@ function peerRpcUrl(peer){
 }
 
 function currentBaseRpc(){
-  return selectedRpc || null;
+  return selectedRpc || defaultRpcUrl || null;
+}
+
+function usingDefaultRpc(){
+  const selected = normalizeRpcUrl(selectedRpc);
+  const base = normalizeRpcUrl(defaultRpcUrl);
+  if(!base) return true;
+  return !selected || selected === base;
 }
 
 function withCurrentRpc(path){
   const url = new URL(path, location.origin);
-  if(currentBaseRpc()) url.searchParams.set("rpc", currentBaseRpc());
+  if(selectedRpc) url.searchParams.set("rpc", selectedRpc);
   return url.pathname + url.search;
 }
 
@@ -494,7 +525,7 @@ async function copyFullValue(encodedValue){
 async function api(path){
   try{
     const url = new URL("/api/"+path, location.origin);
-    if(currentBaseRpc()) url.searchParams.set("rpc", currentBaseRpc());
+    if(path !== "config" && currentBaseRpc()) url.searchParams.set("rpc", currentBaseRpc());
     const r = await fetch(url);
     if(!r.ok) throw new Error(r.statusText);
     return await r.json();
@@ -627,8 +658,13 @@ function nodeDashboardSelectorHtml(){
 
 function openDashboardForRpc(rpcUrl){
   const url = new URL(location.href);
-  if(rpcUrl) url.searchParams.set("rpc", rpcUrl);
-  else url.searchParams.delete("rpc");
+  const normalizedRequested = normalizeRpcUrl(rpcUrl);
+  const normalizedDefault = normalizeRpcUrl(defaultRpcUrl);
+  if(normalizedRequested && normalizedRequested !== normalizedDefault){
+    url.searchParams.set("rpc", normalizedRequested);
+  } else {
+    url.searchParams.delete("rpc");
+  }
   window.location.href = url.pathname + url.search;
 }
 window.openDashboardForRpc = openDashboardForRpc;
@@ -647,6 +683,7 @@ document.querySelectorAll(".tab").forEach(t=>{
 
 /* ── WebSocket ── */
 function connectWS(){
+  if(!usingDefaultRpc()) return;
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const url = proto + "//" + location.host + "/ws";
   ws = new WebSocket(url);
@@ -677,6 +714,19 @@ function connectWS(){
   };
 
   ws.onerror = function(){ ws.close(); };
+}
+
+function startPollingLoops(){
+  if(refreshSlowDataInterval) clearInterval(refreshSlowDataInterval);
+  if(refreshMonitoringInterval) clearInterval(refreshMonitoringInterval);
+  refreshSlowDataInterval = setInterval(
+    refreshSlowData,
+    usingDefaultRpc() ? 30000 : 5000,
+  );
+  refreshMonitoringInterval = setInterval(
+    refreshMonitoring,
+    usingDefaultRpc() ? 10000 : 5000,
+  );
 }
 
 function handleNewBlock(msg){
@@ -860,7 +910,6 @@ async function refreshDashboard(){
   }
 
   renderValidatorSet();
-  renderOperatorSummary();
 }
 
 function renderExecutionHealth(monitoring){
@@ -927,138 +976,6 @@ function renderBdsHealth(monitoring){
   $("bds-health").innerHTML = html;
 }
 
-function deriveOperatorAlerts(){
-  const alerts = [];
-  const status = latestStatusSnapshot || {};
-  const netInfo = latestNetInfoSnapshot || {};
-  const monitoring = latestMonitoringSnapshot || {};
-  const syncInfo = status.sync_info || {};
-  const validatorInfo = status.validator_info || {};
-  const bds = monitoring.bds || {};
-  const bdsStatus = bds.status || {};
-  const perf = monitoring.perf || {};
-  const perfSnapshot = perf.snapshot || {};
-  const recentBlocks = perfSnapshot.recent_blocks || [];
-  const latestPerfBlock = recentBlocks.length ? recentBlocks[recentBlocks.length - 1] : null;
-  const unconfirmed = monitoring.unconfirmed_txs || {};
-  const peerCount = Number(netInfo.n_peers || 0);
-
-  if(syncInfo.catching_up){
-    alerts.push({
-      severity: "warn",
-      title: "Node syncing",
-      detail: "The validator is still catching up to the chain head.",
-    });
-  }
-
-  if(lastBlockTime){
-    const ageSeconds = Math.floor((Date.now() - new Date(lastBlockTime).getTime()) / 1000);
-    if(ageSeconds > 90){
-      alerts.push({
-        severity: "warn",
-        title: "Block stream looks stale",
-        detail: "Last block was seen " + timeAgo(lastBlockTime) + ".",
-      });
-    }
-  }
-
-  if(peerCount === 0){
-    alerts.push({
-      severity: syncInfo.catching_up ? "info" : "warn",
-      title: "No peers connected",
-      detail: "This node is isolated from the network.",
-    });
-  }
-
-  if(Number(unconfirmed.n_txs || 0) >= 100){
-    alerts.push({
-      severity: "warn",
-      title: "Mempool backlog",
-      detail: String(unconfirmed.n_txs) + " unconfirmed transactions are waiting.",
-    });
-  }
-
-  if(latestPerfBlock && Number(latestPerfBlock.duration_ms || 0) >= 1000){
-    alerts.push({
-      severity: "warn",
-      title: "Slow finalize",
-      detail: "Latest finalize took " + fmtMs(latestPerfBlock.duration_ms) + ".",
-    });
-  }
-
-  if(bds.enabled){
-    if(bdsStatus.catching_up){
-      alerts.push({
-        severity: "warn",
-        title: "BDS catching up",
-        detail: "Indexed height lag is " + String(bdsStatus.height_lag ?? "\u2014") + ".",
-      });
-    }
-    (bdsStatus.alerts || []).forEach(alert=>{
-      alerts.push({
-        severity: String(alert.severity || "warn") === "error" ? "error" : "warn",
-        title: String(alert.kind || "BDS alert"),
-        detail: String(alert.message || alert.kind || "BDS reported an operator issue."),
-      });
-    });
-  }
-
-  if((latestValidatorsSnapshot && latestValidatorsSnapshot.validators || []).length === 0 && Number(validatorInfo.voting_power || 0) > 0){
-    alerts.push({
-      severity: "warn",
-      title: "Validator set lookup unavailable",
-      detail: "The node reports validator power but the validator list could not be loaded.",
-    });
-  }
-
-  alerts.sort((a, b) => severityRank(b.severity) - severityRank(a.severity));
-  return alerts;
-}
-
-function renderOperatorSummary(){
-  const container = $("operator-summary");
-  if(!container || !latestStatusSnapshot || !latestNetInfoSnapshot) return;
-
-  const status = latestStatusSnapshot;
-  const netInfo = latestNetInfoSnapshot;
-  const monitoring = latestMonitoringSnapshot || {};
-  const syncInfo = status.sync_info || {};
-  const alerts = deriveOperatorAlerts();
-  const severity = alerts.length ? alerts[0].severity : "ok";
-  const headline = severity === "error" ? "Needs immediate attention" : severity === "warn" ? "Attention recommended" : "Healthy";
-  const mempoolCount = Number((monitoring.unconfirmed_txs || {}).n_txs || 0);
-  const bds = monitoring.bds || {};
-  const bdsStatus = bds.status || {};
-
-  let html =
-    '<div class="summary-card '+severity+'">'+
-      '<div class="summary-title">Operational Summary</div>'+
-      '<div class="summary-value">'+headline+'</div>'+
-      '<div class="summary-meta">Height '+escHtml(String(syncInfo.latest_block_height || "\u2014"))+' · last block '+escHtml(timeAgo(syncInfo.latest_block_time || lastBlockTime))+'</div>'+
-      '<div class="summary-alerts">'+
-        '<span class="summary-pill '+(syncInfo.catching_up ? 'warn' : 'ok')+'">'+(syncInfo.catching_up ? 'syncing' : 'synced')+'</span>'+
-        '<span class="summary-pill '+(Number(netInfo.n_peers || 0) > 0 ? 'ok' : 'warn')+'">'+escHtml(String(netInfo.n_peers || 0))+' peers</span>'+
-        '<span class="summary-pill '+(mempoolCount > 0 ? 'warn' : 'ok')+'">'+escHtml(String(mempoolCount))+' mempool</span>';
-
-  if(bds.enabled){
-    html += '<span class="summary-pill '+(bdsStatus.catching_up ? 'warn' : 'ok')+'">BDS '+(bdsStatus.catching_up ? 'catching up' : 'ready')+'</span>';
-  }
-  html += '</div></div>';
-
-  if(alerts.length){
-    alerts.slice(0, 5).forEach(alert=>{
-      html += '<div class="summary-card '+escHtml(alert.severity)+'">'+
-        '<div class="summary-title">'+escHtml(alert.title)+'</div>'+
-        '<div class="summary-value">'+escHtml(alert.detail)+'</div>'+
-      '</div>';
-    });
-  } else {
-    html += '<div class="summary-card ok"><div class="summary-title">No active alerts</div><div class="summary-value">Shown when the node is synced, peers are connected, recent block flow is fresh, mempool backlog is below the warning threshold, BDS is not catching up, and no slow-finalize signal is active.</div></div>';
-  }
-
-  container.innerHTML = html;
-}
-
 function renderValidatorSet(){
   const container = $("validator-set");
   if(!container) return;
@@ -1115,7 +1032,6 @@ async function refreshMonitoring(){
   markRefreshed();
   renderExecutionHealth(monitoring);
   renderBdsHealth(monitoring);
-  renderOperatorSummary();
 }
 
 /* ── explorer block list ── */
@@ -1459,6 +1375,174 @@ async function viewTx(hash){
   showDetail(html);
 }
 
+const PY_KEYWORDS = new Set([
+  "and","as","assert","async","await","break","class","continue","def","del",
+  "elif","else","except","finally","for","from","global","if","import","in",
+  "is","lambda","nonlocal","not","or","pass","raise","return","try","while",
+  "with","yield"
+]);
+const PY_BUILTINS = new Set([
+  "abs","all","any","bool","bytes","dict","enumerate","float","hex","int",
+  "len","list","max","min","print","range","set","str","sum","tuple"
+]);
+
+function highlightPythonCodeChunk(chunk){
+  if(!chunk) return "";
+  const tokenPattern = /@[A-Za-z_][A-Za-z0-9_\.]*|\b(?:True|False|None)\b|\b\d+(?:\.\d+)?\b|\b[A-Za-z_][A-Za-z0-9_]*\b/g;
+  let html = "";
+  let cursor = 0;
+  let match;
+  while((match = tokenPattern.exec(chunk)) !== null){
+    const token = match[0];
+    html += escHtml(chunk.slice(cursor, match.index));
+    let cls = "";
+    if(token.startsWith("@")) cls = "py-dec";
+    else if(token === "True" || token === "False" || token === "None") cls = "py-bool";
+    else if(/^\d/.test(token)) cls = "py-num";
+    else if(token === "self") cls = "py-self";
+    else if(PY_KEYWORDS.has(token)) cls = "py-kw";
+    else if(PY_BUILTINS.has(token)) cls = "py-builtin";
+    html += cls ? `<span class="${cls}">${escHtml(token)}</span>` : escHtml(token);
+    cursor = match.index + token.length;
+  }
+  html += escHtml(chunk.slice(cursor));
+  return html;
+}
+
+function highlightPythonLine(rawLine, inTriple){
+  const tripleQuote = inTriple || null;
+  let activeTriple = tripleQuote;
+  let html = "";
+  let cursor = 0;
+
+  while(cursor < rawLine.length){
+    if(activeTriple){
+      const end = rawLine.indexOf(activeTriple, cursor);
+      if(end === -1){
+        html += `<span class="py-str">${escHtml(rawLine.slice(cursor))}</span>`;
+        cursor = rawLine.length;
+        break;
+      }
+      html += `<span class="py-str">${escHtml(rawLine.slice(cursor, end + 3))}</span>`;
+      cursor = end + 3;
+      activeTriple = null;
+      continue;
+    }
+
+    const tripleSingle = rawLine.indexOf("'''", cursor);
+    const tripleDouble = rawLine.indexOf('"""', cursor);
+    const commentIndex = rawLine.indexOf("#", cursor);
+    let nextSpecial = rawLine.length;
+    let kind = null;
+    let quote = null;
+
+    if(commentIndex !== -1 && commentIndex < nextSpecial){
+      nextSpecial = commentIndex;
+      kind = "comment";
+    }
+    if(tripleSingle !== -1 && tripleSingle < nextSpecial){
+      nextSpecial = tripleSingle;
+      kind = "triple";
+      quote = "'''";
+    }
+    if(tripleDouble !== -1 && tripleDouble < nextSpecial){
+      nextSpecial = tripleDouble;
+      kind = "triple";
+      quote = '"""';
+    }
+
+    let singleQuote = -1;
+    let doubleQuote = -1;
+    for(let index = cursor; index < rawLine.length; index += 1){
+      const char = rawLine[index];
+      if(char === "'" && rawLine.slice(index, index + 3) !== "'''"){
+        singleQuote = index;
+        break;
+      }
+      if(char === '"' && rawLine.slice(index, index + 3) !== '"""'){
+        doubleQuote = index;
+        break;
+      }
+      if(char === "#") break;
+    }
+    const stringIndexCandidates = [singleQuote, doubleQuote].filter(index => index >= 0);
+    if(stringIndexCandidates.length){
+      const stringIndex = Math.min(...stringIndexCandidates);
+      if(stringIndex < nextSpecial){
+        nextSpecial = stringIndex;
+        kind = "string";
+        quote = rawLine[stringIndex];
+      }
+    }
+
+    html += highlightPythonCodeChunk(rawLine.slice(cursor, nextSpecial));
+    cursor = nextSpecial;
+
+    if(kind === "comment"){
+      html += `<span class="py-cmt">${escHtml(rawLine.slice(cursor))}</span>`;
+      cursor = rawLine.length;
+      break;
+    }
+
+    if(kind === "triple" && quote){
+      const end = rawLine.indexOf(quote, cursor + 3);
+      if(end === -1){
+        html += `<span class="py-str">${escHtml(rawLine.slice(cursor))}</span>`;
+        activeTriple = quote;
+        cursor = rawLine.length;
+        break;
+      }
+      html += `<span class="py-str">${escHtml(rawLine.slice(cursor, end + 3))}</span>`;
+      cursor = end + 3;
+      continue;
+    }
+
+    if(kind === "string" && quote){
+      let end = cursor + 1;
+      while(end < rawLine.length){
+        if(rawLine[end] === "\\" && end + 1 < rawLine.length){
+          end += 2;
+          continue;
+        }
+        if(rawLine[end] === quote){
+          end += 1;
+          break;
+        }
+        end += 1;
+      }
+      html += `<span class="py-str">${escHtml(rawLine.slice(cursor, end))}</span>`;
+      cursor = end;
+      continue;
+    }
+  }
+
+  return {html: html || "&nbsp;", inTriple: activeTriple};
+}
+
+function renderPythonSource(source){
+  const lines = String(source || "").replace(/\r\n/g, "\n").split("\n");
+  const functionAnchors = {};
+  let inTriple = null;
+  const rendered = lines.map((line, index)=>{
+    const functionMatch = /^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(line);
+    if(functionMatch) functionAnchors[functionMatch[1]] = index + 1;
+    const highlighted = highlightPythonLine(line, inTriple);
+    inTriple = highlighted.inTriple;
+    const anchorId = functionMatch ? ` id="fn-${functionMatch[1]}"` : "";
+    return `<div class="code-line"${anchorId}><span class="line-no">${index + 1}</span><span class="code-content">${highlighted.html}</span></div>`;
+  });
+  return {html: rendered.join(""), functionAnchors};
+}
+
+function scrollToContractFunction(name){
+  const target = document.getElementById(`fn-${name}`);
+  if(!target) return;
+  target.classList.add("anchor-target");
+  target.scrollIntoView({behavior:"smooth", block:"center"});
+  setTimeout(()=> target.classList.remove("anchor-target"), 1500);
+}
+window.scrollToContractFunction = scrollToContractFunction;
+
 /* ── contract detail view ── */
 async function viewContract(name){
   showDetail('<div class="card"><div class="card-body"><span class="loading"></span> Loading contract '+escHtml(name)+'...</div></div>');
@@ -1481,8 +1565,8 @@ async function viewContract(name){
   /* methods */
   const methods = data.methods;
   if(methods && Array.isArray(methods) && methods.length){
-    html += `<div class="card-header" style="border-top:1px solid var(--border)">Methods (${methods.length})</div>
-      <div class="card-body">`;
+    html += `<div class="card-header" style="border-top:1px solid var(--border)">Functions (${methods.length})</div>
+      <div class="card-body"><div class="function-tags">`;
     methods.forEach(m=>{
       if(typeof m === "object" && m.name){
         let sig = m.name + "(";
@@ -1490,12 +1574,12 @@ async function viewContract(name){
           sig += m.arguments.map(a => typeof a === "object" ? (a.name||a) : a).join(", ");
         }
         sig += ")";
-        html += `<div class="tag">${escHtml(sig)}</div>`;
+        html += `<button class="function-tag" onclick="scrollToContractFunction('${escHtml(m.name)}')">${escHtml(sig)}</button>`;
       } else {
-        html += `<div class="tag">${escHtml(String(m))}</div>`;
+        html += `<span class="tag">${escHtml(String(m))}</span>`;
       }
     });
-    html += '</div>';
+    html += '</div></div>';
   }
 
   /* variables */
@@ -1517,9 +1601,10 @@ async function viewContract(name){
 
   /* source code */
   if(data.code){
+    const renderedSource = renderPythonSource(data.code);
     html += `<div class="card">
       <div class="card-header">Source Code</div>
-      <div class="card-body"><div class="code-block">${escHtml(data.code)}</div></div>
+      <div class="card-body"><div class="code-block highlighted">${renderedSource.html}</div></div>
     </div>`;
   }
 
@@ -1706,7 +1791,6 @@ async function refreshSlowData(){
   }
 
   renderValidatorSet();
-  renderOperatorSummary();
 }
 
 /* ── periodic time-ago refresh ── */
@@ -1732,7 +1816,12 @@ function refreshTimeAgo(){
 /* ── init ── */
 async function init(){
   const pageUrl = new URL(location.href);
-  setSelectedRpc(pageUrl.searchParams.get("rpc"));
+  const config = await api("config");
+  defaultRpcUrl = normalizeRpcUrl(config.default_rpc_url);
+  setSelectedRpc(normalizeRpcUrl(pageUrl.searchParams.get("rpc")));
+  if(defaultRpcUrl && selectedRpc === defaultRpcUrl){
+    setSelectedRpc(null);
+  }
   explorerView = pageUrl.pathname === "/explorer/contracts" ? "contracts" : pageUrl.pathname === "/explorer/events" ? "events" : "blocks";
   $("contracts-sort").value = explorerContractSort;
   $("contracts-order").value = explorerContractOrder;
@@ -1741,8 +1830,7 @@ async function init(){
   await refreshMonitoring();
   /* switch to WebSocket for blocks + slow poll for the rest */
   connectWS();
-  setInterval(refreshSlowData, 30000);
-  setInterval(refreshMonitoring, 10000);
+  startPollingLoops();
   setInterval(refreshTimeAgo, 5000);
 
   /* handle deep-link URL */

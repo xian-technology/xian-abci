@@ -7,7 +7,9 @@ from unittest.mock import patch
 from xian.dashboard import cli
 from xian.dashboard.app import (
     SubscriptionManager,
+    _allowed_rpc_urls,
     _decode_block_tx_entry,
+    _localnet_rpc_variants,
     _normalize_peer_rpc_url,
     normalize_rpc_url,
 )
@@ -107,6 +109,54 @@ class DashboardTests(unittest.TestCase):
             _normalize_peer_rpc_url(peer),
             "http://10.0.0.25:26657",
         )
+
+    def test_localnet_rpc_variants_infer_host_ports(self) -> None:
+        self.assertEqual(
+            _localnet_rpc_variants(
+                "http://127.0.0.1:26657",
+                "node-0",
+                "node-2",
+            ),
+            {
+                "http://127.0.0.1:26857",
+                "http://localhost:26857",
+            },
+        )
+
+    def test_allowed_rpc_urls_include_localnet_host_variants(self) -> None:
+        async def run_test() -> None:
+            async def fake_raw_rpc(_session, _rpc_url, path, params=None):
+                del params
+                if path == "status":
+                    return {"node_info": {"moniker": "node-0"}}
+                if path == "net_info":
+                    return {
+                        "peers": [
+                            {
+                                "remote_ip": "172.20.0.6",
+                                "node_info": {
+                                    "moniker": "node-1",
+                                    "other": {
+                                        "rpc_address": "tcp://0.0.0.0:26657"
+                                    },
+                                },
+                            }
+                        ]
+                    }
+                raise AssertionError(f"unexpected path: {path}")
+
+            with patch("xian.dashboard.app._raw_rpc", side_effect=fake_raw_rpc):
+                allowed = await _allowed_rpc_urls(
+                    object(),
+                    "http://127.0.0.1:26657",
+                )
+
+            self.assertIn("http://127.0.0.1:26757", allowed)
+            self.assertIn("http://localhost:26757", allowed)
+
+        import asyncio
+
+        asyncio.run(run_test())
 
     def test_cli_main_runs_dashboard_app(self) -> None:
         with (

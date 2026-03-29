@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import re
 from fnmatch import fnmatch
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -13,6 +14,7 @@ from aiohttp import web
 from loguru import logger
 
 STATIC_DIR = Path(__file__).parent / "static"
+LOCALNET_PORT_STRIDE = 100
 
 
 def normalize_rpc_url(address: str) -> str:
@@ -90,20 +92,79 @@ def _normalize_peer_rpc_url(peer: dict) -> str | None:
     return urlunsplit((parsed.scheme or "http", f"{host}:{port}", "", "", ""))
 
 
+def _node_index_from_moniker(moniker: str | None) -> int | None:
+    if not isinstance(moniker, str):
+        return None
+    match = re.fullmatch(r"node-(\d+)", moniker.strip())
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def _loopback_host(host: str | None) -> bool:
+    return host in {"127.0.0.1", "localhost", "::1"}
+
+
+def _localnet_rpc_variants(
+    base_rpc_url: str,
+    current_moniker: str | None,
+    peer_moniker: str | None,
+) -> set[str]:
+    parsed = urlsplit(base_rpc_url)
+    base_host = parsed.hostname
+    base_port = parsed.port
+    current_index = _node_index_from_moniker(current_moniker)
+    peer_index = _node_index_from_moniker(peer_moniker)
+
+    if (
+        not _loopback_host(base_host)
+        or base_port is None
+        or current_index is None
+        or peer_index is None
+    ):
+        return set()
+
+    port = base_port + (peer_index - current_index) * LOCALNET_PORT_STRIDE
+    if port <= 0:
+        return set()
+
+    scheme = parsed.scheme or "http"
+    return {
+        urlunsplit((scheme, f"{host}:{port}", "", "", ""))
+        for host in ("127.0.0.1", "localhost")
+    }
+
+
 async def _allowed_rpc_urls(
     session: aiohttp.ClientSession,
     rpc_url: str,
 ) -> set[str]:
     allowed = {rpc_url}
+    current_moniker = None
     try:
+        status = await _raw_rpc(session, rpc_url, "status")
         net_info = await _raw_rpc(session, rpc_url, "net_info")
     except Exception:
         return allowed
+
+    current_moniker = (
+        status.get("node_info", {}).get("moniker")
+        if isinstance(status, dict)
+        else None
+    )
 
     for peer in net_info.get("peers", []) or []:
         peer_rpc_url = _normalize_peer_rpc_url(peer)
         if peer_rpc_url:
             allowed.add(peer_rpc_url)
+        peer_moniker = (
+            peer.get("node_info", {}).get("moniker")
+            if isinstance(peer, dict)
+            else None
+        )
+        allowed.update(
+            _localnet_rpc_variants(rpc_url, current_moniker, peer_moniker)
+        )
 
     return allowed
 
@@ -625,6 +686,10 @@ async def handle_status(request: web.Request) -> web.Response:
     )
 
 
+async def handle_config(request: web.Request) -> web.Response:
+    return web.json_response({"default_rpc_url": request.app["rpc_url"]})
+
+
 async def handle_net_info(request: web.Request) -> web.Response:
     return await _proxy(
         request.app["session"],
@@ -985,6 +1050,7 @@ def create_app(
     app.router.add_get("/explorer", handle_index)
     app.router.add_get("/explorer/{_path:.+}", handle_index)
     app.router.add_get("/ws", handle_ws)
+    app.router.add_get("/api/config", handle_config)
     app.router.add_get("/api/status", handle_status)
     app.router.add_get("/api/net_info", handle_net_info)
     app.router.add_get("/api/validators", handle_validators)
