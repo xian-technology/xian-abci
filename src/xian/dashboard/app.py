@@ -824,9 +824,8 @@ async def handle_contract(request: web.Request) -> web.Response:
     rpc = await _request_rpc_url(request)
 
     try:
-        code = await _abci_query(session, rpc, f"contract_source/{name}")
-        if code is None:
-            code = await _abci_query(session, rpc, f"contract/{name}")
+        source = await _abci_query(session, rpc, f"contract_source/{name}")
+        runtime_code = await _abci_query(session, rpc, f"contract/{name}")
         methods = await _abci_query(session, rpc, f"contract_methods/{name}")
         variables = await _abci_query(session, rpc, f"contract_vars/{name}")
         metadata = await _abci_query(session, rpc, f"contract_info/{name}")
@@ -835,7 +834,10 @@ async def handle_contract(request: web.Request) -> web.Response:
         return web.json_response(
             {
                 "name": name,
-                "code": code,
+                "code": source,
+                "source": source,
+                "runtime_code": runtime_code,
+                "has_original_source": source is not None,
                 "metadata": metadata or {},
                 "summary": summary,
                 "methods": (
@@ -910,56 +912,6 @@ async def handle_addresses(request: web.Request) -> web.Response:
             f"addresses/limit={limit}/offset={offset}",
         )
         if not isinstance(payload, dict):
-            fallback = await _abci_query(
-                session,
-                rpc,
-                f"recent_events/limit={max(limit * 4, limit)}/offset=0",
-            )
-            if isinstance(fallback, dict):
-                recent_items = fallback.get("items", [])
-                derived_rows: list[dict[str, object]] = []
-                for item in recent_items:
-                    if not isinstance(item, dict):
-                        continue
-                    address = item.get("signer")
-                    if not isinstance(address, str) or not address:
-                        continue
-                    existing = next(
-                        (
-                            row
-                            for row in derived_rows
-                            if row["address"] == address
-                        ),
-                        None,
-                    )
-                    if existing is None:
-                        derived_rows.append(
-                            {
-                                "address": address,
-                                "tx_count": 1,
-                                "last_block_height": item.get(
-                                    "block_height"
-                                ),
-                                "last_seen": item.get("created_at"),
-                                "last_tx_hash": item.get("tx_hash"),
-                                "last_contract": item.get("contract"),
-                                "last_function": item.get("event"),
-                            }
-                        )
-                    else:
-                        existing["tx_count"] = int(existing["tx_count"]) + 1
-
-                rows = derived_rows[offset : offset + limit]
-                return web.json_response(
-                    {
-                        "available": bool(rows),
-                        "items": rows,
-                        "limit": limit,
-                        "offset": offset,
-                        "has_more": len(derived_rows) > offset + limit,
-                    }
-                )
-
             return web.json_response(
                 {
                     "available": False,

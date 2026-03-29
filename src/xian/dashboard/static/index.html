@@ -1136,7 +1136,7 @@ async function loadExplorerAddresses(){
   }
   if(payload.available === false){
     $("explorer-addresses").innerHTML =
-      '<div class="empty">Address history is available on service nodes with BDS enabled.</div>';
+      '<div class="empty">Indexed address history is unavailable on this node.</div>';
     return;
   }
   const items = payload.items || [];
@@ -1723,6 +1723,8 @@ async function viewContract(name){
   let html = breadcrumb([{label:"Contract: "+name}]);
   const metadata = data.metadata || {};
   const summary = data.summary || null;
+  const source = data.source || null;
+  const runtimeCode = data.runtime_code || null;
   const creator = metadata.initiator || metadata.deployer || null;
 
   /* overview */
@@ -1786,11 +1788,20 @@ async function viewContract(name){
   html += '</div>';
 
   /* source code */
-  if(data.code){
-    const renderedSource = renderPythonSource(data.code);
+  if(source){
+    const renderedSource = renderPythonSource(source);
     html += `<div class="card">
       <div class="card-header">Source Code</div>
       <div class="card-body"><div class="code-block highlighted">${renderedSource.html}</div></div>
+    </div>`;
+  } else if(runtimeCode){
+    const renderedRuntime = renderPythonSource(runtimeCode);
+    html += `<div class="card">
+      <div class="card-header">Stored Runtime Code</div>
+      <div class="card-body">
+        <div class="summary-meta" style="margin-bottom:12px">Original source is not available on this node for this contract. The code below is the stored runtime form returned by the chain.</div>
+        <div class="code-block highlighted">${renderedRuntime.html}</div>
+      </div>
     </div>`;
   }
 
@@ -1822,7 +1833,7 @@ async function doSearch(){
   /* contract name (simple identifier without dots or colons) */
   if(/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(q)){
     const contract = await api("contract/"+encodeURIComponent(q));
-    if(!contract.error && contract.code){
+    if(!contract.error && contract.name){
       navigateTo("contract", q);
       return;
     }
@@ -1833,7 +1844,7 @@ async function doSearch(){
     /* check if it looks like a contract name first (no colon) */
     if(!q.includes(":")){
       const contract = await api("contract/"+encodeURIComponent(q));
-      if(!contract.error && contract.code){
+      if(!contract.error && contract.name){
         navigateTo("contract", q);
         return;
       }

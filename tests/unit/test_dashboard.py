@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from xian.dashboard import cli
@@ -11,6 +12,8 @@ from xian.dashboard.app import (
     _decode_block_tx_entry,
     _localnet_rpc_variants,
     _normalize_peer_rpc_url,
+    handle_addresses,
+    handle_contract,
     normalize_rpc_url,
 )
 
@@ -179,3 +182,64 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         create_app.assert_called_once_with("http://127.0.0.1:26657")
         run_app.assert_called_once()
+
+
+class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_handle_contract_separates_source_from_runtime_code(
+        self,
+    ) -> None:
+        request = SimpleNamespace(
+            match_info={"name": "currency"},
+            query={},
+            app={"session": object(), "rpc_url": "http://127.0.0.1:26657"},
+        )
+
+        async def fake_abci_query(_session, _rpc, path):
+            responses = {
+                "contract_source/currency": "@export\ndef ping():\n    return 'pong'\n",
+                "contract/currency": "def __ping():\n    return 'pong'\n",
+                "contract_methods/currency": [{"name": "ping"}],
+                "contract_vars/currency": [],
+                "contract_info/currency": {"developer": "alice"},
+                "contract_summary/currency": {"tx_count": 1},
+            }
+            return responses.get(path)
+
+        with patch(
+            "xian.dashboard.app._abci_query",
+            side_effect=fake_abci_query,
+        ):
+            response = await handle_contract(request)
+
+        payload = json.loads(response.text)
+        self.assertEqual(
+            payload["source"],
+            "@export\ndef ping():\n    return 'pong'\n",
+        )
+        self.assertEqual(
+            payload["runtime_code"],
+            "def __ping():\n    return 'pong'\n",
+        )
+        self.assertTrue(payload["has_original_source"])
+        self.assertEqual(payload["code"], payload["source"])
+
+    async def test_handle_addresses_requires_indexed_address_query(self) -> None:
+        request = SimpleNamespace(
+            query={"limit": "10", "offset": "0"},
+            app={"session": object(), "rpc_url": "http://127.0.0.1:26657"},
+        )
+
+        async def fake_abci_query(_session, _rpc, path):
+            self.assertEqual(path, "addresses/limit=10/offset=0")
+            return None
+
+        with patch(
+            "xian.dashboard.app._abci_query",
+            side_effect=fake_abci_query,
+        ):
+            response = await handle_addresses(request)
+
+        payload = json.loads(response.text)
+        self.assertFalse(payload["available"])
+        self.assertEqual(payload["items"], [])
+        self.assertFalse(payload["has_more"])
