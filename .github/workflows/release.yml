@@ -60,7 +60,7 @@ jobs:
       id-token: write
     environment:
       name: pypi
-      url: https://pypi.org/p/xian-abci
+      url: https://pypi.org/p/xian-tech-abci
     steps:
       - name: Download release artifacts
         uses: actions/download-artifact@v5
@@ -92,5 +92,5 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --repo "${GITHUB_REPOSITORY}" \
             --verify-tag \
-            --title "xian-abci ${GITHUB_REF_NAME#v}" \
+            --title "xian-tech-abci ${GITHUB_REF_NAME#v}" \
             --generate-notes

@@ -3,7 +3,7 @@ requires = ["setuptools>=82.0.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "xian-abci"
+name = "xian-tech-abci"
 dynamic = ["version"]
 description = "Python-based ABCI server for CometBFT"
 readme = "README.md"

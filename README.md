@@ -4,6 +4,10 @@
 chain behavior, ABCI request handling, state export and restore flows, and
 node-adjacent services such as BDS and the optional dashboard.
 
+The published PyPI package name is `xian-tech-abci`. The console entrypoints
+remain `xian-abci`, `xian-dashboard`, and the other `xian-*` commands exposed
+by this repo.
+
 ## Quick Start
 
 Run the ABCI application:
