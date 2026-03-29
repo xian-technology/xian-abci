@@ -549,6 +549,42 @@ def select_transactions_by_sender():
     """
 
 
+def select_recent_addresses():
+    return """
+    WITH sender_stats AS (
+        SELECT
+            sender AS address,
+            COUNT(*) AS tx_count,
+            MAX(block_height) AS last_block_height,
+            MAX(created_at) AS last_seen
+        FROM transactions
+        GROUP BY sender
+    ),
+    latest_tx AS (
+        SELECT DISTINCT ON (sender)
+            sender AS address,
+            hash AS last_tx_hash,
+            contract AS last_contract,
+            function AS last_function
+        FROM transactions
+        ORDER BY sender, block_height DESC, tx_index DESC
+    )
+    SELECT
+        sender_stats.address,
+        sender_stats.tx_count,
+        sender_stats.last_block_height,
+        sender_stats.last_seen,
+        latest_tx.last_tx_hash,
+        latest_tx.last_contract,
+        latest_tx.last_function
+    FROM sender_stats
+    JOIN latest_tx
+        ON latest_tx.address = sender_stats.address
+    ORDER BY sender_stats.last_block_height DESC, sender_stats.address ASC
+    LIMIT $1 OFFSET $2;
+    """
+
+
 def select_transactions_by_contract():
     return """
     SELECT

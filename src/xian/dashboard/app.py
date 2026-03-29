@@ -897,6 +897,98 @@ async def handle_address(request: web.Request) -> web.Response:
         return web.json_response({"error": str(exc)}, status=500)
 
 
+async def handle_addresses(request: web.Request) -> web.Response:
+    session = request.app["session"]
+    rpc = await _request_rpc_url(request)
+    limit = min(_request_int(request, "limit", 50), 500)
+    offset = _request_int(request, "offset", 0)
+
+    try:
+        payload = await _abci_query(
+            session,
+            rpc,
+            f"addresses/limit={limit}/offset={offset}",
+        )
+        if not isinstance(payload, dict):
+            fallback = await _abci_query(
+                session,
+                rpc,
+                f"recent_events/limit={max(limit * 4, limit)}/offset=0",
+            )
+            if isinstance(fallback, dict):
+                recent_items = fallback.get("items", [])
+                derived_rows: list[dict[str, object]] = []
+                for item in recent_items:
+                    if not isinstance(item, dict):
+                        continue
+                    address = item.get("signer")
+                    if not isinstance(address, str) or not address:
+                        continue
+                    existing = next(
+                        (
+                            row
+                            for row in derived_rows
+                            if row["address"] == address
+                        ),
+                        None,
+                    )
+                    if existing is None:
+                        derived_rows.append(
+                            {
+                                "address": address,
+                                "tx_count": 1,
+                                "last_block_height": item.get(
+                                    "block_height"
+                                ),
+                                "last_seen": item.get("created_at"),
+                                "last_tx_hash": item.get("tx_hash"),
+                                "last_contract": item.get("contract"),
+                                "last_function": item.get("event"),
+                            }
+                        )
+                    else:
+                        existing["tx_count"] = int(existing["tx_count"]) + 1
+
+                rows = derived_rows[offset : offset + limit]
+                return web.json_response(
+                    {
+                        "available": bool(rows),
+                        "items": rows,
+                        "limit": limit,
+                        "offset": offset,
+                        "has_more": len(derived_rows) > offset + limit,
+                    }
+                )
+
+            return web.json_response(
+                {
+                    "available": False,
+                    "items": [],
+                    "limit": limit,
+                    "offset": offset,
+                    "has_more": False,
+                }
+            )
+
+        items = payload.get("items", [])
+        return web.json_response(
+            {
+                "available": bool(payload.get("available", True)),
+                "items": items,
+                "limit": limit,
+                "offset": offset,
+                "has_more": len(items) >= limit and limit > 0,
+            }
+        )
+    except aiohttp.ClientError as exc:
+        return web.json_response(
+            {"error": f"CometBFT RPC unavailable: {exc}"},
+            status=502,
+        )
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
 async def handle_contracts(request: web.Request) -> web.Response:
     session = request.app["session"]
     rpc = await _request_rpc_url(request)
@@ -1109,6 +1201,7 @@ def create_app(
     app.router.add_get("/api/monitoring", handle_monitoring)
     app.router.add_get("/api/contract/{name}", handle_contract)
     app.router.add_get("/api/address/{address}", handle_address)
+    app.router.add_get("/api/addresses", handle_addresses)
     app.router.add_get("/api/contracts", handle_contracts)
     app.router.add_get("/api/recent_events", handle_recent_events)
     app.router.add_get("/api/abci_query/{path:.+}", handle_abci_query)

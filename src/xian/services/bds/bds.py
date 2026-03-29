@@ -1073,6 +1073,12 @@ class BDS:
         )
         return [dict(row) for row in rows]
 
+    async def get_recent_addresses(self, limit: int = 100, offset: int = 0):
+        rows = await self.db.fetch(
+            sql.select_recent_addresses(), [limit, offset]
+        )
+        return [dict(row) for row in rows]
+
     async def get_txs_by_contract(
         self, contract: str, limit: int = 100, offset: int = 0
     ):

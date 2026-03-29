@@ -105,6 +105,16 @@ class _FakeBDS:
     async def get_txs_by_sender(self, sender, limit, offset):
         return [{"hash": "TX-SENDER", "sender": sender}]
 
+    async def get_recent_addresses(self, limit, offset):
+        return [
+            {
+                "address": "alice",
+                "tx_count": 5,
+                "last_block_height": 12,
+                "last_tx_hash": "TX-ADDR",
+            }
+        ]
+
     async def get_txs_by_contract(self, contract, limit, offset):
         return [{"hash": "TX-CONTRACT", "contract": contract}]
 
@@ -488,6 +498,14 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.query.code, Constants.OkCode)
         self.assertEqual(json.loads(response.query.value)[0]["sender"], "alice")
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/addresses/limit=10/offset=0"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["items"][0]["address"], "alice")
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/txs_by_contract/currency"))

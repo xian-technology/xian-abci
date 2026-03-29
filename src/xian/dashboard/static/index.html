@@ -107,7 +107,7 @@ tr.clickable{cursor:pointer}
 .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text2)}
 .btn-ghost:hover{background:var(--surface2);color:var(--text)}
 .btn-small{padding:6px 12px;font-size:.75rem}
-.toggle-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--border);background:transparent;color:var(--text3);font-size:.75rem;font-family:var(--mono);cursor:pointer;transition:all .15s}
+.toggle-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text3);font-size:.75rem;font-family:var(--mono);cursor:pointer;transition:all .15s}
 .toggle-pill:hover{background:var(--surface2);color:var(--text2)}
 .toggle-pill.active{background:rgba(59,130,246,.14);border-color:rgba(59,130,246,.35);color:var(--accent)}
 .inline-select{padding:7px 10px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.8rem}
@@ -297,6 +297,7 @@ tr.clickable{cursor:pointer}
           </div>
           <div class="summary-meta" style="margin-top:12px">Address drill-down uses indexed sender history on BDS-enabled service nodes. Address links from contracts, rewards, and transactions open this view directly.</div>
         </div>
+        <div class="card-body" id="explorer-addresses" style="padding:0"><div class="empty"><span class="loading"></span> Loading...</div></div>
       </div>
 
       <div class="card" data-explorer-panel="events" style="display:none">
@@ -332,6 +333,7 @@ let lastBlockHash = null;
 const BLOCKS_PER_PAGE = 20;
 const CONTRACTS_PER_PAGE = 50;
 const ADDRESS_TXS_PER_PAGE = 50;
+const ADDRESSES_PER_PAGE = 50;
 const EVENTS_PER_PAGE = 50;
 let ws = null;
 let wsReconnectDelay = 1000;
@@ -348,6 +350,7 @@ let explorerContractOrder = "desc";
 let explorerEventsOffset = 0;
 let currentAddress = null;
 let explorerAddressOffset = 0;
+let explorerAddressesOffset = 0;
 let selectedRpc = null;
 let defaultRpcUrl = null;
 let refreshSlowDataInterval = null;
@@ -597,6 +600,8 @@ function explorerListPath(){
 
 function setExplorerView(view, pushState){
   explorerView = view || "blocks";
+  $("explorer-detail").innerHTML = "";
+  $("explorer-list").style.display = "";
   document.querySelectorAll("[data-explorer-view]").forEach(btn=>{
     btn.classList.toggle("active", btn.dataset.explorerView === explorerView);
   });
@@ -611,8 +616,7 @@ function setExplorerView(view, pushState){
   } else if(explorerView === "contracts"){
     loadExplorerContracts();
   } else if(explorerView === "addresses"){
-    $("explorer-detail").innerHTML = "";
-    $("explorer-list").style.display = "";
+    loadExplorerAddresses();
   } else if(explorerView === "events"){
     loadExplorerEvents();
   }
@@ -725,12 +729,11 @@ window.openDashboardForRpc = openDashboardForRpc;
 /* ── tabs ── */
 document.querySelectorAll(".tab").forEach(t=>{
   t.addEventListener("click",()=>{
-    switchToTab(t.dataset.tab);
-    if(t.dataset.tab==="explorer"){
-      $("explorer-detail").innerHTML = "";
-      $("explorer-list").style.display = "";
-      setExplorerView(explorerView, false);
+    if(t.dataset.tab === "dashboard"){
+      navigateTo("home");
+      return;
     }
+    navigateTo("list");
   });
 });
 
@@ -899,28 +902,6 @@ async function refreshDashboard(){
   `;
 
   $("node-info").innerHTML = nodeInfoHtml(ni, si);
-
-  if(latestHeight > 0){
-    const min = Math.max(1, latestHeight - 9);
-    const bc = await api("blockchain?min_height="+min+"&max_height="+latestHeight);
-    const metas = (bc.block_metas||[]).sort((a,b)=>parseInt(b.header.height)-parseInt(a.header.height));
-    if(metas.length){
-      let html = '<table><thead><tr><th>Height</th><th>Hash</th><th>Time</th><th>Txs</th></tr></thead><tbody>';
-      metas.forEach(m=>{
-        const h = m.header;
-        html += `<tr class="clickable" onclick="navigateTo('block','${h.height}')" data-time="${escHtml(h.time)}">
-          <td>${parseInt(h.height).toLocaleString()}</td>
-          <td><span class="hash">${truncHash(m.block_id.hash,8)}</span></td>
-          <td class="time-ago">${timeAgo(h.time)}</td>
-          <td>${m.num_txs||"0"}</td>
-        </tr>`;
-      });
-      html += '</tbody></table>';
-      $("recent-blocks").innerHTML = html;
-    } else {
-      $("recent-blocks").innerHTML = '<div class="empty">No blocks yet</div>';
-    }
-  }
 
   const peers = netInfo.peers||[];
   if(peers.length){
@@ -1119,6 +1100,52 @@ async function loadExplorerBlocks(maxH){
 window._explorerPage = function(dir){
   if(dir==="prev") loadExplorerBlocks(Math.max(1, explorerMaxHeight - BLOCKS_PER_PAGE));
   else loadExplorerBlocks(Math.min(latestHeight, explorerMaxHeight + BLOCKS_PER_PAGE));
+};
+
+async function loadExplorerAddresses(){
+  const payload = await api(
+    "addresses?limit="+ADDRESSES_PER_PAGE+"&offset="+explorerAddressesOffset
+  );
+  if(payload.error){
+    $("explorer-addresses").innerHTML =
+      '<div class="empty">'+escHtml(payload.error)+'</div>';
+    return;
+  }
+  if(payload.available === false){
+    $("explorer-addresses").innerHTML =
+      '<div class="empty">Address history is available on service nodes with BDS enabled.</div>';
+    return;
+  }
+  const items = payload.items || [];
+  if(!items.length){
+    $("explorer-addresses").innerHTML =
+      '<div class="empty">No indexed addresses found yet</div>';
+    return;
+  }
+
+  let html = '<table><thead><tr><th>Address</th><th>Txs</th><th>Last Block</th><th>Last Contract</th><th>Last Function</th></tr></thead><tbody>';
+  items.forEach(item=>{
+    html += '<tr class="clickable" onclick="navigateTo(\'address\',\''+escHtml(item.address)+'\')">'+
+      '<td>'+addressLink(item.address,{left:12,right:10})+'</td>'+
+      '<td>'+escHtml(String(item.tx_count ?? "\u2014"))+'</td>'+
+      '<td>'+escHtml(String(item.last_block_height ?? "\u2014"))+'</td>'+
+      '<td>'+(item.last_contract ? contractLink(item.last_contract) : '\u2014')+'</td>'+
+      '<td>'+escHtml(item.last_function || '\u2014')+'</td>'+
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  html += '<div class="pagination">'+
+    '<button class="btn btn-ghost" '+(explorerAddressesOffset > 0 ? 'onclick="window._addressesPage(\'prev\')"' : 'disabled')+'>\u2190 Older</button>'+
+    '<span class="page-info">'+(explorerAddressesOffset + 1).toLocaleString()+' \u2013 '+(explorerAddressesOffset + items.length).toLocaleString()+'</span>'+
+    '<button class="btn btn-ghost" '+(payload.has_more ? 'onclick="window._addressesPage(\'next\')"' : 'disabled')+'>Newer \u2192</button>'+
+  '</div>';
+  $("explorer-addresses").innerHTML = html;
+}
+
+window._addressesPage = function(dir){
+  if(dir === "prev") explorerAddressesOffset = Math.max(0, explorerAddressesOffset - ADDRESSES_PER_PAGE);
+  else explorerAddressesOffset += ADDRESSES_PER_PAGE;
+  loadExplorerAddresses();
 };
 
 async function loadExplorerContracts(){

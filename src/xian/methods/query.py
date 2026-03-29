@@ -286,6 +286,17 @@ async def query(self, req) -> ResponseQuery:
             elif path_parts[0] == "txs_by_sender":
                 result = await self.bds.get_txs_by_sender(key, limit, offset)
 
+            # http://localhost:26657/abci_query?path="/addresses/limit=25/offset=0"
+            elif path_parts[0] == "addresses":
+                result = {
+                    "available": True,
+                    "items": await self.bds.get_recent_addresses(
+                        limit, offset
+                    ),
+                    "limit": limit,
+                    "offset": offset,
+                }
+
             # http://localhost:26657/abci_query?path="/txs_by_contract/<name>/limit=10/offset=20"
             elif path_parts[0] == "txs_by_contract":
                 result = await self.bds.get_txs_by_contract(key, limit, offset)

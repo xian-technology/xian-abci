@@ -11,9 +11,14 @@ class _FakeDb:
     def __init__(self, row):
         self.row = row
         self.fetchrow_calls: list[tuple[str, list[object]]] = []
+        self.fetch_calls: list[tuple[str, list[object]]] = []
 
     async def fetchrow(self, query: str, args: list[object]):
         self.fetchrow_calls.append((query, args))
+        return self.row
+
+    async def fetch(self, query: str, args: list[object]):
+        self.fetch_calls.append((query, args))
         return self.row
 
 
@@ -75,6 +80,31 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["creator"], "alice")
         self.assertEqual(result["tx_count"], 5)
         self.assertEqual(result["total_rewards"], Decimal("18.25"))
+
+    async def test_get_recent_addresses_returns_activity_rows(self):
+        bds = BDS(BdsConfig())
+        bds.db = _FakeDb(
+            [
+                {
+                    "address": "alice",
+                    "tx_count": 3,
+                    "last_block_height": 12,
+                    "last_seen": datetime(2026, 1, 1, tzinfo=UTC),
+                    "last_tx_hash": "TX-1",
+                    "last_contract": "currency",
+                    "last_function": "transfer",
+                }
+            ]
+        )
+
+        result = await bds.get_recent_addresses(limit=25, offset=10)
+
+        self.assertEqual(
+            bds.db.fetch_calls,
+            [(sql.select_recent_addresses(), [25, 10])],
+        )
+        self.assertEqual(result[0]["address"], "alice")
+        self.assertEqual(result[0]["tx_count"], 3)
 
 
 if __name__ == "__main__":
