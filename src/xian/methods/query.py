@@ -290,9 +290,7 @@ async def query(self, req) -> ResponseQuery:
             elif path_parts[0] == "addresses":
                 result = {
                     "available": True,
-                    "items": await self.bds.get_recent_addresses(
-                        limit, offset
-                    ),
+                    "items": await self.bds.get_recent_addresses(limit, offset),
                     "limit": limit,
                     "offset": offset,
                 }
