@@ -17,9 +17,9 @@ dependencies = [
     "prometheus-client>=0.22.1,<0.23",
     "protobuf==6.33.5",
     "pynacl>=1.6.2,<2",
-    "xian-accounts>=0.1.0,<0.2",
+    "xian-tech-accounts>=0.1.0,<0.2",
     "xian-contracting",
-    "xian-runtime-types>=0.1.0,<0.2",
+    "xian-tech-runtime-types>=0.1.0,<0.2",
 ]
 keywords = ["blockchain", "cometbft", "abci", "xian", "python"]
 classifiers = [
@@ -94,7 +94,7 @@ select = ["E", "F", "I"]
 ignore = ["E501"]
 
 [tool.uv.sources]
-xian-accounts = { path = "../xian-contracting/packages/xian-accounts", editable = true }
+xian-tech-accounts = { path = "../xian-contracting/packages/xian-accounts", editable = true }
 xian-contracting = { path = "../xian-contracting", editable = true }
-xian-runtime-types = { path = "../xian-contracting/packages/xian-runtime-types", editable = true }
+xian-tech-runtime-types = { path = "../xian-contracting/packages/xian-runtime-types", editable = true }
 xian-native-tracer = { path = "../xian-contracting/packages/xian-native-tracer", editable = true }

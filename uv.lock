@@ -963,9 +963,9 @@ dependencies = [
     { name = "prometheus-client" },
     { name = "protobuf" },
     { name = "pynacl" },
-    { name = "xian-accounts" },
     { name = "xian-contracting" },
-    { name = "xian-runtime-types" },
+    { name = "xian-tech-accounts" },
+    { name = "xian-tech-runtime-types" },
 ]
 
 [package.optional-dependencies]
@@ -990,10 +990,10 @@ requires-dist = [
     { name = "prometheus-client", specifier = ">=0.22.1,<0.23" },
     { name = "protobuf", specifier = "==6.33.5" },
     { name = "pynacl", specifier = ">=1.6.2,<2" },
-    { name = "xian-accounts", editable = "../xian-contracting/packages/xian-accounts" },
     { name = "xian-contracting", editable = "../xian-contracting" },
     { name = "xian-native-tracer", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-native-tracer" },
-    { name = "xian-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
+    { name = "xian-tech-accounts", editable = "../xian-contracting/packages/xian-accounts" },
+    { name = "xian-tech-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
 ]
 provides-extras = ["native"]
 
@@ -1007,17 +1007,6 @@ dev = [
 ]
 
 [[package]]
-name = "xian-accounts"
-version = "0.1.0"
-source = { editable = "../xian-contracting/packages/xian-accounts" }
-dependencies = [
-    { name = "pynacl" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "pynacl", specifier = ">=1.5.0,<2" }]
-
-[[package]]
 name = "xian-contracting"
 version = "1.0.1"
 source = { editable = "../xian-contracting" }
@@ -1026,7 +1015,7 @@ dependencies = [
     { name = "cachetools" },
     { name = "lmdb" },
     { name = "pynacl" },
-    { name = "xian-runtime-types" },
+    { name = "xian-tech-runtime-types" },
 ]
 
 [package.metadata]
@@ -1036,7 +1025,7 @@ requires-dist = [
     { name = "lmdb", specifier = ">=1.6,<2" },
     { name = "pynacl", specifier = ">=1.5.0,<2" },
     { name = "xian-native-tracer", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-native-tracer" },
-    { name = "xian-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
+    { name = "xian-tech-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
     { name = "xian-zk", marker = "extra == 'zk'", editable = "../xian-contracting/packages/xian-zk" },
 ]
 provides-extras = ["native", "zk"]
@@ -1054,7 +1043,18 @@ version = "0.1.0"
 source = { editable = "../xian-contracting/packages/xian-native-tracer" }
 
 [[package]]
-name = "xian-runtime-types"
+name = "xian-tech-accounts"
+version = "0.1.0"
+source = { editable = "../xian-contracting/packages/xian-accounts" }
+dependencies = [
+    { name = "pynacl" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pynacl", specifier = ">=1.5.0,<2" }]
+
+[[package]]
+name = "xian-tech-runtime-types"
 version = "0.1.0"
 source = { editable = "../xian-contracting/packages/xian-runtime-types" }
 
