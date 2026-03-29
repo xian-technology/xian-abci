@@ -107,6 +107,23 @@ async def query(self, req) -> ResponseQuery:
             if contract_code is not None:
                 result = parser.variables_for_contract(contract_code)
 
+        # http://localhost:26657/abci_query?path="/contract_info/con_some_contract"
+        elif path_parts[0] == "contract_info":
+            contract_name = path_parts[1]
+            raw_driver = self.client.raw_driver
+            result = {
+                "name": contract_name,
+                "owner": raw_driver.get_owner(contract_name),
+                "developer": raw_driver.get_contract_developer(contract_name),
+                "deployer": raw_driver.get_contract_deployer(contract_name),
+                "initiator": raw_driver.get_contract_initiator(contract_name),
+                "submitted_at": _submission_iso(
+                    raw_driver.get_time_submitted(contract_name)
+                ),
+                "has_source": raw_driver.get_contract_source(contract_name)
+                is not None,
+            }
+
         # http://localhost:26657/abci_query?path="/contracts/limit=50/offset=0/sort=submitted_at/order=desc"
         elif path_parts[0] == "contracts":
             limit = 100
@@ -334,6 +351,10 @@ async def query(self, req) -> ResponseQuery:
             # http://localhost:26657/abci_query?path="/developer_rewards/<vk>"
             elif path_parts[0] == "developer_rewards":
                 result = await self.bds.get_developer_rewards(key)
+
+            # http://localhost:26657/abci_query?path="/contract_summary/<name>"
+            elif path_parts[0] == "contract_summary":
+                result = await self.bds.get_contract_summary(key)
 
         else:
             error = f"Unknown query path: {path_parts[0]}"

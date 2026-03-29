@@ -829,17 +829,63 @@ async def handle_contract(request: web.Request) -> web.Response:
             code = await _abci_query(session, rpc, f"contract/{name}")
         methods = await _abci_query(session, rpc, f"contract_methods/{name}")
         variables = await _abci_query(session, rpc, f"contract_vars/{name}")
+        metadata = await _abci_query(session, rpc, f"contract_info/{name}")
+        summary = await _abci_query(session, rpc, f"contract_summary/{name}")
 
         return web.json_response(
             {
                 "name": name,
                 "code": code,
+                "metadata": metadata or {},
+                "summary": summary,
                 "methods": (
                     methods.get("methods", methods)
                     if isinstance(methods, dict)
                     else methods
                 ),
                 "variables": variables,
+            }
+        )
+    except aiohttp.ClientError as exc:
+        return web.json_response(
+            {"error": f"CometBFT RPC unavailable: {exc}"},
+            status=502,
+        )
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def handle_address(request: web.Request) -> web.Response:
+    address = request.match_info["address"]
+    session = request.app["session"]
+    rpc = await _request_rpc_url(request)
+    limit = min(_request_int(request, "limit", 50), 500)
+    offset = _request_int(request, "offset", 0)
+
+    try:
+        transactions = await _abci_query(
+            session,
+            rpc,
+            f"txs_by_sender/{address}/limit={limit}/offset={offset}",
+        )
+        rewards = await _abci_query(
+            session, rpc, f"developer_rewards/{address}"
+        )
+        available = isinstance(transactions, list)
+
+        return web.json_response(
+            {
+                "address": address,
+                "available": available,
+                "transactions": transactions if available else [],
+                "limit": limit,
+                "offset": offset,
+                "has_more": bool(
+                    available and len(transactions) >= limit and limit > 0
+                ),
+                "developer_rewards": rewards
+                if isinstance(rewards, dict)
+                else None,
             }
         )
     except aiohttp.ClientError as exc:
@@ -1062,6 +1108,7 @@ def create_app(
     app.router.add_get("/api/unconfirmed_txs", handle_unconfirmed)
     app.router.add_get("/api/monitoring", handle_monitoring)
     app.router.add_get("/api/contract/{name}", handle_contract)
+    app.router.add_get("/api/address/{address}", handle_address)
     app.router.add_get("/api/contracts", handle_contracts)
     app.router.add_get("/api/recent_events", handle_recent_events)
     app.router.add_get("/api/abci_query/{path:.+}", handle_abci_query)

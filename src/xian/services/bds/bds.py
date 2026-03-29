@@ -1028,6 +1028,12 @@ class BDS:
         rows = await self.db.fetch(sql.select_contracts(), [limit, offset])
         return [dict(row) for row in rows]
 
+    async def get_contract_summary(self, contract_name: str):
+        row = await self.db.fetchrow(
+            sql.select_contract_summary(), [contract_name]
+        )
+        return dict(row) if row is not None else None
+
     async def get_blocks(self, limit: int = 100, offset: int = 0):
         rows = await self.db.fetch(sql.select_blocks(), [limit, offset])
         return [dict(row) for row in rows]

@@ -46,6 +46,36 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["tx_count"], 3)
         self.assertEqual(result["contract_count"], 2)
 
+    async def test_get_contract_summary_returns_aggregate_summary(self):
+        bds = BDS(BdsConfig())
+        bds.db = _FakeDb(
+            {
+                "name": "currency",
+                "last_tx_hash": "TX-CREATE",
+                "submitted_at_block": 12,
+                "submitted_at": datetime(2026, 1, 1, tzinfo=UTC),
+                "creator": "alice",
+                "tx_count": 5,
+                "total_rewards": Decimal("18.25"),
+                "reward_count": 3,
+                "first_block_height": 12,
+                "last_block_height": 18,
+                "first_reward_at": datetime(2026, 1, 1, tzinfo=UTC),
+                "last_reward_at": datetime(2026, 1, 2, tzinfo=UTC),
+            }
+        )
+
+        result = await bds.get_contract_summary("currency")
+
+        self.assertEqual(
+            bds.db.fetchrow_calls,
+            [(sql.select_contract_summary(), ["currency"])],
+        )
+        self.assertEqual(result["name"], "currency")
+        self.assertEqual(result["creator"], "alice")
+        self.assertEqual(result["tx_count"], 5)
+        self.assertEqual(result["total_rewards"], Decimal("18.25"))
+
 
 if __name__ == "__main__":
     unittest.main()

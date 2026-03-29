@@ -192,6 +192,8 @@ def create_rewards():
     CREATE INDEX IF NOT EXISTS idx_rewards_block_height ON rewards(block_height DESC);
     CREATE INDEX IF NOT EXISTS idx_rewards_type_recipient_height
         ON rewards(type, recipient_key, block_height DESC);
+    CREATE INDEX IF NOT EXISTS idx_rewards_type_source_contract_height
+        ON rewards(type, source_contract, block_height DESC);
     """
 
 
@@ -340,6 +342,51 @@ def select_contracts():
     FROM contracts
     ORDER BY submitted_at_block ASC, name ASC
     LIMIT $1 OFFSET $2;
+    """
+
+
+def select_contract_summary():
+    return """
+    SELECT
+        c.name,
+        c.last_tx_hash,
+        c.submitted_at_block,
+        c.submitted_at,
+        c.xsc0001,
+        submitter.sender AS creator,
+        COALESCE(tx_stats.tx_count, 0) AS tx_count,
+        COALESCE(reward_stats.total_rewards, 0) AS total_rewards,
+        COALESCE(reward_stats.reward_count, 0) AS reward_count,
+        reward_stats.first_block_height,
+        reward_stats.last_block_height,
+        reward_stats.first_reward_at,
+        reward_stats.last_reward_at
+    FROM contracts AS c
+    LEFT JOIN transactions AS submitter
+        ON submitter.hash = c.last_tx_hash
+    LEFT JOIN (
+        SELECT contract, COUNT(*) AS tx_count
+        FROM transactions
+        WHERE contract = $1
+        GROUP BY contract
+    ) AS tx_stats
+        ON tx_stats.contract = c.name
+    LEFT JOIN (
+        SELECT
+            source_contract,
+            SUM(value) AS total_rewards,
+            COUNT(*) AS reward_count,
+            MIN(block_height) AS first_block_height,
+            MAX(block_height) AS last_block_height,
+            MIN(created_at) AS first_reward_at,
+            MAX(created_at) AS last_reward_at
+        FROM rewards
+        WHERE type = 'developer_reward'
+          AND source_contract = $1
+        GROUP BY source_contract
+    ) AS reward_stats
+        ON reward_stats.source_contract = c.name
+    WHERE c.name = $1;
     """
 
 

@@ -177,6 +177,22 @@ class _FakeBDS:
             "last_reward_at": "2026-01-01T00:00:12+00:00",
         }
 
+    async def get_contract_summary(self, contract_name):
+        return {
+            "name": contract_name,
+            "last_tx_hash": "TX-CONTRACT-CREATE",
+            "submitted_at_block": 12,
+            "submitted_at": "2026-01-01T00:00:12+00:00",
+            "creator": "alice",
+            "tx_count": 5,
+            "total_rewards": "18.25",
+            "reward_count": 3,
+            "first_block_height": 12,
+            "last_block_height": 18,
+            "first_reward_at": "2026-01-01T00:00:12+00:00",
+            "last_reward_at": "2026-01-01T00:00:18+00:00",
+        }
+
 
 async def deserialize(raw: bytes) -> Response:
     return next(read_messages(BytesIO(raw), Response))
@@ -338,6 +354,19 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         source = response.query.value.decode("utf-8")
         self.assertIn("@export", source)
         self.assertNotIn("@__export", source)
+
+    async def test_contract_info_query_returns_runtime_metadata(self):
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/contract_info/currency"))
+        )
+
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.info, "dict")
+        payload = json.loads(response.query.value)
+        self.assertEqual(payload["name"], "currency")
+        self.assertEqual(payload["developer"], "sys")
+        self.assertTrue(payload["has_source"])
+        self.assertIn("submitted_at", payload)
 
     async def test_contract_code_query(self):
         response = await self.process_request(
@@ -570,6 +599,20 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["recipient_key"], ACCOUNT)
         self.assertEqual(payload["total_rewards"], "42.5")
         self.assertEqual(payload["tx_count"], 4)
+
+    async def test_contract_summary_query_uses_bds(self):
+        self.app.block_service_mode = True
+        self.app.bds = _FakeBDS()
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/contract_summary/currency"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.info, "dict")
+        payload = json.loads(response.query.value)
+        self.assertEqual(payload["name"], "currency")
+        self.assertEqual(payload["creator"], "alice")
+        self.assertEqual(payload["total_rewards"], "18.25")
 
 
 if __name__ == "__main__":
