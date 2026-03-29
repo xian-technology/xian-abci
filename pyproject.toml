@@ -18,7 +18,7 @@ dependencies = [
     "protobuf==6.33.5",
     "pynacl>=1.6.2,<2",
     "xian-tech-accounts>=0.1.0,<0.2",
-    "xian-contracting",
+    "xian-tech-contracting",
     "xian-tech-runtime-types>=0.1.0,<0.2",
 ]
 keywords = ["blockchain", "cometbft", "abci", "xian", "python"]
@@ -32,7 +32,7 @@ classifiers = [
 
 [project.optional-dependencies]
 native = [
-    "xian-native-tracer>=0.1.0,<0.2",
+    "xian-tech-native-tracer>=0.1.1,<0.2",
 ]
 
 [project.urls]
@@ -95,6 +95,6 @@ ignore = ["E501"]
 
 [tool.uv.sources]
 xian-tech-accounts = { path = "../xian-contracting/packages/xian-accounts", editable = true }
-xian-contracting = { path = "../xian-contracting", editable = true }
+xian-tech-contracting = { path = "../xian-contracting", editable = true }
 xian-tech-runtime-types = { path = "../xian-contracting/packages/xian-runtime-types", editable = true }
-xian-native-tracer = { path = "../xian-contracting/packages/xian-native-tracer", editable = true }
+xian-tech-native-tracer = { path = "../xian-contracting/packages/xian-native-tracer", editable = true }
