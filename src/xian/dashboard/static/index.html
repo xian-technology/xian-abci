@@ -351,6 +351,7 @@ let explorerEventsOffset = 0;
 let currentAddress = null;
 let explorerAddressOffset = 0;
 let explorerAddressesOffset = 0;
+let validatorRpcTargets = {};
 let selectedRpc = null;
 let defaultRpcUrl = null;
 let refreshSlowDataInterval = null;
@@ -583,6 +584,20 @@ async function api(path){
   }
 }
 
+async function apiForRpc(path, rpcUrl){
+  try{
+    const url = new URL("/api/"+path, location.origin);
+    const normalizedRpc = normalizeRpcUrl(rpcUrl);
+    if(path !== "config" && normalizedRpc) url.searchParams.set("rpc", normalizedRpc);
+    const r = await fetch(url);
+    if(!r.ok) throw new Error(r.statusText);
+    return await r.json();
+  }catch(e){
+    console.error("API error:", path, rpcUrl, e);
+    return {error:e.message};
+  }
+}
+
 /* ── navigation ── */
 function switchToTab(tabName){
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
@@ -653,10 +668,12 @@ window.addEventListener("popstate", function(e){
   else navigateTo("home", null, false);
 });
 
-function showDetail(html){
+function showDetail(html, opts){
   $("explorer-detail").innerHTML = html;
   $("explorer-list").style.display = "none";
-  $("explorer-detail").scrollIntoView({behavior:"smooth",block:"start"});
+  if(!opts || opts.scroll !== false){
+    $("explorer-detail").scrollIntoView({behavior:"smooth",block:"start"});
+  }
 }
 
 function breadcrumb(items){
@@ -703,14 +720,17 @@ function knownDashboardTargets(){
   return targets;
 }
 
-function nodeDashboardSelectorHtml(){
+async function refreshValidatorTargets(){
   const targets = knownDashboardTargets();
-  if(targets.length <= 1) return '<div class="summary-meta">Peer dashboards become selectable when peers advertise a reachable RPC address.</div>';
-  const options = targets.map(target=>'<option value="'+escHtml(target.rpc)+'">'+escHtml(target.label)+'</option>').join("");
-  return '<div style="margin-bottom:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
-    '<select class="inline-select" id="validator-node-target">'+options+'</select>'+
-    '<button class="btn btn-ghost btn-small" id="open-validator-node">Open Node Dashboard</button>'+
-  '</div>';
+  const nextTargets = {};
+  await Promise.all(targets.map(async target=>{
+    const rpc = normalizeRpcUrl(target.rpc);
+    if(!rpc) return;
+    const status = await apiForRpc("status", rpc);
+    const address = normalizeHex(status && status.validator_info ? status.validator_info.address : null);
+    if(address) nextTargets[address] = rpc;
+  }));
+  validatorRpcTargets = nextTargets;
 }
 
 function openDashboardForRpc(rpcUrl){
@@ -922,6 +942,7 @@ async function refreshDashboard(){
     $("peers-info").innerHTML = '<div class="empty">No peers connected</div>';
   }
 
+  await refreshValidatorTargets();
   renderValidatorSet();
 }
 
@@ -953,7 +974,7 @@ function renderExecutionHealth(monitoring){
     (
       perf.enabled
         ? ''
-        : '<div class="summary-meta" style="margin-top:14px">Advanced execution timings come from the node perf tracker. Enable <span class="mono">XIAN_PERF_ENABLED=true</span> to populate block-finalize timing samples here.</div>'
+        : '<div class="summary-meta" style="margin-top:14px">Enable <span class="mono">XIAN_PERF_ENABLED=true</span> to populate block-finalize timing data.</div>'
     );
 }
 
@@ -972,15 +993,15 @@ function renderBdsHealth(monitoring){
     '<div class="data-row"><span class="data-key">DB Status</span><span class="data-val">'+escHtml(String(status.db_status || "\u2014"))+'</span></div>'+
     '<div class="data-row"><span class="data-key">Indexed Height</span><span class="data-val">'+escHtml(String(indexed.indexed_height ?? "\u2014"))+'</span></div>'+
     '<div class="data-row"><span class="data-key">Height Lag</span><span class="data-val">'+escHtml(String(status.height_lag ?? "\u2014"))+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Queue</span><span class="data-val">'+escHtml(String(status.queue_depth ?? "\u2014"))+' / '+escHtml(String(status.queue_capacity ?? "\u2014"))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Pending Buffer</span><span class="data-val">'+escHtml(String(status.queue_depth ?? "\u2014"))+' / '+escHtml(String(status.queue_capacity ?? "\u2014"))+'</span></div>'+
     '<div class="data-row"><span class="data-key">Spool</span><span class="data-val">'+escHtml(String(status.spool_pending_count ?? "\u2014"))+' files / '+fmtBytes(status.spool_total_bytes)+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Disk Free</span><span class="data-val">'+fmtBytes(status.storage_free_bytes)+'</span></div>';
+    '<div class="data-row"><span class="data-key">Spool FS Free</span><span class="data-val">'+fmtBytes(status.storage && status.storage.filesystem_free_bytes)+'</span></div>';
 
   if(alerts.length){
     html += '<div style="margin-top:16px"><div class="stat-label" style="margin-bottom:8px">Alerts</div><div class="alert-list">';
     alerts.forEach(alert=>{
-      const severity = String(alert.severity || 'warn');
-      const kind = String(alert.kind || 'unknown');
+      const severity = String(alert.level || 'warning');
+      const kind = String(alert.code || 'unknown');
       html += '<span class="alert-chip '+(severity === 'error' ? 'error' : 'warn')+'">'+escHtml(kind)+'</span>';
     });
     html += '</div></div>';
@@ -1011,7 +1032,10 @@ function renderValidatorSet(){
     .sort((a, b) => Number(b.voting_power || 0) - Number(a.voting_power || 0))
     .map(validator=>{
       const isSelf = normalizeHex(validator.address) === selfAddress;
-      return '<tr>'+
+      const rpcTarget = validatorRpcTargets[normalizeHex(validator.address)];
+      const rowClass = rpcTarget ? ' class="clickable"' : '';
+      const clickAttr = rpcTarget ? ' onclick="openDashboardForRpc(\''+escHtml(rpcTarget)+'\')"' : '';
+      return '<tr'+rowClass+clickAttr+'>'+
         '<td>'+escHtml(truncHash(validator.address || "\u2014", 6))+(isSelf ? ' <span class="validator-role active">self</span>' : '')+'</td>'+
         '<td>'+escHtml(String(validator.voting_power || 0))+'</td>'+
         '<td>'+escHtml(String(validator.proposer_priority || "\u2014"))+'</td>'+
@@ -1019,7 +1043,6 @@ function renderValidatorSet(){
     }).join("");
 
   container.innerHTML =
-    nodeDashboardSelectorHtml()+
     '<div class="validator-summary">'+
       '<div class="validator-metric"><div class="validator-metric-label">Set Height</div><div class="validator-metric-value">'+escHtml(String(setHeight))+'</div></div>'+
       '<div class="validator-metric"><div class="validator-metric-label">Validators</div><div class="validator-metric-value">'+escHtml(String(validators.length))+'</div></div>'+
@@ -1135,15 +1158,15 @@ async function loadExplorerAddresses(){
   });
   html += '</tbody></table>';
   html += '<div class="pagination">'+
-    '<button class="btn btn-ghost" '+(explorerAddressesOffset > 0 ? 'onclick="window._addressesPage(\'prev\')"' : 'disabled')+'>\u2190 Older</button>'+
+    '<button class="btn btn-ghost" '+(payload.has_more ? 'onclick="window._addressesPage(\'older\')"' : 'disabled')+'>\u2190 Older</button>'+
     '<span class="page-info">'+(explorerAddressesOffset + 1).toLocaleString()+' \u2013 '+(explorerAddressesOffset + items.length).toLocaleString()+'</span>'+
-    '<button class="btn btn-ghost" '+(payload.has_more ? 'onclick="window._addressesPage(\'next\')"' : 'disabled')+'>Newer \u2192</button>'+
+    '<button class="btn btn-ghost" '+(explorerAddressesOffset > 0 ? 'onclick="window._addressesPage(\'newer\')"' : 'disabled')+'>Newer \u2192</button>'+
   '</div>';
   $("explorer-addresses").innerHTML = html;
 }
 
 window._addressesPage = function(dir){
-  if(dir === "prev") explorerAddressesOffset = Math.max(0, explorerAddressesOffset - ADDRESSES_PER_PAGE);
+  if(dir === "newer") explorerAddressesOffset = Math.max(0, explorerAddressesOffset - ADDRESSES_PER_PAGE);
   else explorerAddressesOffset += ADDRESSES_PER_PAGE;
   loadExplorerAddresses();
 };
@@ -1173,15 +1196,15 @@ async function loadExplorerContracts(){
   const start = total === 0 ? 0 : explorerContractsOffset + 1;
   const end = Math.min(total, explorerContractsOffset + items.length);
   html += '<div class="pagination">'+
-    '<button class="btn btn-ghost" '+(explorerContractsOffset > 0 ? 'onclick="window._contractsPage(\'prev\')"' : 'disabled')+'>\u2190 Older</button>'+
+    '<button class="btn btn-ghost" '+(end < total ? 'onclick="window._contractsPage(\'older\')"' : 'disabled')+'>\u2190 Older</button>'+
     '<span class="page-info">'+start.toLocaleString()+' \u2013 '+end.toLocaleString()+' of '+total.toLocaleString()+'</span>'+
-    '<button class="btn btn-ghost" '+(end < total ? 'onclick="window._contractsPage(\'next\')"' : 'disabled')+'>Newer \u2192</button>'+
+    '<button class="btn btn-ghost" '+(explorerContractsOffset > 0 ? 'onclick="window._contractsPage(\'newer\')"' : 'disabled')+'>Newer \u2192</button>'+
   '</div>';
   $("explorer-contracts").innerHTML = html;
 }
 
 window._contractsPage = function(dir){
-  if(dir === "prev") explorerContractsOffset = Math.max(0, explorerContractsOffset - CONTRACTS_PER_PAGE);
+  if(dir === "newer") explorerContractsOffset = Math.max(0, explorerContractsOffset - CONTRACTS_PER_PAGE);
   else explorerContractsOffset += CONTRACTS_PER_PAGE;
   loadExplorerContracts();
 };
@@ -1214,15 +1237,15 @@ async function loadExplorerEvents(){
   html += '</tbody></table>';
   const count = items.length;
   html += '<div class="pagination">'+
-    '<button class="btn btn-ghost" '+(explorerEventsOffset > 0 ? 'onclick="window._eventsPage(\'prev\')"' : 'disabled')+'>\u2190 Older</button>'+
+    '<button class="btn btn-ghost" '+(count === EVENTS_PER_PAGE ? 'onclick="window._eventsPage(\'older\')"' : 'disabled')+'>\u2190 Older</button>'+
     '<span class="page-info">'+(explorerEventsOffset + 1).toLocaleString()+' \u2013 '+(explorerEventsOffset + count).toLocaleString()+'</span>'+
-    '<button class="btn btn-ghost" '+(count === EVENTS_PER_PAGE ? 'onclick="window._eventsPage(\'next\')"' : 'disabled')+'>Newer \u2192</button>'+
+    '<button class="btn btn-ghost" '+(explorerEventsOffset > 0 ? 'onclick="window._eventsPage(\'newer\')"' : 'disabled')+'>Newer \u2192</button>'+
   '</div>';
   $("explorer-events").innerHTML = html;
 }
 
 window._eventsPage = function(dir){
-  if(dir === "prev") explorerEventsOffset = Math.max(0, explorerEventsOffset - EVENTS_PER_PAGE);
+  if(dir === "newer") explorerEventsOffset = Math.max(0, explorerEventsOffset - EVENTS_PER_PAGE);
   else explorerEventsOffset += EVENTS_PER_PAGE;
   loadExplorerEvents();
 };
@@ -1438,11 +1461,11 @@ async function viewTx(hash){
   showDetail(html);
 }
 
-async function viewAddress(address){
+async function viewAddress(address, opts){
   currentAddress = address;
   explorerAddressOffset = explorerAddressOffset || 0;
   explorerView = "addresses";
-  showDetail('<div class="card"><div class="card-body"><span class="loading"></span> Loading address '+escHtml(address)+'...</div></div>');
+  showDetail('<div class="card"><div class="card-body"><span class="loading"></span> Loading address '+escHtml(address)+'...</div></div>', opts);
 
   const data = await api(
     "address/"+encodeURIComponent(address)+
@@ -1478,14 +1501,14 @@ async function viewAddress(address){
 
   if(data.available === false){
     html += '<div class="card"><div class="card-body"><div class="empty">Address history is available on service nodes with BDS enabled.</div></div></div>';
-    showDetail(html);
+    showDetail(html, opts);
     return;
   }
 
   const transactions = data.transactions || [];
   if(!transactions.length){
     html += '<div class="card"><div class="card-header">Submitted Transactions</div><div class="card-body"><div class="empty">No indexed transactions found for this sender.</div></div></div>';
-    showDetail(html);
+    showDetail(html, opts);
     return;
   }
 
@@ -1504,19 +1527,19 @@ async function viewAddress(address){
   });
   html += '</tbody></table>';
   html += '<div class="pagination">'+
-    '<button class="btn btn-ghost" '+(explorerAddressOffset > 0 ? 'onclick="window._addressPage(\'prev\')"' : 'disabled')+'>\u2190 Newer</button>'+
+    '<button class="btn btn-ghost" '+(data.has_more ? 'onclick="window._addressPage(\'older\')"' : 'disabled')+'>\u2190 Older</button>'+
     '<span class="page-info">'+(explorerAddressOffset + 1).toLocaleString()+' \u2013 '+(explorerAddressOffset + transactions.length).toLocaleString()+'</span>'+
-    '<button class="btn btn-ghost" '+(data.has_more ? 'onclick="window._addressPage(\'next\')"' : 'disabled')+'>Older \u2192</button>'+
+    '<button class="btn btn-ghost" '+(explorerAddressOffset > 0 ? 'onclick="window._addressPage(\'newer\')"' : 'disabled')+'>Newer \u2192</button>'+
   '</div>';
   html += '</div></div>';
 
-  showDetail(html);
+  showDetail(html, opts);
 }
 window._addressPage = function(dir){
   if(!currentAddress) return;
-  if(dir === "prev") explorerAddressOffset = Math.max(0, explorerAddressOffset - ADDRESS_TXS_PER_PAGE);
+  if(dir === "newer") explorerAddressOffset = Math.max(0, explorerAddressOffset - ADDRESS_TXS_PER_PAGE);
   else explorerAddressOffset += ADDRESS_TXS_PER_PAGE;
-  viewAddress(currentAddress);
+  viewAddress(currentAddress, {scroll:false});
 };
 
 const PY_KEYWORDS = new Set([
@@ -1890,12 +1913,6 @@ document.addEventListener("click", event=>{
     event.stopPropagation();
     event.preventDefault();
     copyFullValue(copyTarget.dataset.copyValue);
-    return;
-  }
-  const selectorButton = event.target.closest("#open-validator-node");
-  if(selectorButton){
-    const select = $("validator-node-target");
-    if(select) openDashboardForRpc(select.value || null);
   }
 });
 
@@ -1961,6 +1978,7 @@ async function refreshSlowData(){
     $("peers-info").innerHTML = '<div class="empty">No peers connected</div>';
   }
 
+  await refreshValidatorTargets();
   renderValidatorSet();
 }
 

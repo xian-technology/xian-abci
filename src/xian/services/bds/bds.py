@@ -118,6 +118,7 @@ class BDS:
                             self._indexed_height = int(
                                 payload.block_meta["height"]
                             )
+                            self._prune_stale_pending_payloads()
                             break
                         await asyncio.sleep(self.WORKER_RETRY_DELAY_SECONDS)
                     except asyncio.CancelledError:
@@ -231,6 +232,17 @@ class BDS:
         self._pending_event.set()
         self._clear_enqueue_error()
         return True
+
+    def _prune_stale_pending_payloads(self) -> None:
+        if self._indexed_height is None or not self._pending_payloads:
+            return
+        stale_heights = [
+            height
+            for height in self._pending_payloads
+            if height <= self._indexed_height
+        ]
+        for height in stale_heights:
+            self._pending_payloads.pop(height, None)
 
     def _next_expected_height(self) -> int:
         if self._indexed_height is None:
@@ -371,6 +383,13 @@ class BDS:
             db_error = f"{type(exc).__name__}: {exc}"
 
         indexed_height = indexed["indexed_height"]
+        if isinstance(indexed_height, int):
+            if (
+                self._indexed_height is None
+                or indexed_height > self._indexed_height
+            ):
+                self._indexed_height = indexed_height
+        self._prune_stale_pending_payloads()
         height_lag = None
         if isinstance(current_block_height, int) and isinstance(
             indexed_height, int
@@ -459,6 +478,7 @@ class BDS:
         self._indexed_height = (
             int(indexed_height) if indexed_height is not None else None
         )
+        self._prune_stale_pending_payloads()
         return self._indexed_height
 
     async def _start_catchup(self) -> None:

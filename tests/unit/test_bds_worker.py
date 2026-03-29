@@ -115,7 +115,7 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
         with TemporaryDirectory() as spool_dir:
             bds = _RecordingBDS(spool_dir)
             Path(spool_dir).mkdir(parents=True, exist_ok=True)
-            bds._pending_payloads[12] = _payload(12, "A")
+            bds._pending_payloads[13] = _payload(13, "A")
             bds.db.fetchrow = AsyncMock(
                 return_value={
                     "indexed_block_count": 12,
@@ -133,6 +133,31 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(status["queue_depth"], 1)
             self.assertEqual(status["height_lag"], 0)
             self.assertFalse(status["catching_up"])
+
+    async def test_status_prunes_stale_pending_entries(self):
+        with TemporaryDirectory() as spool_dir:
+            bds = _RecordingBDS(spool_dir)
+            Path(spool_dir).mkdir(parents=True, exist_ok=True)
+            bds._pending_payloads[11] = _payload(11, "STALE")
+            bds._pending_payloads[13] = _payload(13, "FRESH")
+            bds.db.fetchrow = AsyncMock(
+                return_value={
+                    "indexed_block_count": 12,
+                    "indexed_height": 12,
+                    "indexed_block_hash": "BLOCK-12",
+                    "indexed_block_time": 12,
+                    "indexed_block_time_iso": datetime(
+                        2026, 1, 12, tzinfo=UTC
+                    ),
+                    "indexed_tx_count": 3,
+                    "indexed_app_hash": "APP-12",
+                }
+            )
+
+            status = await bds.get_status(current_block_height=12)
+
+            self.assertEqual(status["queue_depth"], 1)
+            self.assertEqual(sorted(bds._pending_payloads), [13])
 
     async def test_spool_entries_return_ordered_metadata(self):
         with TemporaryDirectory() as spool_dir:
