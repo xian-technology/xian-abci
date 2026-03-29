@@ -122,6 +122,16 @@ class _FakeBDS:
             }
         ]
 
+    async def get_recent_events(self, limit, offset):
+        return [
+            {
+                "id": 8,
+                "contract": "currency",
+                "event": "Transfer",
+                "tx_hash": "TX-RECENT",
+            }
+        ]
+
     async def get_state_patches(self, limit, offset):
         return [
             {
@@ -396,7 +406,9 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.app.bds = _FakeBDS()
         self.app.current_block_meta = None
 
-        with patch("xian.methods.query.get_latest_block_height", return_value=14):
+        with patch(
+            "xian.methods.query.get_latest_block_height", return_value=14
+        ):
             response = await self.process_request(
                 Request(query=RequestQuery(path="/bds_status"))
             )
@@ -487,6 +499,36 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(response.query.value)
         self.assertEqual(payload[0]["id"], 42)
         self.assertEqual(payload[0]["event"], "Transfer")
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/recent_events/limit=25"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["items"][0]["tx_hash"], "TX-RECENT")
+
+    async def test_contract_listing_query_is_available_without_bds(self):
+        self.app.client.submit(
+            CONTRACT_CODE,
+            name="con_token_b",
+            constructor_args={"vk": "bob"},
+        )
+
+        response = await self.process_request(
+            Request(
+                query=RequestQuery(
+                    path="/contracts/limit=10/offset=0/sort=name/order=asc"
+                )
+            )
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        contract_names = [item["name"] for item in payload["items"]]
+        self.assertIn("currency", contract_names)
+        self.assertIn("con_token_b", contract_names)
+        self.assertEqual(payload["sort"], "name")
+        self.assertEqual(payload["order"], "asc")
 
     async def test_state_patch_history_queries(self):
         self.app.block_service_mode = True

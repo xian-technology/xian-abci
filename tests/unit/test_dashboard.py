@@ -8,6 +8,7 @@ from xian.dashboard import cli
 from xian.dashboard.app import (
     SubscriptionManager,
     _decode_block_tx_entry,
+    _normalize_peer_rpc_url,
     normalize_rpc_url,
 )
 
@@ -90,9 +91,28 @@ class DashboardTests(unittest.TestCase):
             hashlib.sha256(base64.b64decode(raw_b64)).hexdigest().upper(),
         )
 
+    def test_normalize_peer_rpc_url_uses_remote_ip_for_wildcard_host(
+        self,
+    ) -> None:
+        peer = {
+            "remote_ip": "10.0.0.25",
+            "node_info": {
+                "other": {
+                    "rpc_address": "tcp://0.0.0.0:26657",
+                }
+            },
+        }
+
+        self.assertEqual(
+            _normalize_peer_rpc_url(peer),
+            "http://10.0.0.25:26657",
+        )
+
     def test_cli_main_runs_dashboard_app(self) -> None:
         with (
-            patch("xian.dashboard.cli.create_app", return_value=object()) as create_app,
+            patch(
+                "xian.dashboard.cli.create_app", return_value=object()
+            ) as create_app,
             patch("xian.dashboard.cli.web.run_app") as run_app,
         ):
             exit_code = cli.main(

@@ -1100,6 +1100,10 @@ class BDS:
             )
         return [dict(row) for row in rows]
 
+    async def get_recent_events(self, limit: int = 100, offset: int = 0):
+        rows = await self.db.fetch(sql.select_recent_events(), [limit, offset])
+        return [dict(row) for row in rows]
+
     async def get_state(self, key: str, limit: int = 100, offset: int = 0):
         rows = await self.db.fetch(sql.select_state(), [key, limit, offset])
         return [dict(row) for row in rows]

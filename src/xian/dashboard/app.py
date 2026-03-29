@@ -6,6 +6,7 @@ import hashlib
 import json
 from fnmatch import fnmatch
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
 from aiohttp import web
@@ -62,6 +63,81 @@ def _decode_abci_value(b64: str) -> str | dict | list | None:
             return raw
     except Exception:
         return None
+
+
+def _normalize_peer_rpc_url(peer: dict) -> str | None:
+    node_info = peer.get("node_info", {}) if isinstance(peer, dict) else {}
+    other = node_info.get("other", {}) if isinstance(node_info, dict) else {}
+    rpc_address = other.get("rpc_address")
+    if not isinstance(rpc_address, str) or not rpc_address.strip():
+        return None
+
+    normalized = normalize_rpc_url(rpc_address)
+    parsed = urlsplit(normalized)
+    host = parsed.hostname or ""
+    if host in {"0.0.0.0", "::", "127.0.0.1", "localhost"}:
+        remote_ip = peer.get("remote_ip")
+        if isinstance(remote_ip, str) and remote_ip.strip():
+            host = remote_ip.strip()
+
+    if not host:
+        return None
+
+    port = parsed.port
+    if port is None:
+        return None
+
+    return urlunsplit((parsed.scheme or "http", f"{host}:{port}", "", "", ""))
+
+
+async def _allowed_rpc_urls(
+    session: aiohttp.ClientSession,
+    rpc_url: str,
+) -> set[str]:
+    allowed = {rpc_url}
+    try:
+        net_info = await _raw_rpc(session, rpc_url, "net_info")
+    except Exception:
+        return allowed
+
+    for peer in net_info.get("peers", []) or []:
+        peer_rpc_url = _normalize_peer_rpc_url(peer)
+        if peer_rpc_url:
+            allowed.add(peer_rpc_url)
+
+    return allowed
+
+
+async def _request_rpc_url(request: web.Request) -> str:
+    default_rpc_url = request.app["rpc_url"]
+    requested_rpc_url = request.query.get("rpc")
+    if not requested_rpc_url:
+        return default_rpc_url
+
+    normalized_requested_rpc_url = normalize_rpc_url(requested_rpc_url)
+    if normalized_requested_rpc_url == default_rpc_url:
+        return default_rpc_url
+
+    allowed_rpc_urls = await _allowed_rpc_urls(
+        request.app["session"], default_rpc_url
+    )
+    if normalized_requested_rpc_url not in allowed_rpc_urls:
+        raise web.HTTPBadRequest(
+            text=f"Unsupported rpc target: {normalized_requested_rpc_url}"
+        )
+
+    return normalized_requested_rpc_url
+
+
+def _request_int(request: web.Request, key: str, default: int) -> int:
+    raw_value = request.query.get(key)
+    if raw_value is None:
+        return default
+    try:
+        parsed_value = int(raw_value)
+    except (TypeError, ValueError):
+        return default
+    return max(0, parsed_value)
 
 
 async def _raw_rpc(
@@ -543,26 +619,32 @@ async def handle_index(request: web.Request) -> web.Response:
 
 async def handle_status(request: web.Request) -> web.Response:
     return await _proxy(
-        request.app["session"], request.app["rpc_url"], "status"
+        request.app["session"],
+        await _request_rpc_url(request),
+        "status",
     )
 
 
 async def handle_net_info(request: web.Request) -> web.Response:
     return await _proxy(
-        request.app["session"], request.app["rpc_url"], "net_info"
+        request.app["session"],
+        await _request_rpc_url(request),
+        "net_info",
     )
 
 
 async def handle_validators(request: web.Request) -> web.Response:
     return await _proxy(
-        request.app["session"], request.app["rpc_url"], "validators"
+        request.app["session"],
+        await _request_rpc_url(request),
+        "validators",
     )
 
 
 async def handle_consensus(request: web.Request) -> web.Response:
     return await _proxy(
         request.app["session"],
-        request.app["rpc_url"],
+        await _request_rpc_url(request),
         "consensus_state",
     )
 
@@ -575,7 +657,7 @@ async def handle_blockchain(request: web.Request) -> web.Response:
         params["maxHeight"] = request.query["max_height"]
     return await _proxy(
         request.app["session"],
-        request.app["rpc_url"],
+        await _request_rpc_url(request),
         "blockchain",
         params or None,
     )
@@ -584,7 +666,7 @@ async def handle_blockchain(request: web.Request) -> web.Response:
 async def handle_block(request: web.Request) -> web.Response:
     height = request.match_info["height"]
     session = request.app["session"]
-    rpc = request.app["rpc_url"]
+    rpc = await _request_rpc_url(request)
 
     try:
         result = await _raw_rpc(session, rpc, "block", {"height": height})
@@ -609,7 +691,7 @@ async def handle_block_results(
 ) -> web.Response:
     height = request.match_info["height"]
     session = request.app["session"]
-    rpc = request.app["rpc_url"]
+    rpc = await _request_rpc_url(request)
 
     try:
         result = await _raw_rpc(
@@ -635,7 +717,7 @@ async def handle_tx(request: web.Request) -> web.Response:
     if not tx_hash.startswith("0x"):
         tx_hash = f"0x{tx_hash}"
     session = request.app["session"]
-    rpc = request.app["rpc_url"]
+    rpc = await _request_rpc_url(request)
 
     try:
         result = await _raw_rpc(session, rpc, "tx", {"hash": tx_hash})
@@ -666,7 +748,7 @@ async def handle_unconfirmed(
 ) -> web.Response:
     return await _proxy(
         request.app["session"],
-        request.app["rpc_url"],
+        await _request_rpc_url(request),
         "unconfirmed_txs",
     )
 
@@ -674,10 +756,12 @@ async def handle_unconfirmed(
 async def handle_contract(request: web.Request) -> web.Response:
     name = request.match_info["name"]
     session = request.app["session"]
-    rpc = request.app["rpc_url"]
+    rpc = await _request_rpc_url(request)
 
     try:
-        code = await _abci_query(session, rpc, f"contract/{name}")
+        code = await _abci_query(session, rpc, f"contract_source/{name}")
+        if code is None:
+            code = await _abci_query(session, rpc, f"contract/{name}")
         methods = await _abci_query(session, rpc, f"contract_methods/{name}")
         variables = await _abci_query(session, rpc, f"contract_vars/{name}")
 
@@ -702,12 +786,73 @@ async def handle_contract(request: web.Request) -> web.Response:
         return web.json_response({"error": str(exc)}, status=500)
 
 
+async def handle_contracts(request: web.Request) -> web.Response:
+    session = request.app["session"]
+    rpc = await _request_rpc_url(request)
+    limit = min(_request_int(request, "limit", 100), 500)
+    offset = _request_int(request, "offset", 0)
+    sort = request.query.get("sort", "submitted_at")
+    order = request.query.get("order", "desc")
+
+    try:
+        payload = await _abci_query(
+            session,
+            rpc,
+            f"contracts/limit={limit}/offset={offset}/sort={sort}/order={order}",
+        )
+        if not isinstance(payload, dict):
+            payload = {
+                "items": payload or [],
+                "limit": limit,
+                "offset": offset,
+                "sort": sort,
+                "order": order,
+            }
+        return web.json_response(payload)
+    except aiohttp.ClientError as exc:
+        return web.json_response(
+            {"error": f"CometBFT RPC unavailable: {exc}"},
+            status=502,
+        )
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def handle_recent_events(request: web.Request) -> web.Response:
+    session = request.app["session"]
+    rpc = await _request_rpc_url(request)
+    limit = min(_request_int(request, "limit", 50), 500)
+    offset = _request_int(request, "offset", 0)
+
+    try:
+        payload = await _abci_query(
+            session,
+            rpc,
+            f"recent_events/limit={limit}/offset={offset}",
+        )
+        if not isinstance(payload, dict):
+            payload = {
+                "available": False,
+                "items": [],
+                "limit": limit,
+                "offset": offset,
+            }
+        return web.json_response(payload)
+    except aiohttp.ClientError as exc:
+        return web.json_response(
+            {"error": f"CometBFT RPC unavailable: {exc}"},
+            status=502,
+        )
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
 async def handle_abci_query(
     request: web.Request,
 ) -> web.Response:
     query_path = request.match_info["path"]
     session = request.app["session"]
-    rpc = request.app["rpc_url"]
+    rpc = await _request_rpc_url(request)
 
     try:
         result = await _raw_rpc(
@@ -741,7 +886,7 @@ async def handle_abci_query(
 
 async def handle_monitoring(request: web.Request) -> web.Response:
     session = request.app["session"]
-    rpc = request.app["rpc_url"]
+    rpc = await _request_rpc_url(request)
 
     async def fetch_decoded_query(path: str) -> dict:
         result = await _raw_rpc(
@@ -851,6 +996,8 @@ def create_app(
     app.router.add_get("/api/unconfirmed_txs", handle_unconfirmed)
     app.router.add_get("/api/monitoring", handle_monitoring)
     app.router.add_get("/api/contract/{name}", handle_contract)
+    app.router.add_get("/api/contracts", handle_contracts)
+    app.router.add_get("/api/recent_events", handle_recent_events)
     app.router.add_get("/api/abci_query/{path:.+}", handle_abci_query)
 
     return app

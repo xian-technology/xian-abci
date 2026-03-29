@@ -87,6 +87,8 @@ a:hover{text-decoration:underline}
 .data-row:last-child{border-bottom:none}
 .data-key{font-size:.8rem;color:var(--text3);flex-shrink:0;width:160px}
 .data-val{font-size:.85rem;font-family:var(--mono);color:var(--text);text-align:right;word-break:break-all;max-width:calc(100% - 180px)}
+.copyable{cursor:pointer;display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.copyable:hover{color:var(--accent)}
 
 /* ── tables ── */
 table{width:100%;border-collapse:collapse}
@@ -103,6 +105,8 @@ tr.clickable{cursor:pointer}
 /* ── peers ── */
 .peer-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px}
 .peer{font-size:.8rem;font-family:var(--mono);padding:8px 12px;background:var(--surface2);border-radius:var(--radius);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.peer.clickable{cursor:pointer}
+.peer.clickable:hover{color:var(--accent);border-color:#334155}
 
 /* ── explorer ── */
 .search-bar{display:flex;gap:8px;margin-bottom:24px}
@@ -117,6 +121,8 @@ tr.clickable{cursor:pointer}
 .toggle-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--border);background:transparent;color:var(--text3);font-size:.75rem;font-family:var(--mono);cursor:pointer;transition:all .15s}
 .toggle-pill:hover{background:var(--surface2);color:var(--text2)}
 .toggle-pill.active{background:rgba(59,130,246,.14);border-color:rgba(59,130,246,.35);color:var(--accent)}
+.inline-select{padding:7px 10px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.8rem}
+.explorer-nav{display:flex;gap:8px;flex-wrap:wrap;margin:-8px 0 20px}
 
 .pagination{display:flex;justify-content:space-between;align-items:center;margin:16px 16px}
 .page-info{font-size:.8rem;color:var(--text3)}
@@ -143,7 +149,7 @@ tr.clickable{cursor:pointer}
 /* ── tag list ── */
 .tag{display:inline-block;font-size:.75rem;padding:3px 10px;border-radius:4px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);margin:2px 4px 2px 0;font-family:var(--mono)}
 
-/* ── validator / activity ── */
+/* ── validator ── */
 .validator-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px}
 .validator-metric{padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius)}
 .validator-metric-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:4px}
@@ -152,20 +158,6 @@ tr.clickable{cursor:pointer}
 .validator-role{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.72rem;font-family:var(--mono);border:1px solid var(--border)}
 .validator-role.active{color:var(--green);background:rgba(16,185,129,.12)}
 .validator-role.inactive{color:var(--text3);background:var(--surface2)}
-.activity-note{font-size:.78rem;color:var(--text3)}
-.activity-feed{display:flex;flex-direction:column;gap:10px;max-height:420px;overflow-y:auto}
-.activity-item{padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface2)}
-.activity-item:hover{border-color:#334155}
-.activity-item.ok{border-color:rgba(16,185,129,.25)}
-.activity-item.warn{border-color:rgba(245,158,11,.25)}
-.activity-item.error{border-color:rgba(239,68,68,.25)}
-.activity-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
-.activity-kind{display:inline-block;font-size:.7rem;padding:2px 8px;border-radius:999px;border:1px solid var(--border);font-family:var(--mono);color:var(--text3);text-transform:uppercase}
-.activity-title{font-size:.86rem;font-weight:600;word-break:break-word}
-.activity-time{font-size:.74rem;color:var(--text3);white-space:nowrap}
-.activity-detail{font-size:.78rem;color:var(--text2);margin-top:6px;word-break:break-word}
-.activity-detail code{font-family:var(--mono)}
-.activity-link{font-size:.76rem;color:var(--accent);margin-top:8px;display:inline-block}
 .mono{font-family:var(--mono)}
 .muted{color:var(--text3)}
 
@@ -247,29 +239,10 @@ tr.clickable{cursor:pointer}
         <div class="card-body" id="execution-health"><div class="empty"><span class="loading"></span> Loading...</div></div>
       </div>
 
-      <div class="card">
-        <div class="card-header">BDS Health</div>
-        <div class="card-body" id="bds-health"><div class="empty"><span class="loading"></span> Loading...</div></div>
-      </div>
-    </div>
-
     <div class="card">
-      <div class="card-header card-header-flex">
-        <span>Live Activity</span>
-        <div class="card-actions">
-          <button class="toggle-pill active" data-activity-kind="block">Blocks</button>
-          <button class="toggle-pill active" data-activity-kind="tx">Txs</button>
-          <button class="toggle-pill" data-activity-kind="event">Events</button>
-          <button class="toggle-pill" data-activity-kind="state">State</button>
-          <button class="btn btn-ghost btn-small" id="clear-activity">Clear</button>
-        </div>
-      </div>
-      <div class="card-body">
-        <div class="activity-note" id="activity-status">Streaming blocks and txs. Enable global contract-event or state-change watching when you need deeper debugging.</div>
-        <div class="activity-feed" id="activity-feed" style="margin-top:12px">
-          <div class="empty">Waiting for live chain activity…</div>
-        </div>
-      </div>
+      <div class="card-header">BDS Health</div>
+      <div class="card-body" id="bds-health"><div class="empty"><span class="loading"></span> Loading...</div></div>
+    </div>
     </div>
 
     <div class="card">
@@ -290,12 +263,40 @@ tr.clickable{cursor:pointer}
       <button class="btn" id="search-btn">Search</button>
     </div>
 
+    <div class="explorer-nav">
+      <button class="toggle-pill active" data-explorer-view="blocks">Blocks</button>
+      <button class="toggle-pill" data-explorer-view="contracts">Contracts</button>
+      <button class="toggle-pill" data-explorer-view="events">Events</button>
+    </div>
+
     <div id="explorer-detail"></div>
 
     <div id="explorer-list">
-      <div class="card">
+      <div class="card" data-explorer-panel="blocks">
         <div class="card-header">Blocks</div>
         <div class="card-body" id="explorer-blocks" style="padding:0"><div class="empty"><span class="loading"></span> Loading...</div></div>
+      </div>
+
+      <div class="card" data-explorer-panel="contracts" style="display:none">
+        <div class="card-header card-header-flex">
+          <span>Contracts</span>
+          <div class="card-actions">
+            <select class="inline-select" id="contracts-sort">
+              <option value="submitted_at">Creation Date</option>
+              <option value="name">Name</option>
+            </select>
+            <select class="inline-select" id="contracts-order">
+              <option value="desc">Newest First</option>
+              <option value="asc">Oldest First</option>
+            </select>
+          </div>
+        </div>
+        <div class="card-body" id="explorer-contracts" style="padding:0"><div class="empty"><span class="loading"></span> Loading...</div></div>
+      </div>
+
+      <div class="card" data-explorer-panel="events" style="display:none">
+        <div class="card-header">Recent Events</div>
+        <div class="card-body" id="explorer-events" style="padding:0"><div class="empty"><span class="loading"></span> Loading...</div></div>
       </div>
 
       <div class="query-section">
@@ -324,22 +325,22 @@ let explorerMaxHeight = 0;
 let lastBlockTime = null;
 let lastBlockHash = null;
 const BLOCKS_PER_PAGE = 20;
+const CONTRACTS_PER_PAGE = 50;
+const EVENTS_PER_PAGE = 50;
 let ws = null;
 let wsReconnectDelay = 1000;
 const WS_MAX_DELAY = 30000;
-const ACTIVITY_LIMIT = 120;
 let latestStatusSnapshot = null;
 let latestNetInfoSnapshot = null;
 let latestValidatorsSnapshot = null;
 let latestMonitoringSnapshot = null;
 let lastRefreshAt = null;
-const activityFeed = [];
-const activityFilters = {
-  block: true,
-  tx: true,
-  event: false,
-  state: false,
-};
+let explorerView = "blocks";
+let explorerContractsOffset = 0;
+let explorerContractSort = "submitted_at";
+let explorerContractOrder = "desc";
+let explorerEventsOffset = 0;
+let selectedRpc = null;
 
 /* ── helpers ── */
 function $(id){ return document.getElementById(id) }
@@ -391,8 +392,25 @@ function escHtml(s){
   if(!s) return "";
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
+function encodeDataAttr(value){
+  return encodeURIComponent(value === null || value === undefined ? "" : String(value));
+}
 function normalizeHex(value){
   return String(value || "").replace(/^0x/i,"").toUpperCase();
+}
+function truncateMiddle(value, left, right){
+  if(value === null || value === undefined) return "\u2014";
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  const keepLeft = left || 12;
+  const keepRight = right || 10;
+  if(text.length <= keepLeft + keepRight + 1) return text;
+  return text.slice(0, keepLeft) + "\u2026" + text.slice(-keepRight);
+}
+function copyableValue(value, opts){
+  const text = value === null || value === undefined ? "\u2014" : String(value);
+  const left = opts && opts.left ? opts.left : 12;
+  const right = opts && opts.right ? opts.right : 10;
+  return '<span class="copyable" data-copy-value="'+encodeDataAttr(text)+'" title="Click to copy full value">'+escHtml(truncateMiddle(text, left, right))+'</span>';
 }
 function compactText(value, maxLen){
   if(value === null || value === undefined) return "\u2014";
@@ -424,65 +442,60 @@ function markRefreshed(){
   lastRefreshAt = Date.now();
   updateRefreshStamp();
 }
-function activityKindLabel(kind){
-  if(kind === "block") return "Block";
-  if(kind === "tx") return "Tx";
-  if(kind === "event") return "Event";
-  if(kind === "state") return "State";
-  return "Info";
-}
-function renderActivityFeed(){
-  const feed = $("activity-feed");
-  if(!feed) return;
-  const visible = activityFeed.filter(item => activityFilters[item.kind]).slice(0, 60);
-  if(!visible.length){
-    feed.innerHTML = '<div class="empty">No live activity matches the current filters.</div>';
-    return;
+
+function peerRpcUrl(peer){
+  if(!peer || typeof peer !== "object") return null;
+  const nodeInfo = peer.node_info || {};
+  const other = nodeInfo.other || {};
+  const rpcAddress = other.rpc_address;
+  if(!rpcAddress) return null;
+  let normalized = String(rpcAddress).replace(/^tcp:\/\//,"http://").replace(/^unix:\/\//,"http://");
+  if(!normalized.startsWith("http://") && !normalized.startsWith("https://")){
+    normalized = "http://" + normalized.replace(/^\/+/,"");
   }
-  feed.innerHTML = visible.map(item=>{
-    const detail = item.detail ? '<div class="activity-detail">'+escHtml(item.detail)+'</div>' : "";
-    const link = item.linkView && item.linkId
-      ? '<a class="activity-link" onclick="navigateTo(\''+escHtml(item.linkView)+'\',\''+escHtml(String(item.linkId))+'\')">Open details</a>'
-      : "";
-    return '<div class="activity-item '+escHtml(item.level || "info")+'">'+
-      '<div class="activity-top">'+
-        '<div>'+
-          '<span class="activity-kind">'+escHtml(activityKindLabel(item.kind))+'</span>'+
-          '<div class="activity-title" style="margin-top:8px">'+escHtml(item.title)+'</div>'+
-        '</div>'+
-        '<div class="activity-time" title="'+escHtml(fmtTime(item.time))+'">'+escHtml(timeAgo(item.time))+'</div>'+
-      '</div>'+
-      detail+
-      link+
-    '</div>';
-  }).join("");
+  try{
+    const url = new URL(normalized);
+    if(["0.0.0.0","127.0.0.1","localhost","::"].includes(url.hostname) && peer.remote_ip){
+      url.hostname = peer.remote_ip;
+    }
+    url.pathname = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/,"");
+  }catch(_){
+    return null;
+  }
 }
-function recordActivity(entry){
-  activityFeed.unshift({
-    kind: entry.kind || "info",
-    level: entry.level || "info",
-    title: entry.title || "Activity",
-    detail: entry.detail || "",
-    linkView: entry.linkView || null,
-    linkId: entry.linkId || null,
-    time: entry.time || new Date().toISOString(),
-  });
-  while(activityFeed.length > ACTIVITY_LIMIT) activityFeed.pop();
-  renderActivityFeed();
+
+function currentBaseRpc(){
+  return selectedRpc || null;
 }
-function renderActivityStatus(){
-  const status = $("activity-status");
-  if(!status) return;
-  const extra = [];
-  extra.push(activityFilters.event ? "global contract events on" : "events off");
-  extra.push(activityFilters.state ? "global state changes on" : "state off");
-  const linkState = ws && ws.readyState === WebSocket.OPEN ? "WebSocket connected" : "WebSocket reconnecting";
-  status.textContent = "Streaming blocks and txs. " + extra.join(" · ") + " · " + linkState + ".";
+
+function withCurrentRpc(path){
+  const url = new URL(path, location.origin);
+  if(currentBaseRpc()) url.searchParams.set("rpc", currentBaseRpc());
+  return url.pathname + url.search;
+}
+
+function setSelectedRpc(rpcUrl){
+  selectedRpc = rpcUrl || null;
+}
+
+async function copyFullValue(encodedValue){
+  const value = decodeURIComponent(encodedValue);
+  if(!navigator.clipboard || !navigator.clipboard.writeText) return;
+  try{
+    await navigator.clipboard.writeText(value);
+  }catch(_){
+    /* ignore clipboard failures */
+  }
 }
 
 async function api(path){
   try{
-    const r = await fetch("/api/"+path);
+    const url = new URL("/api/"+path, location.origin);
+    if(currentBaseRpc()) url.searchParams.set("rpc", currentBaseRpc());
+    const r = await fetch(url);
     if(!r.ok) throw new Error(r.statusText);
     return await r.json();
   }catch(e){
@@ -499,10 +512,36 @@ function switchToTab(tabName){
   $("section-"+tabName).classList.add("active");
 }
 
+function explorerListPath(){
+  if(explorerView === "contracts") return "/explorer/contracts";
+  if(explorerView === "events") return "/explorer/events";
+  return "/explorer";
+}
+
+function setExplorerView(view, pushState){
+  explorerView = view || "blocks";
+  document.querySelectorAll("[data-explorer-view]").forEach(btn=>{
+    btn.classList.toggle("active", btn.dataset.explorerView === explorerView);
+  });
+  document.querySelectorAll("[data-explorer-panel]").forEach(panel=>{
+    panel.style.display = panel.dataset.explorerPanel === explorerView ? "" : "none";
+  });
+  if(pushState !== false){
+    history.pushState({view:"list"}, "", withCurrentRpc(explorerListPath()));
+  }
+  if(explorerView === "blocks"){
+    if(explorerMaxHeight === 0) loadExplorerBlocks();
+  } else if(explorerView === "contracts"){
+    loadExplorerContracts();
+  } else if(explorerView === "events"){
+    loadExplorerEvents();
+  }
+}
+
 function navigateTo(view, id, pushState){
   if(pushState !== false){
-    const path = view === "home" ? "/" : view === "list" ? "/explorer" : "/explorer/"+view+"/"+id;
-    history.pushState({view, id}, "", path);
+    const path = view === "home" ? "/" : view === "list" ? explorerListPath() : "/explorer/"+view+"/"+id;
+    history.pushState({view, id}, "", withCurrentRpc(path));
   }
   if(view === "home"){
     switchToTab("dashboard");
@@ -515,7 +554,7 @@ function navigateTo(view, id, pushState){
   else if(view === "list"){
     $("explorer-detail").innerHTML = "";
     $("explorer-list").style.display = "";
-    if(explorerMaxHeight === 0) loadExplorerBlocks();
+    setExplorerView(explorerView, false);
   }
 }
 window.navigateTo = navigateTo;
@@ -542,6 +581,58 @@ function breadcrumb(items){
   return html + '</div>';
 }
 
+function nodeInfoHtml(nodeInfo, syncInfo){
+  return ''+
+    '<div class="data-row"><span class="data-key">Node ID</span><span class="data-val">'+copyableValue(nodeInfo.id||"\u2014",{left:14,right:12})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Network</span><span class="data-val">'+copyableValue(nodeInfo.network||"\u2014",{left:18,right:12})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Moniker</span><span class="data-val">'+copyableValue(nodeInfo.moniker||"\u2014",{left:18,right:12})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">CometBFT</span><span class="data-val">'+copyableValue(nodeInfo.version||"\u2014",{left:10,right:8})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Latest Block</span><span class="data-val">'+copyableValue(syncInfo.latest_block_height||"\u2014",{left:12,right:8})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Latest Hash</span><span class="data-val">'+copyableValue(syncInfo.latest_block_hash||"\u2014",{left:14,right:12})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Block Time</span><span class="data-val">'+copyableValue(fmtTime(syncInfo.latest_block_time),{left:18,right:10})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Earliest Block</span><span class="data-val">'+copyableValue(syncInfo.earliest_block_height||"\u2014",{left:12,right:8})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Catching Up</span><span class="data-val">'+escHtml(syncInfo.catching_up ? "Yes" : "No")+'</span></div>';
+}
+
+function knownDashboardTargets(){
+  const targets = [];
+  const currentNode = latestStatusSnapshot && latestStatusSnapshot.node_info ? latestStatusSnapshot.node_info : {};
+  targets.push({
+    label: currentNode.moniker || "Current node",
+    rpc: currentBaseRpc() || "",
+  });
+  const peers = latestNetInfoSnapshot && Array.isArray(latestNetInfoSnapshot.peers) ? latestNetInfoSnapshot.peers : [];
+  peers.forEach(peer=>{
+    const rpc = peerRpcUrl(peer);
+    if(!rpc) return;
+    if(targets.some(target=>target.rpc === rpc)) return;
+    const nodeInfo = peer.node_info || {};
+    targets.push({
+      label: (nodeInfo.moniker || "Peer") + " · " + (peer.remote_ip || rpc),
+      rpc,
+    });
+  });
+  return targets;
+}
+
+function nodeDashboardSelectorHtml(){
+  const targets = knownDashboardTargets();
+  if(targets.length <= 1) return '<div class="summary-meta">Peer dashboards become selectable when peers advertise a reachable RPC address.</div>';
+  const options = targets.map(target=>'<option value="'+escHtml(target.rpc)+'">'+escHtml(target.label)+'</option>').join("");
+  return '<div style="margin-bottom:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+    '<select class="inline-select" id="validator-node-target">'+options+'</select>'+
+    '<button class="btn btn-ghost btn-small" id="open-validator-node">Open Node Dashboard</button>'+
+  '</div>';
+}
+
+function openDashboardForRpc(rpcUrl){
+  const url = new URL(location.href);
+  if(rpcUrl) url.searchParams.set("rpc", rpcUrl);
+  else url.searchParams.delete("rpc");
+  window.location.href = url.pathname + url.search;
+}
+window.openDashboardForRpc = openDashboardForRpc;
+
 /* ── tabs ── */
 document.querySelectorAll(".tab").forEach(t=>{
   t.addEventListener("click",()=>{
@@ -549,7 +640,7 @@ document.querySelectorAll(".tab").forEach(t=>{
     if(t.dataset.tab==="explorer"){
       $("explorer-detail").innerHTML = "";
       $("explorer-list").style.display = "";
-      if(explorerMaxHeight===0) loadExplorerBlocks();
+      setExplorerView(explorerView, false);
     }
   });
 });
@@ -563,9 +654,6 @@ function connectWS(){
   ws.onopen = function(){
     console.log("WS connected");
     wsReconnectDelay = 1000;
-    renderActivityStatus();
-    syncActivitySubscription("event");
-    syncActivitySubscription("state");
   };
 
   ws.onmessage = function(evt){
@@ -584,7 +672,6 @@ function connectWS(){
     console.log("WS disconnected, reconnecting in", wsReconnectDelay, "ms");
     $("status-dot").className = "status-dot offline";
     $("status-text").textContent = "disconnected";
-    renderActivityStatus();
     setTimeout(connectWS, wsReconnectDelay);
     wsReconnectDelay = Math.min(wsReconnectDelay * 2, WS_MAX_DELAY);
   };
@@ -607,17 +694,15 @@ function handleNewBlock(msg){
     if(subEl) subEl.textContent = timeAgo(msg.time);
   }
 
-  /* update node info latest block/hash */
-  const niRows = document.querySelectorAll("#node-info .data-row");
-  niRows.forEach(row=>{
-    const key = row.querySelector(".data-key");
-    const val = row.querySelector(".data-val");
-    if(!key||!val) return;
-    const k = key.textContent;
-    if(k==="Latest Block") val.textContent = String(msg.height);
-    else if(k==="Latest Hash") val.textContent = truncHash(msg.hash,16);
-    else if(k==="Block Time") val.textContent = fmtTime(msg.time);
-  });
+  if(latestStatusSnapshot && latestStatusSnapshot.sync_info){
+    latestStatusSnapshot.sync_info.latest_block_height = String(msg.height);
+    latestStatusSnapshot.sync_info.latest_block_hash = msg.hash;
+    latestStatusSnapshot.sync_info.latest_block_time = msg.time;
+    $("node-info").innerHTML = nodeInfoHtml(
+      latestStatusSnapshot.node_info || {},
+      latestStatusSnapshot.sync_info || {}
+    );
+  }
 
   /* prepend to dashboard recent blocks */
   const rb = $("recent-blocks");
@@ -658,31 +743,6 @@ function handleNewBlock(msg){
     while(eTbody.children.length > BLOCKS_PER_PAGE) eTbody.removeChild(eTbody.lastChild);
   }
 
-  recordActivity({
-    kind: "block",
-    level: "ok",
-    title: "Block #" + msg.height.toLocaleString() + " committed",
-    detail: (msg.num_txs || 0) + " txs · proposer " + truncHash(msg.proposer, 6),
-    linkView: "block",
-    linkId: String(msg.height),
-    time: msg.time,
-  });
-
-  (msg.txs || []).forEach((tx, index)=>{
-    const contract = tx.contract || "\u2014";
-    const fn = tx.function || "\u2014";
-    const sender = tx.sender ? truncHash(tx.sender, 8) : "\u2014";
-    const detail = "sender " + sender + " · stamps " + String(tx.stamps_supplied ?? "\u2014") + " · block #" + msg.height + " · tx #" + (index + 1);
-    recordActivity({
-      kind: "tx",
-      level: "info",
-      title: contract + "." + fn,
-      detail,
-      linkView: tx.tx_hash ? "tx" : "block",
-      linkId: tx.tx_hash || String(msg.height),
-      time: msg.time,
-    });
-  });
 }
 
 function handleNodeStatus(msg){
@@ -697,21 +757,11 @@ function handleNodeStatus(msg){
 }
 
 function handleContractEvent(msg){
-  recordActivity({
-    kind: "event",
-    level: "info",
-    title: (msg.contract || "\u2014") + "." + (msg.event || "Event"),
-    detail: "caller " + (msg.caller ? truncHash(msg.caller, 8) : "\u2014") + " · signer " + (msg.signer ? truncHash(msg.signer, 8) : "\u2014") + " · " + compactText(msg.data, 180),
-  });
+  /* Recent event browsing lives in Explorer > Events. */
 }
 
 function handleStateChange(msg){
-  recordActivity({
-    kind: "state",
-    level: "info",
-    title: msg.key || "state change",
-    detail: compactText(msg.value, 180),
-  });
+  /* Recent event browsing lives in Explorer > Events. */
 }
 
 /* ── dashboard ── */
@@ -766,17 +816,7 @@ async function refreshDashboard(){
     </div>
   `;
 
-  $("node-info").innerHTML = `
-    <div class="data-row"><span class="data-key">Node ID</span><span class="data-val">${ni.id||"\u2014"}</span></div>
-    <div class="data-row"><span class="data-key">Network</span><span class="data-val">${ni.network||"\u2014"}</span></div>
-    <div class="data-row"><span class="data-key">Moniker</span><span class="data-val">${ni.moniker||"\u2014"}</span></div>
-    <div class="data-row"><span class="data-key">CometBFT</span><span class="data-val">${ni.version||"\u2014"}</span></div>
-    <div class="data-row"><span class="data-key">Latest Block</span><span class="data-val">${si.latest_block_height||"\u2014"}</span></div>
-    <div class="data-row"><span class="data-key">Latest Hash</span><span class="data-val">${truncHash(si.latest_block_hash,16)}</span></div>
-    <div class="data-row"><span class="data-key">Block Time</span><span class="data-val">${fmtTime(si.latest_block_time)}</span></div>
-    <div class="data-row"><span class="data-key">Earliest Block</span><span class="data-val">${si.earliest_block_height||"\u2014"}</span></div>
-    <div class="data-row"><span class="data-key">Catching Up</span><span class="data-val">${catching?"Yes":"No"}</span></div>
-  `;
+  $("node-info").innerHTML = nodeInfoHtml(ni, si);
 
   if(latestHeight > 0){
     const min = Math.max(1, latestHeight - 9);
@@ -805,7 +845,13 @@ async function refreshDashboard(){
     let html = '<div class="peer-list">';
     peers.forEach(p=>{
       const ni2 = p.node_info||{};
-      html += `<div class="peer" title="${ni2.id||""}">${ni2.moniker||"peer"} \u2014 ${p.remote_ip||"?"}</div>`;
+      const rpc = peerRpcUrl(p);
+      const label = (ni2.moniker||"peer")+' \u2014 '+(p.remote_ip||"?");
+      if(rpc){
+        html += `<div class="peer clickable" title="Open dashboard for ${escHtml(label)}" onclick="openDashboardForRpc('${escHtml(rpc)}')">${escHtml(label)}</div>`;
+      } else {
+        html += `<div class="peer" title="${ni2.id||""}">${escHtml(label)}</div>`;
+      }
     });
     html += '</div>';
     $("peers-info").innerHTML = html;
@@ -827,13 +873,9 @@ function renderExecutionHealth(monitoring){
   const globalMetrics = snapshot.global_metrics || {};
   const unconfirmed = monitoring && monitoring.unconfirmed_txs ? monitoring.unconfirmed_txs : {};
 
-  if(!perf.enabled || perf.error){
-    $("execution-health").innerHTML = '<div class="empty">Execution metrics are unavailable</div>';
-    return;
-  }
-
   $("execution-health").innerHTML =
     '<div class="data-row"><span class="data-key">Tracer</span><span class="data-val">'+escHtml(snapshot.tracer_mode||"\u2014")+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Perf Capture</span><span class="data-val">'+escHtml(perf.enabled ? "enabled" : perf.error ? "error" : "disabled")+'</span></div>'+
     '<div class="data-row"><span class="data-key">Mempool</span><span class="data-val">'+escHtml(String(unconfirmed.n_txs ?? "\u2014"))+' tx / '+fmtBytes(unconfirmed.total_bytes)+'</span></div>'+
     '<div class="data-row"><span class="data-key">Last Finalize</span><span class="data-val">'+fmtMs(latestBlock ? latestBlock.duration_ms : null)+'</span></div>'+
     '<div class="data-row"><span class="data-key">Last Block Txs</span><span class="data-val">'+escHtml(String(latestBlock ? latestBlock.tx_count : "\u2014"))+'</span></div>'+
@@ -845,7 +887,12 @@ function renderExecutionHealth(monitoring){
         ? `${latestMeta.parallel_speculative_accepted ?? 0} accepted / ${latestMeta.parallel_serial_fallbacks ?? 0} fallback`
         : 'disabled'
     )+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Last Block Loop</span><span class="data-val">'+fmtMs(latestMetrics.finalize_tx_loop ? latestMetrics.finalize_tx_loop.total_ms : null)+'</span></div>';
+    '<div class="data-row"><span class="data-key">Last Block Loop</span><span class="data-val">'+fmtMs(latestMetrics.finalize_tx_loop ? latestMetrics.finalize_tx_loop.total_ms : null)+'</span></div>'+
+    (
+      perf.enabled
+        ? ''
+        : '<div class="summary-meta" style="margin-top:14px">Advanced execution timings come from the node perf tracker. Enable <span class="mono">XIAN_PERF_ENABLED=true</span> to populate block-finalize timing samples here.</div>'
+    );
 }
 
 function renderBdsHealth(monitoring){
@@ -1006,7 +1053,7 @@ function renderOperatorSummary(){
       '</div>';
     });
   } else {
-    html += '<div class="summary-card ok"><div class="summary-title">No active alerts</div><div class="summary-value">Node, execution, and indexer signals all look healthy.</div></div>';
+    html += '<div class="summary-card ok"><div class="summary-title">No active alerts</div><div class="summary-value">Shown when the node is synced, peers are connected, recent block flow is fresh, mempool backlog is below the warning threshold, BDS is not catching up, and no slow-finalize signal is active.</div></div>';
   }
 
   container.innerHTML = html;
@@ -1043,6 +1090,7 @@ function renderValidatorSet(){
     }).join("");
 
   container.innerHTML =
+    nodeDashboardSelectorHtml()+
     '<div class="validator-summary">'+
       '<div class="validator-metric"><div class="validator-metric-label">Set Height</div><div class="validator-metric-value">'+escHtml(String(setHeight))+'</div></div>'+
       '<div class="validator-metric"><div class="validator-metric-label">Validators</div><div class="validator-metric-value">'+escHtml(String(validators.length))+'</div></div>'+
@@ -1054,24 +1102,6 @@ function renderValidatorSet(){
       )+'</div></div>'+
     '</div>'+
     '<table class="validator-table"><thead><tr><th>Validator</th><th>Power</th><th>Priority</th></tr></thead><tbody>'+rows+'</tbody></table>';
-}
-
-function syncActivitySubscription(kind){
-  if(!ws || ws.readyState !== WebSocket.OPEN) return;
-  if(kind === "event"){
-    ws.send(JSON.stringify({
-      action: activityFilters.event ? "subscribe" : "unsubscribe",
-      type: "event",
-      contract: "*",
-    }));
-  } else if(kind === "state"){
-    ws.send(JSON.stringify({
-      action: activityFilters.state ? "subscribe" : "unsubscribe",
-      type: "state",
-      key: "*",
-    }));
-  }
-  renderActivityStatus();
 }
 
 async function refreshMonitoring(){
@@ -1137,6 +1167,85 @@ async function loadExplorerBlocks(maxH){
 window._explorerPage = function(dir){
   if(dir==="prev") loadExplorerBlocks(Math.max(1, explorerMaxHeight - BLOCKS_PER_PAGE));
   else loadExplorerBlocks(Math.min(latestHeight, explorerMaxHeight + BLOCKS_PER_PAGE));
+};
+
+async function loadExplorerContracts(){
+  const payload = await api("contracts?limit="+CONTRACTS_PER_PAGE+"&offset="+explorerContractsOffset+"&sort="+encodeURIComponent(explorerContractSort)+"&order="+encodeURIComponent(explorerContractOrder));
+  const items = payload.items || [];
+  if(payload.error){
+    $("explorer-contracts").innerHTML = '<div class="empty">'+escHtml(payload.error)+'</div>';
+    return;
+  }
+  if(!items.length){
+    $("explorer-contracts").innerHTML = '<div class="empty">No deployed contracts found</div>';
+    return;
+  }
+  let html = '<table><thead><tr><th>Name</th><th>Created</th><th>Developer</th><th>Source</th></tr></thead><tbody>';
+  items.forEach(item=>{
+    html += '<tr class="clickable" onclick="navigateTo(\'contract\',\''+escHtml(item.name)+'\')">'+
+      '<td>'+escHtml(item.name)+'</td>'+
+      '<td>'+escHtml(item.submitted_at ? fmtTime(item.submitted_at) : '\u2014')+'</td>'+
+      '<td>'+copyableValue(item.developer || '\u2014',{left:10,right:8})+'</td>'+
+      '<td>'+escHtml(item.has_source ? 'original' : 'compiled only')+'</td>'+
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  const total = Number(payload.total || items.length);
+  const start = total === 0 ? 0 : explorerContractsOffset + 1;
+  const end = Math.min(total, explorerContractsOffset + items.length);
+  html += '<div class="pagination">'+
+    '<button class="btn btn-ghost" '+(explorerContractsOffset > 0 ? 'onclick="window._contractsPage(\'prev\')"' : 'disabled')+'>\u2190 Older</button>'+
+    '<span class="page-info">'+start.toLocaleString()+' \u2013 '+end.toLocaleString()+' of '+total.toLocaleString()+'</span>'+
+    '<button class="btn btn-ghost" '+(end < total ? 'onclick="window._contractsPage(\'next\')"' : 'disabled')+'>Newer \u2192</button>'+
+  '</div>';
+  $("explorer-contracts").innerHTML = html;
+}
+
+window._contractsPage = function(dir){
+  if(dir === "prev") explorerContractsOffset = Math.max(0, explorerContractsOffset - CONTRACTS_PER_PAGE);
+  else explorerContractsOffset += CONTRACTS_PER_PAGE;
+  loadExplorerContracts();
+};
+
+async function loadExplorerEvents(){
+  const payload = await api("recent_events?limit="+EVENTS_PER_PAGE+"&offset="+explorerEventsOffset);
+  if(payload.error){
+    $("explorer-events").innerHTML = '<div class="empty">'+escHtml(payload.error)+'</div>';
+    return;
+  }
+  if(payload.available === false){
+    $("explorer-events").innerHTML = '<div class="empty">Recent event history is available on service nodes with BDS enabled.</div>';
+    return;
+  }
+  const items = payload.items || [];
+  if(!items.length){
+    $("explorer-events").innerHTML = '<div class="empty">No indexed events found</div>';
+    return;
+  }
+  let html = '<table><thead><tr><th>Time</th><th>Contract</th><th>Event</th><th>Signer</th><th>Tx</th></tr></thead><tbody>';
+  items.forEach(item=>{
+    html += '<tr class="clickable" onclick="navigateTo(\'tx\',\''+escHtml(item.tx_hash)+'\')">'+
+      '<td>'+escHtml(item.created_at ? fmtTime(item.created_at) : '\u2014')+'</td>'+
+      '<td>'+escHtml(item.contract || '\u2014')+'</td>'+
+      '<td>'+escHtml(item.event || '\u2014')+'</td>'+
+      '<td>'+copyableValue(item.signer || '\u2014',{left:10,right:8})+'</td>'+
+      '<td>'+escHtml(truncHash(item.tx_hash || '\u2014',8))+'</td>'+
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  const count = items.length;
+  html += '<div class="pagination">'+
+    '<button class="btn btn-ghost" '+(explorerEventsOffset > 0 ? 'onclick="window._eventsPage(\'prev\')"' : 'disabled')+'>\u2190 Older</button>'+
+    '<span class="page-info">'+(explorerEventsOffset + 1).toLocaleString()+' \u2013 '+(explorerEventsOffset + count).toLocaleString()+'</span>'+
+    '<button class="btn btn-ghost" '+(count === EVENTS_PER_PAGE ? 'onclick="window._eventsPage(\'next\')"' : 'disabled')+'>Newer \u2192</button>'+
+  '</div>';
+  $("explorer-events").innerHTML = html;
+}
+
+window._eventsPage = function(dir){
+  if(dir === "prev") explorerEventsOffset = Math.max(0, explorerEventsOffset - EVENTS_PER_PAGE);
+  else explorerEventsOffset += EVENTS_PER_PAGE;
+  loadExplorerEvents();
 };
 
 /* ── block detail view ── */
@@ -1410,64 +1519,11 @@ async function viewContract(name){
   if(data.code){
     html += `<div class="card">
       <div class="card-header">Source Code</div>
-      <div class="card-body"><div class="code-block">${highlightPython(data.code)}</div></div>
+      <div class="card-body"><div class="code-block">${escHtml(data.code)}</div></div>
     </div>`;
   }
 
   showDetail(html);
-}
-
-/* ── Python syntax highlighting ── */
-function highlightPython(code){
-  const lines = escHtml(code).split("\n");
-  return lines.map(line=>{
-    /* comments */
-    let commentIdx = -1;
-    let inStr = false;
-    let strChar = "";
-    for(let i=0;i<line.length;i++){
-      if(!inStr && (line[i]==="'" || line[i]==='"')){
-        inStr = true; strChar = line[i];
-      } else if(inStr && line[i]===strChar && line[i-1]!=="\\"){
-        inStr = false;
-      } else if(!inStr && line[i]==="#"){
-        commentIdx = i; break;
-      }
-    }
-
-    let main = commentIdx >= 0 ? line.slice(0, commentIdx) : line;
-    let comment = commentIdx >= 0 ? '<span class="py-cmt">'+line.slice(commentIdx)+'</span>' : "";
-
-    /* strings */
-    main = main.replace(/(&#x27;&#x27;&#x27;[\s\S]*?&#x27;&#x27;&#x27;|&quot;&quot;&quot;[\s\S]*?&quot;&quot;&quot;|&#x27;(?:[^&#]|&[^#]|&#[^x]|&#x[^2]|&#x2[^7])*?&#x27;|&quot;(?:[^&]|&[^q]|&q[^u])*?&quot;)/g, '<span class="py-str">$1</span>');
-    /* simpler string matching */
-    main = main.replace(/(&quot;.*?&quot;)/g, '<span class="py-str">$1</span>');
-    main = main.replace(/(f&quot;.*?&quot;|f&#x27;.*?&#x27;)/g, '<span class="py-str">$1</span>');
-
-    /* decorators */
-    main = main.replace(/^(\s*)(@\w+)/g, '$1<span class="py-dec">$2</span>');
-
-    /* keywords */
-    const kws = ["import","from","def","class","return","if","elif","else","for","while","try","except","finally","with","as","raise","pass","break","continue","yield","async","await","lambda","in","not","and","or","is","global","nonlocal","assert","del"];
-    kws.forEach(k=>{
-      const re = new RegExp("\\b("+k+")\\b","g");
-      main = main.replace(re, '<span class="py-kw">$1</span>');
-    });
-
-    /* booleans & None */
-    main = main.replace(/\b(True|False|None)\b/g, '<span class="py-bool">$1</span>');
-
-    /* self */
-    main = main.replace(/\b(self|ctx)\b/g, '<span class="py-self">$1</span>');
-
-    /* numbers */
-    main = main.replace(/\b(\d+\.?\d*)\b/g, '<span class="py-num">$1</span>');
-
-    /* function calls */
-    main = main.replace(/\b([a-zA-Z_]\w*)\s*\(/g, '<span class="py-fn">$1</span>(');
-
-    return main + comment;
-  }).join("\n");
 }
 
 /* ── search ── */
@@ -1556,20 +1612,35 @@ $("state-btn").addEventListener("click", async ()=>{
 });
 $("state-input").addEventListener("keydown", e=>{ if(e.key==="Enter") $("state-btn").click(); });
 
-document.querySelectorAll("[data-activity-kind]").forEach(btn=>{
-  btn.addEventListener("click", ()=>{
-    const kind = btn.dataset.activityKind;
-    activityFilters[kind] = !activityFilters[kind];
-    btn.classList.toggle("active", activityFilters[kind]);
-    if(kind === "event" || kind === "state") syncActivitySubscription(kind);
-    renderActivityStatus();
-    renderActivityFeed();
-  });
+document.querySelectorAll("[data-explorer-view]").forEach(btn=>{
+  btn.addEventListener("click", ()=> setExplorerView(btn.dataset.explorerView, true));
 });
 
-$("clear-activity").addEventListener("click", ()=>{
-  activityFeed.length = 0;
-  renderActivityFeed();
+$("contracts-sort").addEventListener("change", ()=>{
+  explorerContractSort = $("contracts-sort").value;
+  explorerContractsOffset = 0;
+  loadExplorerContracts();
+});
+
+$("contracts-order").addEventListener("change", ()=>{
+  explorerContractOrder = $("contracts-order").value;
+  explorerContractsOffset = 0;
+  loadExplorerContracts();
+});
+
+document.addEventListener("click", event=>{
+  const copyTarget = event.target.closest("[data-copy-value]");
+  if(copyTarget){
+    event.stopPropagation();
+    event.preventDefault();
+    copyFullValue(copyTarget.dataset.copyValue);
+    return;
+  }
+  const selectorButton = event.target.closest("#open-validator-node");
+  if(selectorButton){
+    const select = $("validator-node-target");
+    if(select) openDashboardForRpc(select.value || null);
+  }
 });
 
 /* ── slow poll (peers, validators, node info) ── */
@@ -1612,16 +1683,7 @@ async function refreshSlowData(){
   }
 
   /* node info card */
-  $("node-info").innerHTML =
-    '<div class="data-row"><span class="data-key">Node ID</span><span class="data-val">'+(ni.id||"\u2014")+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Network</span><span class="data-val">'+(ni.network||"\u2014")+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Moniker</span><span class="data-val">'+(ni.moniker||"\u2014")+'</span></div>'+
-    '<div class="data-row"><span class="data-key">CometBFT</span><span class="data-val">'+(ni.version||"\u2014")+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Latest Block</span><span class="data-val">'+(si.latest_block_height||"\u2014")+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Latest Hash</span><span class="data-val">'+truncHash(si.latest_block_hash,16)+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Block Time</span><span class="data-val">'+fmtTime(si.latest_block_time)+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Earliest Block</span><span class="data-val">'+(si.earliest_block_height||"\u2014")+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Catching Up</span><span class="data-val">'+(catching?"Yes":"No")+'</span></div>';
+  $("node-info").innerHTML = nodeInfoHtml(ni, si);
 
   /* peers */
   const peers = netInfo.peers||[];
@@ -1629,7 +1691,13 @@ async function refreshSlowData(){
     let html = '<div class="peer-list">';
     peers.forEach(p=>{
       const ni2 = p.node_info||{};
-      html += '<div class="peer" title="'+(ni2.id||"")+'">'+(ni2.moniker||"peer")+' \u2014 '+(p.remote_ip||"?")+'</div>';
+      const rpc = peerRpcUrl(p);
+      const label = (ni2.moniker||"peer")+' \u2014 '+(p.remote_ip||"?");
+      if(rpc){
+        html += '<div class="peer clickable" title="Open dashboard for '+escHtml(label)+'" onclick="openDashboardForRpc(\''+escHtml(rpc)+'\')">'+escHtml(label)+'</div>';
+      } else {
+        html += '<div class="peer" title="'+(ni2.id||"")+'">'+escHtml(label)+'</div>';
+      }
     });
     html += '</div>';
     $("peers-info").innerHTML = html;
@@ -1659,14 +1727,16 @@ function refreshTimeAgo(){
   });
 
   updateRefreshStamp();
-  renderActivityFeed();
 }
 
 /* ── init ── */
 async function init(){
+  const pageUrl = new URL(location.href);
+  setSelectedRpc(pageUrl.searchParams.get("rpc"));
+  explorerView = pageUrl.pathname === "/explorer/contracts" ? "contracts" : pageUrl.pathname === "/explorer/events" ? "events" : "blocks";
+  $("contracts-sort").value = explorerContractSort;
+  $("contracts-order").value = explorerContractOrder;
   /* full initial load */
-  renderActivityStatus();
-  renderActivityFeed();
   await refreshDashboard();
   await refreshMonitoring();
   /* switch to WebSocket for blocks + slow poll for the rest */
@@ -1677,12 +1747,13 @@ async function init(){
 
   /* handle deep-link URL */
   const path = location.pathname;
-  const m = path.match(/^\/explorer(?:\/(block|tx|contract)\/(.+))?$/);
-  if(m){
-    if(m[1] && m[2]) navigateTo(m[1], decodeURIComponent(m[2]), false);
-    else navigateTo("list", null, false);
+  const detailMatch = path.match(/^\/explorer\/(block|tx|contract)\/(.+)$/);
+  if(detailMatch){
+    navigateTo(detailMatch[1], decodeURIComponent(detailMatch[2]), false);
+  } else if(path === "/explorer" || path === "/explorer/contracts" || path === "/explorer/events"){
+    navigateTo("list", null, false);
   } else {
-    history.replaceState({view:"home"}, "", "/");
+    history.replaceState({view:"home"}, "", withCurrentRpc("/"));
   }
 }
 init();

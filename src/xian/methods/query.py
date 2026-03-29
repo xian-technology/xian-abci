@@ -8,6 +8,54 @@ from xian.utils.block import get_latest_block_height
 from xian.utils.encoding import encode_abci_json, encode_str
 
 
+def _query_params(path_parts: list[str]) -> dict[str, str]:
+    params: dict[str, str] = {}
+    for path in path_parts:
+        if "=" not in path:
+            continue
+        key, value = path.split("=", 1)
+        params[key] = value
+    return params
+
+
+def _submission_iso(value) -> str | None:
+    if isinstance(value, dict):
+        time_value = value.get("__time__")
+        if isinstance(time_value, (list, tuple)) and len(time_value) >= 6:
+            year, month, day, hour, minute, second = time_value[:6]
+            return (
+                f"{int(year):04d}-{int(month):02d}-{int(day):02d}T"
+                f"{int(hour):02d}:{int(minute):02d}:{int(second):02d}Z"
+            )
+    return None
+
+
+def _sort_contract_records(
+    records: list[dict],
+    *,
+    sort_key: str,
+    descending: bool,
+) -> list[dict]:
+    if sort_key == "name":
+        return sorted(
+            records,
+            key=lambda record: (
+                str(record.get("name", "")).lower(),
+                str(record.get("submitted_at") or ""),
+            ),
+            reverse=descending,
+        )
+
+    return sorted(
+        records,
+        key=lambda record: (
+            str(record.get("submitted_at") or ""),
+            str(record.get("name", "")).lower(),
+        ),
+        reverse=descending,
+    )
+
+
 async def query(self, req) -> ResponseQuery:
     """
     Query the application state
@@ -18,6 +66,7 @@ async def query(self, req) -> ResponseQuery:
     logger.debug(req.path)
     path_parts = [part for part in req.path.split("/") if part]
     key = path_parts[1] if len(path_parts) > 1 else ""
+    params = _query_params(path_parts)
     result = None
     try:
         # http://localhost:26657/abci_query?path="/get/currency.balances:c93dee52d7dc6cc43af44007c3b1dae5b730ccf18a9e6fb43521f8e4064561e6"
@@ -58,6 +107,63 @@ async def query(self, req) -> ResponseQuery:
             if contract_code is not None:
                 result = parser.variables_for_contract(contract_code)
 
+        # http://localhost:26657/abci_query?path="/contracts/limit=50/offset=0/sort=submitted_at/order=desc"
+        elif path_parts[0] == "contracts":
+            limit = 100
+            offset = 0
+            try:
+                if "limit" in params:
+                    limit = max(0, min(int(params["limit"]), 1000))
+            except (TypeError, ValueError):
+                limit = 100
+            try:
+                if "offset" in params:
+                    offset = max(0, int(params["offset"]))
+            except (TypeError, ValueError):
+                offset = 0
+
+            sort_key = params.get("sort", "submitted_at").strip().lower()
+            if sort_key not in {"submitted_at", "created_at", "name"}:
+                sort_key = "submitted_at"
+            if sort_key == "created_at":
+                sort_key = "submitted_at"
+            descending = params.get("order", "desc").strip().lower() != "asc"
+
+            raw_driver = self.client.raw_driver
+            contract_names = sorted(set(self.client.get_contracts()))
+            records: list[dict] = []
+            for contract_name in contract_names:
+                submitted_value = raw_driver.get(
+                    f"{contract_name}.__submitted__"
+                )
+                records.append(
+                    {
+                        "name": contract_name,
+                        "submitted_at": _submission_iso(submitted_value),
+                        "developer": raw_driver.get(
+                            f"{contract_name}.__developer__"
+                        ),
+                        "has_source": raw_driver.get_contract_source(
+                            contract_name
+                        )
+                        is not None,
+                    }
+                )
+
+            sorted_records = _sort_contract_records(
+                records,
+                sort_key=sort_key,
+                descending=descending,
+            )
+            result = {
+                "items": sorted_records[offset : offset + limit],
+                "total": len(sorted_records),
+                "limit": limit,
+                "offset": offset,
+                "sort": sort_key,
+                "order": "desc" if descending else "asc",
+            }
+
         # http://localhost:26657/abci_query?path="/ping"
         elif path_parts[0] == "ping":
             result = {"status": "online"}
@@ -90,12 +196,6 @@ async def query(self, req) -> ResponseQuery:
 
             limit = 100
             offset = 0
-
-            params = dict()
-            for path in path_parts:
-                if "=" in path:
-                    param_list = path.split("=")
-                    params[param_list[0]] = param_list[1]
 
             if "limit" in params:
                 try:
@@ -187,6 +287,15 @@ async def query(self, req) -> ResponseQuery:
                     after_id=after_id,
                 )
 
+            # http://localhost:26657/abci_query?path="/recent_events/limit=25/offset=0"
+            elif path_parts[0] == "recent_events":
+                result = {
+                    "available": True,
+                    "items": await self.bds.get_recent_events(limit, offset),
+                    "limit": limit,
+                    "offset": offset,
+                }
+
             # http://localhost:26657/abci_query?path="/state/currency.balances"
             elif path_parts[0] == "state":
                 result = await self.bds.get_state(key, limit, offset)
@@ -221,10 +330,6 @@ async def query(self, req) -> ResponseQuery:
             # http://localhost:26657/abci_query?path="/state_changes_for_patch/ABC123"
             elif path_parts[0] == "state_changes_for_patch":
                 result = await self.bds.get_state_changes_for_patch(key)
-
-            # http://localhost:26657/abci_query?path="/contracts/limit=10/offset=20"
-            elif path_parts[0] == "contracts":
-                result = await self.bds.get_contracts(limit, offset)
 
             # http://localhost:26657/abci_query?path="/developer_rewards/<vk>"
             elif path_parts[0] == "developer_rewards":
