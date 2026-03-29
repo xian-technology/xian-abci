@@ -152,10 +152,12 @@ tr.clickable{cursor:pointer}
 .validator-metric{padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius)}
 .validator-metric-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:4px}
 .validator-metric-value{font-size:.95rem;font-family:var(--mono);word-break:break-all}
-.validator-table td,.validator-table th{font-size:.78rem}
+.validator-table td,.validator-table th{font-size:.78rem;vertical-align:middle}
+.validator-table tbody tr{height:44px}
 .validator-table-wrap{max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius)}
 .validator-table-wrap table{margin:0}
-.validator-role{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.72rem;font-family:var(--mono);border:1px solid var(--border)}
+.validator-identity{display:inline-flex;align-items:center;gap:8px;min-height:20px}
+.validator-role{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.72rem;font-family:var(--mono);border:1px solid var(--border);line-height:1;white-space:nowrap}
 .validator-role.active{color:var(--green);background:rgba(16,185,129,.12)}
 .validator-role.inactive{color:var(--text3);background:var(--surface2)}
 .mono{font-family:var(--mono)}
@@ -1039,8 +1041,12 @@ function renderValidatorSet(){
       const rpcTarget = validatorRpcTargets[normalizeHex(validator.address)];
       const rowClass = rpcTarget ? ' class="clickable"' : '';
       const clickAttr = rpcTarget ? ' onclick="openDashboardForRpc(\''+escHtml(rpcTarget)+'\')"' : '';
+      const identity = '<span class="validator-identity">'+
+        '<span>'+escHtml(truncHash(validator.address || "\u2014", 6))+'</span>'+
+        (isSelf ? ' <span class="validator-role active">self</span>' : '')+
+      '</span>';
       return '<tr'+rowClass+clickAttr+'>'+
-        '<td>'+escHtml(truncHash(validator.address || "\u2014", 6))+(isSelf ? ' <span class="validator-role active">self</span>' : '')+'</td>'+
+        '<td>'+identity+'</td>'+
         '<td>'+escHtml(String(validator.voting_power || 0))+'</td>'+
         '<td>'+escHtml(String(validator.proposer_priority || "\u2014"))+'</td>'+
       '</tr>';
