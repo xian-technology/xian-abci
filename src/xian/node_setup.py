@@ -14,7 +14,7 @@ from xian_runtime_types.encoding import encode
 from xian import toml_utils
 
 DEFAULT_CONFIG_TOML = """
-version = "0.38.7"
+version = "0.38.21"
 proxy_app = "unix:///tmp/abci.sock"
 moniker = "xian-node"
 db_backend = "goleveldb"
