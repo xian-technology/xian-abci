@@ -67,6 +67,22 @@ def _decode_abci_value(b64: str) -> str | dict | list | None:
         return None
 
 
+def _validator_pubkey_hex(status: dict | None) -> str | None:
+    validator_info = status.get("validator_info", {}) if isinstance(status, dict) else {}
+    pub_key = (
+        validator_info.get("pub_key", {})
+        if isinstance(validator_info, dict)
+        else {}
+    )
+    value = pub_key.get("value") if isinstance(pub_key, dict) else None
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return base64.b64decode(value).hex()
+    except Exception:
+        return None
+
+
 def _normalize_peer_rpc_url(peer: dict) -> str | None:
     node_info = peer.get("node_info", {}) if isinstance(peer, dict) else {}
     other = node_info.get("other", {}) if isinstance(node_info, dict) else {}
@@ -706,6 +722,81 @@ async def handle_validators(request: web.Request) -> web.Response:
     )
 
 
+async def handle_validator_dashboard(request: web.Request) -> web.Response:
+    session = request.app["session"]
+    rpc = await _request_rpc_url(request)
+
+    try:
+        status = await _raw_rpc(session, rpc, "status")
+        local_account = _validator_pubkey_hex(status)
+
+        policy, active_validators, pending_candidates, open_votes = (
+            await asyncio.gather(
+                _abci_query(session, rpc, "masternodes_policy"),
+                _abci_query(session, rpc, "masternodes_active"),
+                _abci_query(session, rpc, "masternodes_candidates"),
+                _abci_query(
+                    session,
+                    rpc,
+                    "masternodes_open_votes/limit=25/offset=0",
+                ),
+            )
+        )
+
+        local_validator = None
+        local_pending_unbonds = []
+        if local_account:
+            local_validator, local_pending_unbonds = await asyncio.gather(
+                _abci_query(
+                    session,
+                    rpc,
+                    f"masternodes_validator/{local_account}",
+                ),
+                _abci_query(
+                    session,
+                    rpc,
+                    f"masternodes_pending_unbonds/{local_account}",
+                ),
+            )
+
+        return web.json_response(
+            {
+                "local_account": local_account,
+                "policy": policy if isinstance(policy, dict) else None,
+                "active_validators": (
+                    active_validators
+                    if isinstance(active_validators, list)
+                    else []
+                ),
+                "pending_candidates": (
+                    pending_candidates
+                    if isinstance(pending_candidates, list)
+                    else []
+                ),
+                "open_votes": (
+                    open_votes if isinstance(open_votes, list) else []
+                ),
+                "local_validator": (
+                    local_validator
+                    if isinstance(local_validator, dict)
+                    else None
+                ),
+                "local_pending_unbonds": (
+                    local_pending_unbonds
+                    if isinstance(local_pending_unbonds, list)
+                    else []
+                ),
+            }
+        )
+    except aiohttp.ClientError as exc:
+        return web.json_response(
+            {"error": f"CometBFT RPC unavailable: {exc}"},
+            status=502,
+        )
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
 async def handle_consensus(request: web.Request) -> web.Response:
     return await _proxy(
         request.app["session"],
@@ -1144,6 +1235,7 @@ def create_app(
     app.router.add_get("/api/status", handle_status)
     app.router.add_get("/api/net_info", handle_net_info)
     app.router.add_get("/api/validators", handle_validators)
+    app.router.add_get("/api/validator_dashboard", handle_validator_dashboard)
     app.router.add_get("/api/consensus", handle_consensus)
     app.router.add_get("/api/blockchain", handle_blockchain)
     app.router.add_get("/api/block/{height}", handle_block)

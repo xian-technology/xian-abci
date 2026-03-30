@@ -56,6 +56,36 @@ def _sort_contract_records(
     )
 
 
+def _masternodes_contract(self):
+    return self.client.get_contract("masternodes")
+
+
+def _pending_masternodes_votes(
+    raw_driver,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict]:
+    total_votes = raw_driver.get("masternodes.total_votes") or 0
+    items: list[dict] = []
+    for proposal_id in range(total_votes, 0, -1):
+        record = raw_driver.get(f"masternodes.votes:{proposal_id}")
+        if not isinstance(record, dict):
+            continue
+        if record.get("finalized") is True:
+            continue
+        if record.get("status") != "pending":
+            continue
+        entry = dict(record)
+        entry["proposal_id"] = proposal_id
+        items.append(entry)
+    if offset > 0:
+        items = items[offset:]
+    if limit >= 0:
+        items = items[:limit]
+    return items
+
+
 async def query(self, req) -> ResponseQuery:
     """
     Query the application state
@@ -188,6 +218,79 @@ async def query(self, req) -> ResponseQuery:
         # http://localhost:26657/abci_query?path="/perf_status"
         elif path_parts[0] == "perf_status":
             result = self.profiler.snapshot()
+
+        # http://localhost:26657/abci_query?path="/masternodes_policy"
+        elif path_parts[0] == "masternodes_policy":
+            membership = _masternodes_contract(self)
+            result = (
+                None if membership is None else membership.get_policy_config()
+            )
+
+        # http://localhost:26657/abci_query?path="/masternodes_active"
+        elif path_parts[0] == "masternodes_active":
+            membership = _masternodes_contract(self)
+            result = (
+                None
+                if membership is None
+                else membership.get_active_validators()
+            )
+
+        # http://localhost:26657/abci_query?path="/masternodes_candidates"
+        elif path_parts[0] == "masternodes_candidates":
+            membership = _masternodes_contract(self)
+            result = (
+                None
+                if membership is None
+                else membership.get_pending_candidates()
+            )
+
+        # http://localhost:26657/abci_query?path="/masternodes_validator/<account>"
+        elif path_parts[0] == "masternodes_validator":
+            membership = _masternodes_contract(self)
+            result = (
+                None
+                if membership is None
+                else membership.get_validator(account=key)
+            )
+
+        # http://localhost:26657/abci_query?path="/masternodes_pending_unbonds/<account>"
+        elif path_parts[0] == "masternodes_pending_unbonds":
+            membership = _masternodes_contract(self)
+            if membership is None:
+                result = None
+            else:
+                pending_ids = (
+                    membership.get_pending_unbond_ids(owner=key) or []
+                )
+                result = []
+                for unbond_id in pending_ids:
+                    unbond = membership.get_pending_unbond(
+                        unbond_id=unbond_id
+                    )
+                    if isinstance(unbond, dict):
+                        entry = dict(unbond)
+                        entry["unbond_id"] = unbond_id
+                        result.append(entry)
+
+        # http://localhost:26657/abci_query?path="/masternodes_open_votes/limit=25/offset=0"
+        elif path_parts[0] == "masternodes_open_votes":
+            limit = 100
+            offset = 0
+            try:
+                if "limit" in params:
+                    limit = max(0, min(int(params["limit"]), 1000))
+            except (TypeError, ValueError):
+                limit = 100
+            try:
+                if "offset" in params:
+                    offset = max(0, int(params["offset"]))
+            except (TypeError, ValueError):
+                offset = 0
+            result = _pending_masternodes_votes(
+                self.client.raw_driver,
+                limit=limit,
+                offset=offset,
+            )
 
         # http://localhost:26657/abci_query?path="/simulate_tx/<encoded_payload>"
         elif path_parts[0] == "simulate_tx":

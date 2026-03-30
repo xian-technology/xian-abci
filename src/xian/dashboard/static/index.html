@@ -150,6 +150,7 @@ tr.clickable{cursor:pointer}
 /* ── validator ── */
 #validator-set{display:flex;flex-direction:column;gap:16px;height:100%}
 .validator-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:0}
+.validator-summary.panel-summary{margin-bottom:20px}
 .validator-metric{padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius)}
 .validator-metric-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:4px}
 .validator-metric-value{font-size:.95rem;font-family:var(--mono);word-break:break-all}
@@ -255,6 +256,23 @@ tr.clickable{cursor:pointer}
       </div>
     </div>
 
+    <div class="monitor-grid">
+      <div class="card">
+        <div class="card-header">Local Validator</div>
+        <div class="card-body" id="local-validator"><div class="empty"><span class="loading"></span> Loading...</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Validator Policy</div>
+        <div class="card-body" id="validator-policy"><div class="empty"><span class="loading"></span> Loading...</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Open Validator Votes</div>
+      <div class="card-body" id="validator-votes"><div class="empty"><span class="loading"></span> Loading...</div></div>
+    </div>
+
     <div class="card">
       <div class="card-header">P2P Peers</div>
       <div class="card-body" id="peers-info"><div class="empty"><span class="loading"></span> Loading...</div></div>
@@ -353,6 +371,7 @@ const WS_MAX_DELAY = 30000;
 let latestStatusSnapshot = null;
 let latestNetInfoSnapshot = null;
 let latestValidatorsSnapshot = null;
+let latestValidatorDashboardSnapshot = null;
 let latestMonitoringSnapshot = null;
 let lastRefreshAt = null;
 let explorerView = "blocks";
@@ -414,6 +433,16 @@ function fmtBytes(value){
   }
   const digits = size >= 100 ? 0 : size >= 10 ? 1 : 2;
   return size.toFixed(digits)+" "+units[unit];
+}
+function fmtBool(value){
+  return value ? "Yes" : "No";
+}
+function fmtBps(value){
+  if(value === null || value === undefined) return "\u2014";
+  const n = Number(value);
+  if(!Number.isFinite(n)) return escHtml(String(value));
+  const percent = n / 100;
+  return n.toLocaleString()+" bps ("+percent.toLocaleString(undefined,{maximumFractionDigits:2})+"%)";
 }
 function escHtml(s){
   if(!s) return "";
@@ -708,7 +737,145 @@ function nodeInfoHtml(nodeInfo, syncInfo){
     '<div class="data-row"><span class="data-key">Latest Hash</span><span class="data-val">'+copyableHashValue(syncInfo.latest_block_hash,{left:8,right:8})+'</span></div>'+
     '<div class="data-row"><span class="data-key">Block Time</span><span class="data-val">'+copyableValue(fmtTime(syncInfo.latest_block_time),{left:18,right:10})+'</span></div>'+
     '<div class="data-row"><span class="data-key">Earliest Block</span><span class="data-val">'+copyableValue(syncInfo.earliest_block_height||"\u2014",{left:12,right:8})+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Catching Up</span><span class="data-val">'+escHtml(syncInfo.catching_up ? "Yes" : "No")+'</span></div>';
+    '<div class="data-row"><span class="data-key">Catching Up</span><span class="data-val">'+escHtml(fmtBool(syncInfo.catching_up))+'</span></div>';
+}
+
+function renderLocalValidator(){
+  const container = $("local-validator");
+  if(!container) return;
+
+  const snapshot = latestValidatorDashboardSnapshot || {};
+  const localAccount = snapshot.local_account || null;
+  const validator = snapshot.local_validator || null;
+  const pendingUnbonds = Array.isArray(snapshot.local_pending_unbonds)
+    ? snapshot.local_pending_unbonds
+    : [];
+
+  if(!localAccount){
+    container.innerHTML = '<div class="empty">Validator identity is unavailable for this RPC target</div>';
+    return;
+  }
+
+  if(!validator){
+    container.innerHTML =
+      '<div class="data-row"><span class="data-key">Validator Account</span><span class="data-val">'+copyableHashValue(localAccount,{left:10,right:8})+'</span></div>'+
+      '<div class="summary-meta" style="margin-top:14px">This node exposes a validator key but is not registered in the masternodes contract.</div>';
+    return;
+  }
+
+  const statusText = [
+    validator.status || "\u2014",
+    validator.active ? "active set" : "inactive",
+    validator.jailed ? "jailed" : null,
+  ].filter(Boolean).join(" \u00b7 ");
+  const validatorMoniker = validator.moniker || "";
+  const showRewardKey = validator.reward_key && validator.reward_key !== localAccount;
+  const showJailReason = !!(validator.jail_reason || "").trim();
+  const showPendingLeave = !!validator.pending_leave_at;
+  const totalSlashed = String(validator.total_slashed ?? 0);
+  const showTotalSlashed = totalSlashed !== "0";
+
+  container.innerHTML =
+    '<div class="validator-summary panel-summary">'+
+      '<div class="validator-metric"><div class="validator-metric-label">Total Bond</div><div class="validator-metric-value">'+escHtml(String(validator.total_bond ?? "\u2014"))+'</div></div>'+
+      '<div class="validator-metric"><div class="validator-metric-label">Self Bond</div><div class="validator-metric-value">'+escHtml(String(validator.self_bond ?? "\u2014"))+'</div></div>'+
+      '<div class="validator-metric"><div class="validator-metric-label">Pending Unbonds</div><div class="validator-metric-value">'+escHtml(String(pendingUnbonds.length))+'</div></div>'+
+    '</div>'+
+    '<div class="data-row"><span class="data-key">Validator Account</span><span class="data-val">'+copyableHashValue(localAccount,{left:10,right:8})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Status</span><span class="data-val">'+escHtml(statusText)+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Power</span><span class="data-val">'+escHtml(String(validator.power ?? "\u2014"))+' / requested '+escHtml(String(validator.requested_power ?? "\u2014"))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Delegated Stake</span><span class="data-val">'+escHtml(String(validator.total_delegated ?? "\u2014"))+' from '+escHtml(String(validator.delegator_count ?? 0))+' delegators</span></div>'+
+    '<div class="data-row"><span class="data-key">Commission</span><span class="data-val">'+fmtBps(validator.commission_bps)+'</span></div>'+
+    (showRewardKey
+      ? '<div class="data-row"><span class="data-key">Reward Key</span><span class="data-val">'+addressLink(validator.reward_key,{left:14,right:10})+'</span></div>'
+      : ''
+    )+
+    '<div class="data-row"><span class="data-key">Registered Endpoint</span><span class="data-val">'+copyableValue(validator.network_endpoint||"\u2014",{left:18,right:12})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Registered Moniker</span><span class="data-val">'+copyableValue(validatorMoniker||"\u2014",{left:16,right:10})+'</span></div>'+
+    (showJailReason
+      ? '<div class="data-row"><span class="data-key">Jail Reason</span><span class="data-val">'+escHtml(validator.jail_reason)+'</span></div>'
+      : ''
+    )+
+    (showPendingLeave
+      ? '<div class="data-row"><span class="data-key">Pending Leave</span><span class="data-val">'+copyableValue(validator.pending_leave_at,{left:18,right:10})+'</span></div>'
+      : ''
+    )+
+    (showTotalSlashed
+      ? '<div class="data-row"><span class="data-key">Total Slashed</span><span class="data-val">'+escHtml(totalSlashed)+'</span></div>'
+      : ''
+    );
+}
+
+function renderValidatorPolicy(){
+  const container = $("validator-policy");
+  if(!container) return;
+
+  const snapshot = latestValidatorDashboardSnapshot || {};
+  const policy = snapshot.policy || null;
+  const activeValidators = Array.isArray(snapshot.active_validators) ? snapshot.active_validators : [];
+  const pendingCandidates = Array.isArray(snapshot.pending_candidates) ? snapshot.pending_candidates : [];
+  const openVotes = Array.isArray(snapshot.open_votes) ? snapshot.open_votes : [];
+
+  if(!policy){
+    container.innerHTML = '<div class="empty">Validator policy is unavailable</div>';
+    return;
+  }
+
+  container.innerHTML =
+    '<div class="validator-summary panel-summary">'+
+      '<div class="validator-metric"><div class="validator-metric-label">Active</div><div class="validator-metric-value">'+escHtml(String(activeValidators.length))+'</div></div>'+
+      '<div class="validator-metric"><div class="validator-metric-label">Candidates</div><div class="validator-metric-value">'+escHtml(String(pendingCandidates.length))+'</div></div>'+
+      '<div class="validator-metric"><div class="validator-metric-label">Open Votes</div><div class="validator-metric-value">'+escHtml(String(openVotes.length))+'</div></div>'+
+    '</div>'+
+    '<div class="data-row"><span class="data-key">Selection Mode</span><span class="data-val">'+escHtml(policy.selection_mode || "\u2014")+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Max Validators</span><span class="data-val">'+escHtml(String(policy.max_validators ?? "\u2014"))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Power Mode</span><span class="data-val">'+escHtml(policy.power_mode || "\u2014")+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Rebalance Interval</span><span class="data-val">'+escHtml(String(policy.rebalance_interval ?? "\u2014"))+' blocks</span></div>'+
+    '<div class="data-row"><span class="data-key">Activation Delay</span><span class="data-val">'+escHtml(String(policy.activation_delay_epochs ?? "\u2014"))+' epochs</span></div>'+
+    '<div class="data-row"><span class="data-key">Unbonding Period</span><span class="data-val">'+escHtml(String(policy.unbonding_period_days ?? "\u2014"))+' days</span></div>'+
+    '<div class="data-row"><span class="data-key">Min Self Bond</span><span class="data-val">'+escHtml(String(policy.min_self_bond ?? "\u2014"))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Min Total Bond</span><span class="data-val">'+escHtml(String(policy.min_total_bond ?? "\u2014"))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Max Commission</span><span class="data-val">'+fmtBps(policy.max_commission_bps)+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Max Set Churn</span><span class="data-val">'+escHtml(String(policy.max_active_set_churn ?? "\u2014"))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Entry Margin</span><span class="data-val">'+fmtBps(policy.min_bond_margin_bps)+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Manual Override</span><span class="data-val">'+escHtml(fmtBool(policy.manual_override_enabled))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Slash Destination</span><span class="data-val">'+copyableValue(policy.slash_destination || "\u2014",{left:14,right:10})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Duplicate Vote</span><span class="data-val">'+fmtBps(policy.duplicate_vote_slash_bps)+' / '+escHtml(fmtBool(policy.duplicate_vote_jail))+' jail</span></div>'+
+    '<div class="data-row"><span class="data-key">Light Client Attack</span><span class="data-val">'+fmtBps(policy.light_client_attack_slash_bps)+' / '+escHtml(fmtBool(policy.light_client_attack_jail))+' jail</span></div>';
+}
+
+function renderValidatorVotes(){
+  const container = $("validator-votes");
+  if(!container) return;
+
+  const snapshot = latestValidatorDashboardSnapshot || {};
+  const localAccount = snapshot.local_account || null;
+  const votes = Array.isArray(snapshot.open_votes) ? snapshot.open_votes : [];
+
+  if(!votes.length){
+    container.innerHTML = '<div class="empty">No open validator votes</div>';
+    return;
+  }
+
+  let html = '<table><thead><tr><th>ID</th><th>Type</th><th>Argument</th><th>Yes</th><th>No</th><th>Need</th><th>Expires</th><th>You</th></tr></thead><tbody>';
+  votes.forEach(vote=>{
+    const voters = Array.isArray(vote.voters) ? vote.voters : [];
+    const voted = localAccount ? voters.includes(localAccount) : false;
+    const argText = compactText(vote.arg, 72);
+    html += '<tr>'+
+      '<td>'+escHtml(String(vote.proposal_id ?? "\u2014"))+'</td>'+
+      '<td>'+escHtml(vote.type || "\u2014")+'</td>'+
+      '<td title="'+escHtml(typeof vote.arg === "string" ? vote.arg : JSON.stringify(vote.arg))+'">'+escHtml(argText)+'</td>'+
+      '<td>'+escHtml(String(vote.yes_weight ?? 0))+' ('+escHtml(String(vote.yes ?? 0))+')</td>'+
+      '<td>'+escHtml(String(vote.no_weight ?? 0))+' ('+escHtml(String(vote.no ?? 0))+')</td>'+
+      '<td>'+escHtml(String(vote.required_yes_weight ?? "\u2014"))+' ('+escHtml(String(vote.required_yes_votes ?? "\u2014"))+')</td>'+
+      '<td>'+copyableValue(vote.expiry || "\u2014",{left:16,right:10})+'</td>'+
+      '<td>'+escHtml(voted ? "voted" : "\u2014")+'</td>'+
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  html += '<div class="summary-meta">Counts are shown as voting weight with raw vote count in parentheses.</div>';
+  container.innerHTML = html;
 }
 
 function knownDashboardTargets(){
@@ -1075,6 +1242,23 @@ function renderValidatorSet(){
         ? '<div class="summary-meta">Showing the full validator set in a scrollable panel so the overview row stays compact.</div>'
         : ''
     );
+}
+
+async function refreshValidatorDashboard(){
+  const snapshot = await api("validator_dashboard");
+  if(snapshot.error){
+    latestValidatorDashboardSnapshot = null;
+    $("local-validator").innerHTML = '<div class="empty">Validator contract data is unavailable</div>';
+    $("validator-policy").innerHTML = '<div class="empty">Validator contract data is unavailable</div>';
+    $("validator-votes").innerHTML = '<div class="empty">Validator contract data is unavailable</div>';
+    return;
+  }
+
+  latestValidatorDashboardSnapshot = snapshot;
+  markRefreshed();
+  renderLocalValidator();
+  renderValidatorPolicy();
+  renderValidatorVotes();
 }
 
 async function refreshMonitoring(){
@@ -2007,6 +2191,7 @@ async function refreshSlowData(){
 
   await refreshValidatorTargets();
   renderValidatorSet();
+  await refreshValidatorDashboard();
 }
 
 /* ── periodic time-ago refresh ── */
@@ -2043,6 +2228,7 @@ async function init(){
   $("contracts-order").value = explorerContractOrder;
   /* full initial load */
   await refreshDashboard();
+  await refreshValidatorDashboard();
   await refreshMonitoring();
   /* switch to WebSocket for blocks + slow poll for the rest */
   connectWS();

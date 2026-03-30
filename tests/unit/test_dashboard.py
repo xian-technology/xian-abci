@@ -14,6 +14,7 @@ from xian.dashboard.app import (
     _normalize_peer_rpc_url,
     handle_addresses,
     handle_contract,
+    handle_validator_dashboard,
     normalize_rpc_url,
 )
 
@@ -243,3 +244,65 @@ class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(payload["available"])
         self.assertEqual(payload["items"], [])
         self.assertFalse(payload["has_more"])
+
+    async def test_handle_validator_dashboard_combines_validator_queries(
+        self,
+    ) -> None:
+        validator_pubkey_hex = (
+            "ee06a34cf08bf72ce592d26d36b90c79"
+            "daba2829ba9634992d034318160d49f9"
+        )
+        request = SimpleNamespace(
+            query={},
+            app={"session": object(), "rpc_url": "http://127.0.0.1:26657"},
+        )
+
+        async def fake_raw_rpc(_session, _rpc, path, params=None):
+            del params
+            self.assertEqual(path, "status")
+            return {
+                "validator_info": {
+                    "pub_key": {
+                        "value": base64.b64encode(
+                            bytes.fromhex(validator_pubkey_hex)
+                        ).decode("ascii")
+                    }
+                }
+            }
+
+        async def fake_abci_query(_session, _rpc, path):
+            responses = {
+                "masternodes_policy": {"selection_mode": "manual"},
+                "masternodes_active": [{"account": validator_pubkey_hex}],
+                "masternodes_candidates": [{"account": "candidate-1"}],
+                "masternodes_open_votes/limit=25/offset=0": [
+                    {"proposal_id": 7, "type": "update_policy"}
+                ],
+                f"masternodes_validator/{validator_pubkey_hex}": {
+                    "account": validator_pubkey_hex,
+                    "status": "active",
+                    "total_bond": 150,
+                },
+                f"masternodes_pending_unbonds/{validator_pubkey_hex}": [
+                    {"unbond_id": 4, "amount": 25}
+                ],
+            }
+            return responses.get(path)
+
+        with (
+            patch("xian.dashboard.app._raw_rpc", side_effect=fake_raw_rpc),
+            patch(
+                "xian.dashboard.app._abci_query",
+                side_effect=fake_abci_query,
+            ),
+        ):
+            response = await handle_validator_dashboard(request)
+
+        payload = json.loads(response.text)
+        self.assertEqual(payload["local_account"], validator_pubkey_hex)
+        self.assertEqual(payload["policy"]["selection_mode"], "manual")
+        self.assertEqual(payload["active_validators"][0]["account"], validator_pubkey_hex)
+        self.assertEqual(payload["pending_candidates"][0]["account"], "candidate-1")
+        self.assertEqual(payload["open_votes"][0]["proposal_id"], 7)
+        self.assertEqual(payload["local_validator"]["status"], "active")
+        self.assertEqual(payload["local_pending_unbonds"][0]["unbond_id"], 4)

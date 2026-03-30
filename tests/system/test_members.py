@@ -13,7 +13,8 @@ class TestMembersContract(unittest.TestCase):
         # Bootstrap the environment
         self.chain_id = "test-chain"
         self.environment = {
-            "chain_id": self.chain_id
+            "chain_id": self.chain_id,
+            "block_num": 0,
         }
         self.deployer_vk = "xian-deployer"
 
@@ -53,6 +54,30 @@ class TestMembersContract(unittest.TestCase):
         # Add initial balance to deployer directly
         self.currency.balances[self.deployer_vk] = 100000
 
+    def approve_policy_update(self, environment=None, **updates):
+        if environment is None:
+            environment = {"block_num": 0}
+        self.members.propose_vote(
+            type_of_vote="update_policy",
+            arg=updates,
+            signer="node1",
+            environment=environment,
+        )
+        proposal_id = self.members.total_votes.get()
+        self.members.vote(
+            proposal_id=proposal_id,
+            vote="yes",
+            signer="node2",
+            environment=environment,
+        )
+        self.members.vote(
+            proposal_id=proposal_id,
+            vote="yes",
+            signer="node3",
+            environment=environment,
+        )
+        return self.members.get_policy_config(signer="node1")
+
     def test_initial_setup(self):
         # GIVEN the initial setup from constructor
         # WHEN checking initial values
@@ -75,11 +100,15 @@ class TestMembersContract(unittest.TestCase):
         self.members.register(signer="new_member")
         
         # THEN registration should be pending
+        validator = self.members.get_validator(
+            account="new_member", signer="new_member"
+        )
         self.assertTrue(self.members.pending_registrations["new_member"])
         self.assertEqual(self.members.holdings["new_member"], 1000)
         self.assertEqual(self.members.statuses["new_member"], "pending")
         self.assertEqual(self.members.reward_keys["new_member"], "new_member")
         self.assertEqual(self.members.requested_power["new_member"], 10)
+        self.assertEqual(validator["commission_bps"], 0)
 
     def test_propose_and_approve_new_member(self):
         # GIVEN a pending registration
@@ -164,6 +193,593 @@ class TestMembersContract(unittest.TestCase):
         self.assertEqual(self.members.validator_power["node2"], 42)
         self.assertEqual(self.members.member_weight(account="node2"), 42)
 
+    def test_update_policy_vote_configures_auto_top_n_selection(self):
+        policy = self.approve_policy_update(
+            selection_mode="auto_top_n",
+            max_validators=2,
+            power_mode="requested",
+            min_self_bond=100,
+            min_total_bond=100,
+        )
+
+        self.assertEqual(policy["selection_mode"], "auto_top_n")
+        self.assertEqual(policy["max_validators"], 2)
+        self.assertEqual(policy["power_mode"], "requested")
+        self.assertEqual(policy["min_self_bond"], 100)
+        self.assertEqual(policy["min_total_bond"], 100)
+        self.assertEqual(self.members.nodes.get(), [])
+
+    def test_rebalance_auto_top_n_selects_highest_total_bonded_validators(self):
+        self.approve_policy_update(
+            selection_mode="auto_top_n",
+            max_validators=2,
+            power_mode="requested",
+            min_self_bond=100,
+            min_total_bond=100,
+        )
+
+        for validator, amount in {
+            "node1": 500,
+            "node2": 500,
+            "node3": 500,
+            "delegator1": 500,
+        }.items():
+            self.currency.transfer(
+                amount=amount,
+                to=validator,
+                signer=self.deployer_vk,
+            )
+            self.currency.approve(amount=amount, to="members", signer=validator)
+
+        self.members.update_registration(
+            requested_validator_power=30,
+            signer="node1",
+        )
+        self.members.update_registration(
+            requested_validator_power=20,
+            signer="node2",
+        )
+        self.members.update_registration(
+            requested_validator_power=10,
+            signer="node3",
+        )
+
+        self.members.bond_self(amount=300, signer="node1")
+        self.members.bond_self(amount=200, signer="node2")
+        self.members.bond_self(amount=100, signer="node3")
+
+        rebalance = self.members.rebalance(
+            signer="delegator1",
+            environment={"block_num": 1},
+        )
+
+        self.assertEqual(rebalance["selected"], ["node1", "node2"])
+        self.assertEqual(self.members.nodes.get(), ["node1", "node2"])
+        self.assertEqual(self.members.validator_power["node1"], 30)
+        self.assertEqual(self.members.validator_power["node2"], 20)
+        self.assertEqual(self.members.validator_power["node3"], 0)
+        self.assertEqual(self.members.statuses["node3"], "approved")
+
+        self.members.delegate(
+            validator="node3",
+            amount=250,
+            signer="delegator1",
+        )
+        rebalance = self.members.rebalance(
+            signer="delegator1",
+            environment={"block_num": 2},
+        )
+
+        self.assertEqual(rebalance["selected"], ["node3", "node1"])
+        self.assertEqual(self.members.nodes.get(), ["node3", "node1"])
+        self.assertEqual(self.members.statuses["node2"], "approved")
+        self.assertEqual(self.members.validator_power["node3"], 10)
+        self.assertEqual(self.members.validator_power["node2"], 0)
+
+    def test_rebalance_excludes_validator_with_pending_leave(self):
+        current_time = Datetime(year=2024, month=1, day=1, hour=12)
+        self.approve_policy_update(
+            selection_mode="auto_top_n",
+            max_validators=2,
+            power_mode="requested",
+            min_self_bond=100,
+            min_total_bond=100,
+        )
+
+        for validator, amount in {"node1": 400, "node2": 350, "node3": 300}.items():
+            self.currency.transfer(amount=amount, to=validator, signer=self.deployer_vk)
+            self.currency.approve(amount=amount, to="members", signer=validator)
+
+        self.members.bond_self(amount=300, signer="node1")
+        self.members.bond_self(amount=250, signer="node2")
+        self.members.bond_self(amount=200, signer="node3")
+
+        self.members.rebalance(
+            signer="node1",
+            environment={"block_num": 1, "now": current_time},
+        )
+        self.assertEqual(self.members.nodes.get(), ["node1", "node2"])
+        self.assertEqual(self.members.statuses["node3"], "approved")
+
+        self.members.announce_leave(
+            signer="node1",
+            environment={"block_num": 1, "now": current_time},
+        )
+        self.members.rebalance(
+            signer="node2",
+            environment={"block_num": 2, "now": current_time},
+        )
+
+        self.assertEqual(self.members.nodes.get(), ["node2", "node3"])
+        self.assertEqual(self.members.statuses["node1"], "leaving")
+        self.assertFalse(self.members.get_validator(account="node1", signer="node1")["active"])
+
+    def test_hybrid_mode_requires_vote_approval_before_rebalance_can_activate_candidate(
+        self,
+    ):
+        self.approve_policy_update(
+            selection_mode="hybrid",
+            max_validators=4,
+            power_mode="equal",
+            min_self_bond=0,
+            min_total_bond=0,
+        )
+
+        self.currency.transfer(amount=2000, to="new_member", signer=self.deployer_vk)
+        self.currency.approve(amount=1500, to="members", signer="new_member")
+        self.members.register(
+            signer="new_member",
+            environment={"block_num": 0},
+        )
+        self.members.bond_self(amount=300, signer="new_member")
+
+        rebalance = self.members.rebalance(
+            signer="new_member",
+            environment={"block_num": 1},
+        )
+
+        self.assertEqual(rebalance["selected"], ["node1", "node2", "node3"])
+        self.assertFalse("new_member" in self.members.nodes.get())
+        self.assertEqual(self.members.statuses["new_member"], "pending")
+
+        self.members.propose_vote(
+            type_of_vote="add_member",
+            arg="new_member",
+            signer="node1",
+            environment={"block_num": 2},
+        )
+        self.members.vote(
+            proposal_id=2,
+            vote="yes",
+            signer="node2",
+            environment={"block_num": 2},
+        )
+        self.members.vote(
+            proposal_id=2,
+            vote="yes",
+            signer="node3",
+            environment={"block_num": 2},
+        )
+
+        self.assertTrue("new_member" in self.members.nodes.get())
+        self.assertEqual(self.members.statuses["new_member"], "active")
+
+    def test_rebalance_interval_and_activation_delay_are_enforced(self):
+        self.approve_policy_update(
+            selection_mode="auto_top_n",
+            max_validators=1,
+            power_mode="requested",
+            rebalance_interval=5,
+            activation_delay_epochs=1,
+            min_self_bond=100,
+            min_total_bond=100,
+        )
+
+        self.currency.transfer(amount=2000, to="new_member", signer=self.deployer_vk)
+        self.currency.approve(amount=1500, to="members", signer="new_member")
+        self.members.register(
+            signer="new_member",
+            requested_validator_power=25,
+            environment={"block_num": 0},
+        )
+        self.members.bond_self(amount=300, signer="new_member")
+
+        with self.assertRaises(AssertionError):
+            self.members.rebalance(
+                signer="new_member",
+                environment={"block_num": 0},
+            )
+
+        with self.assertRaises(AssertionError):
+            self.members.rebalance(
+                signer="new_member",
+                environment={"block_num": 4},
+            )
+
+        rebalance = self.members.rebalance(
+            signer="new_member",
+            environment={"block_num": 5},
+        )
+
+        self.assertEqual(rebalance["epoch"], 1)
+        self.assertEqual(rebalance["selected"], ["new_member"])
+        self.assertEqual(self.members.statuses["new_member"], "active")
+
+    def test_rebalance_churn_limit_allows_only_one_replacement_per_epoch(self):
+        for validator, amount in {
+            "node1": 600,
+            "node2": 600,
+            "node4": 1600,
+            "node5": 1600,
+        }.items():
+            self.currency.transfer(
+                amount=amount,
+                to=validator,
+                signer=self.deployer_vk,
+            )
+            self.currency.approve(amount=amount, to="members", signer=validator)
+
+        self.members.bond_self(amount=300, signer="node1")
+        self.members.bond_self(amount=200, signer="node2")
+
+        self.members.register(
+            signer="node4",
+            requested_validator_power=40,
+            environment={"block_num": 0},
+        )
+        self.members.bond_self(amount=400, signer="node4")
+        self.members.register(
+            signer="node5",
+            requested_validator_power=35,
+            environment={"block_num": 0},
+        )
+        self.members.bond_self(amount=350, signer="node5")
+
+        policy = self.approve_policy_update(
+            environment={"block_num": 0},
+            selection_mode="auto_top_n",
+            max_validators=2,
+            power_mode="requested",
+            max_active_set_churn=1,
+            min_self_bond=100,
+            min_total_bond=100,
+        )
+
+        self.assertEqual(policy["max_active_set_churn"], 1)
+        self.assertEqual(self.members.nodes.get(), ["node4", "node1"])
+
+        rebalance = self.members.rebalance(
+            signer="node5",
+            environment={"block_num": 1},
+        )
+
+        self.assertEqual(rebalance["selected"], ["node4", "node5"])
+        self.assertEqual(self.members.nodes.get(), ["node4", "node5"])
+        self.assertEqual(self.members.statuses["node2"], "approved")
+        self.assertEqual(self.members.statuses["node1"], "approved")
+
+    def test_rebalance_margin_prevents_small_lead_from_replacing_incumbent(self):
+        self.currency.transfer(amount=1000, to="node1", signer=self.deployer_vk)
+        self.currency.transfer(amount=1000, to="node2", signer=self.deployer_vk)
+        self.currency.transfer(amount=1000, to="node3", signer=self.deployer_vk)
+        self.currency.approve(amount=1000, to="members", signer="node1")
+        self.currency.approve(amount=1000, to="members", signer="node2")
+        self.currency.approve(amount=1000, to="members", signer="node3")
+
+        self.members.bond_self(amount=200, signer="node1")
+        self.members.bond_self(amount=190, signer="node2")
+
+        self.approve_policy_update(
+            environment={"block_num": 0},
+            selection_mode="auto_top_n",
+            max_validators=2,
+            power_mode="requested",
+            min_self_bond=100,
+            min_total_bond=100,
+            min_bond_margin_bps=1000,
+        )
+
+        self.members.bond_self(amount=195, signer="node3")
+        rebalance = self.members.rebalance(
+            signer="node3",
+            environment={"block_num": 1},
+        )
+
+        self.assertEqual(rebalance["selected"], ["node1", "node2"])
+
+        self.members.bond_self(amount=20, signer="node3")
+        rebalance = self.members.rebalance(
+            signer="node3",
+            environment={"block_num": 2},
+        )
+
+        self.assertEqual(rebalance["selected"], ["node3", "node1"])
+
+    def test_auto_mode_can_disable_manual_override_votes(self):
+        self.approve_policy_update(
+            environment={"block_num": 0},
+            selection_mode="auto_top_n",
+            max_validators=1,
+            power_mode="equal",
+            manual_override_enabled=False,
+        )
+
+        with self.assertRaises(AssertionError):
+            self.members.propose_vote(
+                type_of_vote="remove_member",
+                arg="node1",
+                signer="node1",
+            )
+
+        with self.assertRaises(AssertionError):
+            self.members.propose_vote(
+                type_of_vote="set_member_power",
+                arg={"member": "node1", "power": 99},
+                signer="node1",
+            )
+
+        with self.assertRaises(AssertionError):
+            self.members.propose_vote(
+                type_of_vote="jail_member",
+                arg={"member": "node1", "reason": "downtime"},
+                signer="node1",
+            )
+
+        with self.assertRaises(AssertionError):
+            self.members.propose_vote(
+                type_of_vote="unjail_member",
+                arg="node1",
+                signer="node1",
+            )
+
+    def test_auto_mode_still_allows_slash_votes_when_manual_overrides_are_disabled(
+        self,
+    ):
+        self.currency.transfer(amount=500, to="node1", signer=self.deployer_vk)
+        self.currency.transfer(amount=500, to="node2", signer=self.deployer_vk)
+        self.currency.approve(amount=500, to="members", signer="node1")
+        self.currency.approve(amount=500, to="members", signer="node2")
+
+        self.members.bond_self(amount=200, signer="node1")
+        self.members.bond_self(amount=150, signer="node2")
+
+        self.approve_policy_update(
+            environment={"block_num": 0},
+            selection_mode="auto_top_n",
+            max_validators=2,
+            min_self_bond=100,
+            min_total_bond=100,
+            manual_override_enabled=False,
+        )
+
+        self.members.propose_vote(
+            type_of_vote="slash_member",
+            arg={"member": "node1", "slash_bps": 1000, "reason": "downtime"},
+            signer="node2",
+            environment={"block_num": 1},
+        )
+        self.members.vote(
+            proposal_id=2,
+            vote="yes",
+            signer="node1",
+            environment={"block_num": 1},
+        )
+
+        self.assertEqual(self.members.total_slashed["node1"], 20)
+        self.assertEqual(self.members.self_bond["node1"], 180)
+
+    def test_slash_vote_slashes_live_bond_pro_rata_and_uses_configured_destination(
+        self,
+    ):
+        policy = self.approve_policy_update(slash_destination="slash_treasury")
+        self.assertEqual(policy["slash_destination"], "slash_treasury")
+
+        self.currency.transfer(amount=2000, to="node1", signer=self.deployer_vk)
+        self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
+        self.currency.approve(amount=500, to="members", signer="node1")
+        self.currency.approve(amount=500, to="members", signer="delegator1")
+
+        self.members.bond_self(amount=300, signer="node1")
+        self.members.delegate(
+            validator="node1",
+            amount=200,
+            signer="delegator1",
+        )
+
+        treasury_balance_before = self.currency.balances["slash_treasury"] or 0
+
+        self.members.propose_vote(
+            type_of_vote="slash_member",
+            arg={"member": "node1", "slash_bps": 2000, "reason": "equivocation"},
+            signer="node2",
+        )
+        self.members.vote(proposal_id=2, vote="yes", signer="node1")
+        self.members.vote(proposal_id=2, vote="yes", signer="node3")
+
+        slash_result = self.members.votes[2]["result"]
+
+        self.assertTrue("node1" in self.members.nodes.get())
+        self.assertEqual(self.members.self_bond["node1"], 240)
+        self.assertEqual(self.members.total_delegated["node1"], 160)
+        self.assertEqual(self.members.delegations["delegator1", "node1"], 160)
+        self.assertEqual(self.members.total_slashed["node1"], 100)
+        self.assertIsNotNone(self.members.last_slashed_at["node1"])
+        self.assertEqual(self.currency.balances["slash_treasury"], treasury_balance_before + 100)
+        self.assertEqual(slash_result["slash_amount"], 100)
+        self.assertEqual(slash_result["self_bond_slashed"], 60)
+        self.assertEqual(slash_result["delegated_slashed"], 40)
+        self.assertEqual(slash_result["destination"], "slash_treasury")
+
+    def test_slash_in_auto_mode_rebalances_when_target_falls_below_minimums(self):
+        for validator, amount in {
+            "node1": 500,
+            "node2": 500,
+            "node3": 500,
+        }.items():
+            self.currency.transfer(
+                amount=amount,
+                to=validator,
+                signer=self.deployer_vk,
+            )
+            self.currency.approve(amount=amount, to="members", signer=validator)
+
+        self.members.bond_self(amount=200, signer="node1")
+        self.members.bond_self(amount=150, signer="node2")
+        self.members.bond_self(amount=130, signer="node3")
+
+        self.approve_policy_update(
+            environment={"block_num": 0},
+            selection_mode="auto_top_n",
+            max_validators=2,
+            power_mode="requested",
+            min_self_bond=100,
+            min_total_bond=100,
+        )
+
+        dao_balance_before = self.currency.balances["dao"]
+        self.assertEqual(self.members.nodes.get(), ["node1", "node2"])
+
+        self.members.propose_vote(
+            type_of_vote="slash_member",
+            arg={"member": "node1", "slash_bps": 6000, "reason": "equivocation"},
+            signer="node2",
+            environment={"block_num": 1},
+        )
+        self.members.vote(
+            proposal_id=2,
+            vote="yes",
+            signer="node1",
+            environment={"block_num": 1},
+        )
+
+        self.assertEqual(self.members.self_bond["node1"], 80)
+        self.assertEqual(self.members.nodes.get(), ["node2", "node3"])
+        self.assertEqual(self.currency.balances["dao"], dao_balance_before + 120)
+
+    def test_jail_and_unjail_flow_in_manual_mode(self):
+        self.currency.transfer(amount=2000, to="node1", signer=self.deployer_vk)
+        self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
+        self.currency.approve(amount=500, to="members", signer="node1")
+        self.currency.approve(amount=500, to="members", signer="delegator1")
+
+        self.members.bond_self(amount=300, signer="node1")
+        self.members.delegate(
+            validator="node1",
+            amount=200,
+            signer="delegator1",
+        )
+
+        self.members.propose_vote(
+            type_of_vote="jail_member",
+            arg={"member": "node1", "reason": "downtime"},
+            signer="node2",
+        )
+        self.members.vote(proposal_id=1, vote="yes", signer="node1")
+        self.members.vote(proposal_id=1, vote="yes", signer="node3")
+
+        self.assertFalse("node1" in self.members.nodes.get())
+        self.assertTrue(self.members.jailed["node1"])
+        self.assertEqual(self.members.statuses["node1"], "approved")
+        self.assertEqual(self.members.validator_power["node1"], 0)
+        self.assertEqual(self.members.self_bond["node1"], 300)
+        self.assertEqual(self.members.total_delegated["node1"], 200)
+        self.assertEqual(
+            self.members.get_validator(account="node1", signer="node1")["jail_reason"],
+            "downtime",
+        )
+
+        with self.assertRaises(AssertionError):
+            self.members.delegate(
+                validator="node1",
+                amount=1,
+                signer="delegator1",
+            )
+
+        with self.assertRaises(AssertionError):
+            self.members.bond_self(amount=1, signer="node1")
+
+        self.members.propose_vote(
+            type_of_vote="unjail_member",
+            arg="node1",
+            signer="node2",
+        )
+        self.members.vote(proposal_id=2, vote="yes", signer="node3")
+
+        self.assertFalse(self.members.jailed["node1"])
+        self.assertEqual(self.members.statuses["node1"], "approved")
+        self.assertFalse("node1" in self.members.nodes.get())
+
+        self.members.propose_vote(
+            type_of_vote="add_member",
+            arg="node1",
+            signer="node2",
+        )
+        self.members.vote(proposal_id=3, vote="yes", signer="node3")
+
+        self.assertTrue("node1" in self.members.nodes.get())
+        self.assertEqual(self.members.statuses["node1"], "active")
+
+    def test_jail_in_auto_mode_excludes_validator_until_unjailed(self):
+        for validator, amount in {
+            "node1": 600,
+            "node2": 600,
+            "node3": 600,
+        }.items():
+            self.currency.transfer(
+                amount=amount,
+                to=validator,
+                signer=self.deployer_vk,
+            )
+            self.currency.approve(amount=amount, to="members", signer=validator)
+
+        self.members.bond_self(amount=300, signer="node1")
+        self.members.bond_self(amount=250, signer="node2")
+        self.members.bond_self(amount=200, signer="node3")
+
+        self.approve_policy_update(
+            environment={"block_num": 0},
+            selection_mode="auto_top_n",
+            max_validators=2,
+            power_mode="requested",
+            min_self_bond=100,
+            min_total_bond=100,
+        )
+
+        self.assertEqual(self.members.nodes.get(), ["node1", "node2"])
+
+        self.members.propose_vote(
+            type_of_vote="jail_member",
+            arg={"member": "node1", "reason": "downtime"},
+            signer="node2",
+            environment={"block_num": 1},
+        )
+        self.members.vote(
+            proposal_id=2,
+            vote="yes",
+            signer="node1",
+            environment={"block_num": 1},
+        )
+
+        self.assertTrue(self.members.jailed["node1"])
+        self.assertEqual(self.members.statuses["node1"], "approved")
+        self.assertEqual(self.members.nodes.get(), ["node2", "node3"])
+
+        self.members.propose_vote(
+            type_of_vote="unjail_member",
+            arg="node1",
+            signer="node2",
+            environment={"block_num": 2},
+        )
+        self.members.vote(
+            proposal_id=3,
+            vote="yes",
+            signer="node3",
+            environment={"block_num": 2},
+        )
+
+        self.assertFalse(self.members.jailed["node1"])
+        self.assertEqual(self.members.nodes.get(), ["node1", "node2"])
+
     def test_leave_refunds_registration_bond(self):
         self.currency.approve(amount=1000, to="members", signer="new_member")
         self.currency.transfer(amount=1000, to="new_member", signer=self.deployer_vk)
@@ -190,6 +806,380 @@ class TestMembersContract(unittest.TestCase):
         self.assertEqual(self.members.statuses["new_member"], "left")
         self.assertEqual(self.members.holdings["new_member"], 0)
         self.assertEqual(self.currency.balances["new_member"], before_balance + 1000)
+
+    def test_leave_forces_pending_unbonds_for_validator_and_delegator_stake(self):
+        start_time = Datetime(year=2024, month=1, day=1, hour=12, minute=0, second=0)
+        leave_time = Datetime(year=2024, month=1, day=8, hour=13, minute=0, second=0)
+        claim_time = Datetime(year=2024, month=1, day=16, hour=13, minute=0, second=0)
+
+        self.currency.transfer(amount=3000, to="new_member", signer=self.deployer_vk)
+        self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
+        self.currency.approve(amount=2000, to="members", signer="new_member")
+        self.currency.approve(amount=500, to="members", signer="delegator1")
+
+        self.members.register(signer="new_member", environment={"now": start_time})
+        self.members.propose_vote(
+            type_of_vote="add_member",
+            arg="new_member",
+            signer="node1",
+        )
+        self.members.vote(proposal_id=1, vote="yes", signer="node2")
+        self.members.vote(proposal_id=1, vote="yes", signer="node3")
+
+        self.members.bond_self(amount=300, signer="new_member")
+        self.members.delegate(
+            validator="new_member",
+            amount=200,
+            signer="delegator1",
+            environment={"now": start_time},
+        )
+
+        validator_balance_before_exit = self.currency.balances["new_member"]
+        delegator_balance_before_claim = self.currency.balances["delegator1"]
+
+        self.members.announce_leave(
+            signer="new_member",
+            environment={"now": start_time},
+        )
+        self.members.leave(
+            signer="new_member",
+            environment={"now": leave_time, "block_num": 8},
+        )
+
+        self.assertEqual(self.members.statuses["new_member"], "left")
+        self.assertEqual(self.members.self_bond["new_member"], 0)
+        self.assertEqual(self.members.total_delegated["new_member"], 0)
+        self.assertEqual(self.members.delegations["delegator1", "new_member"], 0)
+        self.assertEqual(
+            self.members.get_delegators(validator="new_member", signer="new_member"),
+            [],
+        )
+
+        validator_unbond_ids = self.members.get_pending_unbond_ids(
+            owner="new_member",
+            signer="new_member",
+        )
+        delegator_unbond_ids = self.members.get_pending_unbond_ids(
+            owner="delegator1",
+            signer="delegator1",
+        )
+
+        self.assertEqual(len(validator_unbond_ids), 1)
+        self.assertEqual(len(delegator_unbond_ids), 1)
+
+        validator_unbond = self.members.get_pending_unbond(
+            unbond_id=validator_unbond_ids[0],
+            signer="new_member",
+        )
+        delegator_unbond = self.members.get_pending_unbond(
+            unbond_id=delegator_unbond_ids[0],
+            signer="delegator1",
+        )
+
+        self.assertEqual(validator_unbond["kind"], "self_bond")
+        self.assertEqual(validator_unbond["amount"], 300)
+        self.assertEqual(validator_unbond["reason"], "left")
+        self.assertEqual(delegator_unbond["kind"], "delegation")
+        self.assertEqual(delegator_unbond["amount"], 200)
+        self.assertEqual(delegator_unbond["reason"], "left")
+
+        self.members.claim_unbond(
+            unbond_id=validator_unbond["id"],
+            signer="new_member",
+            environment={"now": claim_time},
+        )
+        self.members.claim_unbond(
+            unbond_id=delegator_unbond["id"],
+            signer="delegator1",
+            environment={"now": claim_time},
+        )
+
+        self.assertEqual(
+            self.currency.balances["new_member"],
+            validator_balance_before_exit + 1300,
+        )
+        self.assertEqual(
+            self.currency.balances["delegator1"],
+            delegator_balance_before_claim + 200,
+        )
+
+    def test_remove_member_forces_pending_unbonds_for_validator_and_delegator_stake(
+        self,
+    ):
+        self.currency.transfer(amount=3000, to="new_member", signer=self.deployer_vk)
+        self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
+        self.currency.approve(amount=2000, to="members", signer="new_member")
+        self.currency.approve(amount=500, to="members", signer="delegator1")
+
+        self.members.register(signer="new_member")
+        self.members.propose_vote(
+            type_of_vote="add_member",
+            arg="new_member",
+            signer="node1",
+        )
+        self.members.vote(proposal_id=1, vote="yes", signer="node2")
+        self.members.vote(proposal_id=1, vote="yes", signer="node3")
+
+        self.members.bond_self(amount=300, signer="new_member")
+        self.members.delegate(
+            validator="new_member",
+            amount=200,
+            signer="delegator1",
+        )
+
+        self.members.propose_vote(
+            type_of_vote="remove_member",
+            arg="new_member",
+            signer="node1",
+        )
+        self.members.vote(proposal_id=2, vote="yes", signer="node2")
+        self.members.vote(proposal_id=2, vote="yes", signer="node3")
+        self.members.vote(
+            proposal_id=2,
+            vote="yes",
+            signer="new_member",
+            environment={"block_num": 2},
+        )
+
+        self.assertEqual(self.members.statuses["new_member"], "removed")
+        self.assertEqual(self.members.self_bond["new_member"], 0)
+        self.assertEqual(self.members.total_delegated["new_member"], 0)
+        self.assertEqual(self.members.delegations["delegator1", "new_member"], 0)
+
+        validator_unbond_ids = self.members.get_pending_unbond_ids(
+            owner="new_member",
+            signer="new_member",
+        )
+        delegator_unbond_ids = self.members.get_pending_unbond_ids(
+            owner="delegator1",
+            signer="delegator1",
+        )
+
+        self.assertEqual(len(validator_unbond_ids), 1)
+        self.assertEqual(len(delegator_unbond_ids), 1)
+        self.assertEqual(
+            self.members.get_pending_unbond(
+                unbond_id=validator_unbond_ids[0],
+                signer="new_member",
+            )["reason"],
+            "removed",
+        )
+        self.assertEqual(
+            self.members.get_pending_unbond(
+                unbond_id=delegator_unbond_ids[0],
+                signer="delegator1",
+            )["reason"],
+            "removed",
+        )
+
+    def test_self_bond_and_delegation_update_reward_distribution_state(self):
+        self.currency.transfer(amount=2000, to="node1", signer=self.deployer_vk)
+        self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
+        self.currency.approve(amount=500, to="members", signer="node1")
+        self.currency.approve(amount=500, to="members", signer="delegator1")
+
+        self.members.update_profile(
+            commission_bps_value=1200,
+            signer="node1",
+        )
+        self.members.bond_self(amount=300, signer="node1")
+        self.members.delegate(
+            validator="node1",
+            amount=200,
+            reward_key="delegator1-reward",
+            signer="delegator1",
+        )
+
+        reward_info = self.members.get_reward_distribution_info(
+            validator="node1", signer="node1"
+        )
+
+        self.assertEqual(self.members.self_bond["node1"], 300)
+        self.assertEqual(self.members.total_delegated["node1"], 200)
+        self.assertEqual(self.members.delegations["delegator1", "node1"], 200)
+        self.assertEqual(
+            self.members.get_delegators(validator="node1", signer="node1"),
+            ["delegator1"],
+        )
+        self.assertEqual(reward_info["commission_bps"], 1200)
+        self.assertEqual(reward_info["total_bond"], 500)
+
+    def test_undelegate_creates_claimable_unbond(self):
+        base_time = Datetime(year=2024, month=1, day=1, hour=12, minute=0, second=0)
+        future_time = Datetime(year=2024, month=1, day=9, hour=12, minute=0, second=0)
+
+        self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
+        self.currency.approve(amount=500, to="members", signer="delegator1")
+        self.members.delegate(
+            validator="node1",
+            amount=200,
+            signer="delegator1",
+            environment={"now": base_time},
+        )
+
+        unbond = self.members.undelegate(
+            validator="node1",
+            amount=50,
+            signer="delegator1",
+            environment={"now": base_time, "block_num": 1},
+        )
+
+        self.assertEqual(unbond["amount"], 50)
+        self.assertEqual(unbond["owner"], "delegator1")
+        self.assertEqual(self.members.delegations["delegator1", "node1"], 150)
+
+        claimed = self.members.claim_unbond(
+            unbond_id=unbond["id"],
+            signer="delegator1",
+            environment={"now": future_time},
+        )
+
+        self.assertTrue(claimed["claimed"])
+
+    def test_evidence_slashes_pending_unbond_for_prior_infraction(self):
+        base_time = Datetime(year=2024, month=1, day=1, hour=12, minute=0, second=0)
+        claim_time = Datetime(year=2024, month=1, day=9, hour=12, minute=0, second=0)
+
+        self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
+        self.currency.approve(amount=500, to="members", signer="delegator1")
+        self.members.delegate(
+            validator="node1",
+            amount=200,
+            signer="delegator1",
+            environment={"now": base_time, "block_num": 3},
+        )
+
+        unbond = self.members.undelegate(
+            validator="node1",
+            amount=50,
+            signer="delegator1",
+            environment={"now": base_time, "block_num": 7},
+        )
+        dao_balance_before = self.currency.balances["dao"]
+
+        result = self.members.apply_evidence_penalty(
+            member="node1",
+            infraction_type="DUPLICATE_VOTE",
+            evidence_id="duplicate-vote-prior-infraction",
+            evidence_height=6,
+            signer="__evidence_penalty_driver__",
+            environment={"now": base_time, "block_num": 10},
+        )
+        unbond_after = self.members.get_pending_unbond(
+            unbond_id=unbond["id"],
+            signer="delegator1",
+        )
+
+        self.assertTrue(result["applied"])
+        self.assertEqual(result["slash_result"]["delegated_slashed"], 7.5)
+        self.assertEqual(result["slash_result"]["pending_unbond_slashed"], 2.5)
+        self.assertEqual(self.members.delegations["delegator1", "node1"], 142.5)
+        self.assertEqual(self.members.total_delegated["node1"], 142.5)
+        self.assertEqual(unbond_after["created_block"], 7)
+        self.assertEqual(unbond_after["amount"], 47.5)
+        self.assertEqual(self.currency.balances["dao"], dao_balance_before + 10)
+
+        claimed = self.members.claim_unbond(
+            unbond_id=unbond["id"],
+            signer="delegator1",
+            environment={"now": claim_time},
+        )
+
+        self.assertEqual(claimed["amount"], 47.5)
+        self.assertTrue(claimed["claimed"])
+
+    def test_evidence_does_not_slash_pending_unbond_for_later_infraction(self):
+        base_time = Datetime(year=2024, month=1, day=1, hour=12, minute=0, second=0)
+
+        self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
+        self.currency.approve(amount=500, to="members", signer="delegator1")
+        self.members.delegate(
+            validator="node1",
+            amount=200,
+            signer="delegator1",
+            environment={"now": base_time, "block_num": 3},
+        )
+
+        unbond = self.members.undelegate(
+            validator="node1",
+            amount=50,
+            signer="delegator1",
+            environment={"now": base_time, "block_num": 7},
+        )
+        dao_balance_before = self.currency.balances["dao"]
+
+        result = self.members.apply_evidence_penalty(
+            member="node1",
+            infraction_type="DUPLICATE_VOTE",
+            evidence_id="duplicate-vote-later-infraction",
+            evidence_height=8,
+            signer="__evidence_penalty_driver__",
+            environment={"now": base_time, "block_num": 10},
+        )
+        unbond_after = self.members.get_pending_unbond(
+            unbond_id=unbond["id"],
+            signer="delegator1",
+        )
+
+        self.assertTrue(result["applied"])
+        self.assertEqual(result["slash_result"]["delegated_slashed"], 7.5)
+        self.assertEqual(result["slash_result"]["pending_unbond_slashed"], 0)
+        self.assertEqual(self.members.delegations["delegator1", "node1"], 142.5)
+        self.assertEqual(self.members.total_delegated["node1"], 142.5)
+        self.assertEqual(unbond_after["created_block"], 7)
+        self.assertEqual(unbond_after["amount"], 50)
+        self.assertEqual(self.currency.balances["dao"], dao_balance_before + 7.5)
+
+    def test_unregister_forces_pending_unbonds_for_candidate_stake(self):
+        self.currency.transfer(amount=3000, to="new_member", signer=self.deployer_vk)
+        self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
+        self.currency.approve(amount=2000, to="members", signer="new_member")
+        self.currency.approve(amount=500, to="members", signer="delegator1")
+
+        self.members.register(signer="new_member")
+        self.members.bond_self(amount=300, signer="new_member")
+        self.members.delegate(
+            validator="new_member",
+            amount=200,
+            signer="delegator1",
+        )
+
+        self.members.unregister(
+            signer="new_member",
+            environment={"block_num": 1},
+        )
+
+        self.assertEqual(self.members.statuses["new_member"], "withdrawn")
+        self.assertFalse("new_member" in self.members.candidates.get())
+        self.assertEqual(self.members.self_bond["new_member"], 0)
+        self.assertEqual(self.members.total_delegated["new_member"], 0)
+        self.assertEqual(self.members.delegations["delegator1", "new_member"], 0)
+
+        validator_unbond_ids = self.members.get_pending_unbond_ids(
+            owner="new_member",
+            signer="new_member",
+        )
+        delegator_unbond_ids = self.members.get_pending_unbond_ids(
+            owner="delegator1",
+            signer="delegator1",
+        )
+
+        self.assertEqual(len(validator_unbond_ids), 1)
+        self.assertEqual(len(delegator_unbond_ids), 1)
+        self.assertEqual(
+            self.members.get_pending_unbond(
+                unbond_id=validator_unbond_ids[0],
+                signer="new_member",
+            )["reason"],
+            "withdrawn",
+        )
+        self.assertEqual(
+            self.members.get_pending_unbond(
+                unbond_id=delegator_unbond_ids[0],
+                signer="delegator1",
+            )["reason"],
+            "withdrawn",
+        )
 
     def test_vote_snapshot_excludes_members_added_after_proposal_creation(self):
         self.currency.approve(amount=1000, to="members", signer="new_member")

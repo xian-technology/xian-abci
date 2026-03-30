@@ -5,6 +5,7 @@ from argparse import ArgumentParser, BooleanOptionalAction
 
 from contracting.execution.tracer import SUPPORTED_TRACER_MODES
 
+from xian.genesis_builder import build_bundle_network_genesis
 from xian.node_admin import configure_existing_home
 from xian.node_setup import (
     SUPPORTED_APP_LOG_LEVELS,
@@ -63,9 +64,30 @@ def build_parser() -> ArgumentParser:
         "--genesis-source",
         type=str,
         help=(
-            "genesis source inside xian-configs, for example 'mainnet', "
-            "'networks/mainnet/genesis.json', or a relative path"
+            "genesis source inside xian-configs, for example "
+            "'networks/custom/genesis.json' or a relative path"
         ),
+        required=False,
+    )
+    parser.add_argument(
+        "--genesis-preset",
+        type=str,
+        help=(
+            "canonical contract bundle preset used to build genesis instead "
+            "of copying a static genesis source"
+        ),
+        required=False,
+    )
+    parser.add_argument(
+        "--chain-id",
+        type=str,
+        help="chain ID used when building genesis from --genesis-preset",
+        required=False,
+    )
+    parser.add_argument(
+        "--genesis-time",
+        type=str,
+        help="fixed genesis time used when building genesis from --genesis-preset",
         required=False,
     )
     parser.add_argument(
@@ -386,6 +408,19 @@ def build_parser() -> ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.genesis_preset is not None and args.genesis_source is not None:
+        raise ValueError(
+            "pass either --genesis-source or --genesis-preset, not both"
+        )
+    genesis_payload = None
+    if args.genesis_preset is not None:
+        if not args.chain_id:
+            raise ValueError("--chain-id is required with --genesis-preset")
+        genesis_payload = build_bundle_network_genesis(
+            chain_id=args.chain_id,
+            network=args.genesis_preset,
+            genesis_time=args.genesis_time,
+        )
     result = configure_existing_home(
         moniker=args.moniker,
         validator_private_key_hex=args.validator_privkey,
@@ -395,6 +430,7 @@ def main(argv: list[str] | None = None) -> int:
         snapshot_url=args.snapshot_url,
         copy_genesis=args.copy_genesis,
         genesis_source=args.genesis_source,
+        genesis_payload=genesis_payload,
         prometheus=args.prometheus,
         service_node=args.service_node,
         enable_pruning=args.enable_pruning,

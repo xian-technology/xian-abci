@@ -6,11 +6,14 @@ from pathlib import Path
 from xian_accounts import Ed25519Account
 
 from xian.genesis_builder import (
+    build_bundle_network_genesis,
     build_cometbft_genesis,
     build_genesis_block,
     build_local_network_genesis,
     build_single_validator_genesis,
     build_validator_genesis_entry,
+    build_validator_genesis_entry_from_public_key,
+    derive_genesis_validators_from_bundle,
     update_cometbft_genesis,
     write_genesis_block,
 )
@@ -233,6 +236,148 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertEqual(genesis["validators"][0]["power"], "15")
         self.assertEqual(genesis["validators"][0]["name"], "validator-1")
         self.assertEqual(genesis["abci_genesis"], abci_genesis)
+
+    def test_build_validator_genesis_entry_from_public_key(self):
+        validator = build_validator_genesis_entry_from_public_key(
+            public_key_hex=(
+                "ee06a34cf08bf72ce592d26d36b90c79"
+                "daba2829ba9634992d034318160d49f9"
+            ),
+            power=15,
+        )
+
+        self.assertEqual(
+            validator["address"], "8ABB2DE01AE15C5F4EBD0D4455C6BCD9047B7CBB"
+        )
+        self.assertEqual(validator["power"], "15")
+        self.assertEqual(
+            validator["pub_key"]["value"],
+            "7gajTPCL9yzlktJtNrkMedq6KCm6ljSZLQNDGBYNSfk=",
+        )
+
+    def test_derive_genesis_validators_from_bundle(self):
+        contracts_dir = (
+            Path(__file__).resolve().parents[3]
+            / "xian-configs"
+            / "contracts"
+        )
+
+        validators = derive_genesis_validators_from_bundle(
+            network="devnet",
+            contracts_dir=contracts_dir,
+        )
+
+        self.assertEqual(len(validators), 2)
+        self.assertEqual(
+            validators[0]["address"], "614EBE42CBE8354F733851F4316D0DE316B1AEF0"
+        )
+        self.assertEqual(
+            validators[1]["address"], "5C7B6531A88A6C6941A7AA495AF041394F8345F0"
+        )
+
+    def test_derive_genesis_validators_from_bundle_uses_declared_powers(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            contracts_dir = Path(tmp_dir) / "contracts"
+            contracts_dir.mkdir()
+            (contracts_dir / "contracts_test.json").write_text(
+                json.dumps(
+                    {
+                        "extension": ".s.py",
+                        "contracts": [
+                            {
+                                "name": "members",
+                                "submit_as": "masternodes",
+                                "owner": None,
+                                "constructor_args": {
+                                    "genesis_nodes": [
+                                        "ee06a34cf08bf72ce592d26d36b90c79"
+                                        "daba2829ba9634992d034318160d49f9",
+                                        "7fa496ca2438e487cc45a8a27fd95b2e"
+                                        "fe373223f7b72868fbab205d686be48e",
+                                    ],
+                                    "default_node_power": 17,
+                                    "genesis_powers": {
+                                        "7fa496ca2438e487cc45a8a27fd95b2e"
+                                        "fe373223f7b72868fbab205d686be48e": 23
+                                    },
+                                },
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            validators = derive_genesis_validators_from_bundle(
+                network="test",
+                contracts_dir=contracts_dir,
+            )
+
+        self.assertEqual(validators[0]["power"], "17")
+        self.assertEqual(validators[1]["power"], "23")
+
+    def test_build_bundle_network_genesis_uses_bundle_seed_validators(self):
+        contracts_dir = (
+            Path(__file__).resolve().parents[3]
+            / "xian-configs"
+            / "contracts"
+        )
+
+        genesis = build_bundle_network_genesis(
+            chain_id="xian-devnet-1",
+            network="devnet",
+            contracts_dir=contracts_dir,
+            genesis_time="2026-03-30T00:00:00.000000Z",
+        )
+
+        self.assertEqual(genesis["chain_id"], "xian-devnet-1")
+        self.assertEqual(
+            genesis["genesis_time"], "2026-03-30T00:00:00.000000Z"
+        )
+        self.assertEqual(
+            genesis["abci_genesis"]["origin"],
+            {"sender": "", "signature": ""},
+        )
+        self.assertEqual(len(genesis["validators"]), 2)
+        self.assertEqual(
+            genesis["validators"][0]["address"],
+            "614EBE42CBE8354F733851F4316D0DE316B1AEF0",
+        )
+
+    def test_local_bundle_pins_masternodes_policy_in_genesis(self):
+        founder_private_key = (
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        )
+        contracts_dir = (
+            Path(__file__).resolve().parents[3]
+            / "xian-configs"
+            / "contracts"
+        )
+
+        genesis_block = build_genesis_block(
+            founder_private_key=founder_private_key,
+            network="local",
+            contracts_dir=contracts_dir,
+        )
+
+        state_by_key = {
+            entry["key"]: entry["value"] for entry in genesis_block["genesis"]
+        }
+
+        self.assertEqual(
+            state_by_key["masternodes.config:selection_mode"], "manual"
+        )
+        self.assertEqual(state_by_key["masternodes.config:max_validators"], 5)
+        self.assertEqual(
+            state_by_key["masternodes.config:max_commission_bps"], 10000
+        )
+        self.assertEqual(
+            state_by_key["masternodes.config:slash_destination"], "dao"
+        )
+        self.assertEqual(
+            state_by_key["masternodes.validator_power:ee06a34cf08bf72ce592d26d36b90c79daba2829ba9634992d034318160d49f9"],
+            10,
+        )
 
     def test_build_single_validator_genesis_uses_founder_and_validator_inputs(
         self,

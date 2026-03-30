@@ -197,6 +197,7 @@ def configure_existing_home(
     snapshot_url: str | None = None,
     copy_genesis: bool = False,
     genesis_source: str | None = None,
+    genesis_payload: dict[str, Any] | None = None,
     prometheus: bool = True,
     service_node: bool = False,
     enable_pruning: bool = False,
@@ -307,18 +308,21 @@ def configure_existing_home(
 
     genesis_target_path: Path | None = None
     if copy_genesis:
-        if genesis_source is not None:
-            genesis_source_path = resolve_genesis_source(genesis_source)
-        else:
-            raise ValueError(
-                "genesis_source is required when copy_genesis is enabled"
-            )
         genesis_target_path = resolve_home_relative_path(
             home,
             config["genesis_file"],
         )
         genesis_target_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(genesis_source_path, genesis_target_path)
+        if genesis_payload is not None:
+            write_json(genesis_target_path, genesis_payload, overwrite=True)
+        elif genesis_source is not None:
+            genesis_source_path = resolve_genesis_source(genesis_source)
+            shutil.copy2(genesis_source_path, genesis_target_path)
+        else:
+            raise ValueError(
+                "genesis_source or genesis_payload is required when "
+                "copy_genesis is enabled"
+            )
 
     priv_validator_key_path: Path | None = None
     if validator_private_key_hex is not None:

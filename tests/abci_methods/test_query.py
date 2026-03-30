@@ -31,6 +31,62 @@ def balance_of(account: str):
     return balances[account]
 """.strip()
 
+MASTERNODES_CODE = """
+policy = Variable()
+active = Variable()
+candidates = Variable()
+validators = Hash(default_value=None)
+pending_unbond_owner_ids = Hash(default_value=None)
+pending_unbonds = Hash(default_value=None)
+
+
+@construct
+def seed():
+    policy.set({"selection_mode": "manual", "max_validators": 5})
+    active.set([{"account": "alice", "status": "active"}])
+    candidates.set([{"account": "candidate-1", "status": "approved"}])
+    validators["alice"] = {
+        "account": "alice",
+        "status": "active",
+        "total_bond": 150,
+    }
+    pending_unbond_owner_ids["alice"] = [4]
+    pending_unbonds[4] = {
+        "owner": "alice",
+        "amount": 25,
+    }
+
+
+@export
+def get_policy_config():
+    return policy.get()
+
+
+@export
+def get_active_validators():
+    return active.get()
+
+
+@export
+def get_pending_candidates():
+    return candidates.get()
+
+
+@export
+def get_validator(account: str):
+    return validators[account]
+
+
+@export
+def get_pending_unbond_ids(owner: str):
+    return pending_unbond_owner_ids[owner] or []
+
+
+@export
+def get_pending_unbond(unbond_id: int):
+    return pending_unbonds[unbond_id]
+""".strip()
+
 ACCOUNT = "c93dee52d7dc6cc43af44007c3b1dae5b730ccf18a9e6fb43521f8e4064561e6"
 
 
@@ -222,6 +278,10 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             name="currency",
             constructor_args={"vk": "alice"},
         )
+        self.app.client.submit(
+            MASTERNODES_CODE,
+            name="masternodes",
+        )
         self.app.client.raw_driver.set(
             f"currency.balances:{ACCOUNT}",
             123.45,
@@ -335,6 +395,78 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.query.info, "dict")
         self.assertEqual(payload["enabled"], False)
         self.assertEqual(payload["recent_blocks"], [])
+
+    async def test_masternodes_dashboard_queries(self):
+        self.app.client.raw_driver.set("masternodes.total_votes", 2)
+        self.app.client.raw_driver.set(
+            "masternodes.votes:1",
+            {
+                "type": "update_policy",
+                "status": "pending",
+                "finalized": False,
+            },
+        )
+        self.app.client.raw_driver.set(
+            "masternodes.votes:2",
+            {
+                "type": "jail_member",
+                "status": "approved",
+                "finalized": True,
+            },
+        )
+
+        policy_response = await self.process_request(
+            Request(query=RequestQuery(path="/masternodes_policy"))
+        )
+        active_response = await self.process_request(
+            Request(query=RequestQuery(path="/masternodes_active"))
+        )
+        validator_response = await self.process_request(
+            Request(query=RequestQuery(path="/masternodes_validator/alice"))
+        )
+        unbonds_response = await self.process_request(
+            Request(query=RequestQuery(path="/masternodes_pending_unbonds/alice"))
+        )
+        votes_response = await self.process_request(
+            Request(
+                query=RequestQuery(
+                    path="/masternodes_open_votes/limit=25/offset=0"
+                )
+            )
+        )
+
+        self.assertEqual(policy_response.query.info, "dict")
+        self.assertEqual(
+            json.loads(policy_response.query.value)["selection_mode"],
+            "manual",
+        )
+        self.assertEqual(active_response.query.info, "list")
+        self.assertEqual(
+            json.loads(active_response.query.value)[0]["account"],
+            "alice",
+        )
+        self.assertEqual(validator_response.query.info, "dict")
+        self.assertEqual(
+            json.loads(validator_response.query.value)["total_bond"],
+            150,
+        )
+        self.assertEqual(unbonds_response.query.info, "list")
+        self.assertEqual(
+            json.loads(unbonds_response.query.value)[0]["unbond_id"],
+            4,
+        )
+        self.assertEqual(votes_response.query.info, "list")
+        self.assertEqual(
+            json.loads(votes_response.query.value),
+            [
+                {
+                    "proposal_id": 1,
+                    "type": "update_policy",
+                    "status": "pending",
+                    "finalized": False,
+                }
+            ],
+        )
 
     async def test_get_next_nonce_query(self):
         response = await self.process_request(

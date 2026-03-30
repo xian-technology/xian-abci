@@ -352,6 +352,182 @@ class MyTestCase(unittest.TestCase):
         )
         return [vote, vote2, vote3, vote4, vote5]
 
+    def vote_jail(self, block_meta=None):
+        if block_meta is None:
+            block_meta = create_block_meta(datetime.now())
+        vote = self.tx_processor.process_tx(
+            tx={
+                "payload": {
+                    "sender": node_1,
+                    "contract": "masternodes",
+                    "function": "propose_vote",
+                    "kwargs": {
+                        "type_of_vote": "jail_member",
+                        "arg": {"member": "new_node", "reason": "downtime"},
+                    },
+                    "stamps_supplied": 1000,
+                },
+                "metadata": {"signature": "abc"},
+                "b_meta": block_meta,
+            }
+        )
+        vote2 = self.tx_processor.process_tx(
+            tx={
+                "payload": {
+                    "sender": node_2,
+                    "contract": "masternodes",
+                    "function": "vote",
+                    "kwargs": {"proposal_id": 2, "vote": "yes"},
+                    "stamps_supplied": 1000,
+                },
+                "metadata": {"signature": "abc"},
+                "b_meta": block_meta,
+            }
+        )
+        vote3 = self.tx_processor.process_tx(
+            tx={
+                "payload": {
+                    "sender": node_3,
+                    "contract": "masternodes",
+                    "function": "vote",
+                    "kwargs": {"proposal_id": 2, "vote": "yes"},
+                    "stamps_supplied": 1000,
+                },
+                "metadata": {"signature": "abc"},
+                "b_meta": block_meta,
+            }
+        )
+        vote4 = self.tx_processor.process_tx(
+            tx={
+                "payload": {
+                    "sender": node_4,
+                    "contract": "masternodes",
+                    "function": "vote",
+                    "kwargs": {"proposal_id": 2, "vote": "yes"},
+                    "stamps_supplied": 1000,
+                },
+                "metadata": {"signature": "abc"},
+                "b_meta": block_meta,
+            }
+        )
+        vote5 = self.tx_processor.process_tx(
+            tx={
+                "payload": {
+                    "sender": node_5,
+                    "contract": "masternodes",
+                    "function": "vote",
+                    "kwargs": {"proposal_id": 2, "vote": "yes"},
+                    "stamps_supplied": 1000,
+                },
+                "metadata": {"signature": "abc"},
+                "b_meta": block_meta,
+            }
+        )
+        return [vote, vote2, vote3, vote4, vote5]
+
+    def vote_unjail(self, block_meta=None):
+        if block_meta is None:
+            block_meta = create_block_meta(datetime.now())
+        vote = self.tx_processor.process_tx(
+            tx={
+                "payload": {
+                    "sender": node_1,
+                    "contract": "masternodes",
+                    "function": "propose_vote",
+                    "kwargs": {
+                        "type_of_vote": "unjail_member",
+                        "arg": "new_node",
+                    },
+                    "stamps_supplied": 1000,
+                },
+                "metadata": {"signature": "abc"},
+                "b_meta": block_meta,
+            }
+        )
+        vote2 = self.tx_processor.process_tx(
+            tx={
+                "payload": {
+                    "sender": node_2,
+                    "contract": "masternodes",
+                    "function": "vote",
+                    "kwargs": {"proposal_id": 3, "vote": "yes"},
+                    "stamps_supplied": 1000,
+                },
+                "metadata": {"signature": "abc"},
+                "b_meta": block_meta,
+            }
+        )
+        vote3 = self.tx_processor.process_tx(
+            tx={
+                "payload": {
+                    "sender": node_3,
+                    "contract": "masternodes",
+                    "function": "vote",
+                    "kwargs": {"proposal_id": 3, "vote": "yes"},
+                    "stamps_supplied": 1000,
+                },
+                "metadata": {"signature": "abc"},
+                "b_meta": block_meta,
+            }
+        )
+        vote4 = self.tx_processor.process_tx(
+            tx={
+                "payload": {
+                    "sender": node_4,
+                    "contract": "masternodes",
+                    "function": "vote",
+                    "kwargs": {"proposal_id": 3, "vote": "yes"},
+                    "stamps_supplied": 1000,
+                },
+                "metadata": {"signature": "abc"},
+                "b_meta": block_meta,
+            }
+        )
+        return [vote, vote2, vote3, vote4]
+
+    def vote_slash(self, block_meta=None, slash_bps=2500, reason="equivocation"):
+        if block_meta is None:
+            block_meta = create_block_meta(datetime.now())
+        vote = self.tx_processor.process_tx(
+            tx={
+                "payload": {
+                    "sender": node_1,
+                    "contract": "masternodes",
+                    "function": "propose_vote",
+                    "kwargs": {
+                        "type_of_vote": "slash_member",
+                        "arg": {
+                            "member": "new_node",
+                            "slash_bps": slash_bps,
+                            "reason": reason,
+                        },
+                    },
+                    "stamps_supplied": 1000,
+                },
+                "metadata": {"signature": "abc"},
+                "b_meta": block_meta,
+            }
+        )
+        proposal_id = self.masternodes.total_votes.get()
+        votes = [vote]
+        for sender in [node_2, node_3, node_4, node_5]:
+            votes.append(
+                self.tx_processor.process_tx(
+                    tx={
+                        "payload": {
+                            "sender": sender,
+                            "contract": "masternodes",
+                            "function": "vote",
+                            "kwargs": {"proposal_id": proposal_id, "vote": "yes"},
+                            "stamps_supplied": 1000,
+                        },
+                        "metadata": {"signature": "abc"},
+                        "b_meta": block_meta,
+                    }
+                )
+            )
+        return votes
+
     def vote_in_and_unregister(self):
         block_meta = create_block_meta(datetime.now())
         vote = self.tx_processor.process_tx(
@@ -861,6 +1037,39 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(self.masternodes.statuses["new_node"], "removed")
         self.assertEqual(self.currency.balances["new_node"], 1000000)
 
+    def test_jail_member(self):
+        self.register()
+        self.vote_in()
+        self.vote_jail()
+        self.assertNotIn("new_node", self.masternodes.nodes.get())
+        self.assertEqual(self.masternodes.statuses["new_node"], "approved")
+        self.assertEqual(self.masternodes.jailed["new_node"], True)
+        self.assertEqual(self.currency.balances["new_node"], 900000)
+
+    def test_unjail_member(self):
+        self.register()
+        self.vote_in()
+        self.vote_jail()
+        self.vote_unjail()
+        self.assertEqual(self.masternodes.jailed["new_node"], False)
+        self.assertEqual(self.masternodes.statuses["new_node"], "approved")
+        self.assertNotIn("new_node", self.masternodes.nodes.get())
+
+    def test_slash_member(self):
+        self.register()
+        self.vote_in()
+        self.currency.approve(amount=200, to="masternodes", signer="new_node")
+        self.masternodes.bond_self(amount=200, signer="new_node")
+
+        dao_balance_before = self.currency.balances["dao"]
+        self.vote_slash()
+
+        self.assertEqual(self.masternodes.self_bond["new_node"], 150)
+        self.assertEqual(self.masternodes.total_slashed["new_node"], 50)
+        self.assertEqual(self.currency.balances["dao"], dao_balance_before + 50)
+        self.assertEqual(self.masternodes.votes[2]["status"], "approved")
+        self.assertEqual(self.masternodes.votes[2]["result"]["slash_amount"], 50)
+
     def test_leave_payback(self):
         self.register()
         self.vote_in()
@@ -922,12 +1131,16 @@ class MyTestCase(unittest.TestCase):
             [
             "add_member", 
             "remove_member", 
+            "jail_member",
+            "unjail_member",
+            "slash_member",
             "set_member_power",
             "change_registration_fee", 
             "reward_change", 
             "dao_payout", 
             "stamp_cost_change", 
             "change_types", 
+            "update_policy",
             "create_stream", 
             "change_close_time", 
             "finalize_stream", 
