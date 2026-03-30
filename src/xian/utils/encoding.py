@@ -136,6 +136,8 @@ def normalize_for_abci_json(obj):
             normalized.append((key, normalize_for_abci_json(value)))
         normalized.sort(key=lambda item: item[0])
         return {key: value for key, value in normalized}
+    if isinstance(obj, tuple):
+        return [normalize_for_abci_json(elem) for elem in obj]
     if isinstance(obj, list):
         return [normalize_for_abci_json(elem) for elem in obj]
     return obj
