@@ -987,7 +987,7 @@ class MyTestCase(unittest.TestCase):
     def test_leave_not_pending(self):
         self.register()
         leave_res = self.leave().get('tx_result').get('result')
-        self.assertEqual(leave_res, "AssertionError('Not pending leave.')")
+        self.assertEqual(leave_res, "AssertionError('Not pending.')")
         
     def test_expired_proposal(self):
         proposal_block_meta = create_block_meta(datetime.now())
