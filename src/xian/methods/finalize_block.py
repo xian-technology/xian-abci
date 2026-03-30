@@ -60,13 +60,19 @@ def _validator_consensus_address(pubkey_hex: str) -> bytes | None:
         return None
 
 
-def _resolve_misbehaving_validator_key(self, validator_address: bytes) -> str | None:
+def _resolve_misbehaving_validator_key(
+    self, validator_address: bytes
+) -> str | None:
     if not validator_address:
         return None
-    known_validators = self.client.raw_driver.get(
-        "masternodes.validator_registry",
-        save=False,
-    ) or self.client.raw_driver.get("masternodes.nodes", save=False) or []
+    known_validators = (
+        self.client.raw_driver.get(
+            "masternodes.validator_registry",
+            save=False,
+        )
+        or self.client.raw_driver.get("masternodes.nodes", save=False)
+        or []
+    )
     for validator_key in known_validators:
         consensus_address = _validator_consensus_address(validator_key)
         if consensus_address == validator_address:
@@ -127,7 +133,9 @@ def _maybe_apply_evidence_penalties(self, req, *, height: int):
                         ).hex(),
                     },
                 )
-            ).warning("Could not resolve validator key for misbehavior evidence")
+            ).warning(
+                "Could not resolve validator key for misbehavior evidence"
+            )
             continue
 
         evidence_id = _misbehavior_evidence_id(misbehavior, validator_key)
@@ -173,7 +181,9 @@ def _maybe_apply_evidence_penalties(self, req, *, height: int):
 
         state_write_count = len(tx_result.get("state", []))
         if state_write_count > 0:
-            self.fingerprint_hashes.append(hash_bytes(encode_abci_json(tx_result)))
+            self.fingerprint_hashes.append(
+                hash_bytes(encode_abci_json(tx_result))
+            )
             any_applied = True
             logger.bind(
                 **build_log_fields(
@@ -206,7 +216,10 @@ def _maybe_run_validator_epoch_rebalance(self, *, height: int):
         "masternodes.last_rebalance_epoch",
         save=False,
     )
-    if last_rebalance_epoch is not None and current_epoch <= last_rebalance_epoch:
+    if (
+        last_rebalance_epoch is not None
+        and current_epoch <= last_rebalance_epoch
+    ):
         return None, False
 
     rebalance_tx = {

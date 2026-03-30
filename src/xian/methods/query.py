@@ -259,14 +259,10 @@ async def query(self, req) -> ResponseQuery:
             if membership is None:
                 result = None
             else:
-                pending_ids = (
-                    membership.get_pending_unbond_ids(owner=key) or []
-                )
+                pending_ids = membership.get_pending_unbond_ids(owner=key) or []
                 result = []
                 for unbond_id in pending_ids:
-                    unbond = membership.get_pending_unbond(
-                        unbond_id=unbond_id
-                    )
+                    unbond = membership.get_pending_unbond(unbond_id=unbond_id)
                     if isinstance(unbond, dict):
                         entry = dict(unbond)
                         entry["unbond_id"] = unbond_id

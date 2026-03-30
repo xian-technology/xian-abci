@@ -160,9 +160,7 @@ class RewardsHandler:
                 ],
             )
 
-        commission = (
-            total_reward * commission_bps
-        ) / decimal.Decimal("10000")
+        commission = (total_reward * commission_bps) / decimal.Decimal("10000")
         remainder = total_reward - commission
 
         reward_mapping = defaultdict(lambda: ContractingDecimal("0"))

@@ -68,7 +68,9 @@ def _decode_abci_value(b64: str) -> str | dict | list | None:
 
 
 def _validator_pubkey_hex(status: dict | None) -> str | None:
-    validator_info = status.get("validator_info", {}) if isinstance(status, dict) else {}
+    validator_info = (
+        status.get("validator_info", {}) if isinstance(status, dict) else {}
+    )
     pub_key = (
         validator_info.get("pub_key", {})
         if isinstance(validator_info, dict)
@@ -730,17 +732,20 @@ async def handle_validator_dashboard(request: web.Request) -> web.Response:
         status = await _raw_rpc(session, rpc, "status")
         local_account = _validator_pubkey_hex(status)
 
-        policy, active_validators, pending_candidates, open_votes = (
-            await asyncio.gather(
-                _abci_query(session, rpc, "masternodes_policy"),
-                _abci_query(session, rpc, "masternodes_active"),
-                _abci_query(session, rpc, "masternodes_candidates"),
-                _abci_query(
-                    session,
-                    rpc,
-                    "masternodes_open_votes/limit=25/offset=0",
-                ),
-            )
+        (
+            policy,
+            active_validators,
+            pending_candidates,
+            open_votes,
+        ) = await asyncio.gather(
+            _abci_query(session, rpc, "masternodes_policy"),
+            _abci_query(session, rpc, "masternodes_active"),
+            _abci_query(session, rpc, "masternodes_candidates"),
+            _abci_query(
+                session,
+                rpc,
+                "masternodes_open_votes/limit=25/offset=0",
+            ),
         )
 
         local_validator = None
