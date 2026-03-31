@@ -261,21 +261,23 @@ class TestParallelBlockExecutor(unittest.TestCase):
                 for result in parallel_results
             ]
             self.assertEqual(parallel_tx_results, serial_tx_results)
-            for key in (
-                "currency.balances:sys",
-                "currency.balances:bob",
-                "currency.balances:carol",
-                "currency.balances:foundation",
-                "currency.balances:mn-1",
-                "currency.balances:mn-2",
-                "con_token_a.metadata:alpha",
-                "con_token_b.metadata:beta",
-                "con_token_c.metadata:gamma",
+            serial_additive_writes = [
+                result["access"].additive_writes for result in serial_results
+            ]
+            parallel_additive_writes = [
+                result["access"].additive_writes for result in parallel_results
+            ]
+            self.assertEqual(parallel_additive_writes, serial_additive_writes)
+            for key, expected in (
+                ("con_token_a.metadata:alpha", "one"),
+                ("con_token_b.metadata:beta", "two"),
+                ("con_token_c.metadata:gamma", "three"),
             ):
                 self.assertEqual(
                     parallel_client.raw_driver.get(key),
                     serial_client.raw_driver.get(key),
                 )
+                self.assertEqual(parallel_client.raw_driver.get(key), expected)
 
     def test_parallel_executor_falls_back_for_prefix_scan_reads(self):
         contract_code = textwrap.dedent(
