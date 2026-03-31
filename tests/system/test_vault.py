@@ -1,10 +1,8 @@
-import unittest
-from xian_runtime_types.time import Datetime
-from contracting.client import ContractingClient
-from contracting.storage.driver import Driver
-from xian.config_paths import resolve_contracts_dir
-import datetime
 import os
+import unittest
+
+from contracting.client import ContractingClient
+from xian.config_paths import resolve_contracts_dir
 
 class TestVaultContract(unittest.TestCase):
     def setUp(self):
@@ -34,7 +32,6 @@ class TestVaultContract(unittest.TestCase):
             self.client.submit(code, name="team_lock", constructor_args={
                 "initial_owners": "owner1,owner2,owner3",
                 "initial_required_signatures": 2,
-                "stream": "team_vesting"
             })
 
         self.vault = self.client.get_contract("team_lock")
@@ -48,12 +45,10 @@ class TestVaultContract(unittest.TestCase):
         # WHEN checking initial values
         required_sigs = self.vault.required_signatures.get()
         owner_count = self.vault.owner_count.get()
-        stream = self.vault.stream_id.get()
         
         # THEN values should match constructor args
         self.assertEqual(required_sigs, 2)
         self.assertEqual(owner_count, 3)
-        self.assertEqual(stream, "team_vesting")
         self.assertTrue(self.vault.owners["owner1"])
         self.assertTrue(self.vault.owners["owner2"])
         self.assertTrue(self.vault.owners["owner3"])
@@ -186,14 +181,3 @@ class TestVaultContract(unittest.TestCase):
 
         # THEN requirement should be updated
         self.assertEqual(self.vault.required_signatures.get(), 3)
-        
-    def test_balance_stream(self):
-        # GIVEN a balance stream
-        d = datetime.datetime.now() + datetime.timedelta(days=1)
-        start_time = Datetime(d.year, d.month, d.day, hour=d.hour, minute=d.minute)
-        balance_before = self.currency.balances["team_lock"]
-        self.vault.balance_stream(signer="anybody", environment={**self.environment, "now":start_time})
-        balance_after = self.currency.balances["team_lock"]
-
-        # THEN balance should be updated
-        self.assertNotEqual(balance_before, balance_after)

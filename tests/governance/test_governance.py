@@ -1141,10 +1141,6 @@ class MyTestCase(unittest.TestCase):
             "stamp_cost_change", 
             "change_types", 
             "update_policy",
-            "create_stream", 
-            "change_close_time", 
-            "finalize_stream", 
-            "close_balance_finalize",
             "topic_vote"
             ],
         )
