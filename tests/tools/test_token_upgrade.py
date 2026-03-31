@@ -6,6 +6,7 @@ from pathlib import Path
 from contracting.client import ContractingClient
 from contracting.stdlib.bridge.hashing import sha3
 from xian_accounts import Ed25519Account
+from xian.config_paths import resolve_contracts_dir
 from xian_runtime_types.time import Datetime
 
 from xian.tools.genesis_upgrades.token_upgrade import (
@@ -54,6 +55,10 @@ class TestTokenUpgrade(unittest.TestCase):
         for key, value in final_state.items():
             self.client.raw_driver.set(key, value)
 
+        permit_authorizer_path = resolve_contracts_dir() / "permit_authorizer.s.py"
+        with open(permit_authorizer_path, "r") as f:
+            self.client.submit(f.read(), name="permit_authorizer")
+
         # Find all final XSC001 token contracts from their resolved runtime code.
         self.token_contracts = {}
         for key, value in final_state.items():
@@ -68,6 +73,8 @@ class TestTokenUpgrade(unittest.TestCase):
                 self.token_contracts[contract_name] = self.client.get_contract(
                     contract_name
                 )
+
+        self.permit_authorizer = self.client.get_contract("permit_authorizer")
 
     def tearDown(self):
         self.client.flush()
@@ -149,8 +156,8 @@ class TestTokenUpgrade(unittest.TestCase):
                     zero_balance, 0
                 )  # Should return default value of 0
 
-    def test_all_xsc002_tokens_permit_functionality(self):
-        """Test that all upgraded tokens have the updated permit functionality"""
+    def test_all_xsc001_tokens_support_external_permit_authorizer(self):
+        """Test that upgraded tokens delegate permit logic through the shared authorizer"""
         for contract_name, contract in self.token_contracts.items():
             with self.subTest(contract=contract_name):
                 private_key = "ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8"
@@ -161,37 +168,64 @@ class TestTokenUpgrade(unittest.TestCase):
                 value = 100
                 chain_id = "test-chain"
                 msg = construct_permit_msg(
+                    contract_name,
                     public_key,
                     spender,
                     value,
                     deadline,
-                    contract_name,
+                    "permit_authorizer",
                     chain_id,
                 )
-                hash = sha3(msg)
+                permit_hash = sha3(msg)
                 signature = wallet.sign_msg(msg)
 
-                if vars(contract).get("permit") is not None:
-                    response = contract.permit(
-                        owner=public_key,
-                        spender=spender,
-                        value=value,
-                        deadline=str(deadline),
-                        signature=signature,
-                        environment={"chain_id": chain_id},
+                self.assertIsNotNone(vars(contract).get("approve_from_authorizer"))
+                response = self.permit_authorizer.permit(
+                    token_contract=contract_name,
+                    owner=public_key,
+                    spender=spender,
+                    value=value,
+                    deadline=str(deadline),
+                    signature=signature,
+                    environment={"chain_id": chain_id},
+                )
+                self.assertEqual(response, permit_hash)
+                self.assertEqual(
+                    contract.balances[public_key, spender],
+                    value,
+                )
+
+    def test_all_xsc001_tokens_reject_direct_authorizer_hook_calls(self):
+        """Test that the allowance hook cannot be called directly by arbitrary signers"""
+        for contract_name, contract in self.token_contracts.items():
+            with self.subTest(contract=contract_name):
+                self.assertIsNotNone(vars(contract).get("approve_from_authorizer"))
+                with self.assertRaises(Exception) as context:
+                    contract.approve_from_authorizer(
+                        owner="alice",
+                        spender="bob",
+                        amount=10,
+                        signer="mallory",
                     )
-                    self.assertEqual(response, hash)
+                self.assertIn(
+                    "Only permit authorizer can approve on behalf of others.",
+                    str(context.exception),
+                )
 
 
 def construct_permit_msg(
+    token_contract: str,
     owner: str,
     spender: str,
     value: float,
     deadline: dict,
-    contract_name: str,
+    authorizer_contract: str,
     chain_id: str,
 ):
-    return f"{owner}:{spender}:{value}:{deadline}:{contract_name}:{chain_id}"
+    return (
+        f"{token_contract}:{owner}:{spender}:{value}:{deadline}:"
+        f"{authorizer_contract}:{chain_id}"
+    )
 
 
 def create_deadline(minutes=1):

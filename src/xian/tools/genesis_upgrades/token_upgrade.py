@@ -22,7 +22,11 @@ class TokenFunctionTransformer(NodeTransformer):
             new_body.decorator_list = node.decorator_list
             return new_body
         elif node.name == 'permit':
-            new_body = self._update_permit_function(node)
+            new_body = self._update_approve_from_authorizer_function(node)
+            new_body.decorator_list = node.decorator_list
+            return new_body
+        elif node.name == 'approve_from_authorizer':
+            new_body = self._update_approve_from_authorizer_function(node)
             new_body.decorator_list = node.decorator_list
             return new_body
         elif node.name == 'balance_of':
@@ -30,9 +34,7 @@ class TokenFunctionTransformer(NodeTransformer):
             new_body.decorator_list = node.decorator_list
             return new_body
         elif node.name == '__construct_permit_msg':
-            new_body = self._update_construct_permit_msg_function(node)
-            new_body.decorator_list = node.decorator_list
-            return new_body
+            return None
         return node
 
     def _update_approve_function(self, node: ast.FunctionDef) -> ast.FunctionDef:
@@ -71,27 +73,21 @@ def transfer_from(amount: float, to: str, main_account: str):
         return new_body
 
         
-    def _update_permit_function(self, node: ast.FunctionDef) -> ast.FunctionDef:
-        """Update the permit function"""
+    def _update_approve_from_authorizer_function(
+        self, node: ast.FunctionDef
+    ) -> ast.FunctionDef:
+        """Update the external authorizer allowance hook"""
         new_body = ast.parse("""
-def permit(owner: str, spender: str, value: float, deadline: str, signature: str):
-    deadline = __strptime_ymdhms(deadline)
-    permit_msg = __construct_permit_msg(owner, spender, value, str(deadline))
-    permit_hash = hashlib.sha3(permit_msg)
+def approve_from_authorizer(owner: str, spender: str, amount: float):
+    authorizer = __metadata["permit_authorizer"] or "permit_authorizer"
+    assert ctx.caller == authorizer, 'Only permit authorizer can approve on behalf of others.'
+    assert amount >= 0, 'Cannot approve negative balances.'
 
-    assert __permits[permit_hash] is None, 'Permit can only be used once.'
-    assert value >= 0, 'Cannot approve negative balances!'
-    assert now < deadline, 'Permit has expired.'
-    assert crypto.verify(owner, permit_msg, signature), 'Invalid signature.'
+    __balances[owner, spender] = amount
 
-    __balances[owner, spender] = value
-    __permits[permit_hash] = True
-
-    __ApproveEvent({"from": owner, "to": spender, "amount": value})
-    
-    return permit_hash
+    __ApproveEvent({"from": owner, "to": spender, "amount": amount})
 """).body[0]
-        
+
         # Preserve original decorator
         new_body.decorator_list = node.decorator_list
         return new_body
@@ -107,43 +103,42 @@ def balance_of(address: str):
         new_body.decorator_list = node.decorator_list
         return new_body
     
-    def _update_construct_permit_msg_function(self, node: ast.FunctionDef) -> ast.FunctionDef:
-        """Update the construct_permit_msg function"""
-        new_body = ast.parse("""
-def __construct_permit_msg(owner: str, spender: str, value: float, deadline: str):
-    return f"{owner}:{spender}:{value}:{deadline}:{ctx.this}:{chain_id}"
-""").body[0]
-        
-        # Preserve original decorator
-        new_body.decorator_list = node.decorator_list
-        return new_body
-
     def visit_Module(self, node: ast.Module) -> ast.Module:
-        """Add new imports and state variables at the module level"""
-        # First check if balance_of already exists
+        """Add missing helper functions and drop embedded permit state"""
+        node = self.generic_visit(node)
+
+        node.body = [
+            n for n in node.body
+            if not (
+                isinstance(n, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name) and target.id == '__permits'
+                    for target in n.targets
+                )
+            )
+        ]
+
+        new_header = []
+        if needs_xsc001_events(node.body):
+            new_header = xsc001_header(self.contract_name)
+
         has_balance_of = any(
             isinstance(n, ast.FunctionDef) and n.name == 'balance_of'
             for n in node.body
         )
-        
-        # Apply existing transformations
-        node = self.generic_visit(node)
-        
-        # Adds events to top of contract if they are missing...
-        if needs_xsc001_events(node.body):
-            new_header = xsc001_header(self.contract_name)
-        
-        # Add balance_of function if it doesn't exist
+        has_authorizer_hook = any(
+            isinstance(n, ast.FunctionDef)
+            and n.name == 'approve_from_authorizer'
+            for n in node.body
+        )
+
+        extra_body = []
+        if not has_authorizer_hook:
+            extra_body.extend(authorizer_hook(self.contract_name))
         if not has_balance_of:
-            balance_of_func = ast.parse(f"""
-@__export('{self.contract_name}')
-def balance_of(address: str):
-    return __balances[address]
-""").body
-            node.body = new_header + node.body + balance_of_func
-        else:
-            node.body = new_header + node.body
-            
+            extra_body.extend(balance_of_function(self.contract_name))
+
+        node.body = new_header + node.body + extra_body
         return node
 
 def find_code_entries(genesis_data: dict) -> List[Tuple[int, str, str]]:
@@ -233,7 +228,10 @@ def is_xsc001_token(code: str) -> bool:
     return all(element in code for element in required_elements)
 
     
-def needs_xsc001_events(code: str) -> bool:
+def needs_xsc001_events(code) -> bool:
+    if isinstance(code, list):
+        code = "\n".join(ast.unparse(node) for node in code)
+
     xsc001_events = [
         'TransferEvent = LogEvent(',
         'ApproveEvent = LogEvent(',
@@ -246,6 +244,27 @@ def xsc001_header(contract_name: str):
 __TransferEvent = LogEvent(event="Transfer", params={{"from": {{"type": str, "idx": True}}, "to": {{"type": str, "idx": True}}, "amount": {{"type": (int, float, decimal)}}}}, contract="{contract_name}", name="TransferEvent")
 __ApproveEvent = LogEvent(event="Approve", params={{"from": {{"type": str, "idx": True}}, "to": {{"type": str, "idx": True}}, "amount": {{"type": (int, float, decimal)}}}}, contract="{contract_name}", name="ApproveEvent")
 ''').body
+
+
+def authorizer_hook(contract_name: str):
+    return ast.parse(f"""
+@__export('{contract_name}')
+def approve_from_authorizer(owner: str, spender: str, amount: float):
+    authorizer = __metadata["permit_authorizer"] or "permit_authorizer"
+    assert ctx.caller == authorizer, 'Only permit authorizer can approve on behalf of others.'
+    assert amount >= 0, 'Cannot approve negative balances.'
+    __balances[owner, spender] = amount
+
+    __ApproveEvent({{"from": owner, "to": spender, "amount": amount}})
+""").body
+
+
+def balance_of_function(contract_name: str):
+    return ast.parse(f"""
+@__export('{contract_name}')
+def balance_of(address: str):
+    return __balances[address]
+""").body
 
 
 if __name__ == "__main__":
