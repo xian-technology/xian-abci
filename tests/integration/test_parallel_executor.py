@@ -164,6 +164,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
                     deepcopy(tx),
                     enabled_fees=False,
                     rewards_handler=None,
+                    track_access=True,
                 )
                 for tx in txs
             ]
@@ -251,6 +252,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
                     deepcopy(tx),
                     enabled_fees=True,
                     rewards_handler=serial_rewards,
+                    track_access=True,
                 )
                 for tx in txs
             ]
