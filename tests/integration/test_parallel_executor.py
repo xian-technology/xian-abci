@@ -1,8 +1,10 @@
+import decimal
 import os
 import tempfile
 import textwrap
 import time
 import unittest
+from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -90,6 +92,34 @@ class TestParallelBlockExecutor(unittest.TestCase):
             "b_meta": create_block_meta(),
         }
 
+    @staticmethod
+    def _tx_result_without_state(tx_result: dict) -> dict:
+        normalized = stringify_decimals(tx_result)
+        return {
+            key: value
+            for key, value in normalized.items()
+            if key not in {"state", "rewards", "reward_records"}
+        }
+
+    @staticmethod
+    def _aggregate_reward_records(results: list[dict]) -> dict:
+        totals: defaultdict[tuple[str, ...], decimal.Decimal] = defaultdict(
+            lambda: decimal.Decimal("0")
+        )
+        for result in results:
+            for record in result["tx_result"].get("reward_records") or []:
+                normalized = stringify_decimals(record)
+                key = (
+                    normalized["type"],
+                    normalized["recipient_key"],
+                    normalized.get("source_contract"),
+                    normalized.get("validator_key"),
+                    normalized.get("delegator_key"),
+                )
+                totals[key] += decimal.Decimal(str(normalized["value"]))
+
+        return dict(totals)
+
     def test_parallel_executor_matches_serial_execution(self):
         txs = [
             self._tx(
@@ -155,11 +185,11 @@ class TestParallelBlockExecutor(unittest.TestCase):
             self.assertEqual(stats.serial_fallbacks, 1)
 
             serial_tx_results = [
-                stringify_decimals(result["tx_result"])
+                self._tx_result_without_state(result["tx_result"])
                 for result in serial_results
             ]
             parallel_tx_results = [
-                stringify_decimals(result["tx_result"])
+                self._tx_result_without_state(result["tx_result"])
                 for result in parallel_results
             ]
             self.assertEqual(parallel_tx_results, serial_tx_results)
@@ -242,14 +272,21 @@ class TestParallelBlockExecutor(unittest.TestCase):
             self.assertEqual(stats.serial_fallbacks, 0)
 
             serial_tx_results = [
-                stringify_decimals(result["tx_result"])
+                self._tx_result_without_state(result["tx_result"])
                 for result in serial_results
             ]
             parallel_tx_results = [
-                stringify_decimals(result["tx_result"])
+                self._tx_result_without_state(result["tx_result"])
                 for result in parallel_results
             ]
             self.assertEqual(parallel_tx_results, serial_tx_results)
+            # Additive reward writes are rematerialized at commit time, so the
+            # stable invariant is the aggregate reward allocation plus the final
+            # post-block state, not the exact per-tx state snapshot.
+            self.assertEqual(
+                self._aggregate_reward_records(parallel_results),
+                self._aggregate_reward_records(serial_results),
+            )
 
             for key in (
                 "currency.balances:foundation",
@@ -316,9 +353,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
                 storage_home=Path(parallel_dir) / "xian"
             )
             serial_client.submit(contract_code, name="con_scan", signer="sys")
-            parallel_client.submit(
-                contract_code, name="con_scan", signer="sys"
-            )
+            parallel_client.submit(contract_code, name="con_scan", signer="sys")
             serial_client.raw_driver.commit()
             parallel_client.raw_driver.commit()
 
