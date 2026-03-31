@@ -1,10 +1,8 @@
-import decimal
 import os
 import tempfile
 import textwrap
 import time
 import unittest
-from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -100,25 +98,6 @@ class TestParallelBlockExecutor(unittest.TestCase):
             for key, value in normalized.items()
             if key not in {"state", "rewards", "reward_records", "stamps_used"}
         }
-
-    @staticmethod
-    def _aggregate_reward_records(results: list[dict]) -> dict:
-        totals: defaultdict[tuple[str, ...], decimal.Decimal] = defaultdict(
-            lambda: decimal.Decimal("0")
-        )
-        for result in results:
-            for record in result["tx_result"].get("reward_records") or []:
-                normalized = stringify_decimals(record)
-                key = (
-                    normalized["type"],
-                    normalized["recipient_key"],
-                    normalized.get("source_contract"),
-                    normalized.get("validator_key"),
-                    normalized.get("delegator_key"),
-                )
-                totals[key] += decimal.Decimal(str(normalized["value"]))
-
-        return dict(totals)
 
     def test_parallel_executor_matches_serial_execution(self):
         txs = [
@@ -282,15 +261,10 @@ class TestParallelBlockExecutor(unittest.TestCase):
                 for result in parallel_results
             ]
             self.assertEqual(parallel_tx_results, serial_tx_results)
-            # Additive reward writes are rematerialized at commit time, so the
-            # stable invariant is the aggregate reward allocation plus the final
-            # post-block state, not the exact per-tx state snapshot.
-            self.assertEqual(
-                self._aggregate_reward_records(parallel_results),
-                self._aggregate_reward_records(serial_results),
-            )
-
             for key in (
+                "currency.balances:sys",
+                "currency.balances:bob",
+                "currency.balances:carol",
                 "currency.balances:foundation",
                 "currency.balances:mn-1",
                 "currency.balances:mn-2",
