@@ -98,7 +98,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
         return {
             key: value
             for key, value in normalized.items()
-            if key not in {"state", "rewards", "reward_records"}
+            if key not in {"state", "rewards", "reward_records", "stamps_used"}
         }
 
     @staticmethod
