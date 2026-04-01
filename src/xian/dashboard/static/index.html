@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Xian Node</title>
+<script>
+document.documentElement.dataset.route =
+  location.pathname.startsWith("/explorer") ? "explorer" : "dashboard";
+</script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -40,6 +44,8 @@ a:hover{text-decoration:underline}
 .tab{padding:10px 20px;font-size:.85rem;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;user-select:none}
 .tab:hover{color:var(--text2)}
 .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+html[data-route="explorer"] .tab.active{color:var(--text3);border-bottom-color:transparent}
+html[data-route="explorer"] .tab[data-tab="explorer"]{color:var(--accent);border-bottom-color:var(--accent)}
 
 /* ── breadcrumb ── */
 .breadcrumb{padding:12px 0;margin-bottom:16px;font-size:.8rem;color:var(--text3);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -50,6 +56,8 @@ a:hover{text-decoration:underline}
 .main{max-width:1200px;margin:0 auto;padding:24px}
 .section{display:none}
 .section.active{display:block}
+html[data-route="explorer"] #section-dashboard{display:none}
+html[data-route="explorer"] #section-explorer{display:block}
 
 /* ── stat cards ── */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
@@ -641,6 +649,8 @@ async function apiForRpc(path, rpcUrl){
 
 /* ── navigation ── */
 function switchToTab(tabName){
+  document.documentElement.dataset.route =
+    tabName === "explorer" ? "explorer" : "dashboard";
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
   document.querySelectorAll(".section").forEach(x=>x.classList.remove("active"));
   document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add("active");
@@ -652,6 +662,37 @@ function explorerListPath(){
   if(explorerView === "addresses") return "/explorer/addresses";
   if(explorerView === "events") return "/explorer/events";
   return "/explorer";
+}
+
+function routeStateFromPath(path){
+  const currentPath = path || "/";
+  const detailMatch = currentPath.match(/^\/explorer\/(block|tx|contract|address)\/(.+)$/);
+  if(detailMatch){
+    return {
+      view: detailMatch[1],
+      id: decodeURIComponent(detailMatch[2]),
+      explorerView: detailMatch[1] === "address" ? "addresses" : "blocks",
+    };
+  }
+  if(currentPath === "/explorer/contracts"){
+    return {view: "list", id: null, explorerView: "contracts"};
+  }
+  if(currentPath === "/explorer/addresses"){
+    return {view: "list", id: null, explorerView: "addresses"};
+  }
+  if(currentPath === "/explorer/events"){
+    return {view: "list", id: null, explorerView: "events"};
+  }
+  if(currentPath === "/explorer"){
+    return {view: "list", id: null, explorerView: "blocks"};
+  }
+  return {view: "home", id: null, explorerView: "blocks"};
+}
+
+function applyRouteState(route){
+  const nextRoute = route || {view: "home", id: null, explorerView: "blocks"};
+  explorerView = nextRoute.explorerView || "blocks";
+  navigateTo(nextRoute.view || "home", nextRoute.id, false);
 }
 
 function setExplorerView(view, pushState){
@@ -706,7 +747,7 @@ window.navigateTo = navigateTo;
 window.addEventListener("popstate", function(e){
   const s = e.state;
   if(s) navigateTo(s.view, s.id, false);
-  else navigateTo("home", null, false);
+  else applyRouteState(routeStateFromPath(location.pathname));
 });
 
 function showDetail(html, opts){
@@ -2211,21 +2252,21 @@ function refreshTimeAgo(){
 /* ── init ── */
 async function init(){
   const pageUrl = new URL(location.href);
+  setSelectedRpc(normalizeRpcUrl(pageUrl.searchParams.get("rpc")));
+  const initialRoute = routeStateFromPath(pageUrl.pathname);
+  applyRouteState(initialRoute);
   const config = await api("config");
   defaultRpcUrl = normalizeRpcUrl(config.default_rpc_url);
-  setSelectedRpc(normalizeRpcUrl(pageUrl.searchParams.get("rpc")));
   if(defaultRpcUrl && selectedRpc === defaultRpcUrl){
     setSelectedRpc(null);
   }
-  explorerView = pageUrl.pathname === "/explorer/contracts"
-    ? "contracts"
-    : pageUrl.pathname === "/explorer/addresses"
-      ? "addresses"
-      : pageUrl.pathname === "/explorer/events"
-        ? "events"
-        : "blocks";
   $("contracts-sort").value = explorerContractSort;
   $("contracts-order").value = explorerContractOrder;
+  history.replaceState(
+    {view: initialRoute.view, id: initialRoute.id},
+    "",
+    withCurrentRpc(pageUrl.pathname),
+  );
   /* full initial load */
   await refreshDashboard();
   await refreshValidatorDashboard();
@@ -2234,18 +2275,6 @@ async function init(){
   connectWS();
   startPollingLoops();
   setInterval(refreshTimeAgo, 5000);
-
-  /* handle deep-link URL */
-  const path = location.pathname;
-  const detailMatch = path.match(/^\/explorer\/(block|tx|contract|address)\/(.+)$/);
-  if(detailMatch){
-    if(detailMatch[1] === "address") explorerView = "addresses";
-    navigateTo(detailMatch[1], decodeURIComponent(detailMatch[2]), false);
-  } else if(path === "/explorer" || path === "/explorer/contracts" || path === "/explorer/addresses" || path === "/explorer/events"){
-    navigateTo("list", null, false);
-  } else {
-    history.replaceState({view:"home"}, "", withCurrentRpc("/"));
-  }
 }
 init();
 })();
