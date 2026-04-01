@@ -893,7 +893,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.13.0,<4" },
     { name = "asyncpg", specifier = ">=0.30.0,<0.32" },
     { name = "loguru", specifier = ">=0.7.3,<0.8" },
-    { name = "prometheus-client", specifier = ">=0.22.1,<0.23" },
+    { name = "prometheus-client", specifier = ">=0.22.1,<0.25" },
     { name = "protobuf", specifier = "==7.34.1" },
     { name = "pynacl", specifier = ">=1.6.2,<2" },
     { name = "xian-tech-accounts", editable = "../xian-contracting/packages/xian-accounts" },
@@ -938,7 +938,7 @@ dependencies = [
 requires-dist = [
     { name = "autopep8", specifier = ">=1.5.7,<2" },
     { name = "cachetools", specifier = ">=5,<8" },
-    { name = "lmdb", specifier = ">=1.6,<2" },
+    { name = "lmdb", specifier = ">=1.6,<3" },
     { name = "pynacl", specifier = ">=1.5.0,<2" },
     { name = "xian-tech-native-tracer", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-native-tracer" },
     { name = "xian-tech-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },

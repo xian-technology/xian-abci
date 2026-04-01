@@ -55,7 +55,7 @@ class TestProcessor(unittest.TestCase):
     def test_transfer_returns_event(self):
         # Setup - approve first
         self.d.set(
-            key="currency_1.balances:sys:bob",
+            key="currency_1.approvals:sys:bob",
             value=100000,
         )
         self.d.set(
