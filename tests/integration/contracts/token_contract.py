@@ -2,9 +2,18 @@ balances = Hash(default_value=0)
 approvals = Hash(default_value=0)
 metadata = Hash()
 
-TransferEvent = LogEvent(event="Transfer", params={"from":{'type':str, 'idx':True}, "to": {'type':str, 'idx':True}, "amount": {'type':(int, float, decimal)}})
-ApproveEvent = LogEvent(event="Approve", params={"from":{'type':str, 'idx':True}, "to": {'type':str, 'idx':True}, "amount": {'type':(int, float, decimal)}})
-ChangeMetadataEvent = LogEvent(event="ChangeMetadata", params={"key":{'type':str, 'idx':True}, "value": {'type':str, 'idx':False}})
+TransferEvent = LogEvent(
+    "Transfer",
+    {"from": indexed(str), "to": indexed(str), "amount": (int, float, decimal)},
+)
+ApproveEvent = LogEvent(
+    "Approve",
+    {"from": indexed(str), "to": indexed(str), "amount": (int, float, decimal)},
+)
+ChangeMetadataEvent = LogEvent(
+    "ChangeMetadata",
+    {"key": indexed(str), "value": str},
+)
 
 
 @construct

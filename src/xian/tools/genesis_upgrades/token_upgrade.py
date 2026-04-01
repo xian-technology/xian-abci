@@ -251,8 +251,8 @@ def needs_xsc001_events(code) -> bool:
     
 def xsc001_header(contract_name: str):
     return ast.parse(f'''
-__TransferEvent = LogEvent(event="Transfer", params={{"from": {{"type": str, "idx": True}}, "to": {{"type": str, "idx": True}}, "amount": {{"type": (int, float, decimal)}}}}, contract="{contract_name}", name="TransferEvent")
-__ApproveEvent = LogEvent(event="Approve", params={{"from": {{"type": str, "idx": True}}, "to": {{"type": str, "idx": True}}, "amount": {{"type": (int, float, decimal)}}}}, contract="{contract_name}", name="ApproveEvent")
+__TransferEvent = LogEvent("Transfer", {{"from": indexed(str), "to": indexed(str), "amount": (int, float, decimal)}}, contract="{contract_name}", name="TransferEvent")
+__ApproveEvent = LogEvent("Approve", {{"from": indexed(str), "to": indexed(str), "amount": (int, float, decimal)}}, contract="{contract_name}", name="ApproveEvent")
 ''').body
 
 
