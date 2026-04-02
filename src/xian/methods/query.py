@@ -425,6 +425,19 @@ async def query(self, req) -> ResponseQuery:
             elif path_parts[0] == "state":
                 result = await self.bds.get_state(key, limit, offset)
 
+            # http://localhost:26657/abci_query?path="/token_balances/<address>/limit=25/offset=0"
+            elif path_parts[0] == "token_balances":
+                include_zero = (
+                    params.get("include_zero", "").strip().lower()
+                    in {"1", "true", "yes"}
+                )
+                result = await self.bds.get_token_balances(
+                    key,
+                    limit,
+                    offset,
+                    include_zero=include_zero,
+                )
+
             # http://localhost:26657/abci_query?path="/state_history/currency.balances:ee06a34cf08bf72ce592d26d36b90c79daba2829ba9634992d034318160d49f9/limit=10/offset=20"
             elif path_parts[0] == "state_history":
                 result = await self.bds.get_state_history(key, limit, offset)

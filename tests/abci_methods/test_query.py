@@ -198,6 +198,30 @@ class _FakeBDS:
             }
         ]
 
+    async def get_token_balances(
+        self, address, limit, offset, *, include_zero=False
+    ):
+        return {
+            "available": True,
+            "address": address,
+            "items": [
+                {
+                    "contract": "currency",
+                    "balance": "42",
+                    "name": "Xian",
+                    "symbol": "XIAN",
+                    "logo_url": "https://example.com/xian.svg",
+                    "last_tx_hash": "TX-BALANCE",
+                    "last_block_height": 12,
+                    "updated_at": "2026-01-01T00:00:12+00:00",
+                }
+            ],
+            "total": 1,
+            "limit": limit,
+            "offset": offset,
+            "include_zero": include_zero,
+        }
+
     async def get_state_patches(self, limit, offset):
         return [
             {
@@ -646,6 +670,20 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             json.loads(response.query.value)[0]["contract"], "currency"
         )
+
+        response = await self.process_request(
+            Request(
+                query=RequestQuery(
+                    path="/token_balances/alice/limit=10/offset=0/include_zero=true"
+                )
+            )
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["address"], "alice")
+        self.assertEqual(payload["items"][0]["contract"], "currency")
+        self.assertEqual(payload["items"][0]["balance"], "42")
 
     async def test_event_queries_use_bds(self):
         self.app.block_service_mode = True

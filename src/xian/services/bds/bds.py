@@ -4,6 +4,7 @@ import asyncio
 import json
 import shutil
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from timeit import default_timer as timer
 from typing import Any
@@ -36,6 +37,25 @@ def _nullable_jsonb_param(value: Any) -> str | None:
     if value is None:
         return None
     return canonical_json_text(value)
+
+
+def _normalize_json_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, Decimal)):
+        return str(value)
+    return json.dumps(canonical_json_value(value), separators=(",", ":"))
+
+
+def _normalize_token_balance(
+    raw_value: Any,
+    numeric_value: Decimal | None,
+) -> str | None:
+    if numeric_value is not None:
+        return str(numeric_value)
+    return _normalize_json_text(raw_value)
 
 
 class BDS:
@@ -1139,6 +1159,55 @@ class BDS:
     async def get_state(self, key: str, limit: int = 100, offset: int = 0):
         rows = await self.db.fetch(sql.select_state(), [key, limit, offset])
         return [dict(row) for row in rows]
+
+    async def get_token_balances(
+        self,
+        address: str,
+        limit: int = 100,
+        offset: int = 0,
+        *,
+        include_zero: bool = False,
+    ):
+        rows = await self.db.fetch(
+            sql.select_token_balances(),
+            [address, include_zero, limit, offset],
+        )
+        items: list[dict[str, Any]] = []
+        total = 0
+
+        for row in rows:
+            record = dict(row)
+            total = int(record.pop("total_count", 0) or 0)
+            items.append(
+                {
+                    "contract": record["contract"],
+                    "balance": _normalize_token_balance(
+                        record.pop("balance", None),
+                        record.pop("balance_numeric", None),
+                    ),
+                    "last_tx_hash": record.get("last_tx_hash"),
+                    "last_block_height": record.get("last_block_height"),
+                    "updated_at": record.get("updated_at"),
+                    "name": _normalize_json_text(
+                        record.get("token_name")
+                    ),
+                    "symbol": _normalize_json_text(
+                        record.get("token_symbol")
+                    ),
+                    "logo_url": _normalize_json_text(
+                        record.get("token_logo_url")
+                    ),
+                }
+            )
+
+        return {
+            "available": True,
+            "address": address,
+            "items": items,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
 
     async def get_state_history(
         self, key: str, limit: int = 100, offset: int = 0

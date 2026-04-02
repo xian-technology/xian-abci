@@ -106,6 +106,40 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result[0]["address"], "alice")
         self.assertEqual(result[0]["tx_count"], 3)
 
+    async def test_get_token_balances_returns_portfolio_rows(self):
+        bds = BDS(BdsConfig())
+        bds.db = _FakeDb(
+            [
+                {
+                    "contract": "currency",
+                    "balance": "12.5",
+                    "balance_numeric": Decimal("12.5"),
+                    "last_tx_hash": "TX-1",
+                    "last_block_height": 12,
+                    "updated_at": datetime(2026, 1, 1, tzinfo=UTC),
+                    "token_name": "Xian",
+                    "token_symbol": "XIAN",
+                    "token_logo_url": "https://example.com/xian.svg",
+                    "total_count": 1,
+                }
+            ]
+        )
+
+        result = await bds.get_token_balances(
+            "alice", limit=25, offset=10, include_zero=True
+        )
+
+        self.assertEqual(
+            bds.db.fetch_calls,
+            [(sql.select_token_balances(), ["alice", True, 25, 10])],
+        )
+        self.assertTrue(result["available"])
+        self.assertEqual(result["address"], "alice")
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["contract"], "currency")
+        self.assertEqual(result["items"][0]["balance"], "12.5")
+        self.assertEqual(result["items"][0]["symbol"], "XIAN")
+
 
 if __name__ == "__main__":
     unittest.main()

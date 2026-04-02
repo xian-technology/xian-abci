@@ -712,6 +712,48 @@ def select_state():
     """
 
 
+def select_token_balances():
+    return """
+    WITH portfolio AS (
+        SELECT
+            c.name AS contract,
+            s.value AS balance,
+            s.value_numeric AS balance_numeric,
+            s.last_tx_hash,
+            s.last_block_height,
+            s.updated_at,
+            name_state.value AS token_name,
+            symbol_state.value AS token_symbol,
+            logo_state.value AS token_logo_url
+        FROM contracts AS c
+        JOIN state AS s
+            ON s.key = c.name || '.balances:' || $1
+        LEFT JOIN state AS name_state
+            ON name_state.key = c.name || '.metadata:token_name'
+        LEFT JOIN state AS symbol_state
+            ON symbol_state.key = c.name || '.metadata:token_symbol'
+        LEFT JOIN state AS logo_state
+            ON logo_state.key = c.name || '.metadata:token_logo_url'
+        WHERE c.xsc0001 = TRUE
+          AND ($2 OR s.value_numeric IS DISTINCT FROM 0)
+    )
+    SELECT
+        contract,
+        balance,
+        balance_numeric,
+        last_tx_hash,
+        last_block_height,
+        updated_at,
+        token_name,
+        token_symbol,
+        token_logo_url,
+        COUNT(*) OVER() AS total_count
+    FROM portfolio
+    ORDER BY last_block_height DESC, contract ASC
+    LIMIT $3 OFFSET $4;
+    """
+
+
 def select_state_history():
     return """
     SELECT
