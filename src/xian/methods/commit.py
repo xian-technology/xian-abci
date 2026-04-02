@@ -1,15 +1,13 @@
 from cometbft.abci.v1beta3.types_pb2 import ResponseCommit
-from xian.utils.block import (
-    set_latest_block_hash,
-    set_latest_block_height,
-    set_latest_block_nanos,
-)
+from xian.utils.block import set_latest_block
 
 
 async def commit(self) -> ResponseCommit:
-    set_latest_block_hash(self.merkle_root_hash)
-    set_latest_block_height(self.current_block_meta["height"])
-    set_latest_block_nanos(self.current_block_meta["nanos"])
+    set_latest_block(
+        block_hash=self.merkle_root_hash,
+        height=self.current_block_meta["height"],
+        nanos=self.current_block_meta["nanos"],
+    )
 
     self.client.raw_driver.hard_apply(str(self.current_block_meta["nanos"]))
     self.nonce_storage.reconcile_pending()

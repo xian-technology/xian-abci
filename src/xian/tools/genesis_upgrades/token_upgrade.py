@@ -42,7 +42,7 @@ class TokenFunctionTransformer(NodeTransformer):
         new_body = ast.parse("""
 def approve(amount: float, to: str):
     assert amount >= 0, "Cannot approve negative balances."
-    __balances[ctx.caller, to] = amount
+    __approvals[ctx.caller, to] = amount
 
     __ApproveEvent({"from": ctx.caller, "to": to, "amount": amount})
 
@@ -58,10 +58,10 @@ def approve(amount: float, to: str):
         new_body = ast.parse("""
 def transfer_from(amount: float, to: str, main_account: str):
     assert amount > 0, 'Cannot send negative balances!'
-    assert __balances[main_account, ctx.caller] >= amount, f'Not enough coins approved to send! You have {__balances[main_account, ctx.caller]} and are trying to spend {amount}'
+    assert __approvals[main_account, ctx.caller] >= amount, f'Not enough coins approved to send! You have {__approvals[main_account, ctx.caller]} and are trying to spend {amount}'
     assert __balances[main_account] >= amount, 'Not enough coins to send!'
 
-    __balances[main_account, ctx.caller] -= amount
+    __approvals[main_account, ctx.caller] -= amount
     __balances[main_account] -= amount
     __balances[to] += amount
 
@@ -83,7 +83,7 @@ def approve_from_authorizer(owner: str, spender: str, amount: float):
     assert ctx.caller == authorizer, 'Only permit authorizer can approve on behalf of others.'
     assert amount >= 0, 'Cannot approve negative balances.'
 
-    __balances[owner, spender] = amount
+    __approvals[owner, spender] = amount
 
     __ApproveEvent({"from": owner, "to": spender, "amount": amount})
 """).body[0]
@@ -131,8 +131,18 @@ def balance_of(address: str):
             and n.name == 'approve_from_authorizer'
             for n in node.body
         )
+        has_approvals_hash = any(
+            isinstance(n, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == '__approvals'
+                for target in n.targets
+            )
+            for n in node.body
+        )
 
         extra_body = []
+        if not has_approvals_hash:
+            extra_body.extend(approvals_hash(self.contract_name))
         if not has_authorizer_hook:
             extra_body.extend(authorizer_hook(self.contract_name))
         if not has_balance_of:
@@ -241,8 +251,8 @@ def needs_xsc001_events(code) -> bool:
     
 def xsc001_header(contract_name: str):
     return ast.parse(f'''
-__TransferEvent = LogEvent(event="Transfer", params={{"from": {{"type": str, "idx": True}}, "to": {{"type": str, "idx": True}}, "amount": {{"type": (int, float, decimal)}}}}, contract="{contract_name}", name="TransferEvent")
-__ApproveEvent = LogEvent(event="Approve", params={{"from": {{"type": str, "idx": True}}, "to": {{"type": str, "idx": True}}, "amount": {{"type": (int, float, decimal)}}}}, contract="{contract_name}", name="ApproveEvent")
+__TransferEvent = LogEvent("Transfer", {{"from": indexed(str), "to": indexed(str), "amount": (int, float, decimal)}}, contract="{contract_name}", name="TransferEvent")
+__ApproveEvent = LogEvent("Approve", {{"from": indexed(str), "to": indexed(str), "amount": (int, float, decimal)}}, contract="{contract_name}", name="ApproveEvent")
 ''').body
 
 
@@ -253,9 +263,15 @@ def approve_from_authorizer(owner: str, spender: str, amount: float):
     authorizer = __metadata["permit_authorizer"] or "permit_authorizer"
     assert ctx.caller == authorizer, 'Only permit authorizer can approve on behalf of others.'
     assert amount >= 0, 'Cannot approve negative balances.'
-    __balances[owner, spender] = amount
+    __approvals[owner, spender] = amount
 
     __ApproveEvent({{"from": owner, "to": spender, "amount": amount}})
+""").body
+
+
+def approvals_hash(contract_name: str):
+    return ast.parse(f"""
+__approvals = Hash(default_value=0, contract='{contract_name}', name='approvals')
 """).body
 
 

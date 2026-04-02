@@ -348,10 +348,35 @@ def build_local_network_genesis(
     if not validators:
         raise ValueError("at least one validator is required")
 
+    contract_config = load_contract_bundle_config(
+        network,
+        contracts_dir=contracts_dir,
+    )
+    members_contract = _find_members_contract(contract_config)
+    seeded_member_args = members_contract.get("constructor_args") or {}
     founder_wallet = Ed25519Account(founder_private_key)
     genesis_nodes = [
         validator["account_public_key"] for validator in validators
     ]
+    genesis_powers = {
+        validator["account_public_key"]: validator.get("power", 10)
+        for validator in validators
+    }
+    genesis_reward_keys = {
+        validator["account_public_key"]: (
+            validator.get("reward_key")
+            or validator["account_public_key"]
+        )
+        for validator in validators
+    }
+    member_overrides = {
+        "genesis_nodes": genesis_nodes,
+        "genesis_registration_fee": registration_fee,
+    }
+    if "genesis_powers" in seeded_member_args:
+        member_overrides["genesis_powers"] = genesis_powers
+    if "genesis_reward_keys" in seeded_member_args:
+        member_overrides["genesis_reward_keys"] = genesis_reward_keys
     abci_genesis = build_genesis_block(
         founder_private_key=founder_private_key,
         network=network,
@@ -359,14 +384,8 @@ def build_local_network_genesis(
         constructor_overrides={
             "currency": {"vk": founder_wallet.public_key},
             "foundation": {"vk": founder_wallet.public_key},
-            "members": {
-                "genesis_nodes": genesis_nodes,
-                "genesis_registration_fee": registration_fee,
-            },
-            "masternodes": {
-                "genesis_nodes": genesis_nodes,
-                "genesis_registration_fee": registration_fee,
-            },
+            "members": dict(member_overrides),
+            "masternodes": dict(member_overrides),
         },
     )
     validator_entries = [

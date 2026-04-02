@@ -88,7 +88,7 @@ class TestTokenUpgrade(unittest.TestCase):
                 contract.approve(amount=500, to="spender", signer="sys")
 
                 # Check allowance
-                allowance = contract.balances["sys", "spender"]
+                allowance = contract.approvals["sys", "spender"]
                 self.assertEqual(allowance, 500)
 
                 # Test transfer_from with approval
@@ -102,7 +102,7 @@ class TestTokenUpgrade(unittest.TestCase):
 
                     # Check balances and remaining allowance
                 self.assertEqual(contract.balances["recipient"], 100)
-                self.assertEqual(contract.balances["sys", "spender"], 400)
+                self.assertEqual(contract.approvals["sys", "spender"], 400)
 
     def test_all_tokens_transfer_from_validation(self):
         """Test that all upgraded tokens properly validate transfer_from operations"""
@@ -126,11 +126,11 @@ class TestTokenUpgrade(unittest.TestCase):
             with self.subTest(contract=contract_name):
                 # Initial approval
                 contract.approve(amount=500, to="spender", signer="sys")
-                self.assertEqual(contract.balances["sys", "spender"], 500)
+                self.assertEqual(contract.approvals["sys", "spender"], 500)
 
                 # New approval should overwrite
                 contract.approve(amount=200, to="spender", signer="sys")
-                self.assertEqual(contract.balances["sys", "spender"], 200)
+                self.assertEqual(contract.approvals["sys", "spender"], 200)
 
     def test_all_tokens_balance_of_functionality(self):
         """Test that all tokens have the balance_of functionality working correctly"""
@@ -191,7 +191,7 @@ class TestTokenUpgrade(unittest.TestCase):
                 )
                 self.assertEqual(response, permit_hash)
                 self.assertEqual(
-                    contract.balances[public_key, spender],
+                    contract.approvals[public_key, spender],
                     value,
                 )
 
