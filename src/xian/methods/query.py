@@ -427,10 +427,9 @@ async def query(self, req) -> ResponseQuery:
 
             # http://localhost:26657/abci_query?path="/token_balances/<address>/limit=25/offset=0"
             elif path_parts[0] == "token_balances":
-                include_zero = (
-                    params.get("include_zero", "").strip().lower()
-                    in {"1", "true", "yes"}
-                )
+                include_zero = params.get(
+                    "include_zero", ""
+                ).strip().lower() in {"1", "true", "yes"}
                 result = await self.bds.get_token_balances(
                     key,
                     limit,

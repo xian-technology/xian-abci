@@ -364,8 +364,7 @@ def build_local_network_genesis(
     }
     genesis_reward_keys = {
         validator["account_public_key"]: (
-            validator.get("reward_key")
-            or validator["account_public_key"]
+            validator.get("reward_key") or validator["account_public_key"]
         )
         for validator in validators
     }

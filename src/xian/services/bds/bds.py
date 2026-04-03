@@ -1188,12 +1188,8 @@ class BDS:
                     "last_tx_hash": record.get("last_tx_hash"),
                     "last_block_height": record.get("last_block_height"),
                     "updated_at": record.get("updated_at"),
-                    "name": _normalize_json_text(
-                        record.get("token_name")
-                    ),
-                    "symbol": _normalize_json_text(
-                        record.get("token_symbol")
-                    ),
+                    "name": _normalize_json_text(record.get("token_name")),
+                    "symbol": _normalize_json_text(record.get("token_symbol")),
                     "logo_url": _normalize_json_text(
                         record.get("token_logo_url")
                     ),
