@@ -133,7 +133,9 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        self.assertIsInstance(response.prepare_proposal, ResponsePrepareProposal)
+        self.assertIsInstance(
+            response.prepare_proposal, ResponsePrepareProposal
+        )
         self.assertEqual(list(response.prepare_proposal.txs), [valid_tx])
 
     async def test_prepare_proposal_filters_duplicate_nonce(self):
@@ -169,7 +171,9 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             Request(process_proposal=RequestProcessProposal(txs=[invalid_tx])),
         )
 
-        self.assertIsInstance(response.process_proposal, ResponseProcessProposal)
+        self.assertIsInstance(
+            response.process_proposal, ResponseProcessProposal
+        )
         self.assertEqual(
             response.process_proposal.status,
             ResponseProcessProposal.ProposalStatus.REJECT,
@@ -181,7 +185,9 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(
             "process_proposal",
-            Request(process_proposal=RequestProcessProposal(txs=[tx_one, tx_two])),
+            Request(
+                process_proposal=RequestProcessProposal(txs=[tx_one, tx_two])
+            ),
         )
 
         self.assertEqual(
@@ -189,7 +195,9 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             ResponseProcessProposal.ProposalStatus.REJECT,
         )
 
-    async def test_finalize_block_rejects_invalid_signature_before_execution(self):
+    async def test_finalize_block_rejects_invalid_signature_before_execution(
+        self,
+    ):
         invalid_tx = make_signed_tx_bytes(nonce=0, mutate_signature=True)
 
         with patch.object(self.app.tx_processor, "process_tx") as process_tx:
@@ -203,9 +211,12 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         tx_result = response.finalize_block.tx_results[0]
         self.assertEqual(tx_result.code, c.ErrorCode)
         error_payload = json.loads(tx_result.data.decode("utf-8"))
-        self.assertIn("Invalid transaction in block", error_payload["error"])
+        self.assertIn("Error decoding transaction", error_payload["error"])
+        self.assertIn("Bad signature", error_payload["error"])
 
-    async def test_finalize_block_rejects_duplicate_nonce_before_execution(self):
+    async def test_finalize_block_rejects_duplicate_nonce_before_execution(
+        self,
+    ):
         tx_one = make_signed_tx_bytes(nonce=0)
         tx_two = make_signed_tx_bytes(nonce=0)
 
@@ -224,11 +235,15 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                     }
                 },
             ) as process_tx,
-            patch.object(self.app.nonce_storage, "set_nonce_by_tx") as set_nonce,
+            patch.object(
+                self.app.nonce_storage, "set_nonce_by_tx"
+            ) as set_nonce,
         ):
             response = await self.process_request(
                 "finalize_block",
-                Request(finalize_block=RequestFinalizeBlock(txs=[tx_one, tx_two])),
+                Request(
+                    finalize_block=RequestFinalizeBlock(txs=[tx_one, tx_two])
+                ),
             )
 
         self.assertEqual(len(response.finalize_block.tx_results), 2)
