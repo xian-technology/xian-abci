@@ -1,10 +1,16 @@
-import unittest
+import decimal
 import json
+import unittest
+
 from parameterized import parameterized
+from xian_runtime_types.decimal import ContractingDecimal
+
 from xian.utils.encoding import (
-    extract_payload_string,
     decode_transaction_bytes,
     encode_transaction_bytes,
+    extract_payload_string,
+    normalize_for_abci_json,
+    stringify_decimals,
 )
 from xian.utils.tx import unpack_transaction, verify
 
@@ -108,7 +114,7 @@ class TestPayloadStrExtraction(unittest.TestCase):
                 self.assertNotEqual(result, complete_json["payload"])
         else:
             with self.assertRaises(ValueError):
-                res = extract_payload_string(tx_str)
+                extract_payload_string(tx_str)
 
 
 class TestVerification(unittest.TestCase):
@@ -161,6 +167,47 @@ class TestEncoding(unittest.TestCase):
         else:
             tx_json_decoded, payload_str = decode_transaction_bytes(tx_bytes)
         # self.assertEqual(tx_json_decoded, tx_json)
+
+
+class TestAbciJsonDecimalFormatting(unittest.TestCase):
+    def test_stringify_decimals_uses_plain_strings(self):
+        value = {
+            "amount": ContractingDecimal("5000"),
+            "fees": [decimal.Decimal("1.2500"), decimal.Decimal("0.000005")],
+        }
+
+        self.assertEqual(
+            stringify_decimals(value),
+            {"amount": "5000", "fees": ["1.25", "0.000005"]},
+        )
+
+    def test_normalize_for_abci_json_uses_plain_strings(self):
+        value = {
+            "amount": decimal.Decimal("5E+3"),
+            "nested": {
+                "small": decimal.Decimal("0.000005"),
+                "zero": decimal.Decimal("-0"),
+            },
+        }
+
+        self.assertEqual(
+            normalize_for_abci_json(value),
+            {
+                "amount": "5000",
+                "nested": {"small": "0.000005", "zero": "0"},
+            },
+        )
+
+    def test_normalize_for_abci_json_preserves_sorted_keys(self):
+        value = {
+            "z_amount": decimal.Decimal("5E+3"),
+            "a_amount": ContractingDecimal("10.5000"),
+        }
+
+        self.assertEqual(
+            list(normalize_for_abci_json(value).items()),
+            [("a_amount", "10.5"), ("z_amount", "5000")],
+        )
 
 
 if __name__ == "__main__":

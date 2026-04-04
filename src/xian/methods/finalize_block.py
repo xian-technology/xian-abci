@@ -17,6 +17,7 @@ from xian.utils.encoding import (
     convert_binary_to_hex,
     encode_abci_json,
     hash_bytes,
+    stringify_decimals,
 )
 from xian.utils.hash import hash_from_rewards, hash_list
 from xian.utils.tx import (
@@ -543,7 +544,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         attrs.append(
                             EventAttribute(
                                 key=str(key),
-                                value=str(value),
+                                value=str(stringify_decimals(value)),
                                 index=True,
                             )
                         )
@@ -551,7 +552,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         attrs.append(
                             EventAttribute(
                                 key=str(key),
-                                value=str(value),
+                                value=str(stringify_decimals(value)),
                                 index=False,
                             )
                         )
