@@ -218,6 +218,15 @@ async def query(self, req) -> ResponseQuery:
         # http://localhost:26657/abci_query?path="/perf_status"
         elif path_parts[0] == "perf_status":
             result = self.profiler.snapshot()
+            result["parallel_execution_enabled"] = bool(
+                self.parallel_block_executor.enabled
+            )
+            result["parallel_execution_workers"] = int(
+                self.parallel_block_executor.workers
+            )
+            result["parallel_execution_min_transactions"] = int(
+                self.parallel_block_executor.min_batch_size
+            )
 
         # http://localhost:26657/abci_query?path="/masternodes_policy"
         elif path_parts[0] == "masternodes_policy":

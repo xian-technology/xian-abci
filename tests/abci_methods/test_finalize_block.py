@@ -58,11 +58,11 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "xian.methods.finalize_block.decode_transaction_bytes",
-                return_value=({"payload": {}}, "{}"),
+                "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
+                return_value={"payload": {}},
             ),
             patch(
-                "xian.methods.finalize_block.validate_consensus_transaction"
+                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
             ),
             patch.object(
                 self.app.tx_processor,
@@ -91,11 +91,11 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
     async def test_finalize_block_handles_missing_tx_result(self):
         with (
             patch(
-                "xian.methods.finalize_block.decode_transaction_bytes",
-                return_value=({"payload": {}}, "{}"),
+                "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
+                return_value={"payload": {}},
             ),
             patch(
-                "xian.methods.finalize_block.validate_consensus_transaction"
+                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
             ),
             patch.object(
                 self.app.tx_processor,
@@ -132,22 +132,19 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "xian.methods.finalize_block.decode_transaction_bytes",
-                return_value=(
-                    {
-                        "payload": {
-                            "sender": "alice",
-                            "nonce": 1,
-                            "contract": "currency",
-                            "function": "transfer",
-                        },
-                        "metadata": {"signature": "sig"},
+                "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
+                return_value={
+                    "payload": {
+                        "sender": "alice",
+                        "nonce": 1,
+                        "contract": "currency",
+                        "function": "transfer",
                     },
-                    "{}",
-                ),
+                    "metadata": {"signature": "sig"},
+                },
             ),
             patch(
-                "xian.methods.finalize_block.validate_consensus_transaction"
+                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
             ),
             patch.object(
                 self.app.tx_processor,
@@ -184,22 +181,19 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "xian.methods.finalize_block.decode_transaction_bytes",
-                return_value=(
-                    {
-                        "payload": {
-                            "sender": "alice",
-                            "nonce": 1,
-                            "contract": "currency",
-                            "function": "transfer",
-                        },
-                        "metadata": {"signature": "sig"},
+                "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
+                return_value={
+                    "payload": {
+                        "sender": "alice",
+                        "nonce": 1,
+                        "contract": "currency",
+                        "function": "transfer",
                     },
-                    "{}",
-                ),
+                    "metadata": {"signature": "sig"},
+                },
             ),
             patch(
-                "xian.methods.finalize_block.validate_consensus_transaction"
+                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
             ),
             patch.object(
                 self.app.tx_processor,

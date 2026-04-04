@@ -2,12 +2,12 @@ import hashlib
 import time
 
 from contracting.execution.executor import Executor
+from contracting.execution.parallel import ExecutionAccess as TransactionAccess
 from loguru import logger
 from xian_runtime_types.encoding import convert_dict, safe_repr
 from xian_runtime_types.time import Datetime
 
 from xian.app_logging import build_log_fields
-from xian.parallel_planner import TransactionAccess
 from xian.utils.block import nanoseconds_to_utc_datetime
 from xian.utils.tx import tx_hash_from_tx
 

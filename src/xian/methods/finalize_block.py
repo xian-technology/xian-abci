@@ -15,14 +15,14 @@ from xian.utils.block import (
 )
 from xian.utils.encoding import (
     convert_binary_to_hex,
-    decode_transaction_bytes,
     encode_abci_json,
     hash_bytes,
 )
 from xian.utils.hash import hash_from_rewards, hash_list
 from xian.utils.tx import (
     SequentialNonceTracker,
-    validate_consensus_transaction,
+    decode_and_validate_transaction_static_bytes,
+    validate_consensus_transaction_after_static,
 )
 
 STATE_CHANGE_TRANSLATION_TABLE = str.maketrans({".": "_", ":": "__"})
@@ -299,7 +299,10 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
     with self.profiler.scope("finalize_decode", block_scoped=True):
         for tx_bytes in req.txs:
             try:
-                tx, _ = decode_transaction_bytes(tx_bytes)
+                tx = decode_and_validate_transaction_static_bytes(
+                    tx_bytes,
+                    chain_id=self.chain_id,
+                )
             except Exception as e:
                 decoded_entries.append(
                     {
@@ -316,9 +319,8 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 continue
 
             try:
-                validate_consensus_transaction(
+                validate_consensus_transaction_after_static(
                     tx,
-                    chain_id=self.chain_id,
                     nonce_tracker=nonce_tracker,
                 )
             except Exception as e:
@@ -373,7 +375,11 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
             parallel_planned_parallelizable_transactions=(
                 parallel_stats.planned_parallelizable_transactions
             ),
+            parallel_speculative_wave_count=(
+                parallel_stats.speculative_wave_count
+            ),
             parallel_speculative_accepted=parallel_stats.speculative_accepted,
+            parallel_serial_prefiltered=parallel_stats.serial_prefiltered,
             parallel_serial_fallbacks=parallel_stats.serial_fallbacks,
         )
         logger.bind(
@@ -386,6 +392,10 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         parallel_stats.speculative_accepted
                     ),
                     "decoded_tx_count": len(decoded_txs),
+                    "speculative_wave_count": (
+                        parallel_stats.speculative_wave_count
+                    ),
+                    "serial_prefiltered": parallel_stats.serial_prefiltered,
                     "serial_fallbacks": parallel_stats.serial_fallbacks,
                     "planned_stage_count": (parallel_stats.planned_stage_count),
                     "worker_count": parallel_stats.worker_count,

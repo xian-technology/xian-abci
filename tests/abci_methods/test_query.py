@@ -419,6 +419,9 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.query.info, "dict")
         self.assertEqual(payload["enabled"], False)
         self.assertEqual(payload["recent_blocks"], [])
+        self.assertFalse(payload["parallel_execution_enabled"])
+        self.assertEqual(payload["parallel_execution_workers"], 0)
+        self.assertEqual(payload["parallel_execution_min_transactions"], 8)
 
     async def test_masternodes_dashboard_queries(self):
         self.app.client.raw_driver.set("masternodes.total_votes", 2)

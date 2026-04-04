@@ -187,6 +187,7 @@ class Xian:
             min_transactions=xian_config.get(
                 "parallel_execution_min_transactions", 8
             ),
+            tracer_mode=self.tracer_mode,
         )
         self.app_version = 1
         self.metrics_service = MetricsService.from_runtime_settings(
