@@ -17,6 +17,20 @@ except ImportError:  # pragma: no cover - exercised through fallback path
     _native_extract_payload_string = None
 
 
+def _decimal_to_plain_string(value) -> str:
+    if isinstance(value, ContractingDecimal):
+        value = value._d
+    elif not isinstance(value, decimal.Decimal):
+        value = decimal.Decimal(str(value))
+
+    text = format(value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    if text in {"", "-0"}:
+        return "0"
+    return text
+
+
 def encode_str(value):
     return value.encode("utf-8")
 
@@ -107,9 +121,9 @@ def convert_binary_to_hex(binary_data):
 def stringify_decimals(obj):
     try:
         if isinstance(obj, ContractingDecimal):
-            return str(obj)
+            return _decimal_to_plain_string(obj)
         elif isinstance(obj, decimal.Decimal):
-            return str(obj)
+            return _decimal_to_plain_string(obj)
         elif isinstance(obj, dict):
             return {key: stringify_decimals(val) for key, val in obj.items()}
         elif isinstance(obj, list):
@@ -129,9 +143,9 @@ def stringify_decimals(obj):
 
 def normalize_for_abci_json(obj):
     if isinstance(obj, ContractingDecimal):
-        return str(obj)
+        return _decimal_to_plain_string(obj)
     if isinstance(obj, decimal.Decimal):
-        return str(obj)
+        return _decimal_to_plain_string(obj)
     if isinstance(obj, datetime):
         return obj.isoformat()
     if isinstance(obj, Datetime):

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
+from xian_runtime_types.decimal import ContractingDecimal
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
@@ -87,6 +88,46 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(attrs["caller"], "alice")
         self.assertEqual(attrs["to"], "bob")
         self.assertEqual(attrs["amount"], "10")
+
+    async def test_finalize_block_formats_decimal_event_values_plainly(self):
+        tx_result = {
+            "hash": "ABC123",
+            "status": 0,
+            "state": [],
+            "events": [
+                {
+                    "event": "Transfer",
+                    "contract": "currency",
+                    "signer": "alice",
+                    "caller": "alice",
+                    "data_indexed": {"to": "bob"},
+                    "data": {"amount": ContractingDecimal("5000")},
+                }
+            ],
+        }
+
+        with (
+            patch(
+                "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
+                return_value={"payload": {}},
+            ),
+            patch(
+                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
+            ),
+            patch.object(
+                self.app.tx_processor,
+                "process_tx",
+                return_value={"tx_result": tx_result},
+            ),
+            patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
+        ):
+            response = await self.process_request(
+                Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
+            )
+
+        transfer_event = response.finalize_block.tx_results[0].events[0]
+        attrs = {attr.key: attr.value for attr in transfer_event.attributes}
+        self.assertEqual(attrs["amount"], "5000")
 
     async def test_finalize_block_handles_missing_tx_result(self):
         with (
