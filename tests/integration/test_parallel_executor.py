@@ -30,6 +30,26 @@ def create_block_meta(dt: datetime = datetime.now()):
     }
 
 
+READ_WRITE_CONTRACT_CODE = textwrap.dedent(
+    """
+    value = Variable()
+
+    @construct
+    def seed():
+        value.set(0)
+
+    @export
+    def set_value(new_value: int):
+        value.set(new_value)
+        return value.get()
+
+    @export
+    def get_value():
+        return value.get()
+    """
+)
+
+
 class TestParallelBlockExecutor(unittest.TestCase):
     def _build_processor(
         self, storage_home: Path, *, with_rewards: bool = False
@@ -63,6 +83,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
         client.submit(token_code, name="con_token_a", signer="sys")
         client.submit(token_code, name="con_token_b", signer="bob")
         client.submit(token_code, name="con_token_c", signer="carol")
+        client.submit(READ_WRITE_CONTRACT_CODE, name="con_rw", signer="sys")
         client.raw_driver.commit()
 
         return client, tx_processor
@@ -162,7 +183,8 @@ class TestParallelBlockExecutor(unittest.TestCase):
             )
 
             self.assertEqual(stats.speculative_accepted, 2)
-            self.assertEqual(stats.serial_fallbacks, 1)
+            self.assertEqual(stats.serial_prefiltered, 1)
+            self.assertEqual(stats.serial_fallbacks, 0)
 
             serial_tx_results = [
                 self._tx_result_without_state(result["tx_result"])
@@ -362,7 +384,8 @@ class TestParallelBlockExecutor(unittest.TestCase):
             )
 
             self.assertEqual(stats.speculative_accepted, 1)
-            self.assertEqual(stats.serial_fallbacks, 1)
+            self.assertEqual(stats.serial_prefiltered, 1)
+            self.assertEqual(stats.serial_fallbacks, 0)
             self.assertEqual(
                 serial_results[1]["access"].prefix_reads,
                 frozenset({"con_scan.values:"}),
@@ -374,6 +397,88 @@ class TestParallelBlockExecutor(unittest.TestCase):
             self.assertEqual(
                 parallel_client.raw_driver.get("con_scan.out"),
                 serial_client.raw_driver.get("con_scan.out"),
+            )
+
+    def test_parallel_executor_respeculates_conflict_tail(self):
+        txs = [
+            self._tx(
+                sender="alice",
+                contract="con_rw",
+                function="set_value",
+                kwargs={"new_value": 7},
+                nonce=0,
+                signature="sig-rw-1",
+            ),
+            self._tx(
+                sender="bob",
+                contract="con_rw",
+                function="get_value",
+                kwargs={},
+                nonce=0,
+                signature="sig-rw-2",
+            ),
+            self._tx(
+                sender="carol",
+                contract="con_token_c",
+                function="change_metadata",
+                kwargs={"key": "gamma", "value": "three"},
+                nonce=0,
+                signature="sig-rw-3",
+            ),
+        ]
+
+        with (
+            tempfile.TemporaryDirectory() as serial_dir,
+            tempfile.TemporaryDirectory() as parallel_dir,
+        ):
+            serial_client, serial_processor = self._build_processor(
+                Path(serial_dir) / "xian"
+            )
+            parallel_client, parallel_processor = self._build_processor(
+                Path(parallel_dir) / "xian"
+            )
+
+            serial_results = [
+                serial_processor.process_tx(
+                    deepcopy(tx),
+                    enabled_fees=False,
+                    rewards_handler=None,
+                    track_access=True,
+                )
+                for tx in txs
+            ]
+
+            executor = ParallelBlockExecutor(
+                storage_home=Path(parallel_dir) / "xian",
+                enabled=True,
+                workers=1,
+                min_transactions=1,
+            )
+            parallel_results, stats = executor.execute(
+                txs=deepcopy(txs),
+                tx_processor=parallel_processor,
+                enabled_fees=False,
+                rewards_handler=None,
+            )
+
+            self.assertEqual(stats.speculative_wave_count, 2)
+            self.assertEqual(stats.speculative_accepted, 3)
+            self.assertEqual(stats.serial_prefiltered, 0)
+            self.assertEqual(stats.serial_fallbacks, 0)
+
+            serial_tx_results = [
+                self._tx_result_without_state(result["tx_result"])
+                for result in serial_results
+            ]
+            parallel_tx_results = [
+                self._tx_result_without_state(result["tx_result"])
+                for result in parallel_results
+            ]
+            self.assertEqual(parallel_tx_results, serial_tx_results)
+            self.assertEqual(parallel_client.raw_driver.get("con_rw.value"), 7)
+            self.assertEqual(
+                parallel_client.raw_driver.get("con_token_c.metadata:gamma"),
+                serial_client.raw_driver.get("con_token_c.metadata:gamma"),
             )
 
     def test_process_tx_without_reward_config_keeps_rewards_optional(self):
@@ -423,14 +528,12 @@ class TestParallelBlockExecutor(unittest.TestCase):
 
         with patch("xian.parallel_executor.ProcessPoolExecutor", FakeExecutor):
             first = executor._speculate_many(
-                txs=[{"payload": {"sender": "alice"}}],
-                enabled_fees=False,
-                rewards_handler=None,
+                requests=[{"payload": {"sender": "alice"}}],
+                base_pending_writes={},
             )
             second = executor._speculate_many(
-                txs=[{"payload": {"sender": "bob"}}],
-                enabled_fees=False,
-                rewards_handler=None,
+                requests=[{"payload": {"sender": "bob"}}],
+                base_pending_writes={},
             )
 
         self.assertEqual(len(first), 1)
@@ -449,14 +552,17 @@ class TestParallelBlockExecutor(unittest.TestCase):
             first = _get_worker_runtime(
                 storage_home=storage_home,
                 use_rewards_handler=False,
+                tracer_mode="python_line_v1",
             )
             second = _get_worker_runtime(
                 storage_home=storage_home,
                 use_rewards_handler=False,
+                tracer_mode="python_line_v1",
             )
             third = _get_worker_runtime(
                 storage_home=storage_home,
                 use_rewards_handler=True,
+                tracer_mode="python_line_v1",
             )
 
             self.assertIs(first, second)

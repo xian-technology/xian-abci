@@ -1178,6 +1178,28 @@ function renderExecutionHealth(monitoring){
   const latestMeta = latestBlock && latestBlock.metadata ? latestBlock.metadata : {};
   const globalMetrics = snapshot.global_metrics || {};
   const unconfirmed = monitoring && monitoring.unconfirmed_txs ? monitoring.unconfirmed_txs : {};
+  const parallelConfigured = !!snapshot.parallel_execution_enabled;
+  const parallelWorkers = snapshot.parallel_execution_workers;
+  const parallelMinTransactions = snapshot.parallel_execution_min_transactions;
+
+  let parallelSummary = 'disabled';
+  if(parallelConfigured){
+    parallelSummary = 'activated';
+    if(latestMeta.parallel_enabled){
+      parallelSummary += ' · '+
+        `${latestMeta.parallel_speculative_accepted ?? 0} accepted / `+
+        `${latestMeta.parallel_serial_prefiltered ?? 0} prefiltered / `+
+        `${latestMeta.parallel_serial_fallbacks ?? 0} fallback`;
+    } else if(parallelWorkers != null || parallelMinTransactions != null){
+      const parts = [];
+      if(parallelWorkers != null) parts.push(`${parallelWorkers} workers`);
+      if(parallelMinTransactions != null) parts.push(`min ${parallelMinTransactions} tx`);
+      if(parts.length){
+        parallelSummary += ' · ' + parts.join(' · ');
+      }
+      parallelSummary += ' · waiting for eligible block';
+    }
+  }
 
   $("execution-health").innerHTML =
     '<div class="data-row"><span class="data-key">Tracer</span><span class="data-val">'+escHtml(snapshot.tracer_mode||"\u2014")+'</span></div>'+
@@ -1188,11 +1210,7 @@ function renderExecutionHealth(monitoring){
     '<div class="data-row"><span class="data-key">Finalize Avg</span><span class="data-val">'+fmtMs(globalMetrics.finalize_block ? globalMetrics.finalize_block.avg_ms : null)+'</span></div>'+
     '<div class="data-row"><span class="data-key">Tx Process Avg</span><span class="data-val">'+fmtMs(globalMetrics.tx_process_total ? globalMetrics.tx_process_total.avg_ms : null)+'</span></div>'+
     '<div class="data-row"><span class="data-key">Tx Execute Avg</span><span class="data-val">'+fmtMs(globalMetrics.tx_execute ? globalMetrics.tx_execute.avg_ms : null)+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Parallel</span><span class="data-val">'+(
-      latestMeta.parallel_enabled
-        ? `${latestMeta.parallel_speculative_accepted ?? 0} accepted / ${latestMeta.parallel_serial_fallbacks ?? 0} fallback`
-        : 'disabled'
-    )+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Parallel</span><span class="data-val">'+escHtml(parallelSummary)+'</span></div>'+
     '<div class="data-row"><span class="data-key">Last Block Loop</span><span class="data-val">'+fmtMs(latestMetrics.finalize_tx_loop ? latestMetrics.finalize_tx_loop.total_ms : null)+'</span></div>'+
     (
       perf.enabled

@@ -9,12 +9,21 @@ from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.time import Datetime
 
+try:
+    from xian_fastpath_core import (
+        extract_payload_string as _native_extract_payload_string,
+    )
+except ImportError:  # pragma: no cover - exercised through fallback path
+    _native_extract_payload_string = None
+
 
 def encode_str(value):
     return value.encode("utf-8")
 
 
 def decode_transaction_bytes(raw) -> Tuple[dict, str]:
+    # Returning a Python dict makes decode-only calls boundary-bound; keep the
+    # full decode in Python and use native code only for the payload scanner.
     tx_bytes = raw
     tx_hex = tx_bytes.decode("utf-8")
     tx_decoded_bytes = bytes.fromhex(tx_hex)
@@ -34,6 +43,9 @@ def encode_transaction_bytes(tx_str: str) -> bytes:
 
 
 def extract_payload_string(json_str):
+    if _native_extract_payload_string is not None:
+        return _native_extract_payload_string(json_str)
+
     try:
         # Find the start of the 'payload' object
         start_index = json_str.find('"payload":')
