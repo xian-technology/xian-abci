@@ -160,7 +160,9 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
 
     def _get_base_pending_writes(self) -> dict[str, object]:
         assert self._batch_tx_processor is not None
-        return deepcopy(self._batch_tx_processor.client.raw_driver.pending_writes)
+        return deepcopy(
+            self._batch_tx_processor.client.raw_driver.pending_writes
+        )
 
     def _execute_serial_request(self, request: object) -> dict:
         assert self._batch_tx_processor is not None
@@ -229,9 +231,11 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
 
     def _apply_speculative_output(self, output: dict) -> None:
         assert self._batch_tx_processor is not None
-        output["tx_result"]["state"] = self._batch_tx_processor.materialize_writes(
-            output.get("base_writes", {}),
-            output.get("reward_deltas", {}),
+        output["tx_result"]["state"] = (
+            self._batch_tx_processor.materialize_writes(
+                output.get("base_writes", {}),
+                output.get("reward_deltas", {}),
+            )
         )
         self._batch_tx_processor.update_stamp_cost_cache(
             output.get("base_writes", {})

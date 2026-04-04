@@ -176,6 +176,7 @@ def validate_transaction(
         tx_hash=tx_hash,
     )
 
+
 def validate_transaction_after_static(
     client,
     nonce_storage,
