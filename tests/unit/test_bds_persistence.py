@@ -148,7 +148,13 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
                 "nonce": 1,
                 "contract": "currency",
                 "function": "transfer",
-                "kwargs": {"to": "bob", "amount": "5"},
+                "kwargs": {
+                    "to": "bob",
+                    "amount": "5",
+                    "output_payloads": [
+                        "0x7b226369706865727465787473223a5b7b22646973636f766572795f746167223a22307831323334222c2273796e635f68696e74223a22307839383736227d5d7d"
+                    ],
+                },
             },
             tx_result={
                 "hash": "TX-1",
@@ -169,6 +175,22 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
                         "caller": "alice",
                         "data_indexed": {"to": "bob"},
                         "data": {"amount": "5"},
+                    },
+                    {
+                        "contract": "currency",
+                        "event": "ShieldedOutputsCommitted",
+                        "signer": "alice",
+                        "caller": "alice",
+                        "data_indexed": {
+                            "new_root": "0x" + "22" * 32,
+                        },
+                        "data": {
+                            "action": "deposit",
+                            "note_index_start": 0,
+                            "output_count": 1,
+                            "commitments_blob": "0x" + "11" * 32,
+                            "payload_hashes_blob": "0x" + "33" * 32,
+                        },
                     }
                 ],
                 "rewards": {},
@@ -214,6 +236,25 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(event_insert[8]), {"to": "bob"})
         self.assertIsInstance(event_insert[9], str)
         self.assertEqual(json.loads(event_insert[9]), {"amount": "5"})
+
+        shielded_inserts = [
+            args
+            for query, args in connection.execute_calls
+            if query == sql.insert_shielded_output_tag()
+        ]
+        self.assertEqual(len(shielded_inserts), 2)
+        self.assertEqual({insert[0] for insert in shielded_inserts}, {1})
+        self.assertEqual({insert[1] for insert in shielded_inserts}, {"TX-1"})
+        self.assertEqual({insert[3] for insert in shielded_inserts}, {"currency"})
+        self.assertEqual({insert[5] for insert in shielded_inserts}, {"deposit"})
+        self.assertEqual({insert[8] for insert in shielded_inserts}, {"0x" + "11" * 32})
+        self.assertEqual(
+            {(insert[11], insert[12]) for insert in shielded_inserts},
+            {
+                ("sync_hint", "0x9876"),
+                ("discovery_tag", "0x1234"),
+            },
+        )
 
     async def test_persist_transaction_accepts_null_rewards(self):
         bds = BDS(BdsConfig())

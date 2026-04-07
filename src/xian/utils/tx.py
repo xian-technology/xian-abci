@@ -1,4 +1,5 @@
 import hashlib
+from copy import deepcopy
 from typing import Callable
 
 from loguru import logger
@@ -55,6 +56,16 @@ def tx_hash_from_tx(tx):
     encoded_tx = encode(tx_dict).encode()
     h.update(encoded_tx)
     return h.hexdigest()
+
+
+def canonical_transaction_size_bytes(tx: dict) -> int:
+    tx_dict = format_dictionary(
+        {
+            "metadata": deepcopy(tx.get("metadata", {})),
+            "payload": deepcopy(tx.get("payload", {})),
+        }
+    )
+    return len(encode(tx_dict).encode())
 
 
 def recurse_rules(d: dict, rule: dict | Callable):

@@ -140,6 +140,32 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["items"][0]["balance"], "12.5")
         self.assertEqual(result["items"][0]["symbol"], "XIAN")
 
+    async def test_get_shielded_output_tags_returns_index_rows(self):
+        bds = BDS(BdsConfig())
+        bds.db = _FakeDb(
+            [
+                {
+                    "id": 1,
+                    "tag_kind": "sync_hint",
+                    "tag_value": "0x1234",
+                    "commitment": "0x" + "11" * 32,
+                    "block_height": 12,
+                }
+            ]
+        )
+
+        result = await bds.get_shielded_output_tags(
+            "0x1234", kind="sync_hint", limit=25, offset=10
+        )
+
+        self.assertEqual(
+            bds.db.fetch_calls,
+            [(sql.select_shielded_output_tags(), ["sync_hint", "0x1234", 25, 10])],
+        )
+        self.assertEqual(result[0]["tag_value"], "0x1234")
+        self.assertEqual(result[0]["tag_kind"], "sync_hint")
+        self.assertEqual(result[0]["block_height"], 12)
+
 
 if __name__ == "__main__":
     unittest.main()

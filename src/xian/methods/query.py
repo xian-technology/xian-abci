@@ -411,6 +411,24 @@ async def query(self, req) -> ResponseQuery:
             elif path_parts[0] == "events_for_tx":
                 result = await self.bds.get_events_for_tx(key)
 
+            # http://localhost:26657/abci_query?path="/shielded_output_tags/<tag>/limit=10/offset=20"
+            elif path_parts[0] == "shielded_output_tags":
+                tag_kind = params.get("kind", "sync_hint").strip().lower()
+                if tag_kind not in {"sync_hint", "discovery_tag"}:
+                    tag_kind = "sync_hint"
+                result = {
+                    "available": True,
+                    "items": await self.bds.get_shielded_output_tags(
+                        key,
+                        limit,
+                        offset,
+                        kind=tag_kind,
+                        after_id=after_id,
+                    ),
+                    "limit": limit,
+                    "offset": offset,
+                }
+
             # http://localhost:26657/abci_query?path="/events/<contract>/<event>/limit=10/offset=20"
             elif path_parts[0] == "events":
                 result = await self.bds.get_events(

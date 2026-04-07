@@ -9,7 +9,7 @@ from xian_runtime_types.time import Datetime
 
 from xian.app_logging import build_log_fields
 from xian.utils.block import nanoseconds_to_utc_datetime
-from xian.utils.tx import tx_hash_from_tx
+from xian.utils.tx import canonical_transaction_size_bytes, tx_hash_from_tx
 
 
 class TxProcessor:
@@ -177,6 +177,9 @@ class TxProcessor:
                 environment=environment,
                 auto_commit=False,
                 metering=metering,
+                transaction_size_bytes=canonical_transaction_size_bytes(
+                    transaction
+                ),
             )
         except (TypeError, ValueError) as err:
             logger.bind(

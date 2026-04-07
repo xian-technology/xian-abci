@@ -23,6 +23,7 @@ from xian.services.bds.serializer import (
     canonical_result_value,
     utc_datetime,
 )
+from xian.services.bds.shielded import collect_shielded_output_tags
 
 GENESIS_BLOCK_HASH = "GENESIS"
 GENESIS_TX_HASH = "GENESIS"
@@ -597,6 +598,7 @@ class BDS:
             sql.create_state(),
             sql.create_events(),
             sql.create_rewards(),
+            sql.create_shielded_output_tags(),
             sql.create_contracts(),
             sql.create_state_patches(),
         ):
@@ -920,6 +922,35 @@ class BDS:
                 block_time,
             )
 
+        kwargs = payload.get("kwargs")
+        if isinstance(kwargs, dict):
+            for row in collect_shielded_output_tags(
+                contract=str(payload.get("contract", "")),
+                function=str(payload.get("function", "")),
+                tx_hash=tx_hash,
+                block_height=int(block_meta["height"]),
+                tx_index=tx_index,
+                tx_result_events=tx_result.get("events", []),
+                kwargs=kwargs,
+            ):
+                await connection.execute(
+                    sql.insert_shielded_output_tag(),
+                    row["block_height"],
+                    row["tx_hash"],
+                    row["tx_index"],
+                    row["contract"],
+                    row["function"],
+                    row["action"],
+                    row["output_index"],
+                    row["note_index"],
+                    row["commitment"],
+                    row["new_root"],
+                    row["payload_hash"],
+                    row["tag_kind"],
+                    row["tag_value"],
+                    block_time,
+                )
+
         if tx_result["status"] == 0:
             for contract_name, record in self._collect_contract_records(
                 tx_result.get("state", [])
@@ -1129,6 +1160,27 @@ class BDS:
 
     async def get_events_for_tx(self, tx_hash: str):
         rows = await self.db.fetch(sql.select_events_for_tx(), [tx_hash])
+        return [dict(row) for row in rows]
+
+    async def get_shielded_output_tags(
+        self,
+        tag_value: str,
+        limit: int = 100,
+        offset: int = 0,
+        *,
+        kind: str = "sync_hint",
+        after_id: int | None = None,
+    ):
+        if after_id is not None:
+            rows = await self.db.fetch(
+                sql.select_shielded_output_tags_after_id(),
+                [kind, tag_value, after_id, limit],
+            )
+        else:
+            rows = await self.db.fetch(
+                sql.select_shielded_output_tags(),
+                [kind, tag_value, limit, offset],
+            )
         return [dict(row) for row in rows]
 
     async def get_events(

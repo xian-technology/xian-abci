@@ -177,6 +177,18 @@ class _FakeBDS:
     async def get_events_for_tx(self, tx_hash):
         return [{"tx_hash": tx_hash, "event": "Transfer"}]
 
+    async def get_shielded_output_tags(
+        self, tag_value, limit, offset, *, kind="sync_hint", after_id=None
+    ):
+        return [
+            {
+                "id": after_id + 1 if after_id is not None else 1,
+                "tag_kind": kind,
+                "tag_value": tag_value,
+                "commitment": "0x" + "11" * 32,
+            }
+        ]
+
     async def get_events(
         self, contract, event, limit, offset, *, after_id=None
     ):
@@ -727,6 +739,21 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(response.query.value)
         self.assertTrue(payload["available"])
         self.assertEqual(payload["items"][0]["tx_hash"], "TX-RECENT")
+
+        response = await self.process_request(
+            Request(
+                query=RequestQuery(
+                    path="/shielded_output_tags/0x1234/limit=25/offset=5"
+                )
+            )
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["limit"], 25)
+        self.assertEqual(payload["offset"], 5)
+        self.assertEqual(payload["items"][0]["tag_kind"], "sync_hint")
+        self.assertEqual(payload["items"][0]["tag_value"], "0x1234")
 
     async def test_contract_listing_query_is_available_without_bds(self):
         self.app.client.submit(
