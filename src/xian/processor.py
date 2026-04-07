@@ -3,6 +3,7 @@ import time
 
 from contracting.execution.executor import Executor
 from contracting.execution.parallel import ExecutionAccess as TransactionAccess
+from contracting.stdlib.bridge import zk as zk_bridge
 from loguru import logger
 from xian_runtime_types.encoding import convert_dict, safe_repr
 from xian_runtime_types.time import Datetime
@@ -35,6 +36,7 @@ class TxProcessor:
 
     def reset_block_cache(self) -> None:
         self.cached_stamp_cost = None
+        zk_bridge.clear_verified_proof_cache()
 
     def get_stamp_cost(self):
         if self.cached_stamp_cost is None:

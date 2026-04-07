@@ -2,6 +2,7 @@ import os
 import time
 import unittest
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 from contracting.client import ContractingClient
 from fixtures.mock_constants import MockConstants
@@ -234,6 +235,14 @@ class TestProcessor(unittest.TestCase):
             larger_result["tx_result"]["stamps_used"],
             base_result["tx_result"]["stamps_used"],
         )
+
+    def test_reset_block_cache_clears_verified_proof_cache(self):
+        with patch(
+            "xian.processor.zk_bridge.clear_verified_proof_cache"
+        ) as clear_cache:
+            self.tx_processor.reset_block_cache()
+
+        clear_cache.assert_called_once_with()
 
 
 if __name__ == "__main__":
