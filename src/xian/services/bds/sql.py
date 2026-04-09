@@ -735,6 +735,51 @@ def select_shielded_output_tags_after_id():
     """
 
 
+def select_events_by_event_after_id():
+    return """
+    SELECT
+        id,
+        block_height,
+        tx_hash,
+        tx_index,
+        event_index,
+        contract,
+        event,
+        signer,
+        caller,
+        data_indexed,
+        data,
+        created_at
+    FROM events
+    WHERE event = $1 AND id > $2
+    ORDER BY id ASC
+    LIMIT $3;
+    """
+
+
+def select_transactions_payloads_for_hashes():
+    return """
+    SELECT hash, payload
+    FROM transactions
+    WHERE hash = ANY($1::TEXT[]);
+    """
+
+
+def select_shielded_output_tags_for_transactions():
+    return """
+    SELECT
+        tx_hash,
+        output_index,
+        payload_hash,
+        tag_kind,
+        tag_value
+    FROM shielded_output_tags
+    WHERE tag_kind = $1
+      AND tag_value = $2
+      AND tx_hash = ANY($3::TEXT[]);
+    """
+
+
 def select_events_by_contract_event():
     return """
     SELECT
