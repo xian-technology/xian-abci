@@ -37,8 +37,13 @@ def _normalize_output_payloads(
 ) -> list[str]:
     if output_payloads is None:
         return [""] * expected_count
-    if not isinstance(output_payloads, list) or len(output_payloads) != expected_count:
-        raise AssertionError("output_payloads length must match output commitments")
+    if (
+        not isinstance(output_payloads, list)
+        or len(output_payloads) != expected_count
+    ):
+        raise AssertionError(
+            "output_payloads length must match output commitments"
+        )
 
     normalized = []
     for payload in output_payloads:
@@ -201,7 +206,9 @@ def _note_token_entry(
 
 def _command_payload_digest(payload: Any) -> str:
     if _canonicalize_command_payload is None:
-        raise AssertionError("xian_zk command payload canonicalizer is unavailable")
+        raise AssertionError(
+            "xian_zk command payload canonicalizer is unavailable"
+        )
     if payload is None:
         payload = {}
     if not isinstance(payload, dict):
