@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 
 def _numeric_projection(column: str) -> str:
@@ -22,6 +22,7 @@ def _numeric_projection(column: str) -> str:
 
 def drop_all_tables():
     return """
+    DROP TABLE IF EXISTS shielded_output_tags CASCADE;
     DROP TABLE IF EXISTS rewards CASCADE;
     DROP TABLE IF EXISTS events CASCADE;
     DROP TABLE IF EXISTS state_patches CASCADE;
@@ -197,6 +198,35 @@ def create_rewards():
     """
 
 
+def create_shielded_output_tags():
+    return """
+    CREATE TABLE IF NOT EXISTS shielded_output_tags (
+        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        block_height BIGINT NOT NULL REFERENCES blocks(height) ON DELETE CASCADE,
+        tx_hash TEXT NOT NULL REFERENCES transactions(hash) ON DELETE CASCADE,
+        tx_index INTEGER NOT NULL,
+        contract TEXT NOT NULL,
+        function TEXT NOT NULL,
+        action TEXT NOT NULL,
+        output_index INTEGER NOT NULL,
+        note_index INTEGER,
+        commitment TEXT NOT NULL,
+        new_root TEXT NOT NULL,
+        payload_hash TEXT NOT NULL,
+        tag_kind TEXT NOT NULL,
+        tag_value TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE (tx_hash, output_index, tag_kind, tag_value)
+    );
+    CREATE INDEX IF NOT EXISTS idx_shielded_output_tags_kind_value_height
+        ON shielded_output_tags(tag_kind, tag_value, block_height DESC, tx_index DESC, output_index DESC);
+    CREATE INDEX IF NOT EXISTS idx_shielded_output_tags_tx_hash
+        ON shielded_output_tags(tx_hash, output_index);
+    CREATE INDEX IF NOT EXISTS idx_shielded_output_tags_commitment
+        ON shielded_output_tags(commitment);
+    """
+
+
 def create_contracts():
     return """
     CREATE TABLE IF NOT EXISTS contracts (
@@ -302,6 +332,29 @@ def insert_reward():
     )
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     ON CONFLICT (block_height, tx_index, reward_index) DO NOTHING;
+    """
+
+
+def insert_shielded_output_tag():
+    return """
+    INSERT INTO shielded_output_tags(
+        block_height,
+        tx_hash,
+        tx_index,
+        contract,
+        function,
+        action,
+        output_index,
+        note_index,
+        commitment,
+        new_root,
+        payload_hash,
+        tag_kind,
+        tag_value,
+        created_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    ON CONFLICT (tx_hash, output_index, tag_kind, tag_value) DO NOTHING;
     """
 
 
@@ -629,6 +682,101 @@ def select_events_for_tx():
     FROM events
     WHERE tx_hash = $1
     ORDER BY event_index ASC;
+    """
+
+
+def select_shielded_output_tags():
+    return """
+    SELECT
+        id,
+        block_height,
+        tx_hash,
+        tx_index,
+        contract,
+        function,
+        action,
+        output_index,
+        note_index,
+        commitment,
+        new_root,
+        payload_hash,
+        tag_kind,
+        tag_value,
+        created_at
+    FROM shielded_output_tags
+    WHERE tag_kind = $1 AND tag_value = $2
+    ORDER BY block_height DESC, tx_index DESC, output_index DESC
+    LIMIT $3 OFFSET $4;
+    """
+
+
+def select_shielded_output_tags_after_id():
+    return """
+    SELECT
+        id,
+        block_height,
+        tx_hash,
+        tx_index,
+        contract,
+        function,
+        action,
+        output_index,
+        note_index,
+        commitment,
+        new_root,
+        payload_hash,
+        tag_kind,
+        tag_value,
+        created_at
+    FROM shielded_output_tags
+    WHERE tag_kind = $1 AND tag_value = $2 AND id > $3
+    ORDER BY id ASC
+    LIMIT $4;
+    """
+
+
+def select_events_by_event_after_id():
+    return """
+    SELECT
+        id,
+        block_height,
+        tx_hash,
+        tx_index,
+        event_index,
+        contract,
+        event,
+        signer,
+        caller,
+        data_indexed,
+        data,
+        created_at
+    FROM events
+    WHERE event = $1 AND id > $2
+    ORDER BY id ASC
+    LIMIT $3;
+    """
+
+
+def select_transactions_payloads_for_hashes():
+    return """
+    SELECT hash, payload
+    FROM transactions
+    WHERE hash = ANY($1::TEXT[]);
+    """
+
+
+def select_shielded_output_tags_for_transactions():
+    return """
+    SELECT
+        tx_hash,
+        output_index,
+        payload_hash,
+        tag_kind,
+        tag_value
+    FROM shielded_output_tags
+    WHERE tag_kind = $1
+      AND tag_value = $2
+      AND tx_hash = ANY($3::TEXT[]);
     """
 
 

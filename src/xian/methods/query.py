@@ -347,6 +347,15 @@ async def query(self, req) -> ResponseQuery:
                 except (ValueError, TypeError):
                     after_id = None
 
+            after_note_index = 0
+            if "after_note_index" in params:
+                try:
+                    after_note_index = int(params["after_note_index"])
+                    if after_note_index < 0:
+                        after_note_index = 0
+                except (ValueError, TypeError):
+                    after_note_index = 0
+
             # http://localhost:26657/abci_query?path="/keys/currency.balances"
             if path_parts[0] == "keys":
                 list_of_keys = self.client.raw_driver.keys(path_parts[1])
@@ -410,6 +419,41 @@ async def query(self, req) -> ResponseQuery:
             # http://localhost:26657/abci_query?path="/events_for_tx/<tx_hash>"
             elif path_parts[0] == "events_for_tx":
                 result = await self.bds.get_events_for_tx(key)
+
+            # http://localhost:26657/abci_query?path="/shielded_output_tags/<tag>/limit=10/offset=20"
+            elif path_parts[0] == "shielded_output_tags":
+                tag_kind = params.get("kind", "sync_hint").strip().lower()
+                if tag_kind not in {"sync_hint", "discovery_tag"}:
+                    tag_kind = "sync_hint"
+                result = {
+                    "available": True,
+                    "items": await self.bds.get_shielded_output_tags(
+                        key,
+                        limit,
+                        offset,
+                        kind=tag_kind,
+                        after_id=after_id,
+                    ),
+                    "limit": limit,
+                    "offset": offset,
+                }
+
+            # http://localhost:26657/abci_query?path="/shielded_wallet_history/0x1234/limit=25/after_note_index=5"
+            elif path_parts[0] == "shielded_wallet_history":
+                tag_kind = params.get("kind", "sync_hint").strip().lower()
+                if tag_kind not in {"sync_hint", "discovery_tag"}:
+                    tag_kind = "sync_hint"
+                result = {
+                    "available": True,
+                    "items": await self.bds.get_shielded_wallet_history(
+                        key,
+                        limit,
+                        after_note_index,
+                        kind=tag_kind,
+                    ),
+                    "limit": limit,
+                    "after_note_index": after_note_index,
+                }
 
             # http://localhost:26657/abci_query?path="/events/<contract>/<event>/limit=10/offset=20"
             elif path_parts[0] == "events":

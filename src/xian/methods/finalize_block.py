@@ -8,6 +8,7 @@ from cometbft.abci.v1beta3.types_pb2 import ExecTxResult, ResponseFinalizeBlock
 from xian.app_logging import build_log_fields
 from xian.constants import Constants as c
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
+from xian.shielded_preverify import warm_shielded_proof_cache
 from xian.utils.block import (
     convert_cometbft_time_to_datetime,
     get_latest_block_hash,
@@ -359,6 +360,23 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         )
     ).info("Finished block transaction validation")
     processed_results = None
+    if not self.parallel_block_executor.is_enabled_for_batch(len(decoded_txs)):
+        with self.profiler.scope(
+            "finalize_shielded_preverify", block_scoped=True
+        ):
+            shielded_preverify_stats = warm_shielded_proof_cache(
+                driver=self.tx_processor.client.raw_driver,
+                txs=decoded_txs,
+            )
+        self.profiler.set_block_metadata(
+            shielded_preverify_candidates=(
+                shielded_preverify_stats.candidate_count
+            ),
+            shielded_preverify_verified=(
+                shielded_preverify_stats.verified_count
+            ),
+            shielded_preverify_failed=shielded_preverify_stats.failed_count,
+        )
 
     with self.profiler.scope("finalize_parallel", block_scoped=True):
         parallel_execution = self.parallel_block_executor.execute(

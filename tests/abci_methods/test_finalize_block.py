@@ -157,6 +157,64 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         )
         set_nonce.assert_not_called()
 
+    async def test_finalize_block_warms_shielded_proof_cache_on_serial_path(self):
+        tx = {
+            "payload": {
+                "sender": "alice",
+                "contract": "con_shielded_note_token",
+                "function": "deposit_shielded",
+                "kwargs": {
+                    "amount": 7,
+                    "old_root": "0x" + "11" * 32,
+                    "output_commitments": ["0x" + "22" * 32],
+                    "proof_hex": "0xabcd",
+                },
+            },
+            "metadata": {"signature": "sig"},
+        }
+        tx_result = {
+            "hash": "ABC123",
+            "status": 0,
+            "state": [],
+            "events": [],
+            "stamps_used": 1,
+            "result": "ok",
+        }
+        self.app.parallel_block_executor.enabled = False
+
+        with (
+            patch(
+                "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
+                return_value=tx,
+            ),
+            patch(
+                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
+            ),
+            patch(
+                "xian.methods.finalize_block.warm_shielded_proof_cache"
+            ) as warm_cache,
+            patch.object(
+                self.app.tx_processor,
+                "process_tx",
+                return_value={"tx_result": tx_result},
+            ),
+            patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
+        ):
+            warm_cache.return_value = type(
+                "Stats",
+                (),
+                {
+                    "candidate_count": 1,
+                    "verified_count": 1,
+                    "failed_count": 0,
+                },
+            )()
+            await self.process_request(
+                Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
+            )
+
+        warm_cache.assert_called_once()
+
     async def test_finalize_block_enqueues_bds_payload_when_enabled(self):
         tx_result = {
             "hash": "ABC123",

@@ -33,10 +33,22 @@ jobs:
         with:
           path: xian-abci
 
+      - name: Resolve xian-contracting ref
+        id: xian-contracting-ref
+        env:
+          REF_NAME: ${{ github.head_ref || github.ref_name }}
+        run: |
+          if git ls-remote --exit-code --heads https://github.com/xian-technology/xian-contracting "${REF_NAME}" >/dev/null 2>&1; then
+            echo "ref=${REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check out xian-contracting
         uses: actions/checkout@v6
         with:
           repository: xian-technology/xian-contracting
+          ref: ${{ steps.xian-contracting-ref.outputs.ref }}
           path: xian-contracting
 
       - name: Check out xian-configs

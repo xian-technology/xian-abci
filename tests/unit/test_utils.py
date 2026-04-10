@@ -12,7 +12,11 @@ from xian.utils.encoding import (
     normalize_for_abci_json,
     stringify_decimals,
 )
-from xian.utils.tx import unpack_transaction, verify
+from xian.utils.tx import (
+    canonical_transaction_size_bytes,
+    unpack_transaction,
+    verify,
+)
 
 
 class TestPayloadStrExtraction(unittest.TestCase):
@@ -207,6 +211,64 @@ class TestAbciJsonDecimalFormatting(unittest.TestCase):
         self.assertEqual(
             list(normalize_for_abci_json(value).items()),
             [("a_amount", "10.5"), ("z_amount", "5000")],
+        )
+
+
+class TestTransactionSizing(unittest.TestCase):
+    def test_canonical_transaction_size_bytes_is_stable_across_key_order(self):
+        tx_a = {
+            "payload": {
+                "sender": "abc",
+                "nonce": 1,
+                "stamps_supplied": 10,
+                "contract": "currency",
+                "function": "transfer",
+                "kwargs": {"to": "bob", "amount": 5},
+                "chain_id": "xian-local",
+            },
+            "metadata": {"signature": "deadbeef"},
+        }
+        tx_b = {
+            "metadata": {"signature": "deadbeef"},
+            "payload": {
+                "function": "transfer",
+                "contract": "currency",
+                "kwargs": {"amount": 5, "to": "bob"},
+                "stamps_supplied": 10,
+                "chain_id": "xian-local",
+                "nonce": 1,
+                "sender": "abc",
+            },
+        }
+
+        self.assertEqual(
+            canonical_transaction_size_bytes(tx_a),
+            canonical_transaction_size_bytes(tx_b),
+        )
+
+    def test_canonical_transaction_size_bytes_ignores_node_added_block_meta(self):
+        tx = {
+            "payload": {
+                "sender": "abc",
+                "nonce": 1,
+                "stamps_supplied": 10,
+                "contract": "currency",
+                "function": "transfer",
+                "kwargs": {"to": "bob", "amount": 5},
+                "chain_id": "xian-local",
+            },
+            "metadata": {"signature": "deadbeef"},
+        }
+
+        sized_with_block_meta = dict(tx)
+        sized_with_block_meta["b_meta"] = {
+            "height": 5,
+            "hash": "block-hash",
+        }
+
+        self.assertEqual(
+            canonical_transaction_size_bytes(tx),
+            canonical_transaction_size_bytes(sized_with_block_meta),
         )
 
 

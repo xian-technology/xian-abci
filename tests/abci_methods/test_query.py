@@ -177,6 +177,32 @@ class _FakeBDS:
     async def get_events_for_tx(self, tx_hash):
         return [{"tx_hash": tx_hash, "event": "Transfer"}]
 
+    async def get_shielded_output_tags(
+        self, tag_value, limit, offset, *, kind="sync_hint", after_id=None
+    ):
+        return [
+            {
+                "id": after_id + 1 if after_id is not None else 1,
+                "tag_kind": kind,
+                "tag_value": tag_value,
+                "commitment": "0x" + "11" * 32,
+            }
+        ]
+
+    async def get_shielded_wallet_history(
+        self, tag_value, limit, after_note_index, *, kind="sync_hint"
+    ):
+        return [
+            {
+                "event_id": 41,
+                "tag_kind": kind,
+                "tag_value": tag_value,
+                "note_index": after_note_index,
+                "commitment": "0x" + "22" * 32,
+                "output_payload": "0x1234",
+            }
+        ]
+
     async def get_events(
         self, contract, event, limit, offset, *, after_id=None
     ):
@@ -372,7 +398,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["result"], "123.45")
         self.assertEqual(
             result["state"],
-            [{"key": "currency.balances:alice", "value": "99.4"}],
+            [{"key": "currency.balances:alice", "value": "99.35"}],
         )
         self.assertEqual(
             self.app.client.raw_driver.get("currency.balances:alice"),
@@ -727,6 +753,36 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(response.query.value)
         self.assertTrue(payload["available"])
         self.assertEqual(payload["items"][0]["tx_hash"], "TX-RECENT")
+
+        response = await self.process_request(
+            Request(
+                query=RequestQuery(
+                    path="/shielded_output_tags/0x1234/limit=25/offset=5"
+                )
+            )
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["limit"], 25)
+        self.assertEqual(payload["offset"], 5)
+        self.assertEqual(payload["items"][0]["tag_kind"], "sync_hint")
+        self.assertEqual(payload["items"][0]["tag_value"], "0x1234")
+
+        response = await self.process_request(
+            Request(
+                query=RequestQuery(
+                    path="/shielded_wallet_history/0x1234/limit=25/after_note_index=5"
+                )
+            )
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["limit"], 25)
+        self.assertEqual(payload["after_note_index"], 5)
+        self.assertEqual(payload["items"][0]["tag_kind"], "sync_hint")
+        self.assertEqual(payload["items"][0]["note_index"], 5)
 
     async def test_contract_listing_query_is_available_without_bds(self):
         self.app.client.submit(

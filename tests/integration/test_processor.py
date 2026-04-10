@@ -2,6 +2,7 @@ import os
 import time
 import unittest
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 from contracting.client import ContractingClient
 from fixtures.mock_constants import MockConstants
@@ -200,6 +201,48 @@ class TestProcessor(unittest.TestCase):
         )
 
         self.assertEqual(writes, {"currency.balances:bob": 0})
+
+    def test_process_tx_meters_transaction_bytes(self):
+        self.d.set("currency.balances:bob", 100000)
+        self.d.set("currency_1.balances:bob", 100000)
+
+        base_tx = {
+            "payload": {
+                "contract": "currency_1",
+                "function": "transfer",
+                "sender": "bob",
+                "kwargs": {"amount": 5, "to": "casey"},
+                "stamps_supplied": 1000,
+            },
+            "metadata": {"signature": "a"},
+            "b_meta": create_block_meta(),
+        }
+        larger_tx = {
+            **base_tx,
+            "metadata": {"signature": "a" * 5001},
+        }
+
+        base_result = self.tx_processor.process_tx(
+            enabled_fees=True,
+            tx=base_tx,
+        )
+        larger_result = self.tx_processor.process_tx(
+            enabled_fees=True,
+            tx=larger_tx,
+        )
+
+        self.assertGreater(
+            larger_result["tx_result"]["stamps_used"],
+            base_result["tx_result"]["stamps_used"],
+        )
+
+    def test_reset_block_cache_clears_verified_proof_cache(self):
+        with patch(
+            "xian.processor.zk_bridge.clear_verified_proof_cache"
+        ) as clear_cache:
+            self.tx_processor.reset_block_cache()
+
+        clear_cache.assert_called_once_with()
 
 
 if __name__ == "__main__":

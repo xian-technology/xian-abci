@@ -173,6 +173,28 @@ TABLE_SPECS = (
         overriding_system_value=True,
     ),
     TableSpec(
+        name="shielded_output_tags",
+        columns=(
+            "id",
+            "block_height",
+            "tx_hash",
+            "tx_index",
+            "contract",
+            "function",
+            "action",
+            "output_index",
+            "note_index",
+            "commitment",
+            "new_root",
+            "payload_hash",
+            "discovery_tag",
+            "created_at",
+        ),
+        order_by="id ASC",
+        datetime_columns=frozenset({"created_at"}),
+        overriding_system_value=True,
+    ),
+    TableSpec(
         name="contracts",
         columns=(
             "name",

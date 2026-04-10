@@ -23,6 +23,7 @@ from xian.services.bds.serializer import (
     canonical_result_value,
     utc_datetime,
 )
+from xian.services.bds.shielded import collect_shielded_output_tags
 
 GENESIS_BLOCK_HASH = "GENESIS"
 GENESIS_TX_HASH = "GENESIS"
@@ -56,6 +57,18 @@ def _normalize_token_balance(
     if numeric_value is not None:
         return str(numeric_value)
     return _normalize_json_text(raw_value)
+
+
+def _json_mapping(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        return decoded if isinstance(decoded, dict) else None
+    return None
 
 
 class BDS:
@@ -597,6 +610,7 @@ class BDS:
             sql.create_state(),
             sql.create_events(),
             sql.create_rewards(),
+            sql.create_shielded_output_tags(),
             sql.create_contracts(),
             sql.create_state_patches(),
         ):
@@ -920,6 +934,35 @@ class BDS:
                 block_time,
             )
 
+        kwargs = payload.get("kwargs")
+        if isinstance(kwargs, dict):
+            for row in collect_shielded_output_tags(
+                contract=str(payload.get("contract", "")),
+                function=str(payload.get("function", "")),
+                tx_hash=tx_hash,
+                block_height=int(block_meta["height"]),
+                tx_index=tx_index,
+                tx_result_events=tx_result.get("events", []),
+                kwargs=kwargs,
+            ):
+                await connection.execute(
+                    sql.insert_shielded_output_tag(),
+                    row["block_height"],
+                    row["tx_hash"],
+                    row["tx_index"],
+                    row["contract"],
+                    row["function"],
+                    row["action"],
+                    row["output_index"],
+                    row["note_index"],
+                    row["commitment"],
+                    row["new_root"],
+                    row["payload_hash"],
+                    row["tag_kind"],
+                    row["tag_value"],
+                    block_time,
+                )
+
         if tx_result["status"] == 0:
             for contract_name, record in self._collect_contract_records(
                 tx_result.get("state", [])
@@ -1130,6 +1173,172 @@ class BDS:
     async def get_events_for_tx(self, tx_hash: str):
         rows = await self.db.fetch(sql.select_events_for_tx(), [tx_hash])
         return [dict(row) for row in rows]
+
+    async def get_shielded_output_tags(
+        self,
+        tag_value: str,
+        limit: int = 100,
+        offset: int = 0,
+        *,
+        kind: str = "sync_hint",
+        after_id: int | None = None,
+    ):
+        if after_id is not None:
+            rows = await self.db.fetch(
+                sql.select_shielded_output_tags_after_id(),
+                [kind, tag_value, after_id, limit],
+            )
+        else:
+            rows = await self.db.fetch(
+                sql.select_shielded_output_tags(),
+                [kind, tag_value, limit, offset],
+            )
+        return [dict(row) for row in rows]
+
+    async def get_shielded_wallet_history(
+        self,
+        tag_value: str,
+        limit: int = 100,
+        after_note_index: int = 0,
+        *,
+        kind: str = "sync_hint",
+    ):
+        if limit <= 0:
+            return []
+
+        event_batch_size = max(1, min(limit, 1000))
+        next_event_id = 0
+        history_rows: list[dict[str, Any]] = []
+
+        while len(history_rows) < limit:
+            event_rows = await self.db.fetch(
+                sql.select_events_by_event_after_id(),
+                ["ShieldedOutputsCommitted", next_event_id, event_batch_size],
+            )
+            if not event_rows:
+                break
+
+            events = [dict(row) for row in event_rows]
+            last_event = events[-1]
+            if isinstance(last_event.get("id"), int):
+                next_event_id = int(last_event["id"])
+
+            output_rows: list[dict[str, Any]] = []
+            tx_hashes: set[str] = set()
+            for event in events:
+                data = _json_mapping(event.get("data")) or {}
+                note_index_start = data.get("note_index_start")
+                output_count = data.get("output_count")
+                commitments_blob = data.get("commitments_blob")
+                if (
+                    not isinstance(note_index_start, int)
+                    or not isinstance(commitments_blob, str)
+                ):
+                    continue
+                commitments = [
+                    item for item in commitments_blob.split("|") if item != ""
+                ]
+                resolved_output_count = (
+                    output_count if isinstance(output_count, int) else len(commitments)
+                )
+                if len(commitments) < resolved_output_count:
+                    continue
+
+                tx_hash = event.get("tx_hash")
+                if not isinstance(tx_hash, str):
+                    continue
+                tx_hashes.add(tx_hash)
+
+                for output_index in range(resolved_output_count):
+                    note_index = note_index_start + output_index
+                    if note_index < after_note_index:
+                        continue
+                    output_rows.append(
+                        {
+                            "event_id": event.get("id"),
+                            "tx_hash": tx_hash,
+                            "block_height": event.get("block_height"),
+                            "tx_index": event.get("tx_index"),
+                            "contract": event.get("contract"),
+                            "function": None,
+                            "action": None,
+                            "output_index": output_index,
+                            "note_index": note_index,
+                            "commitment": commitments[output_index],
+                            "new_root": data.get("new_root"),
+                            "payload_hash": None,
+                            "tag_kind": None,
+                            "tag_value": None,
+                            "output_payload": None,
+                            "created_at": event.get("created_at"),
+                        }
+                    )
+                    if len(history_rows) + len(output_rows) >= limit:
+                        break
+                if len(history_rows) + len(output_rows) >= limit:
+                    break
+
+            if not output_rows:
+                if len(events) < event_batch_size:
+                    break
+                continue
+
+            payload_rows = await self.db.fetch(
+                sql.select_transactions_payloads_for_hashes(),
+                [sorted(tx_hashes)],
+            )
+            payload_items = [dict(row) for row in payload_rows]
+            payloads_by_hash = {
+                str(row["hash"]): _json_mapping(row.get("payload")) or {}
+                for row in payload_items
+            }
+
+            tag_rows = await self.db.fetch(
+                sql.select_shielded_output_tags_for_transactions(),
+                [kind, tag_value, sorted(tx_hashes)],
+            )
+            tag_items = [dict(row) for row in tag_rows]
+            matching_tags = {
+                (str(row["tx_hash"]), int(row["output_index"])): dict(row)
+                for row in tag_items
+                if isinstance(row.get("tx_hash"), str)
+                and isinstance(row.get("output_index"), int)
+            }
+
+            for row in output_rows:
+                tx_hash = row["tx_hash"]
+                output_index = row["output_index"]
+                payload = payloads_by_hash.get(tx_hash, {})
+                kwargs = _json_mapping(payload.get("kwargs")) or {}
+                payloads = kwargs.get("output_payloads")
+                if (
+                    isinstance(payloads, list)
+                    and output_index < len(payloads)
+                    and isinstance(payloads[output_index], str)
+                    and (tx_hash, output_index) in matching_tags
+                ):
+                    tag = matching_tags[(tx_hash, output_index)]
+                    row["output_payload"] = payloads[output_index]
+                    row["payload_hash"] = tag.get("payload_hash")
+                    row["tag_kind"] = tag.get("tag_kind")
+                    row["tag_value"] = tag.get("tag_value")
+
+                function = payload.get("function")
+                if isinstance(function, str):
+                    row["function"] = function
+                action = _json_mapping(payload.get("kwargs")) or {}
+                resolved_action = action.get("action")
+                if isinstance(resolved_action, str):
+                    row["action"] = resolved_action
+
+                history_rows.append(row)
+                if len(history_rows) >= limit:
+                    break
+
+            if len(events) < event_batch_size:
+                break
+
+        return history_rows
 
     async def get_events(
         self,
