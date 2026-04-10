@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from contracting.stdlib.bridge import zk as zk_bridge
+from contracting.execution.runtime import rt
 
 try:
     from xian_zk import (
@@ -372,7 +373,16 @@ def warm_shielded_proof_cache(
     if not requests:
         return ShieldedPreverifyStats()
 
-    results = zk_bridge.warm_verified_proofs(requests)
+    previous_driver = rt.env.get("__Driver")
+    rt.env["__Driver"] = driver
+    try:
+        results = zk_bridge.warm_verified_proofs(requests)
+    finally:
+        if previous_driver is None:
+            rt.env.pop("__Driver", None)
+        else:
+            rt.env["__Driver"] = previous_driver
+
     verified_count = sum(1 for result in results if result is True)
     failed_count = len(results) - verified_count
     return ShieldedPreverifyStats(
