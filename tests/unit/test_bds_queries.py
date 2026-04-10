@@ -106,6 +106,131 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result[0]["address"], "alice")
         self.assertEqual(result[0]["tx_count"], 3)
 
+    async def test_get_token_balances_returns_portfolio_rows(self):
+        bds = BDS(BdsConfig())
+        bds.db = _FakeDb(
+            [
+                {
+                    "contract": "currency",
+                    "balance": "12.5",
+                    "balance_numeric": Decimal("12.5"),
+                    "last_tx_hash": "TX-1",
+                    "last_block_height": 12,
+                    "updated_at": datetime(2026, 1, 1, tzinfo=UTC),
+                    "token_name": "Xian",
+                    "token_symbol": "XIAN",
+                    "token_logo_url": "https://example.com/xian.svg",
+                    "total_count": 1,
+                }
+            ]
+        )
+
+        result = await bds.get_token_balances(
+            "alice", limit=25, offset=10, include_zero=True
+        )
+
+        self.assertEqual(
+            bds.db.fetch_calls,
+            [(sql.select_token_balances(), ["alice", True, 25, 10])],
+        )
+        self.assertTrue(result["available"])
+        self.assertEqual(result["address"], "alice")
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["contract"], "currency")
+        self.assertEqual(result["items"][0]["balance"], "12.5")
+        self.assertEqual(result["items"][0]["symbol"], "XIAN")
+
+    async def test_get_shielded_output_tags_returns_index_rows(self):
+        bds = BDS(BdsConfig())
+        bds.db = _FakeDb(
+            [
+                {
+                    "id": 1,
+                    "tag_kind": "sync_hint",
+                    "tag_value": "0x1234",
+                    "commitment": "0x" + "11" * 32,
+                    "block_height": 12,
+                }
+            ]
+        )
+
+        result = await bds.get_shielded_output_tags(
+            "0x1234", kind="sync_hint", limit=25, offset=10
+        )
+
+        self.assertEqual(
+            bds.db.fetch_calls,
+            [(sql.select_shielded_output_tags(), ["sync_hint", "0x1234", 25, 10])],
+        )
+        self.assertEqual(result[0]["tag_value"], "0x1234")
+        self.assertEqual(result[0]["tag_kind"], "sync_hint")
+        self.assertEqual(result[0]["block_height"], 12)
+
+    async def test_get_shielded_wallet_history_returns_commitments_with_optional_payloads(self):
+        class _ShieldedHistoryDb:
+            def __init__(self):
+                self.fetch_calls: list[tuple[str, list[object]]] = []
+
+            async def fetch(self, query: str, args: list[object]):
+                self.fetch_calls.append((query, args))
+                if query == sql.select_events_by_event_after_id():
+                    return [
+                        {
+                            "id": 11,
+                            "block_height": 12,
+                            "tx_hash": "TX-1",
+                            "tx_index": 0,
+                            "contract": "con_private",
+                            "data": {
+                                "new_root": "0xroot",
+                                "note_index_start": 0,
+                                "output_count": 2,
+                                "commitments_blob": "0xaaa|0xbbb",
+                            },
+                            "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+                        }
+                    ]
+                if query == sql.select_transactions_payloads_for_hashes():
+                    return [
+                        {
+                            "hash": "TX-1",
+                            "payload": {
+                                "function": "transfer_shielded",
+                                "kwargs": {
+                                    "action": "transfer",
+                                    "output_payloads": ["0x1111", "0x2222"],
+                                },
+                            },
+                        }
+                    ]
+                if query == sql.select_shielded_output_tags_for_transactions():
+                    return [
+                        {
+                            "tx_hash": "TX-1",
+                            "output_index": 1,
+                            "payload_hash": "0xhash",
+                            "tag_kind": "sync_hint",
+                            "tag_value": "0x1234",
+                        }
+                    ]
+                return []
+
+        bds = BDS(BdsConfig())
+        bds.db = _ShieldedHistoryDb()
+
+        result = await bds.get_shielded_wallet_history(
+            "0x1234", limit=10, after_note_index=0
+        )
+
+        self.assertEqual(result[0]["note_index"], 0)
+        self.assertEqual(result[0]["commitment"], "0xaaa")
+        self.assertIsNone(result[0]["output_payload"])
+        self.assertEqual(result[1]["note_index"], 1)
+        self.assertEqual(result[1]["output_payload"], "0x2222")
+        self.assertEqual(result[1]["payload_hash"], "0xhash")
+        self.assertEqual(result[1]["function"], "transfer_shielded")
+        self.assertEqual(result[1]["action"], "transfer")
+
 
 if __name__ == "__main__":
     unittest.main()

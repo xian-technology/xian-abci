@@ -56,6 +56,36 @@ def _sort_contract_records(
     )
 
 
+def _masternodes_contract(self):
+    return self.client.get_contract("masternodes")
+
+
+def _pending_masternodes_votes(
+    raw_driver,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict]:
+    total_votes = raw_driver.get("masternodes.total_votes") or 0
+    items: list[dict] = []
+    for proposal_id in range(total_votes, 0, -1):
+        record = raw_driver.get(f"masternodes.votes:{proposal_id}")
+        if not isinstance(record, dict):
+            continue
+        if record.get("finalized") is True:
+            continue
+        if record.get("status") != "pending":
+            continue
+        entry = dict(record)
+        entry["proposal_id"] = proposal_id
+        items.append(entry)
+    if offset > 0:
+        items = items[offset:]
+    if limit >= 0:
+        items = items[:limit]
+    return items
+
+
 async def query(self, req) -> ResponseQuery:
     """
     Query the application state
@@ -188,6 +218,84 @@ async def query(self, req) -> ResponseQuery:
         # http://localhost:26657/abci_query?path="/perf_status"
         elif path_parts[0] == "perf_status":
             result = self.profiler.snapshot()
+            result["parallel_execution_enabled"] = bool(
+                self.parallel_block_executor.enabled
+            )
+            result["parallel_execution_workers"] = int(
+                self.parallel_block_executor.workers
+            )
+            result["parallel_execution_min_transactions"] = int(
+                self.parallel_block_executor.min_batch_size
+            )
+
+        # http://localhost:26657/abci_query?path="/masternodes_policy"
+        elif path_parts[0] == "masternodes_policy":
+            membership = _masternodes_contract(self)
+            result = (
+                None if membership is None else membership.get_policy_config()
+            )
+
+        # http://localhost:26657/abci_query?path="/masternodes_active"
+        elif path_parts[0] == "masternodes_active":
+            membership = _masternodes_contract(self)
+            result = (
+                None
+                if membership is None
+                else membership.get_active_validators()
+            )
+
+        # http://localhost:26657/abci_query?path="/masternodes_candidates"
+        elif path_parts[0] == "masternodes_candidates":
+            membership = _masternodes_contract(self)
+            result = (
+                None
+                if membership is None
+                else membership.get_pending_candidates()
+            )
+
+        # http://localhost:26657/abci_query?path="/masternodes_validator/<account>"
+        elif path_parts[0] == "masternodes_validator":
+            membership = _masternodes_contract(self)
+            result = (
+                None
+                if membership is None
+                else membership.get_validator(account=key)
+            )
+
+        # http://localhost:26657/abci_query?path="/masternodes_pending_unbonds/<account>"
+        elif path_parts[0] == "masternodes_pending_unbonds":
+            membership = _masternodes_contract(self)
+            if membership is None:
+                result = None
+            else:
+                pending_ids = membership.get_pending_unbond_ids(owner=key) or []
+                result = []
+                for unbond_id in pending_ids:
+                    unbond = membership.get_pending_unbond(unbond_id=unbond_id)
+                    if isinstance(unbond, dict):
+                        entry = dict(unbond)
+                        entry["unbond_id"] = unbond_id
+                        result.append(entry)
+
+        # http://localhost:26657/abci_query?path="/masternodes_open_votes/limit=25/offset=0"
+        elif path_parts[0] == "masternodes_open_votes":
+            limit = 100
+            offset = 0
+            try:
+                if "limit" in params:
+                    limit = max(0, min(int(params["limit"]), 1000))
+            except (TypeError, ValueError):
+                limit = 100
+            try:
+                if "offset" in params:
+                    offset = max(0, int(params["offset"]))
+            except (TypeError, ValueError):
+                offset = 0
+            result = _pending_masternodes_votes(
+                self.client.raw_driver,
+                limit=limit,
+                offset=offset,
+            )
 
         # http://localhost:26657/abci_query?path="/simulate_tx/<encoded_payload>"
         elif path_parts[0] == "simulate_tx":
@@ -238,6 +346,15 @@ async def query(self, req) -> ResponseQuery:
                         after_id = 0
                 except (ValueError, TypeError):
                     after_id = None
+
+            after_note_index = 0
+            if "after_note_index" in params:
+                try:
+                    after_note_index = int(params["after_note_index"])
+                    if after_note_index < 0:
+                        after_note_index = 0
+                except (ValueError, TypeError):
+                    after_note_index = 0
 
             # http://localhost:26657/abci_query?path="/keys/currency.balances"
             if path_parts[0] == "keys":
@@ -303,6 +420,41 @@ async def query(self, req) -> ResponseQuery:
             elif path_parts[0] == "events_for_tx":
                 result = await self.bds.get_events_for_tx(key)
 
+            # http://localhost:26657/abci_query?path="/shielded_output_tags/<tag>/limit=10/offset=20"
+            elif path_parts[0] == "shielded_output_tags":
+                tag_kind = params.get("kind", "sync_hint").strip().lower()
+                if tag_kind not in {"sync_hint", "discovery_tag"}:
+                    tag_kind = "sync_hint"
+                result = {
+                    "available": True,
+                    "items": await self.bds.get_shielded_output_tags(
+                        key,
+                        limit,
+                        offset,
+                        kind=tag_kind,
+                        after_id=after_id,
+                    ),
+                    "limit": limit,
+                    "offset": offset,
+                }
+
+            # http://localhost:26657/abci_query?path="/shielded_wallet_history/0x1234/limit=25/after_note_index=5"
+            elif path_parts[0] == "shielded_wallet_history":
+                tag_kind = params.get("kind", "sync_hint").strip().lower()
+                if tag_kind not in {"sync_hint", "discovery_tag"}:
+                    tag_kind = "sync_hint"
+                result = {
+                    "available": True,
+                    "items": await self.bds.get_shielded_wallet_history(
+                        key,
+                        limit,
+                        after_note_index,
+                        kind=tag_kind,
+                    ),
+                    "limit": limit,
+                    "after_note_index": after_note_index,
+                }
+
             # http://localhost:26657/abci_query?path="/events/<contract>/<event>/limit=10/offset=20"
             elif path_parts[0] == "events":
                 result = await self.bds.get_events(
@@ -325,6 +477,18 @@ async def query(self, req) -> ResponseQuery:
             # http://localhost:26657/abci_query?path="/state/currency.balances"
             elif path_parts[0] == "state":
                 result = await self.bds.get_state(key, limit, offset)
+
+            # http://localhost:26657/abci_query?path="/token_balances/<address>/limit=25/offset=0"
+            elif path_parts[0] == "token_balances":
+                include_zero = params.get(
+                    "include_zero", ""
+                ).strip().lower() in {"1", "true", "yes"}
+                result = await self.bds.get_token_balances(
+                    key,
+                    limit,
+                    offset,
+                    include_zero=include_zero,
+                )
 
             # http://localhost:26657/abci_query?path="/state_history/currency.balances:ee06a34cf08bf72ce592d26d36b90c79daba2829ba9634992d034318160d49f9/limit=10/offset=20"
             elif path_parts[0] == "state_history":

@@ -6,7 +6,15 @@ from xian.rewards import RewardsHandler
 
 class _FakeClient:
     def __init__(
-        self, developers=None, masternodes=None, validator_powers=None, reward_keys=None
+        self,
+        developers=None,
+        masternodes=None,
+        validator_powers=None,
+        reward_keys=None,
+        commission_bps=None,
+        self_bonds=None,
+        delegations=None,
+        delegator_reward_keys=None,
     ):
         developers = developers or {
             "con_parent": "alice",
@@ -15,6 +23,10 @@ class _FakeClient:
         masternodes = masternodes or []
         validator_powers = validator_powers or {}
         reward_keys = reward_keys or {}
+        commission_bps = commission_bps or {}
+        self_bonds = self_bonds or {}
+        delegations = delegations or {}
+        delegator_reward_keys = delegator_reward_keys or {}
         self._values = {
             ("rewards", "S", ("value",)): [
                 Decimal("0"),
@@ -32,6 +44,22 @@ class _FakeClient:
             self._values[("masternodes", "validator_power", (masternode,))] = power
         for masternode, reward_key in reward_keys.items():
             self._values[("masternodes", "reward_keys", (masternode,))] = reward_key
+        for masternode, bps in commission_bps.items():
+            self._values[("masternodes", "commission_bps", (masternode,))] = bps
+        for masternode, amount in self_bonds.items():
+            self._values[("masternodes", "self_bond", (masternode,))] = amount
+        delegator_lists: dict[str, list[str]] = {}
+        for (delegator, masternode), amount in delegations.items():
+            self._values[
+                ("masternodes", "delegations", (delegator, masternode))
+            ] = amount
+            delegator_lists.setdefault(masternode, []).append(delegator)
+        for masternode, delegators in delegator_lists.items():
+            self._values[("masternodes", "delegator_lists", (masternode,))] = delegators
+        for (delegator, masternode), reward_key in delegator_reward_keys.items():
+            self._values[
+                ("masternodes", "delegator_reward_keys", (delegator, masternode))
+            ] = reward_key
 
     def get_var(self, contract, variable, arguments=None):
         args = tuple(arguments or ())
@@ -195,6 +223,55 @@ class RewardsHandlerTests(unittest.TestCase):
 
         self.assertEqual(str(rewards["masternode_reward"]["node1"]), "1")
         self.assertEqual(str(rewards["masternode_reward"]["node2"]), "1")
+
+    def test_build_tx_reward_outputs_splits_validator_rewards_with_commission_and_delegations(
+        self,
+    ):
+        client = _FakeClient(
+            masternodes=["node1"],
+            validator_powers={"node1": Decimal("10")},
+            reward_keys={"node1": "validator-reward"},
+            commission_bps={"node1": 1000},
+            self_bonds={"node1": Decimal("300")},
+            delegations={
+                ("alice", "node1"): Decimal("200"),
+                ("bob", "node1"): Decimal("500"),
+            },
+            delegator_reward_keys={
+                ("alice", "node1"): "alice-reward",
+            },
+        )
+        client._values[("rewards", "S", ("value",))] = [
+            Decimal("0.40"),
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0.60"),
+        ]
+        handler = RewardsHandler(client=client)
+
+        rewards, reward_deltas, reward_records = handler.build_tx_reward_outputs(
+            total_stamps_to_split=100,
+            contract="con_parent",
+        )
+
+        self.assertEqual(
+            str(rewards["masternode_reward"]["validator-reward"]), "0.74"
+        )
+        self.assertEqual(
+            str(rewards["delegator_reward"]["alice-reward"]), "0.36"
+        )
+        self.assertEqual(str(rewards["delegator_reward"]["bob"]), "0.9")
+        self.assertEqual(
+            str(reward_deltas["currency.balances:validator-reward"]), "0.74"
+        )
+        self.assertEqual(
+            str(reward_deltas["currency.balances:alice-reward"]), "0.36"
+        )
+        self.assertEqual(str(reward_deltas["currency.balances:bob"]), "0.9")
+        self.assertEqual(
+            [record["type"] for record in reward_records if "validator_key" in record],
+            ["masternode_reward", "delegator_reward", "delegator_reward"],
+        )
 
 
 if __name__ == "__main__":

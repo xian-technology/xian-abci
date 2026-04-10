@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from xian.simulator import QuerySimulationService, TransactionSimulator
 from xian.utils.block import set_latest_block_nanos
+from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.time import Datetime
 
 
@@ -151,6 +152,48 @@ class SimulatorTests(unittest.TestCase):
                 "registered_at": "2026-03-27 21:57:00",
                 "left_at": None,
             },
+        )
+
+    def test_execute_normalizes_tuple_result_for_abci(self):
+        simulator = object.__new__(TransactionSimulator)
+        simulator.client = SimpleNamespace(
+            raw_driver=SimpleNamespace(
+                pending_writes={},
+                pending_reads={},
+                pending_deltas={},
+                transaction_reads={},
+                transaction_read_prefixes=set(),
+                transaction_writes={},
+                log_events=[],
+            ),
+            get_var=lambda **kwargs: 20,
+        )
+        simulator.executor = SimpleNamespace(
+            execute=lambda **kwargs: {
+                "status_code": 0,
+                "writes": {},
+                "stamps_used": 853,
+                "result": (
+                    1,
+                    ContractingDecimal("0.637954245540464949970792229477"),
+                ),
+            }
+        )
+        simulator._make_environment = lambda payload, block_meta=None: {}
+
+        result = simulator._execute(
+            {
+                "sender": "alice",
+                "contract": "con_ixhelper_demo",
+                "function": "sell",
+                "kwargs": {"amount": 1},
+            }
+        )
+
+        self.assertEqual(result["status"], 0)
+        self.assertEqual(
+            result["result"],
+            [1, "0.637954245540464949970792229477"],
         )
 
 

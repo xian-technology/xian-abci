@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Xian Node</title>
+<script>
+document.documentElement.dataset.route =
+  location.pathname.startsWith("/explorer") ? "explorer" : "dashboard";
+</script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -40,6 +44,8 @@ a:hover{text-decoration:underline}
 .tab{padding:10px 20px;font-size:.85rem;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;user-select:none}
 .tab:hover{color:var(--text2)}
 .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+html[data-route="explorer"] .tab.active{color:var(--text3);border-bottom-color:transparent}
+html[data-route="explorer"] .tab[data-tab="explorer"]{color:var(--accent);border-bottom-color:var(--accent)}
 
 /* ── breadcrumb ── */
 .breadcrumb{padding:12px 0;margin-bottom:16px;font-size:.8rem;color:var(--text3);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -50,6 +56,8 @@ a:hover{text-decoration:underline}
 .main{max-width:1200px;margin:0 auto;padding:24px}
 .section{display:none}
 .section.active{display:block}
+html[data-route="explorer"] #section-dashboard{display:none}
+html[data-route="explorer"] #section-explorer{display:block}
 
 /* ── stat cards ── */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
@@ -150,6 +158,7 @@ tr.clickable{cursor:pointer}
 /* ── validator ── */
 #validator-set{display:flex;flex-direction:column;gap:16px;height:100%}
 .validator-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:0}
+.validator-summary.panel-summary{margin-bottom:20px}
 .validator-metric{padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius)}
 .validator-metric-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:4px}
 .validator-metric-value{font-size:.95rem;font-family:var(--mono);word-break:break-all}
@@ -255,6 +264,23 @@ tr.clickable{cursor:pointer}
       </div>
     </div>
 
+    <div class="monitor-grid">
+      <div class="card">
+        <div class="card-header">Local Validator</div>
+        <div class="card-body" id="local-validator"><div class="empty"><span class="loading"></span> Loading...</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Validator Policy</div>
+        <div class="card-body" id="validator-policy"><div class="empty"><span class="loading"></span> Loading...</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Open Validator Votes</div>
+      <div class="card-body" id="validator-votes"><div class="empty"><span class="loading"></span> Loading...</div></div>
+    </div>
+
     <div class="card">
       <div class="card-header">P2P Peers</div>
       <div class="card-body" id="peers-info"><div class="empty"><span class="loading"></span> Loading...</div></div>
@@ -353,6 +379,7 @@ const WS_MAX_DELAY = 30000;
 let latestStatusSnapshot = null;
 let latestNetInfoSnapshot = null;
 let latestValidatorsSnapshot = null;
+let latestValidatorDashboardSnapshot = null;
 let latestMonitoringSnapshot = null;
 let lastRefreshAt = null;
 let explorerView = "blocks";
@@ -414,6 +441,16 @@ function fmtBytes(value){
   }
   const digits = size >= 100 ? 0 : size >= 10 ? 1 : 2;
   return size.toFixed(digits)+" "+units[unit];
+}
+function fmtBool(value){
+  return value ? "Yes" : "No";
+}
+function fmtBps(value){
+  if(value === null || value === undefined) return "\u2014";
+  const n = Number(value);
+  if(!Number.isFinite(n)) return escHtml(String(value));
+  const percent = n / 100;
+  return n.toLocaleString()+" bps ("+percent.toLocaleString(undefined,{maximumFractionDigits:2})+"%)";
 }
 function escHtml(s){
   if(!s) return "";
@@ -612,6 +649,8 @@ async function apiForRpc(path, rpcUrl){
 
 /* ── navigation ── */
 function switchToTab(tabName){
+  document.documentElement.dataset.route =
+    tabName === "explorer" ? "explorer" : "dashboard";
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
   document.querySelectorAll(".section").forEach(x=>x.classList.remove("active"));
   document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add("active");
@@ -623,6 +662,37 @@ function explorerListPath(){
   if(explorerView === "addresses") return "/explorer/addresses";
   if(explorerView === "events") return "/explorer/events";
   return "/explorer";
+}
+
+function routeStateFromPath(path){
+  const currentPath = path || "/";
+  const detailMatch = currentPath.match(/^\/explorer\/(block|tx|contract|address)\/(.+)$/);
+  if(detailMatch){
+    return {
+      view: detailMatch[1],
+      id: decodeURIComponent(detailMatch[2]),
+      explorerView: detailMatch[1] === "address" ? "addresses" : "blocks",
+    };
+  }
+  if(currentPath === "/explorer/contracts"){
+    return {view: "list", id: null, explorerView: "contracts"};
+  }
+  if(currentPath === "/explorer/addresses"){
+    return {view: "list", id: null, explorerView: "addresses"};
+  }
+  if(currentPath === "/explorer/events"){
+    return {view: "list", id: null, explorerView: "events"};
+  }
+  if(currentPath === "/explorer"){
+    return {view: "list", id: null, explorerView: "blocks"};
+  }
+  return {view: "home", id: null, explorerView: "blocks"};
+}
+
+function applyRouteState(route){
+  const nextRoute = route || {view: "home", id: null, explorerView: "blocks"};
+  explorerView = nextRoute.explorerView || "blocks";
+  navigateTo(nextRoute.view || "home", nextRoute.id, false);
 }
 
 function setExplorerView(view, pushState){
@@ -677,7 +747,7 @@ window.navigateTo = navigateTo;
 window.addEventListener("popstate", function(e){
   const s = e.state;
   if(s) navigateTo(s.view, s.id, false);
-  else navigateTo("home", null, false);
+  else applyRouteState(routeStateFromPath(location.pathname));
 });
 
 function showDetail(html, opts){
@@ -708,7 +778,145 @@ function nodeInfoHtml(nodeInfo, syncInfo){
     '<div class="data-row"><span class="data-key">Latest Hash</span><span class="data-val">'+copyableHashValue(syncInfo.latest_block_hash,{left:8,right:8})+'</span></div>'+
     '<div class="data-row"><span class="data-key">Block Time</span><span class="data-val">'+copyableValue(fmtTime(syncInfo.latest_block_time),{left:18,right:10})+'</span></div>'+
     '<div class="data-row"><span class="data-key">Earliest Block</span><span class="data-val">'+copyableValue(syncInfo.earliest_block_height||"\u2014",{left:12,right:8})+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Catching Up</span><span class="data-val">'+escHtml(syncInfo.catching_up ? "Yes" : "No")+'</span></div>';
+    '<div class="data-row"><span class="data-key">Catching Up</span><span class="data-val">'+escHtml(fmtBool(syncInfo.catching_up))+'</span></div>';
+}
+
+function renderLocalValidator(){
+  const container = $("local-validator");
+  if(!container) return;
+
+  const snapshot = latestValidatorDashboardSnapshot || {};
+  const localAccount = snapshot.local_account || null;
+  const validator = snapshot.local_validator || null;
+  const pendingUnbonds = Array.isArray(snapshot.local_pending_unbonds)
+    ? snapshot.local_pending_unbonds
+    : [];
+
+  if(!localAccount){
+    container.innerHTML = '<div class="empty">Validator identity is unavailable for this RPC target</div>';
+    return;
+  }
+
+  if(!validator){
+    container.innerHTML =
+      '<div class="data-row"><span class="data-key">Validator Account</span><span class="data-val">'+copyableHashValue(localAccount,{left:10,right:8})+'</span></div>'+
+      '<div class="summary-meta" style="margin-top:14px">This node exposes a validator key but is not registered in the masternodes contract.</div>';
+    return;
+  }
+
+  const statusText = [
+    validator.status || "\u2014",
+    validator.active ? "active set" : "inactive",
+    validator.jailed ? "jailed" : null,
+  ].filter(Boolean).join(" \u00b7 ");
+  const validatorMoniker = validator.moniker || "";
+  const showRewardKey = validator.reward_key && validator.reward_key !== localAccount;
+  const showJailReason = !!(validator.jail_reason || "").trim();
+  const showPendingLeave = !!validator.pending_leave_at;
+  const totalSlashed = String(validator.total_slashed ?? 0);
+  const showTotalSlashed = totalSlashed !== "0";
+
+  container.innerHTML =
+    '<div class="validator-summary panel-summary">'+
+      '<div class="validator-metric"><div class="validator-metric-label">Total Bond</div><div class="validator-metric-value">'+escHtml(String(validator.total_bond ?? "\u2014"))+'</div></div>'+
+      '<div class="validator-metric"><div class="validator-metric-label">Self Bond</div><div class="validator-metric-value">'+escHtml(String(validator.self_bond ?? "\u2014"))+'</div></div>'+
+      '<div class="validator-metric"><div class="validator-metric-label">Pending Unbonds</div><div class="validator-metric-value">'+escHtml(String(pendingUnbonds.length))+'</div></div>'+
+    '</div>'+
+    '<div class="data-row"><span class="data-key">Validator Account</span><span class="data-val">'+copyableHashValue(localAccount,{left:10,right:8})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Status</span><span class="data-val">'+escHtml(statusText)+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Power</span><span class="data-val">'+escHtml(String(validator.power ?? "\u2014"))+' / requested '+escHtml(String(validator.requested_power ?? "\u2014"))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Delegated Stake</span><span class="data-val">'+escHtml(String(validator.total_delegated ?? "\u2014"))+' from '+escHtml(String(validator.delegator_count ?? 0))+' delegators</span></div>'+
+    '<div class="data-row"><span class="data-key">Commission</span><span class="data-val">'+fmtBps(validator.commission_bps)+'</span></div>'+
+    (showRewardKey
+      ? '<div class="data-row"><span class="data-key">Reward Key</span><span class="data-val">'+addressLink(validator.reward_key,{left:14,right:10})+'</span></div>'
+      : ''
+    )+
+    '<div class="data-row"><span class="data-key">Registered Endpoint</span><span class="data-val">'+copyableValue(validator.network_endpoint||"\u2014",{left:18,right:12})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Registered Moniker</span><span class="data-val">'+copyableValue(validatorMoniker||"\u2014",{left:16,right:10})+'</span></div>'+
+    (showJailReason
+      ? '<div class="data-row"><span class="data-key">Jail Reason</span><span class="data-val">'+escHtml(validator.jail_reason)+'</span></div>'
+      : ''
+    )+
+    (showPendingLeave
+      ? '<div class="data-row"><span class="data-key">Pending Leave</span><span class="data-val">'+copyableValue(validator.pending_leave_at,{left:18,right:10})+'</span></div>'
+      : ''
+    )+
+    (showTotalSlashed
+      ? '<div class="data-row"><span class="data-key">Total Slashed</span><span class="data-val">'+escHtml(totalSlashed)+'</span></div>'
+      : ''
+    );
+}
+
+function renderValidatorPolicy(){
+  const container = $("validator-policy");
+  if(!container) return;
+
+  const snapshot = latestValidatorDashboardSnapshot || {};
+  const policy = snapshot.policy || null;
+  const activeValidators = Array.isArray(snapshot.active_validators) ? snapshot.active_validators : [];
+  const pendingCandidates = Array.isArray(snapshot.pending_candidates) ? snapshot.pending_candidates : [];
+  const openVotes = Array.isArray(snapshot.open_votes) ? snapshot.open_votes : [];
+
+  if(!policy){
+    container.innerHTML = '<div class="empty">Validator policy is unavailable</div>';
+    return;
+  }
+
+  container.innerHTML =
+    '<div class="validator-summary panel-summary">'+
+      '<div class="validator-metric"><div class="validator-metric-label">Active</div><div class="validator-metric-value">'+escHtml(String(activeValidators.length))+'</div></div>'+
+      '<div class="validator-metric"><div class="validator-metric-label">Candidates</div><div class="validator-metric-value">'+escHtml(String(pendingCandidates.length))+'</div></div>'+
+      '<div class="validator-metric"><div class="validator-metric-label">Open Votes</div><div class="validator-metric-value">'+escHtml(String(openVotes.length))+'</div></div>'+
+    '</div>'+
+    '<div class="data-row"><span class="data-key">Selection Mode</span><span class="data-val">'+escHtml(policy.selection_mode || "\u2014")+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Max Validators</span><span class="data-val">'+escHtml(String(policy.max_validators ?? "\u2014"))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Power Mode</span><span class="data-val">'+escHtml(policy.power_mode || "\u2014")+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Rebalance Interval</span><span class="data-val">'+escHtml(String(policy.rebalance_interval ?? "\u2014"))+' blocks</span></div>'+
+    '<div class="data-row"><span class="data-key">Activation Delay</span><span class="data-val">'+escHtml(String(policy.activation_delay_epochs ?? "\u2014"))+' epochs</span></div>'+
+    '<div class="data-row"><span class="data-key">Unbonding Period</span><span class="data-val">'+escHtml(String(policy.unbonding_period_days ?? "\u2014"))+' days</span></div>'+
+    '<div class="data-row"><span class="data-key">Min Self Bond</span><span class="data-val">'+escHtml(String(policy.min_self_bond ?? "\u2014"))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Min Total Bond</span><span class="data-val">'+escHtml(String(policy.min_total_bond ?? "\u2014"))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Max Commission</span><span class="data-val">'+fmtBps(policy.max_commission_bps)+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Max Set Churn</span><span class="data-val">'+escHtml(String(policy.max_active_set_churn ?? "\u2014"))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Entry Margin</span><span class="data-val">'+fmtBps(policy.min_bond_margin_bps)+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Manual Override</span><span class="data-val">'+escHtml(fmtBool(policy.manual_override_enabled))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Slash Destination</span><span class="data-val">'+copyableValue(policy.slash_destination || "\u2014",{left:14,right:10})+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Duplicate Vote</span><span class="data-val">'+fmtBps(policy.duplicate_vote_slash_bps)+' / '+escHtml(fmtBool(policy.duplicate_vote_jail))+' jail</span></div>'+
+    '<div class="data-row"><span class="data-key">Light Client Attack</span><span class="data-val">'+fmtBps(policy.light_client_attack_slash_bps)+' / '+escHtml(fmtBool(policy.light_client_attack_jail))+' jail</span></div>';
+}
+
+function renderValidatorVotes(){
+  const container = $("validator-votes");
+  if(!container) return;
+
+  const snapshot = latestValidatorDashboardSnapshot || {};
+  const localAccount = snapshot.local_account || null;
+  const votes = Array.isArray(snapshot.open_votes) ? snapshot.open_votes : [];
+
+  if(!votes.length){
+    container.innerHTML = '<div class="empty">No open validator votes</div>';
+    return;
+  }
+
+  let html = '<table><thead><tr><th>ID</th><th>Type</th><th>Argument</th><th>Yes</th><th>No</th><th>Need</th><th>Expires</th><th>You</th></tr></thead><tbody>';
+  votes.forEach(vote=>{
+    const voters = Array.isArray(vote.voters) ? vote.voters : [];
+    const voted = localAccount ? voters.includes(localAccount) : false;
+    const argText = compactText(vote.arg, 72);
+    html += '<tr>'+
+      '<td>'+escHtml(String(vote.proposal_id ?? "\u2014"))+'</td>'+
+      '<td>'+escHtml(vote.type || "\u2014")+'</td>'+
+      '<td title="'+escHtml(typeof vote.arg === "string" ? vote.arg : JSON.stringify(vote.arg))+'">'+escHtml(argText)+'</td>'+
+      '<td>'+escHtml(String(vote.yes_weight ?? 0))+' ('+escHtml(String(vote.yes ?? 0))+')</td>'+
+      '<td>'+escHtml(String(vote.no_weight ?? 0))+' ('+escHtml(String(vote.no ?? 0))+')</td>'+
+      '<td>'+escHtml(String(vote.required_yes_weight ?? "\u2014"))+' ('+escHtml(String(vote.required_yes_votes ?? "\u2014"))+')</td>'+
+      '<td>'+copyableValue(vote.expiry || "\u2014",{left:16,right:10})+'</td>'+
+      '<td>'+escHtml(voted ? "voted" : "\u2014")+'</td>'+
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  html += '<div class="summary-meta">Counts are shown as voting weight with raw vote count in parentheses.</div>';
+  container.innerHTML = html;
 }
 
 function knownDashboardTargets(){
@@ -970,6 +1178,28 @@ function renderExecutionHealth(monitoring){
   const latestMeta = latestBlock && latestBlock.metadata ? latestBlock.metadata : {};
   const globalMetrics = snapshot.global_metrics || {};
   const unconfirmed = monitoring && monitoring.unconfirmed_txs ? monitoring.unconfirmed_txs : {};
+  const parallelConfigured = !!snapshot.parallel_execution_enabled;
+  const parallelWorkers = snapshot.parallel_execution_workers;
+  const parallelMinTransactions = snapshot.parallel_execution_min_transactions;
+
+  let parallelSummary = 'disabled';
+  if(parallelConfigured){
+    parallelSummary = 'activated';
+    if(latestMeta.parallel_enabled){
+      parallelSummary += ' · '+
+        `${latestMeta.parallel_speculative_accepted ?? 0} accepted / `+
+        `${latestMeta.parallel_serial_prefiltered ?? 0} prefiltered / `+
+        `${latestMeta.parallel_serial_fallbacks ?? 0} fallback`;
+    } else if(parallelWorkers != null || parallelMinTransactions != null){
+      const parts = [];
+      if(parallelWorkers != null) parts.push(`${parallelWorkers} workers`);
+      if(parallelMinTransactions != null) parts.push(`min ${parallelMinTransactions} tx`);
+      if(parts.length){
+        parallelSummary += ' · ' + parts.join(' · ');
+      }
+      parallelSummary += ' · waiting for eligible block';
+    }
+  }
 
   $("execution-health").innerHTML =
     '<div class="data-row"><span class="data-key">Tracer</span><span class="data-val">'+escHtml(snapshot.tracer_mode||"\u2014")+'</span></div>'+
@@ -980,11 +1210,7 @@ function renderExecutionHealth(monitoring){
     '<div class="data-row"><span class="data-key">Finalize Avg</span><span class="data-val">'+fmtMs(globalMetrics.finalize_block ? globalMetrics.finalize_block.avg_ms : null)+'</span></div>'+
     '<div class="data-row"><span class="data-key">Tx Process Avg</span><span class="data-val">'+fmtMs(globalMetrics.tx_process_total ? globalMetrics.tx_process_total.avg_ms : null)+'</span></div>'+
     '<div class="data-row"><span class="data-key">Tx Execute Avg</span><span class="data-val">'+fmtMs(globalMetrics.tx_execute ? globalMetrics.tx_execute.avg_ms : null)+'</span></div>'+
-    '<div class="data-row"><span class="data-key">Parallel</span><span class="data-val">'+(
-      latestMeta.parallel_enabled
-        ? `${latestMeta.parallel_speculative_accepted ?? 0} accepted / ${latestMeta.parallel_serial_fallbacks ?? 0} fallback`
-        : 'disabled'
-    )+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Parallel</span><span class="data-val">'+escHtml(parallelSummary)+'</span></div>'+
     '<div class="data-row"><span class="data-key">Last Block Loop</span><span class="data-val">'+fmtMs(latestMetrics.finalize_tx_loop ? latestMetrics.finalize_tx_loop.total_ms : null)+'</span></div>'+
     (
       perf.enabled
@@ -1075,6 +1301,23 @@ function renderValidatorSet(){
         ? '<div class="summary-meta">Showing the full validator set in a scrollable panel so the overview row stays compact.</div>'
         : ''
     );
+}
+
+async function refreshValidatorDashboard(){
+  const snapshot = await api("validator_dashboard");
+  if(snapshot.error){
+    latestValidatorDashboardSnapshot = null;
+    $("local-validator").innerHTML = '<div class="empty">Validator contract data is unavailable</div>';
+    $("validator-policy").innerHTML = '<div class="empty">Validator contract data is unavailable</div>';
+    $("validator-votes").innerHTML = '<div class="empty">Validator contract data is unavailable</div>';
+    return;
+  }
+
+  latestValidatorDashboardSnapshot = snapshot;
+  markRefreshed();
+  renderLocalValidator();
+  renderValidatorPolicy();
+  renderValidatorVotes();
 }
 
 async function refreshMonitoring(){
@@ -2007,6 +2250,7 @@ async function refreshSlowData(){
 
   await refreshValidatorTargets();
   renderValidatorSet();
+  await refreshValidatorDashboard();
 }
 
 /* ── periodic time-ago refresh ── */
@@ -2026,40 +2270,29 @@ function refreshTimeAgo(){
 /* ── init ── */
 async function init(){
   const pageUrl = new URL(location.href);
+  setSelectedRpc(normalizeRpcUrl(pageUrl.searchParams.get("rpc")));
+  const initialRoute = routeStateFromPath(pageUrl.pathname);
+  applyRouteState(initialRoute);
   const config = await api("config");
   defaultRpcUrl = normalizeRpcUrl(config.default_rpc_url);
-  setSelectedRpc(normalizeRpcUrl(pageUrl.searchParams.get("rpc")));
   if(defaultRpcUrl && selectedRpc === defaultRpcUrl){
     setSelectedRpc(null);
   }
-  explorerView = pageUrl.pathname === "/explorer/contracts"
-    ? "contracts"
-    : pageUrl.pathname === "/explorer/addresses"
-      ? "addresses"
-      : pageUrl.pathname === "/explorer/events"
-        ? "events"
-        : "blocks";
   $("contracts-sort").value = explorerContractSort;
   $("contracts-order").value = explorerContractOrder;
+  history.replaceState(
+    {view: initialRoute.view, id: initialRoute.id},
+    "",
+    withCurrentRpc(pageUrl.pathname),
+  );
   /* full initial load */
   await refreshDashboard();
+  await refreshValidatorDashboard();
   await refreshMonitoring();
   /* switch to WebSocket for blocks + slow poll for the rest */
   connectWS();
   startPollingLoops();
   setInterval(refreshTimeAgo, 5000);
-
-  /* handle deep-link URL */
-  const path = location.pathname;
-  const detailMatch = path.match(/^\/explorer\/(block|tx|contract|address)\/(.+)$/);
-  if(detailMatch){
-    if(detailMatch[1] === "address") explorerView = "addresses";
-    navigateTo(detailMatch[1], decodeURIComponent(detailMatch[2]), false);
-  } else if(path === "/explorer" || path === "/explorer/contracts" || path === "/explorer/addresses" || path === "/explorer/events"){
-    navigateTo("list", null, false);
-  } else {
-    history.replaceState({view:"home"}, "", withCurrentRpc("/"));
-  }
 }
 init();
 })();

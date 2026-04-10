@@ -413,6 +413,90 @@ blocks_to_keep = 100000
                 str(home / "config" / "genesis.json"),
             )
 
+    def test_configure_existing_home_accepts_genesis_payload(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            home = tmp_path / ".cometbft"
+            config_path = home / "config" / "config.toml"
+            config_path.parent.mkdir(parents=True)
+
+            existing_config = load_toml_string(
+                """
+version = "0.38.21"
+proxy_app = "unix:///tmp/abci.sock"
+moniker = "initial-node"
+db_backend = "goleveldb"
+db_dir = "data"
+log_level = "info"
+log_format = "plain"
+genesis_file = "config/genesis.json"
+priv_validator_key_file = "config/priv_validator_key.json"
+priv_validator_state_file = "data/priv_validator_state.json"
+node_key_file = "config/node_key.json"
+abci = "socket"
+filter_peers = false
+
+[rpc]
+laddr = "tcp://127.0.0.1:26657"
+cors_allowed_origins = ["*"]
+
+[p2p]
+laddr = "tcp://0.0.0.0:26656"
+seeds = ""
+
+[consensus]
+create_empty_blocks = false
+create_empty_blocks_interval = "0s"
+
+[instrumentation]
+prometheus = false
+
+[xian]
+block_service_mode = false
+pruning_enabled = false
+blocks_to_keep = 100000
+""".strip()
+            )
+            write_toml(config_path, existing_config)
+
+            genesis_payload = {
+                "chain_id": "xian-preset-1",
+                "validators": [
+                    {
+                        "address": "ABC",
+                        "pub_key": {
+                            "type": "tendermint/PubKeyEd25519",
+                            "value": "pub",
+                        },
+                        "power": "10",
+                        "name": "",
+                    }
+                ],
+                "abci_genesis": {
+                    "hash": "abc",
+                    "number": "0",
+                    "genesis": [],
+                    "origin": {"sender": "", "signature": ""},
+                },
+            }
+
+            result = configure_existing_home(
+                home=home,
+                moniker="updated-node",
+                validator_private_key_hex=None,
+                copy_genesis=True,
+                genesis_payload=genesis_payload,
+            )
+
+            rendered_genesis = json.loads(
+                (home / "config" / "genesis.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(rendered_genesis, genesis_payload)
+            self.assertEqual(
+                result["genesis_path"],
+                str(home / "config" / "genesis.json"),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

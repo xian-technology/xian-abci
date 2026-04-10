@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 from loguru import logger
@@ -7,6 +8,7 @@ from cometbft.abci.v1beta3.types_pb2 import ExecTxResult, ResponseFinalizeBlock
 from xian.app_logging import build_log_fields
 from xian.constants import Constants as c
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
+from xian.shielded_preverify import warm_shielded_proof_cache
 from xian.utils.block import (
     convert_cometbft_time_to_datetime,
     get_latest_block_hash,
@@ -14,17 +16,24 @@ from xian.utils.block import (
 )
 from xian.utils.encoding import (
     convert_binary_to_hex,
-    decode_transaction_bytes,
     encode_abci_json,
     hash_bytes,
+    stringify_decimals,
 )
 from xian.utils.hash import hash_from_rewards, hash_list
 from xian.utils.tx import (
     SequentialNonceTracker,
-    validate_consensus_transaction,
+    decode_and_validate_transaction_static_bytes,
+    validate_consensus_transaction_after_static,
 )
 
 STATE_CHANGE_TRANSLATION_TABLE = str.maketrans({".": "_", ":": "__"})
+SYSTEM_REBALANCE_SENDER = "__validator_epoch_driver__"
+SYSTEM_EVIDENCE_SENDER = "__evidence_penalty_driver__"
+MISBEHAVIOR_TYPE_NAMES = {
+    1: "DUPLICATE_VOTE",
+    2: "LIGHT_CLIENT_ATTACK",
+}
 
 
 def _error_tx_result(message: str, **log_context) -> ExecTxResult:
@@ -34,6 +43,230 @@ def _error_tx_result(message: str, **log_context) -> ExecTxResult:
         data=json.dumps({"error": message}).encode(),
         gas_used=0,
     )
+
+
+def _safe_positive_int(value, default: int) -> int:
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        return default
+    if normalized <= 0:
+        return default
+    return normalized
+
+
+def _validator_consensus_address(pubkey_hex: str) -> bytes | None:
+    try:
+        return hashlib.sha256(bytes.fromhex(pubkey_hex)).digest()[:20]
+    except ValueError:
+        return None
+
+
+def _resolve_misbehaving_validator_key(
+    self, validator_address: bytes
+) -> str | None:
+    if not validator_address:
+        return None
+    known_validators = (
+        self.client.raw_driver.get(
+            "masternodes.validator_registry",
+            save=False,
+        )
+        or self.client.raw_driver.get("masternodes.nodes", save=False)
+        or []
+    )
+    for validator_key in known_validators:
+        consensus_address = _validator_consensus_address(validator_key)
+        if consensus_address == validator_address:
+            return validator_key
+    return None
+
+
+def _misbehavior_type_name(raw_type: int) -> str | None:
+    return MISBEHAVIOR_TYPE_NAMES.get(int(raw_type))
+
+
+def _misbehavior_evidence_id(misbehavior, validator_key: str) -> str:
+    evidence_time = getattr(misbehavior, "time", None)
+    seconds = getattr(evidence_time, "seconds", 0)
+    nanos = getattr(evidence_time, "nanos", 0)
+    validator_address = bytes(getattr(misbehavior.validator, "address", b""))
+    raw_evidence_id = (
+        f"{_misbehavior_type_name(misbehavior.type)}:{validator_key}:"
+        f"{validator_address.hex()}:{misbehavior.height}:"
+        f"{seconds}:{nanos}:{misbehavior.total_voting_power}"
+    )
+    return hashlib.sha256(raw_evidence_id.encode("utf-8")).hexdigest()
+
+
+def _maybe_apply_evidence_penalties(self, req, *, height: int):
+    misbehavior_entries = list(getattr(req, "misbehavior", []) or [])
+    if len(misbehavior_entries) == 0:
+        return False
+
+    any_applied = False
+    for misbehavior in misbehavior_entries:
+        infraction_type = _misbehavior_type_name(misbehavior.type)
+        if infraction_type is None:
+            logger.bind(
+                **build_log_fields(
+                    stage="finalize_evidence",
+                    block_height=height,
+                    block_hash=self.current_block_meta["hash"],
+                    extra={"misbehavior_type": int(misbehavior.type)},
+                )
+            ).warning("Ignoring unsupported validator misbehavior type")
+            continue
+
+        validator_key = _resolve_misbehaving_validator_key(
+            self,
+            bytes(misbehavior.validator.address),
+        )
+        if validator_key is None:
+            logger.bind(
+                **build_log_fields(
+                    stage="finalize_evidence",
+                    block_height=height,
+                    block_hash=self.current_block_meta["hash"],
+                    extra={
+                        "misbehavior_type": infraction_type,
+                        "validator_address": bytes(
+                            misbehavior.validator.address
+                        ).hex(),
+                    },
+                )
+            ).warning(
+                "Could not resolve validator key for misbehavior evidence"
+            )
+            continue
+
+        evidence_id = _misbehavior_evidence_id(misbehavior, validator_key)
+        evidence_tx = {
+            "payload": {
+                "sender": SYSTEM_EVIDENCE_SENDER,
+                "contract": "masternodes",
+                "function": "apply_evidence_penalty",
+                "kwargs": {
+                    "member": validator_key,
+                    "infraction_type": infraction_type,
+                    "evidence_id": evidence_id,
+                    "evidence_height": misbehavior.height,
+                },
+                "stamps_supplied": 0,
+            },
+            "metadata": {
+                "signature": f"evidence-penalty:{evidence_id}",
+            },
+            "b_meta": self.current_block_meta,
+        }
+        result = self.tx_processor.process_tx(
+            evidence_tx,
+            enabled_fees=False,
+            rewards_handler=None,
+            track_access=False,
+        )
+        tx_result = result.get("tx_result")
+        if tx_result is None or tx_result.get("status") != 0:
+            logger.bind(
+                **build_log_fields(
+                    stage="finalize_evidence",
+                    block_height=height,
+                    block_hash=self.current_block_meta["hash"],
+                    status=(tx_result or {}).get("status"),
+                    extra={
+                        "misbehavior_type": infraction_type,
+                        "validator_key": validator_key,
+                    },
+                )
+            ).warning("Evidence penalty did not apply")
+            continue
+
+        state_write_count = len(tx_result.get("state", []))
+        if state_write_count > 0:
+            self.fingerprint_hashes.append(
+                hash_bytes(encode_abci_json(tx_result))
+            )
+            any_applied = True
+            logger.bind(
+                **build_log_fields(
+                    stage="finalize_evidence",
+                    block_height=height,
+                    block_hash=self.current_block_meta["hash"],
+                    extra={
+                        "misbehavior_type": infraction_type,
+                        "validator_key": validator_key,
+                        "state_write_count": state_write_count,
+                    },
+                )
+            ).info("Applied validator evidence penalty")
+
+    return any_applied
+
+
+def _maybe_run_validator_epoch_rebalance(self, *, height: int):
+    driver = self.client.raw_driver
+    selection_mode = driver.get("masternodes.config:selection_mode", save=False)
+    if selection_mode in (None, "manual"):
+        return None, False
+
+    rebalance_interval = _safe_positive_int(
+        driver.get("masternodes.config:rebalance_interval", save=False),
+        1,
+    )
+    current_epoch = height // rebalance_interval
+    last_rebalance_epoch = driver.get(
+        "masternodes.last_rebalance_epoch",
+        save=False,
+    )
+    if (
+        last_rebalance_epoch is not None
+        and current_epoch <= last_rebalance_epoch
+    ):
+        return None, False
+
+    rebalance_tx = {
+        "payload": {
+            "sender": SYSTEM_REBALANCE_SENDER,
+            "contract": "masternodes",
+            "function": "rebalance",
+            "kwargs": {},
+            "stamps_supplied": 0,
+        },
+        "metadata": {
+            "signature": f"validator-epoch-rebalance:{height}",
+        },
+        "b_meta": self.current_block_meta,
+    }
+    result = self.tx_processor.process_tx(
+        rebalance_tx,
+        enabled_fees=False,
+        rewards_handler=None,
+        track_access=False,
+    )
+    tx_result = result.get("tx_result")
+    if tx_result is None or tx_result.get("status") != 0:
+        logger.bind(
+            **build_log_fields(
+                stage="finalize_epoch_rebalance",
+                block_height=height,
+                block_hash=self.current_block_meta["hash"],
+                status=(tx_result or {}).get("status"),
+            )
+        ).warning("Automatic epoch rebalance did not apply")
+        return tx_result, False
+
+    self.fingerprint_hashes.append(hash_bytes(encode_abci_json(tx_result)))
+    logger.bind(
+        **build_log_fields(
+            stage="finalize_epoch_rebalance",
+            block_height=height,
+            block_hash=self.current_block_meta["hash"],
+            extra={
+                "state_write_count": len(tx_result.get("state", [])),
+            },
+        )
+    ).info("Applied automatic validator epoch rebalance")
+    return tx_result, len(tx_result.get("state", [])) > 0
 
 
 async def finalize_block(self, req) -> ResponseFinalizeBlock:
@@ -68,7 +301,10 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
     with self.profiler.scope("finalize_decode", block_scoped=True):
         for tx_bytes in req.txs:
             try:
-                tx, _ = decode_transaction_bytes(tx_bytes)
+                tx = decode_and_validate_transaction_static_bytes(
+                    tx_bytes,
+                    chain_id=self.chain_id,
+                )
             except Exception as e:
                 decoded_entries.append(
                     {
@@ -85,9 +321,8 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 continue
 
             try:
-                validate_consensus_transaction(
+                validate_consensus_transaction_after_static(
                     tx,
-                    chain_id=self.chain_id,
                     nonce_tracker=nonce_tracker,
                 )
             except Exception as e:
@@ -125,6 +360,23 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         )
     ).info("Finished block transaction validation")
     processed_results = None
+    if not self.parallel_block_executor.is_enabled_for_batch(len(decoded_txs)):
+        with self.profiler.scope(
+            "finalize_shielded_preverify", block_scoped=True
+        ):
+            shielded_preverify_stats = warm_shielded_proof_cache(
+                driver=self.tx_processor.client.raw_driver,
+                txs=decoded_txs,
+            )
+        self.profiler.set_block_metadata(
+            shielded_preverify_candidates=(
+                shielded_preverify_stats.candidate_count
+            ),
+            shielded_preverify_verified=(
+                shielded_preverify_stats.verified_count
+            ),
+            shielded_preverify_failed=shielded_preverify_stats.failed_count,
+        )
 
     with self.profiler.scope("finalize_parallel", block_scoped=True):
         parallel_execution = self.parallel_block_executor.execute(
@@ -142,7 +394,11 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
             parallel_planned_parallelizable_transactions=(
                 parallel_stats.planned_parallelizable_transactions
             ),
+            parallel_speculative_wave_count=(
+                parallel_stats.speculative_wave_count
+            ),
             parallel_speculative_accepted=parallel_stats.speculative_accepted,
+            parallel_serial_prefiltered=parallel_stats.serial_prefiltered,
             parallel_serial_fallbacks=parallel_stats.serial_fallbacks,
         )
         logger.bind(
@@ -155,6 +411,10 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         parallel_stats.speculative_accepted
                     ),
                     "decoded_tx_count": len(decoded_txs),
+                    "speculative_wave_count": (
+                        parallel_stats.speculative_wave_count
+                    ),
+                    "serial_prefiltered": parallel_stats.serial_prefiltered,
                     "serial_fallbacks": parallel_stats.serial_fallbacks,
                     "planned_stage_count": (parallel_stats.planned_stage_count),
                     "worker_count": parallel_stats.worker_count,
@@ -302,7 +562,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         attrs.append(
                             EventAttribute(
                                 key=str(key),
-                                value=str(value),
+                                value=str(stringify_decimals(value)),
                                 index=True,
                             )
                         )
@@ -310,7 +570,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         attrs.append(
                             EventAttribute(
                                 key=str(key),
-                                value=str(value),
+                                value=str(stringify_decimals(value)),
                                 index=False,
                             )
                         )
@@ -348,6 +608,21 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         tx_result=tx_result,
                     )
                 )
+
+    evidence_penalty_applied = False
+    with self.profiler.scope("finalize_evidence", block_scoped=True):
+        evidence_penalty_applied = _maybe_apply_evidence_penalties(
+            self,
+            req,
+            height=height,
+        )
+
+    automatic_rebalance_applied = False
+    with self.profiler.scope("finalize_epoch_rebalance", block_scoped=True):
+        _, automatic_rebalance_applied = _maybe_run_validator_epoch_rebalance(
+            self,
+            height=height,
+        )
 
     if self.static_rewards:
         with self.profiler.scope("finalize_rewards", block_scoped=True):
@@ -406,7 +681,12 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         # Otherwise, compute a new hash from the fingerprint hashes.
         self.merkle_root_hash = (
             latest_block_hash
-            if (len(req.txs) == 0 and not state_patch_applied)
+            if (
+                len(req.txs) == 0
+                and not state_patch_applied
+                and not evidence_penalty_applied
+                and not automatic_rebalance_applied
+            )
             else hash_list(self.fingerprint_hashes)
         )
 

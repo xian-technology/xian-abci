@@ -877,6 +877,7 @@ dependencies = [
 
 [package.optional-dependencies]
 native = [
+    { name = "xian-tech-fastpath-core" },
     { name = "xian-tech-native-tracer" },
 ]
 
@@ -893,11 +894,12 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.13.0,<4" },
     { name = "asyncpg", specifier = ">=0.30.0,<0.32" },
     { name = "loguru", specifier = ">=0.7.3,<0.8" },
-    { name = "prometheus-client", specifier = ">=0.22.1,<0.23" },
+    { name = "prometheus-client", specifier = ">=0.22.1,<0.25" },
     { name = "protobuf", specifier = "==7.34.1" },
     { name = "pynacl", specifier = ">=1.6.2,<2" },
     { name = "xian-tech-accounts", editable = "../xian-contracting/packages/xian-accounts" },
     { name = "xian-tech-contracting", editable = "../xian-contracting" },
+    { name = "xian-tech-fastpath-core", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-fastpath-core" },
     { name = "xian-tech-native-tracer", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-native-tracer" },
     { name = "xian-tech-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
 ]
@@ -924,7 +926,7 @@ requires-dist = [{ name = "pynacl", specifier = ">=1.5.0,<2" }]
 
 [[package]]
 name = "xian-tech-contracting"
-version = "1.0.1"
+version = "1.0.3"
 source = { editable = "../xian-contracting" }
 dependencies = [
     { name = "autopep8" },
@@ -938,8 +940,9 @@ dependencies = [
 requires-dist = [
     { name = "autopep8", specifier = ">=1.5.7,<2" },
     { name = "cachetools", specifier = ">=5,<8" },
-    { name = "lmdb", specifier = ">=1.6,<2" },
+    { name = "lmdb", specifier = ">=1.6,<3" },
     { name = "pynacl", specifier = ">=1.5.0,<2" },
+    { name = "xian-tech-fastpath-core", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-fastpath-core" },
     { name = "xian-tech-native-tracer", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-native-tracer" },
     { name = "xian-tech-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
     { name = "xian-tech-zk", marker = "extra == 'zk'", editable = "../xian-contracting/packages/xian-zk" },
@@ -952,6 +955,11 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.0.0,<8" },
     { name = "ruff", specifier = ">=0.15.6,<0.16" },
 ]
+
+[[package]]
+name = "xian-tech-fastpath-core"
+version = "0.1.0"
+source = { editable = "../xian-contracting/packages/xian-fastpath-core" }
 
 [[package]]
 name = "xian-tech-native-tracer"

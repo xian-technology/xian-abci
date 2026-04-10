@@ -2,10 +2,10 @@ from loguru import logger
 
 from cometbft.abci.v1beta2.types_pb2 import ResponseProcessProposal
 from xian.app_logging import build_log_fields
-from xian.utils.encoding import decode_transaction_bytes
 from xian.utils.tx import (
     SequentialNonceTracker,
-    validate_consensus_transaction,
+    decode_and_validate_transaction_static_bytes,
+    validate_consensus_transaction_after_static,
 )
 
 
@@ -16,10 +16,12 @@ async def process_proposal(self, req) -> ResponseProcessProposal:
     for raw_tx in req.txs:
         tx = None
         try:
-            tx, _ = decode_transaction_bytes(raw_tx)
-            validate_consensus_transaction(
-                tx,
+            tx = decode_and_validate_transaction_static_bytes(
+                raw_tx,
                 chain_id=self.chain_id,
+            )
+            validate_consensus_transaction_after_static(
+                tx,
                 nonce_tracker=nonce_tracker,
             )
         except Exception as exc:

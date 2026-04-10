@@ -14,9 +14,7 @@ from xian.utils.block import (
     get_latest_block_hash,
     get_latest_block_height,
     get_latest_block_nanos,
-    set_latest_block_hash,
-    set_latest_block_height,
-    set_latest_block_nanos,
+    set_latest_block,
 )
 
 
@@ -163,9 +161,12 @@ def import_state(
     latest_block_hash = bytes.fromhex(exported_state.get("hash", ""))
     latest_block_height = int(exported_state.get("number", 0))
     latest_block_nanos = int(exported_state.get("nanos", 0))
-    set_latest_block_hash(latest_block_hash, resolved_storage_home)
-    set_latest_block_height(latest_block_height, resolved_storage_home)
-    set_latest_block_nanos(latest_block_nanos, resolved_storage_home)
+    set_latest_block(
+        block_hash=latest_block_hash,
+        height=latest_block_height,
+        nanos=latest_block_nanos,
+        storage_home=resolved_storage_home,
+    )
 
     return {
         "height": latest_block_height,

@@ -31,6 +31,62 @@ def balance_of(account: str):
     return balances[account]
 """.strip()
 
+MASTERNODES_CODE = """
+policy = Variable()
+active = Variable()
+candidates = Variable()
+validators = Hash(default_value=None)
+pending_unbond_owner_ids = Hash(default_value=None)
+pending_unbonds = Hash(default_value=None)
+
+
+@construct
+def seed():
+    policy.set({"selection_mode": "manual", "max_validators": 5})
+    active.set([{"account": "alice", "status": "active"}])
+    candidates.set([{"account": "candidate-1", "status": "approved"}])
+    validators["alice"] = {
+        "account": "alice",
+        "status": "active",
+        "total_bond": 150,
+    }
+    pending_unbond_owner_ids["alice"] = [4]
+    pending_unbonds[4] = {
+        "owner": "alice",
+        "amount": 25,
+    }
+
+
+@export
+def get_policy_config():
+    return policy.get()
+
+
+@export
+def get_active_validators():
+    return active.get()
+
+
+@export
+def get_pending_candidates():
+    return candidates.get()
+
+
+@export
+def get_validator(account: str):
+    return validators[account]
+
+
+@export
+def get_pending_unbond_ids(owner: str):
+    return pending_unbond_owner_ids[owner] or []
+
+
+@export
+def get_pending_unbond(unbond_id: int):
+    return pending_unbonds[unbond_id]
+""".strip()
+
 ACCOUNT = "c93dee52d7dc6cc43af44007c3b1dae5b730ccf18a9e6fb43521f8e4064561e6"
 
 
@@ -121,6 +177,32 @@ class _FakeBDS:
     async def get_events_for_tx(self, tx_hash):
         return [{"tx_hash": tx_hash, "event": "Transfer"}]
 
+    async def get_shielded_output_tags(
+        self, tag_value, limit, offset, *, kind="sync_hint", after_id=None
+    ):
+        return [
+            {
+                "id": after_id + 1 if after_id is not None else 1,
+                "tag_kind": kind,
+                "tag_value": tag_value,
+                "commitment": "0x" + "11" * 32,
+            }
+        ]
+
+    async def get_shielded_wallet_history(
+        self, tag_value, limit, after_note_index, *, kind="sync_hint"
+    ):
+        return [
+            {
+                "event_id": 41,
+                "tag_kind": kind,
+                "tag_value": tag_value,
+                "note_index": after_note_index,
+                "commitment": "0x" + "22" * 32,
+                "output_payload": "0x1234",
+            }
+        ]
+
     async def get_events(
         self, contract, event, limit, offset, *, after_id=None
     ):
@@ -141,6 +223,30 @@ class _FakeBDS:
                 "tx_hash": "TX-RECENT",
             }
         ]
+
+    async def get_token_balances(
+        self, address, limit, offset, *, include_zero=False
+    ):
+        return {
+            "available": True,
+            "address": address,
+            "items": [
+                {
+                    "contract": "currency",
+                    "balance": "42",
+                    "name": "Xian",
+                    "symbol": "XIAN",
+                    "logo_url": "https://example.com/xian.svg",
+                    "last_tx_hash": "TX-BALANCE",
+                    "last_block_height": 12,
+                    "updated_at": "2026-01-01T00:00:12+00:00",
+                }
+            ],
+            "total": 1,
+            "limit": limit,
+            "offset": offset,
+            "include_zero": include_zero,
+        }
 
     async def get_state_patches(self, limit, offset):
         return [
@@ -222,6 +328,10 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             name="currency",
             constructor_args={"vk": "alice"},
         )
+        self.app.client.submit(
+            MASTERNODES_CODE,
+            name="masternodes",
+        )
         self.app.client.raw_driver.set(
             f"currency.balances:{ACCOUNT}",
             123.45,
@@ -288,7 +398,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["result"], "123.45")
         self.assertEqual(
             result["state"],
-            [{"key": "currency.balances:alice", "value": "99.4"}],
+            [{"key": "currency.balances:alice", "value": "99.35"}],
         )
         self.assertEqual(
             self.app.client.raw_driver.get("currency.balances:alice"),
@@ -335,6 +445,81 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.query.info, "dict")
         self.assertEqual(payload["enabled"], False)
         self.assertEqual(payload["recent_blocks"], [])
+        self.assertFalse(payload["parallel_execution_enabled"])
+        self.assertEqual(payload["parallel_execution_workers"], 0)
+        self.assertEqual(payload["parallel_execution_min_transactions"], 8)
+
+    async def test_masternodes_dashboard_queries(self):
+        self.app.client.raw_driver.set("masternodes.total_votes", 2)
+        self.app.client.raw_driver.set(
+            "masternodes.votes:1",
+            {
+                "type": "update_policy",
+                "status": "pending",
+                "finalized": False,
+            },
+        )
+        self.app.client.raw_driver.set(
+            "masternodes.votes:2",
+            {
+                "type": "jail_member",
+                "status": "approved",
+                "finalized": True,
+            },
+        )
+
+        policy_response = await self.process_request(
+            Request(query=RequestQuery(path="/masternodes_policy"))
+        )
+        active_response = await self.process_request(
+            Request(query=RequestQuery(path="/masternodes_active"))
+        )
+        validator_response = await self.process_request(
+            Request(query=RequestQuery(path="/masternodes_validator/alice"))
+        )
+        unbonds_response = await self.process_request(
+            Request(query=RequestQuery(path="/masternodes_pending_unbonds/alice"))
+        )
+        votes_response = await self.process_request(
+            Request(
+                query=RequestQuery(
+                    path="/masternodes_open_votes/limit=25/offset=0"
+                )
+            )
+        )
+
+        self.assertEqual(policy_response.query.info, "dict")
+        self.assertEqual(
+            json.loads(policy_response.query.value)["selection_mode"],
+            "manual",
+        )
+        self.assertEqual(active_response.query.info, "list")
+        self.assertEqual(
+            json.loads(active_response.query.value)[0]["account"],
+            "alice",
+        )
+        self.assertEqual(validator_response.query.info, "dict")
+        self.assertEqual(
+            json.loads(validator_response.query.value)["total_bond"],
+            150,
+        )
+        self.assertEqual(unbonds_response.query.info, "list")
+        self.assertEqual(
+            json.loads(unbonds_response.query.value)[0]["unbond_id"],
+            4,
+        )
+        self.assertEqual(votes_response.query.info, "list")
+        self.assertEqual(
+            json.loads(votes_response.query.value),
+            [
+                {
+                    "proposal_id": 1,
+                    "type": "update_policy",
+                    "status": "pending",
+                    "finalized": False,
+                }
+            ],
+        )
 
     async def test_get_next_nonce_query(self):
         response = await self.process_request(
@@ -515,6 +700,20 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             json.loads(response.query.value)[0]["contract"], "currency"
         )
 
+        response = await self.process_request(
+            Request(
+                query=RequestQuery(
+                    path="/token_balances/alice/limit=10/offset=0/include_zero=true"
+                )
+            )
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["address"], "alice")
+        self.assertEqual(payload["items"][0]["contract"], "currency")
+        self.assertEqual(payload["items"][0]["balance"], "42")
+
     async def test_event_queries_use_bds(self):
         self.app.block_service_mode = True
         self.app.bds = _FakeBDS()
@@ -554,6 +753,36 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(response.query.value)
         self.assertTrue(payload["available"])
         self.assertEqual(payload["items"][0]["tx_hash"], "TX-RECENT")
+
+        response = await self.process_request(
+            Request(
+                query=RequestQuery(
+                    path="/shielded_output_tags/0x1234/limit=25/offset=5"
+                )
+            )
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["limit"], 25)
+        self.assertEqual(payload["offset"], 5)
+        self.assertEqual(payload["items"][0]["tag_kind"], "sync_hint")
+        self.assertEqual(payload["items"][0]["tag_value"], "0x1234")
+
+        response = await self.process_request(
+            Request(
+                query=RequestQuery(
+                    path="/shielded_wallet_history/0x1234/limit=25/after_note_index=5"
+                )
+            )
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["limit"], 25)
+        self.assertEqual(payload["after_note_index"], 5)
+        self.assertEqual(payload["items"][0]["tag_kind"], "sync_hint")
+        self.assertEqual(payload["items"][0]["note_index"], 5)
 
     async def test_contract_listing_query_is_available_without_bds(self):
         self.app.client.submit(

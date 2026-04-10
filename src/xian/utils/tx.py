@@ -1,4 +1,5 @@
 import hashlib
+from copy import deepcopy
 from typing import Callable
 
 from loguru import logger
@@ -12,6 +13,14 @@ from xian.formatting import (
     TRANSACTION_RULES,
     contract_name_is_formatted,
 )
+from xian.utils.encoding import decode_transaction_bytes
+
+try:
+    from xian_fastpath_core import (
+        decode_and_validate_transaction_static as _native_decode_and_validate_transaction_static,
+    )
+except ImportError:  # pragma: no cover - exercised through fallback path
+    _native_decode_and_validate_transaction_static = None
 
 
 def verify(vk: str, msg: str, signature: str):
@@ -47,6 +56,16 @@ def tx_hash_from_tx(tx):
     encoded_tx = encode(tx_dict).encode()
     h.update(encoded_tx)
     return h.hexdigest()
+
+
+def canonical_transaction_size_bytes(tx: dict) -> int:
+    tx_dict = format_dictionary(
+        {
+            "metadata": deepcopy(tx.get("metadata", {})),
+            "payload": deepcopy(tx.get("payload", {})),
+        }
+    )
+    return len(encode(tx_dict).encode())
 
 
 def recurse_rules(d: dict, rule: dict | Callable):
@@ -161,7 +180,21 @@ def validate_transaction(
     chain_id: str,
 ):
     validate_transaction_static(tx, chain_id=chain_id)
+    validate_transaction_after_static(
+        client,
+        nonce_storage,
+        tx,
+        tx_hash=tx_hash,
+    )
 
+
+def validate_transaction_after_static(
+    client,
+    nonce_storage,
+    tx,
+    *,
+    tx_hash: str,
+):
     # Reserve the local mempool nonce only after static validation passes.
     nonce_storage.check_nonce(tx, tx_hash=tx_hash)
 
@@ -213,6 +246,25 @@ def validate_transaction(
         function=func,
         amount=amount,
     )
+
+
+def decode_and_validate_transaction_static_bytes(
+    raw_tx: bytes,
+    *,
+    chain_id: str,
+) -> dict:
+    if _native_decode_and_validate_transaction_static is not None:
+        try:
+            return _native_decode_and_validate_transaction_static(
+                raw_tx,
+                chain_id,
+            )
+        except Exception as exc:
+            raise TransactionException(str(exc)) from exc
+
+    tx, _ = decode_transaction_bytes(raw_tx)
+    validate_transaction_static(tx, chain_id=chain_id)
+    return tx
 
 
 class SequentialNonceTracker:
@@ -272,6 +324,17 @@ def validate_consensus_transaction(
     nonce_tracker: SequentialNonceTracker,
 ) -> None:
     validate_transaction_static(tx, chain_id=chain_id)
+    validate_consensus_transaction_after_static(
+        tx,
+        nonce_tracker=nonce_tracker,
+    )
+
+
+def validate_consensus_transaction_after_static(
+    tx: dict,
+    *,
+    nonce_tracker: SequentialNonceTracker,
+) -> None:
     nonce_tracker.validate_and_advance(tx)
 
 

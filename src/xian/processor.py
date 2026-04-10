@@ -2,14 +2,15 @@ import hashlib
 import time
 
 from contracting.execution.executor import Executor
+from contracting.execution.parallel import ExecutionAccess as TransactionAccess
+from contracting.stdlib.bridge import zk as zk_bridge
 from loguru import logger
 from xian_runtime_types.encoding import convert_dict, safe_repr
 from xian_runtime_types.time import Datetime
 
 from xian.app_logging import build_log_fields
-from xian.parallel_planner import TransactionAccess
 from xian.utils.block import nanoseconds_to_utc_datetime
-from xian.utils.tx import tx_hash_from_tx
+from xian.utils.tx import canonical_transaction_size_bytes, tx_hash_from_tx
 
 
 class TxProcessor:
@@ -35,6 +36,7 @@ class TxProcessor:
 
     def reset_block_cache(self) -> None:
         self.cached_stamp_cost = None
+        zk_bridge.clear_verified_proof_cache()
 
     def get_stamp_cost(self):
         if self.cached_stamp_cost is None:
@@ -177,6 +179,9 @@ class TxProcessor:
                 environment=environment,
                 auto_commit=False,
                 metering=metering,
+                transaction_size_bytes=canonical_transaction_size_bytes(
+                    transaction
+                ),
             )
         except (TypeError, ValueError) as err:
             logger.bind(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -35,6 +36,9 @@ DEFAULT_CONSENSUS_PARAMS = {
     },
     "version": {},
 }
+DEFAULT_PRESET_GENESIS_PRIVATE_KEY = (
+    "1111111111111111111111111111111111111111111111111111111111111111"
+)
 
 
 def hash_block_data(
@@ -58,6 +62,24 @@ def resolve_contracts_dir(contracts_dir: Path | None = None) -> Path:
     if contracts_dir is not None:
         return contracts_dir.resolve()
     return resolve_configs_contracts_dir()
+
+
+def load_contract_bundle_config(
+    network: str,
+    *,
+    contracts_dir: Path | None = None,
+) -> dict[str, Any]:
+    resolved_contracts_dir = resolve_contracts_dir(contracts_dir)
+    config_path = resolved_contracts_dir / f"contracts_{network}.json"
+    with open(config_path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _find_members_contract(contract_config: dict[str, Any]) -> dict[str, Any]:
+    for contract in contract_config["contracts"]:
+        if contract.get("submit_as") == "masternodes":
+            return contract
+    raise ValueError("contract bundle does not define masternodes seed data")
 
 
 def render_template_values(value: Any, substitutions: dict[str, str]) -> Any:
@@ -91,9 +113,10 @@ def _build_genesis_block(
     contracting = ContractingClient(driver=Driver(storage_home=storage_home))
     contracting.set_submission_contract(commit=False)
 
-    config_path = contracts_dir / f"contracts_{network}.json"
-    with open(config_path, "r", encoding="utf-8") as handle:
-        contract_config = json.load(handle)
+    contract_config = load_contract_bundle_config(
+        network,
+        contracts_dir=contracts_dir,
+    )
 
     wallet = Ed25519Account(founder_private_key)
     substitutions = {
@@ -205,6 +228,59 @@ def build_validator_genesis_entry(
     }
 
 
+def build_validator_genesis_entry_from_public_key(
+    *,
+    public_key_hex: str,
+    power: int | str = 10,
+    name: str = "",
+) -> dict[str, Any]:
+    public_key_bytes = bytes.fromhex(public_key_hex)
+    address_bytes = hashlib.sha256(public_key_bytes).digest()[:20]
+    return {
+        "address": address_bytes.hex().upper(),
+        "pub_key": {
+            "type": "tendermint/PubKeyEd25519",
+            "value": base64.b64encode(public_key_bytes).decode("ascii"),
+        },
+        "power": str(power),
+        "name": name,
+    }
+
+
+def derive_genesis_validators_from_bundle(
+    *,
+    network: str,
+    contracts_dir: Path | None = None,
+    validator_power: int | str | None = None,
+) -> list[dict[str, Any]]:
+    contract_config = load_contract_bundle_config(
+        network,
+        contracts_dir=contracts_dir,
+    )
+    members_contract = _find_members_contract(contract_config)
+    constructor_args = members_contract.get("constructor_args") or {}
+    genesis_nodes = constructor_args.get("genesis_nodes")
+    if not isinstance(genesis_nodes, list) or not genesis_nodes:
+        raise ValueError(
+            "contract bundle masternodes seed data must define genesis_nodes"
+        )
+
+    configured_powers = constructor_args.get("genesis_powers") or {}
+    default_node_power = constructor_args.get("default_node_power", 10)
+
+    return [
+        build_validator_genesis_entry_from_public_key(
+            public_key_hex=public_key_hex,
+            power=(
+                validator_power
+                if validator_power is not None
+                else configured_powers.get(public_key_hex, default_node_power)
+            ),
+        )
+        for public_key_hex in genesis_nodes
+    ]
+
+
 def build_cometbft_genesis(
     *,
     chain_id: str,
@@ -272,10 +348,34 @@ def build_local_network_genesis(
     if not validators:
         raise ValueError("at least one validator is required")
 
+    contract_config = load_contract_bundle_config(
+        network,
+        contracts_dir=contracts_dir,
+    )
+    members_contract = _find_members_contract(contract_config)
+    seeded_member_args = members_contract.get("constructor_args") or {}
     founder_wallet = Ed25519Account(founder_private_key)
     genesis_nodes = [
         validator["account_public_key"] for validator in validators
     ]
+    genesis_powers = {
+        validator["account_public_key"]: validator.get("power", 10)
+        for validator in validators
+    }
+    genesis_reward_keys = {
+        validator["account_public_key"]: (
+            validator.get("reward_key") or validator["account_public_key"]
+        )
+        for validator in validators
+    }
+    member_overrides = {
+        "genesis_nodes": genesis_nodes,
+        "genesis_registration_fee": registration_fee,
+    }
+    if "genesis_powers" in seeded_member_args:
+        member_overrides["genesis_powers"] = genesis_powers
+    if "genesis_reward_keys" in seeded_member_args:
+        member_overrides["genesis_reward_keys"] = genesis_reward_keys
     abci_genesis = build_genesis_block(
         founder_private_key=founder_private_key,
         network=network,
@@ -283,14 +383,8 @@ def build_local_network_genesis(
         constructor_overrides={
             "currency": {"vk": founder_wallet.public_key},
             "foundation": {"vk": founder_wallet.public_key},
-            "members": {
-                "genesis_nodes": genesis_nodes,
-                "genesis_registration_fee": registration_fee,
-            },
-            "masternodes": {
-                "genesis_nodes": genesis_nodes,
-                "genesis_registration_fee": registration_fee,
-            },
+            "members": dict(member_overrides),
+            "masternodes": dict(member_overrides),
         },
     )
     validator_entries = [
@@ -305,6 +399,30 @@ def build_local_network_genesis(
         chain_id=chain_id,
         abci_genesis=abci_genesis,
         validators=validator_entries,
+    )
+
+
+def build_bundle_network_genesis(
+    *,
+    chain_id: str,
+    network: str,
+    contracts_dir: Path | None = None,
+    genesis_time: str | None = None,
+) -> dict[str, Any]:
+    abci_genesis = build_genesis_block(
+        founder_private_key=DEFAULT_PRESET_GENESIS_PRIVATE_KEY,
+        network=network,
+        contracts_dir=contracts_dir,
+    )
+    abci_genesis["origin"] = {"sender": "", "signature": ""}
+    return build_cometbft_genesis(
+        chain_id=chain_id,
+        abci_genesis=abci_genesis,
+        validators=derive_genesis_validators_from_bundle(
+            network=network,
+            contracts_dir=contracts_dir,
+        ),
+        genesis_time=genesis_time,
     )
 
 

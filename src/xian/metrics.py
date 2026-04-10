@@ -175,7 +175,9 @@ class XianMetricsCollector:
                 "parallel_worker_count",
                 "parallel_planned_stage_count",
                 "parallel_planned_parallelizable_transactions",
+                "parallel_speculative_wave_count",
                 "parallel_speculative_accepted",
+                "parallel_serial_prefiltered",
                 "parallel_serial_fallbacks",
                 "state_patch_applied",
             ):
