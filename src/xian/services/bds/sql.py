@@ -92,7 +92,7 @@ def create_transactions():
         function TEXT NOT NULL,
         success BOOLEAN NOT NULL,
         status_code INTEGER NOT NULL,
-        stamps_used BIGINT NOT NULL,
+        chi_used BIGINT NOT NULL,
         result JSONB,
         payload JSONB NOT NULL,
         envelope JSONB NOT NULL,
@@ -270,7 +270,7 @@ def insert_transaction():
     return """
     INSERT INTO transactions(
         hash, block_height, block_hash, block_time, tx_index, sender, nonce,
-        contract, function, success, status_code, stamps_used, result, payload,
+        contract, function, success, status_code, chi_used, result, payload,
         envelope, created_at
     )
     VALUES (
@@ -516,7 +516,7 @@ def select_transaction_by_hash():
         function,
         success,
         status_code,
-        stamps_used,
+        chi_used,
         result,
         payload,
         envelope,
@@ -540,7 +540,7 @@ def select_transactions_for_block_height():
         function,
         success,
         status_code,
-        stamps_used,
+        chi_used,
         result,
         payload,
         envelope,
@@ -565,7 +565,7 @@ def select_transactions_for_block_hash():
         function,
         success,
         status_code,
-        stamps_used,
+        chi_used,
         result,
         payload,
         envelope,
@@ -590,7 +590,7 @@ def select_transactions_by_sender():
         function,
         success,
         status_code,
-        stamps_used,
+        chi_used,
         result,
         payload,
         envelope,
@@ -652,7 +652,7 @@ def select_transactions_by_contract():
         function,
         success,
         status_code,
-        stamps_used,
+        chi_used,
         result,
         payload,
         envelope,

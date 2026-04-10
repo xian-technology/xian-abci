@@ -334,7 +334,7 @@ Suggested columns:
 - `function TEXT NOT NULL`
 - `success BOOLEAN NOT NULL`
 - `status_code INTEGER NOT NULL`
-- `stamps_used BIGINT NOT NULL`
+- `chi_used BIGINT NOT NULL`
 - `result JSONB`
 - `payload JSONB NOT NULL`
 - `raw_record JSONB`

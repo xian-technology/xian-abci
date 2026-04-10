@@ -159,7 +159,7 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
             tx_result={
                 "hash": "TX-1",
                 "status": 0,
-                "stamps_used": 12,
+                "chi_used": 12,
                 "result": {"ok": True, "amount": "5"},
                 "state": [
                     {
@@ -276,7 +276,7 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
             tx_result={
                 "hash": "TX-NULL-REWARDS",
                 "status": 1,
-                "stamps_used": 12,
+                "chi_used": 12,
                 "result": "failed",
                 "state": [],
                 "events": [],
@@ -317,7 +317,7 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
             tx_result={
                 "hash": "TX-REWARD-RECORDS",
                 "status": 0,
-                "stamps_used": 25,
+                "chi_used": 25,
                 "result": {"ok": True},
                 "state": [],
                 "events": [],
@@ -382,7 +382,7 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
             tx_result={
                 "hash": "TX-FACTORY",
                 "status": 0,
-                "stamps_used": 42,
+                "chi_used": 42,
                 "result": {"ok": True},
                 "state": [
                     {"key": "con_child_a.__source__", "value": "source-a"},

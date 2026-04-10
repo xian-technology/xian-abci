@@ -37,7 +37,7 @@ def make_signed_tx_bytes(*, nonce: int) -> bytes:
             "kwargs": {"amount": 1, "to": SENDER},
             "nonce": nonce,
             "sender": SENDER,
-            "stamps_supplied": 100,
+            "chi_supplied": 100,
         }
     )
 
@@ -59,7 +59,7 @@ def make_signed_tx_bytes_with_raw_spacing(*, nonce: int) -> bytes:
         "kwargs": {"amount": 1, "to": SENDER},
         "nonce": nonce,
         "sender": SENDER,
-        "stamps_supplied": 100,
+        "chi_supplied": 100,
     }
     payload_str = _canonical_json(payload)
     signature = signing_key.sign(payload_str.encode("utf-8")).signature.hex()
@@ -183,7 +183,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
             "kwargs": {"amount": 1, "to": SENDER},
             "nonce": VALID_NONCE,
             "sender": SENDER,
-            "stamps_supplied": 100,
+            "chi_supplied": 100,
         }
         tx_bytes = make_signed_tx_bytes_for_payload(payload)
         tx_hex = tx_bytes.decode("utf-8")
@@ -206,7 +206,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
             "kwargs": {"amount": 1, "to": SENDER},
             "nonce": VALID_NONCE,
             "sender": SENDER,
-            "stamps_supplied": 100,
+            "chi_supplied": 100,
         }
         tx_bytes = make_signed_tx_bytes_for_payload(payload)
 
@@ -224,13 +224,13 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
             + SENDER
             + '"},"nonce":6,"sender":"'
             + SENDER
-            + '","stamps_supplied":100},"metadata":{"signature":"deadbeef"},'
+            + '","chi_supplied":100},"metadata":{"signature":"deadbeef"},'
             '"payload":{"chain_id":"xian-testnet-1","contract":"currency",'
             '"function":"transfer","kwargs":{"amount":1,"to":"'
             + SENDER
             + '"},"nonce":6,"sender":"'
             + SENDER
-            + '","stamps_supplied":100}}'
+            + '","chi_supplied":100}}'
         )
 
         response = await self.process_request(

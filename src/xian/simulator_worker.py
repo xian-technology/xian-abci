@@ -27,7 +27,7 @@ def main() -> int:
         result = simulator.simulate(
             task["payload"],
             block_meta=task.get("block_meta"),
-            max_stamps=task["max_stamps"],
+            max_chi=task["max_chi"],
         )
     except Exception:
         traceback.print_exc(file=sys.stderr)

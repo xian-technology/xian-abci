@@ -27,7 +27,7 @@ class AppLoggingTests(unittest.TestCase):
                 "function": "transfer",
                 "nonce": 7,
                 "kwargs": {"amount": 1, "to": "bob"},
-                "stamps_supplied": 100,
+                "chi_supplied": 100,
             },
             "metadata": {"signature": "00" * 64},
         }

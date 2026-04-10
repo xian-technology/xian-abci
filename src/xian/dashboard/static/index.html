@@ -526,7 +526,7 @@ function severityRank(level){
   if(level === "ok") return 0;
   return 1;
 }
-function updateRefreshStamp(){
+function updateRefreshIndicator(){
   const el = $("last-refresh");
   if(!el) return;
   if(!lastRefreshAt){
@@ -541,7 +541,7 @@ function updateRefreshStamp(){
 }
 function markRefreshed(){
   lastRefreshAt = Date.now();
-  updateRefreshStamp();
+  updateRefreshIndicator();
 }
 
 function peerRpcUrl(peer){
@@ -1638,7 +1638,7 @@ async function viewTx(hash){
         <div class="data-row"><span class="data-key">Function</span><span class="data-val">${escHtml(payload.function)||"\u2014"}</span></div>
         <div class="data-row"><span class="data-key">Chain ID</span><span class="data-val">${escHtml(payload.chain_id)||"\u2014"}</span></div>
         <div class="data-row"><span class="data-key">Nonce</span><span class="data-val">${payload.nonce!==undefined?payload.nonce:"\u2014"}</span></div>
-        <div class="data-row"><span class="data-key">Stamps Supplied</span><span class="data-val">${payload.stamps_supplied!==undefined?payload.stamps_supplied:"\u2014"}</span></div>
+        <div class="data-row"><span class="data-key">Chi Supplied</span><span class="data-val">${payload.chi_supplied!==undefined?payload.chi_supplied:"\u2014"}</span></div>
       </div>`;
 
     if(payload.kwargs && Object.keys(payload.kwargs).length){
@@ -1666,8 +1666,8 @@ async function viewTx(hash){
       const ok = dataDecoded.status === 0;
       html += `<div class="data-row"><span class="data-key">Status</span><span class="data-val"><span class="badge ${ok?"success":"fail"}">${ok?"Success":"Failed ("+dataDecoded.status+")"}</span></span></div>`;
     }
-    if(dataDecoded.stamps_used !== undefined){
-      html += `<div class="data-row"><span class="data-key">Stamps Used</span><span class="data-val">${dataDecoded.stamps_used}</span></div>`;
+    if(dataDecoded.chi_used !== undefined){
+      html += `<div class="data-row"><span class="data-key">Chi Used</span><span class="data-val">${dataDecoded.chi_used}</span></div>`;
     }
     if(dataDecoded.result !== undefined && dataDecoded.result !== null){
       const r = typeof dataDecoded.result === "object" ? JSON.stringify(dataDecoded.result, null, 2) : String(dataDecoded.result);
@@ -2264,7 +2264,7 @@ function refreshTimeAgo(){
     }
   }
 
-  updateRefreshStamp();
+  updateRefreshIndicator();
 }
 
 /* ── init ── */

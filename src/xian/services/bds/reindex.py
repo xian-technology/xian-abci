@@ -262,8 +262,8 @@ class BdsReindexer:
         tx_result["status"] = int(
             tx_result.get("status", tx_result_rpc["code"])
         )
-        tx_result["stamps_used"] = int(
-            tx_result.get("stamps_used", tx_result_rpc.get("gas_used", 0))
+        tx_result["chi_used"] = int(
+            tx_result.get("chi_used", tx_result_rpc.get("gas_used", 0))
         )
         tx_result.setdefault("state", [])
         tx_result.setdefault("events", [])
@@ -284,7 +284,7 @@ class BdsReindexer:
         return {
             "status",
             "state",
-            "stamps_used",
+            "chi_used",
         }.issubset(tx_result.keys())
 
 

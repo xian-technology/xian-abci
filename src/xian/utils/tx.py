@@ -44,7 +44,7 @@ def unpack_transaction(tx):
         "kwargs": tx["payload"]["kwargs"],
         "nonce": tx["payload"]["nonce"],
         "sender": tx["payload"]["sender"],
-        "stamps_supplied": tx["payload"]["stamps_supplied"],
+        "chi_supplied": tx["payload"]["chi_supplied"],
     }
     tx_for_verification = encode(decode(encode(tx_for_verification)))
     return sender, signature, tx_for_verification
@@ -91,26 +91,26 @@ def recurse_rules(d: dict, rule: dict | Callable):
     return True
 
 
-def check_enough_stamps(
+def check_enough_chi(
     balance: object,
-    stamps_per_tau: object,
-    stamps_supplied: object,
+    chi_per_tau: object,
+    chi_supplied: object,
     contract: object = None,
     function: object = None,
     amount: object = 0,
 ):
 
-    if balance * stamps_per_tau < stamps_supplied:
+    if balance * chi_per_tau < chi_supplied:
         raise TransactionException(
-            "Transaction sender has too few stamps for this transaction"
+            "Transaction sender has too few chi for this transaction"
         )
 
     # Prevent people from sending their entire balances for free by checking if that is what they are doing.
     if contract == "currency" and function == "transfer":
         # If you have less than 2 transactions worth of native token after trying to send your amount, fail.
-        if ((balance - amount) * stamps_per_tau) / 6 < 2:
+        if ((balance - amount) * chi_per_tau) / 6 < 2:
             raise TransactionException(
-                "Transaction sender has too few stamps for this transaction"
+                "Transaction sender has too few chi for this transaction"
             )
 
 
@@ -143,8 +143,8 @@ def check_tx_keys(tx):
         raise TransactionException("Payload key 'contract' is missing")
     if not payload["function"]:
         raise TransactionException("Payload key 'function' is missing")
-    if not payload["stamps_supplied"]:
-        raise TransactionException("Payload key 'stamps_supplied' is missing")
+    if not payload["chi_supplied"]:
+        raise TransactionException("Payload key 'chi_supplied' is missing")
 
     keys = list(payload.keys())
     keys_are_valid = list(
@@ -198,7 +198,7 @@ def validate_transaction_after_static(
     # Reserve the local mempool nonce only after static validation passes.
     nonce_storage.check_nonce(tx, tx_hash=tx_hash)
 
-    # Get the senders balance and the current stamp rate
+    # Get the senders balance and the current chi rate
     try:
         balance = client.get_var(
             contract="currency",
@@ -212,20 +212,20 @@ def validate_transaction_after_static(
         )
 
     try:
-        stamp_rate = client.get_var(
-            contract="stamp_cost", variable="S", arguments=["value"], mark=False
+        chi_rate = client.get_var(
+            contract="chi_cost", variable="S", arguments=["value"], mark=False
         )
-        if stamp_rate is None:
-            stamp_rate = 20
+        if chi_rate is None:
+            chi_rate = 20
     except Exception as e:
-        raise TransactionException(f"Failed to get stamp cost: {e}")
+        raise TransactionException(f"Failed to get chi cost: {e}")
 
     contract = tx["payload"]["contract"]
     func = tx["payload"]["function"]
-    stamps_supplied = tx["payload"]["stamps_supplied"]
+    chi_supplied = tx["payload"]["chi_supplied"]
 
-    if stamps_supplied is None:
-        stamps_supplied = 0
+    if chi_supplied is None:
+        chi_supplied = 0
 
     if balance is None:
         balance = 0
@@ -237,11 +237,11 @@ def validate_transaction_after_static(
     if isinstance(amount, dict) and "__fixed__" in amount:
         amount = ContractingDecimal(amount["__fixed__"])
 
-    # Check if they have enough stamps for the operation
-    check_enough_stamps(
+    # Check if they have enough chi for the operation
+    check_enough_chi(
         balance,
-        stamp_rate,
-        stamps_supplied,
+        chi_rate,
+        chi_supplied,
         contract=contract,
         function=func,
         amount=amount,

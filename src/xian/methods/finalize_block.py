@@ -152,7 +152,7 @@ def _maybe_apply_evidence_penalties(self, req, *, height: int):
                     "evidence_id": evidence_id,
                     "evidence_height": misbehavior.height,
                 },
-                "stamps_supplied": 0,
+                "chi_supplied": 0,
             },
             "metadata": {
                 "signature": f"evidence-penalty:{evidence_id}",
@@ -230,7 +230,7 @@ def _maybe_run_validator_epoch_rebalance(self, *, height: int):
             "contract": "masternodes",
             "function": "rebalance",
             "kwargs": {},
-            "stamps_supplied": 0,
+            "chi_supplied": 0,
         },
         "metadata": {
             "signature": f"validator-epoch-rebalance:{height}",
@@ -499,7 +499,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         tx_index=block_tx_index,
                         status=tx_result["status"],
                         extra={
-                            "stamps_used": tx_result["stamps_used"],
+                            "chi_used": tx_result["chi_used"],
                             "state_write_count": len(tx_result["state"]),
                             "event_count": len(tx_result.get("events", [])),
                         },

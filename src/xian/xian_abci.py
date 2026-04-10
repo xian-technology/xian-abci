@@ -157,7 +157,7 @@ class Xian:
             enabled=xian_config.get("simulation_enabled", True),
             max_concurrency=xian_config.get("simulation_max_concurrency", 2),
             timeout_ms=xian_config.get("simulation_timeout_ms", 3000),
-            max_stamps=xian_config.get("simulation_max_stamps", 1_000_000),
+            max_chi=xian_config.get("simulation_max_chi", 1_000_000),
         )
         self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None

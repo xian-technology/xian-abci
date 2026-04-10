@@ -155,12 +155,12 @@ Retrieves the methods for a given contract
       - `value`: Hex-encoded JSON string with method data
 
 ### 4. Services
-#### Estimate Stamps
-Estimates the number of stamps required for a given transaction
+#### Estimate Chi
+Estimates the number of chi required for a given transaction
 
 ##### Request
 - Method: GET
-- URL: `/abci_query?path="/estimate_stamps/<hex-encoded-signed-transaction>"`
+- URL: `/abci_query?path="/estimate_chi/<hex-encoded-signed-transaction>"`
 
 ##### Response
 - Content-Type: application/json
@@ -169,7 +169,7 @@ Estimates the number of stamps required for a given transaction
   - `id`: The request ID
   - `result`: The query result
     - `response`: The response data
-      - `value`: Hex-encoded JSON string with stamp estimate and tx result
+      - `value`: Hex-encoded JSON string with chi estimate and tx result
 
 #### Lint Code
 Lints the code for a given contract

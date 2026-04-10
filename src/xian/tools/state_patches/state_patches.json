@@ -9,14 +9,14 @@
     "2455": [
         {
             "key": "masternodes.types",
-            "value": {"types": ["add_member", "remove_member", "change_registration_fee", "reward_change", "dao_payout", "stamp_cost_change", "change_types", "topic_vote", "some_new_type"]},
+            "value": {"types": ["add_member", "remove_member", "change_registration_fee", "reward_change", "dao_payout", "chi_cost_change", "change_types", "topic_vote", "some_new_type"]},
             "comment": "Testing Adding New Types"
         }
     ],
     "2460": [
         {
             "key": "masternodes.types",
-            "value": ["add_member", "remove_member", "change_registration_fee", "reward_change", "dao_payout", "stamp_cost_change", "change_types", "topic_vote", "some_new_type"],
+            "value": ["add_member", "remove_member", "change_registration_fee", "reward_change", "dao_payout", "chi_cost_change", "change_types", "topic_vote", "some_new_type"],
             "comment": "Testing Adding New Types"
         }
     ],

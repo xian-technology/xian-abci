@@ -26,7 +26,7 @@ class NodeSetupTests(unittest.TestCase):
             simulation_enabled=True,
             simulation_max_concurrency=3,
             simulation_timeout_ms=2500,
-            simulation_max_stamps=500000,
+            simulation_max_chi=500000,
             parallel_execution_enabled=True,
             parallel_execution_workers=4,
             parallel_execution_min_transactions=12,
@@ -60,7 +60,7 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(config["xian"]["simulation_enabled"])
         self.assertEqual(config["xian"]["simulation_max_concurrency"], 3)
         self.assertEqual(config["xian"]["simulation_timeout_ms"], 2500)
-        self.assertEqual(config["xian"]["simulation_max_stamps"], 500000)
+        self.assertEqual(config["xian"]["simulation_max_chi"], 500000)
         self.assertTrue(config["xian"]["parallel_execution_enabled"])
         self.assertEqual(config["xian"]["parallel_execution_workers"], 4)
         self.assertEqual(
@@ -154,7 +154,7 @@ class NodeSetupTests(unittest.TestCase):
             resolve_simulation_settings(timeout_ms=0)
 
         with self.assertRaises(ValueError):
-            resolve_simulation_settings(max_stamps=0)
+            resolve_simulation_settings(max_chi=0)
 
     def test_resolve_app_logging_settings_normalizes_and_validates(self):
         resolved = resolve_app_logging_settings(

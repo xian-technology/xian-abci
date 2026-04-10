@@ -41,7 +41,7 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
 
         contract_args = {
             "currency": {"vk": "xian-deployer"},
-            "stamp_cost": {"initial_rate": 20},
+            "chi_cost": {"initial_rate": 20},
             "rewards": None,
             "dao": None,
         }
@@ -49,7 +49,7 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
             "currency.s.py",
             "dao.s.py",
             "rewards.s.py",
-            "stamp_cost.s.py",
+            "chi_cost.s.py",
         ]:
             path = contracts_dir / contract_file
             code = path.read_text(encoding="utf-8")

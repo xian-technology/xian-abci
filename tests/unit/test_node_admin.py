@@ -207,7 +207,7 @@ blocks_to_keep = 100000
                     simulation_enabled=False,
                     simulation_max_concurrency=4,
                     simulation_timeout_ms=4500,
-                    simulation_max_stamps=750000,
+                    simulation_max_chi=750000,
                     bds_host="postgres",
                     bds_port=5544,
                     bds_database="xian_index",
@@ -291,7 +291,7 @@ blocks_to_keep = 100000
                 rendered_config["xian"]["simulation_timeout_ms"], 4500
             )
             self.assertEqual(
-                rendered_config["xian"]["simulation_max_stamps"], 750000
+                rendered_config["xian"]["simulation_max_chi"], 750000
             )
             self.assertEqual(rendered_config["xian"]["bds"]["host"], "postgres")
             self.assertEqual(rendered_config["xian"]["bds"]["port"], 5544)

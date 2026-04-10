@@ -25,22 +25,22 @@ class TestPayloadStrExtraction(unittest.TestCase):
         [
             (
                 "preserve_payload_as_string",
-                '{"metadata":{"signature":"f47871676c33d17d5a86bd8b2f12832e35e2b73692b0f28321be2f9acd3379c755440333ddc5e5bf40255256adb946aecae6729e8cb3a9028b08cdd995609f05"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"e9e8aad29ce8e94fd77d9c55582e5e0c57cf81c552ba61c0d4e34b0dc11fd931","stamps_supplied":10}}',
+                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550d"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
                 True,
             ),
             (
                 "preserve_payload_with_nested_json_as_string",
-                '{"metadata":{"signature":"f47871676c33d17d5a86bd8b2f12832e35e2b73692b0f28321be2f9acd3379c755440333ddc5e5bf40255256adb946aecae6729e8cb3a9028b08cdd995609f05"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST","nested_data":{"key1":"value1","key2":{"subkey":"subvalue"}}},"nonce":40,"sender":"e9e8aad29ce8e94fd77d9c55582e5e0c57cf81c552ba61c0d4e34b0dc11fd931","stamps_supplied":10}}',
+                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550d"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST","nested_data":{"key1":"value1","key2":{"subkey":"subvalue"}}},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
                 True,
             ),
             (
                 "preserve_payload_with_deeply_nested_json_as_string",
-                '{"metadata":{"signature":"f47871676c33d17d5a86bd8b2f12832e35e2b73692b0f28321be2f9acd3379c755440333ddc5e5bf40255256adb946aecae6729e8cb3a9028b08cdd995609f05"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST","nested_data":{"key1":"value1","key2":{"subkey":"subvalue","deeper":{"deep_key":"deep_value","deep_array":[{"array_key1":"array_value1"},{"array_key2":"array_value2"}]}}}},"nonce":40,"sender":"e9e8aad29ce8e94fd77d9c55582e5e0c57cf81c552ba61c0d4e34b0dc11fd931","stamps_supplied":10}}',
+                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550d"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST","nested_data":{"key1":"value1","key2":{"subkey":"subvalue","deeper":{"deep_key":"deep_value","deep_array":[{"array_key1":"array_value1"},{"array_key2":"array_value2"}]}}}},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
                 True,
             ),
             (
                 "bracket_in_payload_string",
-                '{"metadata":{"signature":"f47871676c33d17d5a86bd8b2f12832e35e2b73692b0f28321be2f9acd3379c755440333ddc5e5bf40255256adb946aecae6729e8cb3a9028b08cdd995609f05"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST}"},"nonce":40,"sender":"e9e8aad29ce8e94fd77d9c55582e5e0c57cf81c552ba61c0d4e34b0dc11fd931","stamps_supplied":10}}',
+                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550d"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST}"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
                 True,
             ),
             (
@@ -126,12 +126,12 @@ class TestVerification(unittest.TestCase):
         [
             (
                 "valid_transaction",
-                '{"metadata":{"signature":"f47871676c33d17d5a86bd8b2f12832e35e2b73692b0f28321be2f9acd3379c755440333ddc5e5bf40255256adb946aecae6729e8cb3a9028b08cdd995609f05"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"e9e8aad29ce8e94fd77d9c55582e5e0c57cf81c552ba61c0d4e34b0dc11fd931","stamps_supplied":10}}',
+                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550d"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
                 True,
             ),
             (
                 "invalid_signature",
-                '{"metadata":{"signature":"f47871676c33d17d5a86bd8b2f12832e35e2b73692b0f28321be2f9acd3379c755440333ddc5e5bf40255256adb946aecae6729e8cb3a9028b08cdd995609f04"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"e9e8aad29ce8e94fd77d9c55582e5e0c57cf81c552ba61c0d4e34b0dc11fd931","stamps_supplied":10}}',
+                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550c"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
                 False,
             ),
         ]
@@ -150,12 +150,12 @@ class TestEncoding(unittest.TestCase):
         [
             (
                 "valid_transaction",
-                '{"metadata":{"signature":"f47871676c33d17d5a86bd8b2f12832e35e2b73692b0f28321be2f9acd3379c755440333ddc5e5bf40255256adb946aecae6729e8cb3a9028b08cdd995609f05"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"e9e8aad29ce8e94fd77d9c55582e5e0c57cf81c552ba61c0d4e34b0dc11fd931","stamps_supplied":10}}',
+                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550d"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
                 False,
             ),
             (
                 "multiple_payload_fields",
-                '{"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":10000000000,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"e9e8aad29ce8e94fd77d9c55582e5e0c57cf81c552ba61c0d4e34b0dc11fd931","stamps_supplied":10}, "metadata":{"signature":"847871676c33d17d5a86bd8b2f12832e35e2b73692b0f28321be2f9acd3379c755440333ddc5e5bf40255256adb946aecae6729e8cb3a9028b08cdd995609f05"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"e9e8aad29ce8e94fd77d9c55582e5e0c57cf81c552ba61c0d4e34b0dc11fd931","stamps_supplied":10}}',
+                '{"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":10000000000,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}, "metadata":{"signature":"847871676c33d17d5a86bd8b2f12832e35e2b73692b0f28321be2f9acd3379c755440333ddc5e5bf40255256adb946aecae6729e8cb3a9028b08cdd995609f05"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
                 True,
             ),
         ]
@@ -220,7 +220,7 @@ class TestTransactionSizing(unittest.TestCase):
             "payload": {
                 "sender": "abc",
                 "nonce": 1,
-                "stamps_supplied": 10,
+                "chi_supplied": 10,
                 "contract": "currency",
                 "function": "transfer",
                 "kwargs": {"to": "bob", "amount": 5},
@@ -234,7 +234,7 @@ class TestTransactionSizing(unittest.TestCase):
                 "function": "transfer",
                 "contract": "currency",
                 "kwargs": {"amount": 5, "to": "bob"},
-                "stamps_supplied": 10,
+                "chi_supplied": 10,
                 "chain_id": "xian-local",
                 "nonce": 1,
                 "sender": "abc",
@@ -251,7 +251,7 @@ class TestTransactionSizing(unittest.TestCase):
             "payload": {
                 "sender": "abc",
                 "nonce": 1,
-                "stamps_supplied": 10,
+                "chi_supplied": 10,
                 "contract": "currency",
                 "function": "transfer",
                 "kwargs": {"to": "bob", "amount": 5},

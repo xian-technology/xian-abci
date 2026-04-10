@@ -125,7 +125,7 @@ class SimulatorTests(unittest.TestCase):
             execute=lambda **kwargs: {
                 "status_code": 0,
                 "writes": {},
-                "stamps_used": 255,
+                "chi_used": 255,
                 "result": {
                     "account": "alice",
                     "registered_at": Datetime(2026, 3, 27, 21, 57, 0),
@@ -172,7 +172,7 @@ class SimulatorTests(unittest.TestCase):
             execute=lambda **kwargs: {
                 "status_code": 0,
                 "writes": {},
-                "stamps_used": 853,
+                "chi_used": 853,
                 "result": (
                     1,
                     ContractingDecimal("0.637954245540464949970792229477"),
@@ -214,7 +214,7 @@ class _TestQuerySimulationService(QuerySimulationService):
             },
             "status": 0,
             "state": [],
-            "stamps_used": 42,
+            "chi_used": 42,
             "result": "100",
         }
         self.process = _DummyProcess()

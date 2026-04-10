@@ -514,7 +514,7 @@ async def _handle_new_block(app: web.Application, event_data: dict) -> None:
                     "contract": payload.get("contract"),
                     "function": payload.get("function"),
                     "sender": payload.get("sender"),
-                    "stamps_supplied": payload.get("stamps_supplied"),
+                    "chi_supplied": payload.get("chi_supplied"),
                 }
             )
 

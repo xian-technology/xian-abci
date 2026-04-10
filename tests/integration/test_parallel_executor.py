@@ -66,7 +66,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
 
         if with_rewards:
             client.submit(token_code, name="currency", signer="sys")
-            client.raw_driver.set("stamp_cost.S:value", 100)
+            client.raw_driver.set("chi_cost.S:value", 100)
             client.raw_driver.set("foundation.owner", "foundation")
             client.raw_driver.set("masternodes.nodes", ["mn-1", "mn-2"])
             client.raw_driver.set("rewards.S:value", [0.88, 0.01, 0.01, 0.1])
@@ -105,7 +105,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
                 "function": function,
                 "kwargs": kwargs,
                 "nonce": nonce,
-                "stamps_supplied": 1000,
+                "chi_supplied": 1000,
             },
             "metadata": {"signature": signature},
             "b_meta": create_block_meta(),
@@ -117,7 +117,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
         return {
             key: value
             for key, value in normalized.items()
-            if key not in {"state", "rewards", "reward_records", "stamps_used"}
+            if key not in {"state", "rewards", "reward_records", "chi_used"}
         }
 
     def test_parallel_executor_matches_serial_execution(self):

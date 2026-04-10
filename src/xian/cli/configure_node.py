@@ -267,9 +267,9 @@ def build_parser() -> ArgumentParser:
         default=3000,
     )
     parser.add_argument(
-        "--simulation-max-stamps",
+        "--simulation-max-chi",
         type=int,
-        help="stamp budget cap used for readonly simulation requests",
+        help="chi budget cap used for readonly simulation requests",
         required=False,
         default=1_000_000,
     )
@@ -455,7 +455,7 @@ def main(argv: list[str] | None = None) -> int:
         simulation_enabled=args.simulation_enabled,
         simulation_max_concurrency=args.simulation_max_concurrency,
         simulation_timeout_ms=args.simulation_timeout_ms,
-        simulation_max_stamps=args.simulation_max_stamps,
+        simulation_max_chi=args.simulation_max_chi,
         parallel_execution_enabled=args.parallel_execution_enabled,
         parallel_execution_workers=args.parallel_execution_workers,
         parallel_execution_min_transactions=(

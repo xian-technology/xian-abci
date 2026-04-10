@@ -89,7 +89,7 @@ class BdsReindexerTests(unittest.IsolatedAsyncioTestCase):
             "status": 0,
             "state": [{"key": "currency.balances:alice", "value": "99"}],
             "events": [],
-            "stamps_used": 7,
+            "chi_used": 7,
             "result": "ok",
         }
         source = _FakeBlockSource()

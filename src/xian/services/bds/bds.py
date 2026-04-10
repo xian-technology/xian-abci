@@ -842,7 +842,7 @@ class BDS:
             payload["function"],
             tx_result["status"] == 0,
             tx_result["status"],
-            tx_result["stamps_used"],
+            tx_result["chi_used"],
             _nullable_jsonb_param(
                 canonical_result_value(tx_result.get("result"))
             ),

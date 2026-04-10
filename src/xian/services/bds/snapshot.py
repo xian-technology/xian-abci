@@ -90,7 +90,7 @@ TABLE_SPECS = (
             "function",
             "success",
             "status_code",
-            "stamps_used",
+            "chi_used",
             "result",
             "payload",
             "envelope",

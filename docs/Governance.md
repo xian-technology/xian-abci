@@ -13,7 +13,7 @@ The following smart contracts are currently deployed on the Xian Network:
 - **masternodes**: This contract is the main governance contract for the Xian Network. It manages the list of validators and is used to propose and vote on changes to the network. It interacts with the other contracts to enforce the decisions that are made through the governance process.
 - **dao**: This contract is used to manage the DAO treasury.
 - **rewards**: This contract is used to manage the rewards that are distributed to contract developers, validators, foundation, and also for deflationary burn.
-- **stamp_cost**: This contract is used to manage the cost of stamps on the network (transaction fees).
+- **chi_cost**: This contract is used to manage the cost of chi on the network (transaction fees).
 
 ## Registration Process
 
@@ -37,14 +37,14 @@ The governance process on the Xian Network is based on a voting mechanism. Valid
 To propose a change to the network, validators must follow these steps:
 
 1. **Submit Proposal**: Call the `propose_vote` function on the masternodes contract. The proposal must include the following information:
-   - **Type of Change**: Specify the type of change being proposed. Available options are: `add_member`, `remove_member`, `change_registration_fee`, `reward_change`, `dao_payout`, `stamp_cost_change`, `change_types`.
+   - **Type of Change**: Specify the type of change being proposed. Available options are: `add_member`, `remove_member`, `change_registration_fee`, `reward_change`, `dao_payout`, `chi_cost_change`, `change_types`.
    - **Value of Change**: Provide the necessary details for the proposed change:
      - `add_member` and `remove_member`: Include the address of the validator being added or removed as a string.
      - `change_registration_fee`: Include the new registration fee as an integer (e.g., 1000).
      - `reward_change`: Include the new reward distribution as a list (e.g., [0.49, 0.01, 0.01, 0.49]).
      - `dao_payout`: Include the amount of XIAN tokens to be paid out and the address of the recipient as a dictionary (e.g., {"amount": 1000, "to": "receiver_address"}).
-     - `stamp_cost_change`: Include the new stamp cost as an integer.
-     - `change_types`: Include the new types of changes that can be proposed as a list (e.g., ["add_member", "remove_member", "change_registration_fee", "reward_change", "dao_payout", "stamp_cost_change", "change_types"]).
+     - `chi_cost_change`: Include the new chi cost as an integer.
+     - `change_types`: Include the new types of changes that can be proposed as a list (e.g., ["add_member", "remove_member", "change_registration_fee", "reward_change", "dao_payout", "chi_cost_change", "change_types"]).
 
 2. **Voting**: Wait for other validators to vote on the proposal.
 

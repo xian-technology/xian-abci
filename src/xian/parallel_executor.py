@@ -237,7 +237,7 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
                 output.get("reward_deltas", {}),
             )
         )
-        self._batch_tx_processor.update_stamp_cost_cache(
+        self._batch_tx_processor.update_chi_cost_cache(
             output.get("base_writes", {})
         )
         self._batch_tx_processor.apply_tx_result(output["tx_result"])

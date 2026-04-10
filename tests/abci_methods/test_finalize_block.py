@@ -177,7 +177,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             "status": 0,
             "state": [],
             "events": [],
-            "stamps_used": 1,
+            "chi_used": 1,
             "result": "ok",
         }
         self.app.parallel_block_executor.enabled = False
@@ -223,7 +223,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                 {"key": "currency.balances:alice", "value": "99"},
             ],
             "events": [],
-            "stamps_used": 1,
+            "chi_used": 1,
             "result": "ok",
         }
         self.app.block_service_mode = True
@@ -268,7 +268,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             "status": 0,
             "state": [],
             "events": [],
-            "stamps_used": 1,
+            "chi_used": 1,
             "result": "ok",
         }
         self.app.block_service_mode = True

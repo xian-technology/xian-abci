@@ -27,32 +27,32 @@ class TxProcessor:
         self.executor = Executor(
             driver=self.client.raw_driver, metering=metering
         )
-        self.stamp_cost_key = self.client.raw_driver.make_key(
-            "stamp_cost",
+        self.chi_cost_key = self.client.raw_driver.make_key(
+            "chi_cost",
             "S",
             ["value"],
         )
-        self.cached_stamp_cost = None
+        self.cached_chi_cost = None
 
     def reset_block_cache(self) -> None:
-        self.cached_stamp_cost = None
+        self.cached_chi_cost = None
         zk_bridge.clear_verified_proof_cache()
 
-    def get_stamp_cost(self):
-        if self.cached_stamp_cost is None:
-            self.cached_stamp_cost = (
+    def get_chi_cost(self):
+        if self.cached_chi_cost is None:
+            self.cached_chi_cost = (
                 self.client.get_var(
-                    contract="stamp_cost",
+                    contract="chi_cost",
                     variable="S",
                     arguments=["value"],
                 )
                 or 1
             )
-        return self.cached_stamp_cost
+        return self.cached_chi_cost
 
-    def update_stamp_cost_cache(self, base_writes: dict) -> None:
-        if self.stamp_cost_key in base_writes:
-            self.cached_stamp_cost = base_writes[self.stamp_cost_key]
+    def update_chi_cost_cache(self, base_writes: dict) -> None:
+        if self.chi_cost_key in base_writes:
+            self.cached_chi_cost = base_writes[self.chi_cost_key]
 
     def process_tx(
         self,
@@ -67,21 +67,21 @@ class TxProcessor:
         previous_read_tracking = driver.track_transaction_reads
         driver.set_transaction_read_tracking(track_access)
         environment = self.get_environment(tx=tx)
-        stamp_cost = self.get_stamp_cost()
+        chi_cost = self.get_chi_cost()
 
         try:
             # Execute the transaction
             output = self.execute_tx(
                 transaction=tx,
-                stamp_cost=stamp_cost,
+                chi_cost=chi_cost,
                 environment=environment,
                 metering=enabled_fees,
             )
             if output is None:
                 return {
                     "tx_result": None,
-                    "stamp_rewards_amount": 0,
-                    "stamp_rewards_contract": None,
+                    "chi_rewards_amount": 0,
+                    "chi_rewards_contract": None,
                     "base_writes": {},
                     "reward_deltas": {},
                     "access": None,
@@ -91,18 +91,18 @@ class TxProcessor:
             processed = self.process_tx_output(
                 output=output,
                 transaction=tx,
-                stamp_cost=stamp_cost,
+                chi_cost=chi_cost,
                 rewards_handler=rewards_handler,
                 track_access=track_access,
             )
             tx_result = processed["tx_result"]
-            self.update_stamp_cost_cache(processed["base_writes"])
+            self.update_chi_cost_cache(processed["base_writes"])
             tx_result = self.prune_tx_result(tx_result)
 
             response = {
                 "tx_result": tx_result,
-                "stamp_rewards_amount": output["stamps_used"],
-                "stamp_rewards_contract": tx["payload"]["contract"],
+                "chi_rewards_amount": output["chi_used"],
+                "chi_rewards_contract": tx["payload"]["contract"],
             }
             if track_access:
                 response.update(
@@ -130,8 +130,8 @@ class TxProcessor:
             ).exception("Transaction processing failed unexpectedly")
             response = {
                 "tx_result": None,
-                "stamp_rewards_amount": 0,
-                "stamp_rewards_contract": None,
+                "chi_rewards_amount": 0,
+                "chi_rewards_contract": None,
             }
             if track_access:
                 response.update(
@@ -152,7 +152,7 @@ class TxProcessor:
                 )
 
     def execute_tx(
-        self, transaction, stamp_cost, environment: dict = {}, metering=False
+        self, transaction, chi_cost, environment: dict = {}, metering=False
     ):
         if self.trace_logging:
             logger.bind(
@@ -160,7 +160,7 @@ class TxProcessor:
                     stage="execute_tx",
                     tx=transaction,
                     extra={
-                        "stamp_cost": stamp_cost,
+                        "chi_cost": chi_cost,
                         "metering": metering,
                     },
                 )
@@ -173,8 +173,8 @@ class TxProcessor:
                 sender=transaction["payload"]["sender"],
                 contract_name=transaction["payload"]["contract"],
                 function_name=transaction["payload"]["function"],
-                stamps=transaction["payload"]["stamps_supplied"],
-                stamp_cost=stamp_cost,
+                chi=transaction["payload"]["chi_supplied"],
+                chi_cost=chi_cost,
                 kwargs=convert_dict(transaction["payload"]["kwargs"]),
                 environment=environment,
                 auto_commit=False,
@@ -189,9 +189,9 @@ class TxProcessor:
                     stage="execute_tx",
                     tx=transaction,
                     extra={
-                        "stamp_cost": stamp_cost,
-                        "stamps_supplied": transaction["payload"][
-                            "stamps_supplied"
+                        "chi_cost": chi_cost,
+                        "chi_supplied": transaction["payload"][
+                            "chi_supplied"
                         ],
                         "metering": metering,
                         "error_type": type(err).__name__,
@@ -213,7 +213,7 @@ class TxProcessor:
         self,
         output,
         transaction,
-        stamp_cost,
+        chi_cost,
         rewards_handler,
         *,
         track_access: bool = False,
@@ -227,7 +227,7 @@ class TxProcessor:
                         tx=transaction,
                         status=output["status_code"],
                         extra={
-                            "stamps_used": output["stamps_used"],
+                            "chi_used": output["chi_used"],
                             "write_count": len(output["writes"]),
                         },
                     )
@@ -239,7 +239,7 @@ class TxProcessor:
                         tx=transaction,
                         status=output["status_code"],
                         extra={
-                            "stamps_used": output["stamps_used"],
+                            "chi_used": output["chi_used"],
                             "write_count": len(output["writes"]),
                             "result": safe_repr(output["result"]),
                         },
@@ -254,7 +254,7 @@ class TxProcessor:
             if output["status_code"] == 0 and rewards_handler is not None:
                 rewards, reward_deltas, reward_records = (
                     rewards_handler.build_tx_reward_outputs(
-                        total_stamps_to_split=output["stamps_used"],
+                        total_chi_to_split=output["chi_used"],
                         contract=transaction["payload"]["contract"],
                         contract_costs=output.get("contract_costs"),
                     )
@@ -263,8 +263,8 @@ class TxProcessor:
             base_writes = self.determine_writes_from_output(
                 status_code=output["status_code"],
                 ouput_writes=output["writes"],
-                stamps_used=output["stamps_used"],
-                stamp_cost=stamp_cost,
+                chi_used=output["chi_used"],
+                chi_cost=chi_cost,
                 tx_sender=transaction["payload"]["sender"],
             )
             writes = self.materialize_writes(base_writes, reward_deltas)
@@ -289,7 +289,7 @@ class TxProcessor:
                 "status": output["status_code"],
                 "state": writes,
                 "events": output["events"],
-                "stamps_used": output["stamps_used"],
+                "chi_used": output["chi_used"],
                 "result": safe_repr(output["result"]),
                 "rewards": rewards if rewards else None,
                 "reward_records": reward_records or None,
@@ -303,7 +303,7 @@ class TxProcessor:
                         tx_hash=tx_hash,
                         status=output["status_code"],
                         extra={
-                            "stamps_used": output["stamps_used"],
+                            "chi_used": output["chi_used"],
                             "state_write_count": len(writes),
                             "event_count": len(output["events"]),
                         },
@@ -333,8 +333,8 @@ class TxProcessor:
         self,
         status_code,
         ouput_writes,
-        stamps_used,
-        stamp_cost,
+        chi_used,
+        chi_cost,
         tx_sender,
     ):
         # Only apply the writes if the tx passes
@@ -348,8 +348,8 @@ class TxProcessor:
                 mark=False,
             )
 
-            # Calculate only stamp deductions
-            to_deduct = stamps_used / stamp_cost
+            # Calculate only chi deductions
+            to_deduct = chi_used / chi_cost
             new_bal = 0
             try:
                 new_bal = sender_balance - to_deduct

@@ -34,7 +34,7 @@ class _FakeClient:
                 Decimal("0"),
                 Decimal("1"),
             ],
-            ("stamp_cost", "S", ("value",)): Decimal("20"),
+            ("chi_cost", "S", ("value",)): Decimal("20"),
             ("foundation", "owner", ()): "foundation",
             ("masternodes", "nodes", ()): masternodes,
         }
@@ -75,7 +75,7 @@ class RewardsHandlerTests(unittest.TestCase):
         handler = RewardsHandler(client=client)
 
         rewards, reward_deltas, reward_records = handler.build_tx_reward_outputs(
-            total_stamps_to_split=100,
+            total_chi_to_split=100,
             contract="con_parent",
         )
 
@@ -89,7 +89,7 @@ class RewardsHandlerTests(unittest.TestCase):
         handler = RewardsHandler(client=_FakeClient())
 
         rewards, reward_deltas, reward_records = handler.build_tx_reward_outputs(
-            total_stamps_to_split=100,
+            total_chi_to_split=100,
             contract="con_parent",
             contract_costs={
                 "con_parent": 7000,
@@ -146,7 +146,7 @@ class RewardsHandlerTests(unittest.TestCase):
         )
 
         rewards, reward_deltas, reward_records = handler.build_tx_reward_outputs(
-            total_stamps_to_split=100,
+            total_chi_to_split=100,
             contract="con_parent",
             contract_costs={
                 "con_parent": 7000,
@@ -183,7 +183,7 @@ class RewardsHandlerTests(unittest.TestCase):
         handler = RewardsHandler(client=client)
 
         rewards, reward_deltas, reward_records = handler.build_tx_reward_outputs(
-            total_stamps_to_split=100,
+            total_chi_to_split=100,
             contract="con_parent",
         )
 
@@ -217,7 +217,7 @@ class RewardsHandlerTests(unittest.TestCase):
         handler = RewardsHandler(client=client)
 
         rewards, _reward_deltas, _reward_records = handler.build_tx_reward_outputs(
-            total_stamps_to_split=100,
+            total_chi_to_split=100,
             contract="con_parent",
         )
 
@@ -250,7 +250,7 @@ class RewardsHandlerTests(unittest.TestCase):
         handler = RewardsHandler(client=client)
 
         rewards, reward_deltas, reward_records = handler.build_tx_reward_outputs(
-            total_stamps_to_split=100,
+            total_chi_to_split=100,
             contract="con_parent",
         )
 

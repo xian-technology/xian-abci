@@ -90,7 +90,7 @@ class MyTestCase(unittest.TestCase):
         currency_contract_path = CONTRACTS_DIR / "currency.s.py"
         dao_contract_path = CONTRACTS_DIR / "dao.s.py"
         rewards_contract_path = CONTRACTS_DIR / "rewards.s.py"
-        stamp_cost_contract_path = CONTRACTS_DIR / "stamp_cost.s.py"
+        chi_cost_contract_path = CONTRACTS_DIR / "chi_cost.s.py"
         members_contract_path = CONTRACTS_DIR / "members.s.py"
         foundation_contract_path = CONTRACTS_DIR / "foundation.s.py"
 
@@ -138,10 +138,10 @@ class MyTestCase(unittest.TestCase):
         self.c.submit(contract, name="rewards", owner="masternodes")
         self.d.set(key="rewards.S:value", value=[0.88, 0.01, 0.01, 0.1])
 
-        with open(stamp_cost_contract_path) as f:
+        with open(chi_cost_contract_path) as f:
             contract = f.read()
-        self.c.submit(contract, name="stamp_cost", owner="masternodes")
-        self.d.set(key="stamp_cost.S:value", value=20)
+        self.c.submit(contract, name="chi_cost", owner="masternodes")
+        self.d.set(key="chi_cost.S:value", value=20)
 
         with open(members_contract_path) as f:
             contract = f.read()
@@ -173,7 +173,7 @@ class MyTestCase(unittest.TestCase):
         self.currency = self.c.get_contract("currency")
         self.dao = self.c.get_contract("dao")
         self.rewards = self.c.get_contract("rewards")
-        self.stamp_cost = self.c.get_contract("stamp_cost")
+        self.chi_cost = self.c.get_contract("chi_cost")
         self.masternodes = self.c.get_contract("masternodes")
 
     def tearDown(self):
@@ -188,7 +188,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "currency",
                     "function": "approve",
                     "kwargs": {"amount": 100000, "to": "masternodes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": {"nanos": 0, "hash": "0x0", "height": 0, "chain_id": "test-chain"},
@@ -201,7 +201,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "register",
                     "kwargs": {},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": {"nanos": 0, "hash": "0x0", "height": 0, "chain_id": "test-chain"},
@@ -216,7 +216,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "unregister",
                     "kwargs": {},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": {"nanos": 0, "hash": "0x0", "height": 0, "chain_id": "test-chain"},
@@ -232,7 +232,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "propose_vote",
                     "kwargs": {"type_of_vote": "add_member", "arg": "new_node"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -245,7 +245,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -258,7 +258,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -271,7 +271,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -291,7 +291,7 @@ class MyTestCase(unittest.TestCase):
                         "type_of_vote": "remove_member",
                         "arg": "new_node",
                     },
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -305,7 +305,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -318,7 +318,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -331,7 +331,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -344,7 +344,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -365,7 +365,7 @@ class MyTestCase(unittest.TestCase):
                         "type_of_vote": "jail_member",
                         "arg": {"member": "new_node", "reason": "downtime"},
                     },
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -378,7 +378,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -391,7 +391,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -404,7 +404,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -417,7 +417,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -438,7 +438,7 @@ class MyTestCase(unittest.TestCase):
                         "type_of_vote": "unjail_member",
                         "arg": "new_node",
                     },
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -451,7 +451,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 3, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -464,7 +464,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 3, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -477,7 +477,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 3, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -502,7 +502,7 @@ class MyTestCase(unittest.TestCase):
                             "reason": reason,
                         },
                     },
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -519,7 +519,7 @@ class MyTestCase(unittest.TestCase):
                             "contract": "masternodes",
                             "function": "vote",
                             "kwargs": {"proposal_id": proposal_id, "vote": "yes"},
-                            "stamps_supplied": 1000,
+                            "chi_supplied": 1000,
                         },
                         "metadata": {"signature": "abc"},
                         "b_meta": block_meta,
@@ -537,7 +537,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "propose_vote",
                     "kwargs": {"type_of_vote": "add_member", "arg": "new_node"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -551,7 +551,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -564,7 +564,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -577,7 +577,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -585,7 +585,7 @@ class MyTestCase(unittest.TestCase):
         )
         return [vote, vote2, vote3, vote4]
 
-    def vote_stamp_cost(self):
+    def vote_chi_cost(self):
         block_meta = create_block_meta(datetime.now())
         self.tx_processor.process_tx(
             tx={
@@ -593,8 +593,8 @@ class MyTestCase(unittest.TestCase):
                     "sender": node_1,
                     "contract": "masternodes",
                     "function": "propose_vote",
-                    "kwargs": {"type_of_vote": "stamp_cost_change", "arg": 30},
-                    "stamps_supplied": 1000,
+                    "kwargs": {"type_of_vote": "chi_cost_change", "arg": 30},
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -607,7 +607,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -620,7 +620,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -633,7 +633,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -652,7 +652,7 @@ class MyTestCase(unittest.TestCase):
                         "type_of_vote": "reward_change",
                         "arg": [0.78, 0.11, 0.01, 0.1],
                     },
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -665,7 +665,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -678,7 +678,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -691,7 +691,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -710,7 +710,7 @@ class MyTestCase(unittest.TestCase):
                         "type_of_vote": "dao_payout",
                         "arg": {"amount": 100000, "to": "new_node", "contract_name": "currency"},
                     },
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -723,7 +723,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -736,7 +736,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -749,7 +749,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -768,7 +768,7 @@ class MyTestCase(unittest.TestCase):
                         "type_of_vote": "change_registration_fee",
                         "arg": 200000,
                     },
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -781,7 +781,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -794,7 +794,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -807,7 +807,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -832,7 +832,7 @@ class MyTestCase(unittest.TestCase):
                             "new_type4",
                         ],
                     },
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -845,7 +845,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -858,7 +858,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -871,7 +871,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -888,7 +888,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "announce_leave",
                     "kwargs": {},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -905,7 +905,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "leave",
                     "kwargs": {},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": block_meta,
@@ -1005,7 +1005,7 @@ class MyTestCase(unittest.TestCase):
                         "type_of_vote": "change_registration_fee",
                         "arg": 200000,
                     },
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": proposal_block_meta,
@@ -1019,7 +1019,7 @@ class MyTestCase(unittest.TestCase):
                     "contract": "masternodes",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": expired_block_meta,
@@ -1093,13 +1093,13 @@ class MyTestCase(unittest.TestCase):
             "AssertionError('Leave announcement period not over.')",
         )
 
-    def test_stamp_rate_vote(self):
-        self.assertEqual(self.stamp_cost.S["value"], 20)
-        self.vote_stamp_cost()
+    def test_chi_rate_vote(self):
+        self.assertEqual(self.chi_cost.S["value"], 20)
+        self.vote_chi_cost()
         self.assertEqual(self.masternodes.votes[1]["yes"], 4)
         self.assertEqual(self.masternodes.votes[1]["no"], 0)
         self.assertEqual(self.masternodes.votes[1]["finalized"], True)
-        self.assertEqual(self.stamp_cost.S["value"], 30)
+        self.assertEqual(self.chi_cost.S["value"], 30)
 
     def test_reward_change_vote(self):
         self.assertEqual(self.rewards.S["value"], [0.88, 0.01, 0.01, 0.1])
@@ -1138,7 +1138,7 @@ class MyTestCase(unittest.TestCase):
             "change_registration_fee", 
             "reward_change", 
             "dao_payout", 
-            "stamp_cost_change", 
+            "chi_cost_change", 
             "change_types", 
             "update_policy",
             "topic_vote"

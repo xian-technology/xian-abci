@@ -54,7 +54,7 @@ def make_signed_tx_bytes(
         "kwargs": {"amount": "1", "to": sender},
         "nonce": nonce,
         "sender": sender,
-        "stamps_supplied": 100,
+        "chi_supplied": 100,
     }
     payload_str = _canonical_json(payload)
     signature = signing_key.sign(payload_str.encode("utf-8")).signature.hex()
@@ -85,7 +85,7 @@ def make_signed_tx_bytes_with_raw_spacing(
         "kwargs": {"amount": "1", "to": sender},
         "nonce": nonce,
         "sender": sender,
-        "stamps_supplied": 100,
+        "chi_supplied": 100,
     }
     payload_str = _canonical_json(payload)
     signature = signing_key.sign(payload_str.encode("utf-8")).signature.hex()
@@ -230,7 +230,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                         "status": 0,
                         "state": [],
                         "events": [],
-                        "stamps_used": 1,
+                        "chi_used": 1,
                         "result": "ok",
                     }
                 },

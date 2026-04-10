@@ -75,7 +75,7 @@ class TestProcessor(unittest.TestCase):
                         "to": "bob",
                         "main_account": "sys",
                     },
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": create_block_meta(),
@@ -123,7 +123,7 @@ class TestProcessor(unittest.TestCase):
                         "amount": 100,
                         "to": ["casey", "francis", "sally", "ed", "yolanda"],
                     },
-                    "stamps_supplied": 1000,
+                    "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": create_block_meta(),
@@ -195,8 +195,8 @@ class TestProcessor(unittest.TestCase):
         writes = self.tx_processor.determine_writes_from_output(
             status_code=1,
             ouput_writes={},
-            stamps_used=100,
-            stamp_cost=20,
+            chi_used=100,
+            chi_cost=20,
             tx_sender="bob",
         )
 
@@ -212,7 +212,7 @@ class TestProcessor(unittest.TestCase):
                 "function": "transfer",
                 "sender": "bob",
                 "kwargs": {"amount": 5, "to": "casey"},
-                "stamps_supplied": 1000,
+                "chi_supplied": 1000,
             },
             "metadata": {"signature": "a"},
             "b_meta": create_block_meta(),
@@ -232,8 +232,8 @@ class TestProcessor(unittest.TestCase):
         )
 
         self.assertGreater(
-            larger_result["tx_result"]["stamps_used"],
-            base_result["tx_result"]["stamps_used"],
+            larger_result["tx_result"]["chi_used"],
+            base_result["tx_result"]["chi_used"],
         )
 
     def test_reset_block_cache_clears_verified_proof_cache(self):

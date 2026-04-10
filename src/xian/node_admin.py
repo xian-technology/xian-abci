@@ -222,7 +222,7 @@ def configure_existing_home(
     simulation_enabled: bool = True,
     simulation_max_concurrency: int = 2,
     simulation_timeout_ms: int = 3000,
-    simulation_max_stamps: int = 1_000_000,
+    simulation_max_chi: int = 1_000_000,
     parallel_execution_enabled: bool = False,
     parallel_execution_workers: int = 0,
     parallel_execution_min_transactions: int = 8,
@@ -275,7 +275,7 @@ def configure_existing_home(
         simulation_enabled=simulation_enabled,
         simulation_max_concurrency=simulation_max_concurrency,
         simulation_timeout_ms=simulation_timeout_ms,
-        simulation_max_stamps=simulation_max_stamps,
+        simulation_max_chi=simulation_max_chi,
         parallel_execution_enabled=parallel_execution_enabled,
         parallel_execution_workers=parallel_execution_workers,
         parallel_execution_min_transactions=(

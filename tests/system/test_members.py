@@ -27,12 +27,12 @@ class TestMembersContract(unittest.TestCase):
         # Deploy required contracts first with correct constructor args
         contract_args = {
             "currency": {"vk": self.deployer_vk},
-            "stamp_cost": {"initial_rate": 20},
+            "chi_cost": {"initial_rate": 20},
             "rewards": None,
             "dao": None
         }
 
-        for contract in ["currency.s.py", "dao.s.py", "rewards.s.py", "stamp_cost.s.py"]:
+        for contract in ["currency.s.py", "dao.s.py", "rewards.s.py", "chi_cost.s.py"]:
             path = os.path.join(self.contracts_dir, contract)
             with open(path) as f:
                 code = f.read()

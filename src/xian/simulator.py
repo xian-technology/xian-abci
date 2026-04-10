@@ -60,7 +60,7 @@ def _simulation_error_result(
         "payload": payload,
         "status": 1,
         "state": [],
-        "stamps_used": 0,
+        "chi_used": 0,
         "result": message,
     }
 
@@ -85,14 +85,14 @@ class TransactionSimulator:
         payload: dict,
         *,
         block_meta: dict | None = None,
-        max_stamps: int | None = None,
+        max_chi: int | None = None,
     ) -> dict:
         normalized_payload = self._normalize_payload(payload)
         try:
             return self._execute(
                 normalized_payload,
                 block_meta=block_meta,
-                max_stamps=max_stamps,
+                max_chi=max_chi,
             )
         except Exception as exc:
             logger.bind(
@@ -112,13 +112,13 @@ class TransactionSimulator:
         raw_payload_hex: str,
         *,
         block_meta: dict | None = None,
-        max_stamps: int | None = None,
+        max_chi: int | None = None,
     ) -> dict:
         decoded = json.loads(bytes.fromhex(raw_payload_hex).decode("utf-8"))
         return self.simulate(
             decoded,
             block_meta=block_meta,
-            max_stamps=max_stamps,
+            max_chi=max_chi,
         )
 
     def _execute(
@@ -126,27 +126,27 @@ class TransactionSimulator:
         payload: dict,
         *,
         block_meta: dict | None = None,
-        max_stamps: int | None = None,
+        max_chi: int | None = None,
     ) -> dict:
         state_snapshot = self._snapshot_driver_state()
         try:
-            stamp_cost = int(
+            chi_cost = int(
                 self.client.get_var(
-                    contract="stamp_cost",
+                    contract="chi_cost",
                     variable="S",
                     arguments=["value"],
                 )
             )
         except Exception:
-            stamp_cost = 20
+            chi_cost = 20
 
         try:
             output = self.executor.execute(
                 sender=payload["sender"],
                 contract_name=payload["contract"],
                 function_name=payload["function"],
-                stamps=max(int(max_stamps or 1_000_000), 1),
-                stamp_cost=stamp_cost,
+                chi=max(int(max_chi or 1_000_000), 1),
+                chi_cost=chi_cost,
                 kwargs=convert_dict(payload.get("kwargs", {})),
                 environment=self._make_environment(
                     payload, block_meta=block_meta
@@ -164,7 +164,7 @@ class TransactionSimulator:
                 "payload": payload,
                 "status": output["status_code"],
                 "state": writes,
-                "stamps_used": output["stamps_used"],
+                "chi_used": output["chi_used"],
                 "result": normalize_for_abci_json(output["result"]),
             }
             return stringify_decimals(format_dictionary(result))
@@ -263,7 +263,7 @@ class QuerySimulationService:
         enabled: bool = True,
         max_concurrency: int = 2,
         timeout_ms: int = 3000,
-        max_stamps: int = 1_000_000,
+        max_chi: int = 1_000_000,
     ) -> None:
         self.storage_home = Path(storage_home)
         self.tracer_mode = tracer_mode
@@ -272,7 +272,7 @@ class QuerySimulationService:
         self.enabled = enabled
         self.max_concurrency = max(int(max_concurrency), 1)
         self.timeout_ms = max(int(timeout_ms), 1)
-        self.max_stamps = max(int(max_stamps), 1)
+        self.max_chi = max(int(max_chi), 1)
         self._active_requests = 0
         self._counter_lock = asyncio.Lock()
 
@@ -332,7 +332,7 @@ class QuerySimulationService:
                 "tracer_mode": self.tracer_mode,
                 "payload": normalized_payload,
                 "block_meta": self.get_block_meta() or {},
-                "max_stamps": self.max_stamps,
+                "max_chi": self.max_chi,
                 "driver_state": self.get_state_snapshot(),
             }
             return await self._run_task(task, normalized_payload)

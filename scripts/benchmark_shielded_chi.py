@@ -158,7 +158,7 @@ def process(
     sender: str,
     kwargs: dict[str, object],
     height: int,
-    stamps: int = 25_000_000,
+    chi: int = 25_000_000,
 ) -> int:
     tx = {
         "payload": {
@@ -166,7 +166,7 @@ def process(
             "function": function,
             "sender": sender,
             "kwargs": kwargs,
-            "stamps_supplied": stamps,
+            "chi_supplied": chi,
         },
         "metadata": {"signature": "benchmark"},
         "b_meta": create_block_meta(height),
@@ -175,7 +175,7 @@ def process(
     tx_result = result["tx_result"]
     if tx_result["status"] != 0:
         raise RuntimeError(f"{function} failed: {tx_result['result']}")
-    return int(tx_result["stamps_used"])
+    return int(tx_result["chi_used"])
 
 
 def benchmark() -> dict[str, int]:
