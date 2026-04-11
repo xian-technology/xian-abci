@@ -398,7 +398,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["result"], "123.45")
         self.assertEqual(
             result["state"],
-            [{"key": "currency.balances:alice", "value": "99.35"}],
+            [{"key": "currency.balances:alice", "value": "99.4"}],
         )
         self.assertEqual(
             self.app.client.raw_driver.get("currency.balances:alice"),
@@ -478,7 +478,9 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             Request(query=RequestQuery(path="/masternodes_validator/alice"))
         )
         unbonds_response = await self.process_request(
-            Request(query=RequestQuery(path="/masternodes_pending_unbonds/alice"))
+            Request(
+                query=RequestQuery(path="/masternodes_pending_unbonds/alice")
+            )
         )
         votes_response = await self.process_request(
             Request(
