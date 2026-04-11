@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from contracting.stdlib.bridge import zk as zk_bridge
 from contracting.execution.runtime import rt
+from contracting.stdlib.bridge import zk as zk_bridge
 
 try:
     from xian_zk import (
