@@ -24,8 +24,16 @@ SEED = bytes(range(32))
 VALID_NONCE = 6
 
 
+def _sort_keys_deep(value):
+    if isinstance(value, dict):
+        return {key: _sort_keys_deep(value[key]) for key in sorted(value)}
+    if isinstance(value, list):
+        return [_sort_keys_deep(item) for item in value]
+    return value
+
+
 def _canonical_json(payload: dict) -> str:
-    return encode(decode(encode(payload)))
+    return encode(decode(encode(_sort_keys_deep(payload))))
 
 
 def make_signed_tx_bytes(*, nonce: int) -> bytes:

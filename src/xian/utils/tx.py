@@ -46,7 +46,7 @@ def unpack_transaction(tx):
         "sender": tx["payload"]["sender"],
         "chi_supplied": tx["payload"]["chi_supplied"],
     }
-    tx_for_verification = encode(decode(encode(tx_for_verification)))
+    tx_for_verification = encode(format_dictionary(tx_for_verification))
     return sender, signature, tx_for_verification
 
 

@@ -2,8 +2,11 @@ import decimal
 import json
 import unittest
 
+import nacl.encoding
+import nacl.signing
 from parameterized import parameterized
 from xian_runtime_types.decimal import ContractingDecimal
+from xian_runtime_types.encoding import decode, encode
 
 from xian.utils.encoding import (
     decode_transaction_bytes,
@@ -14,9 +17,39 @@ from xian.utils.encoding import (
 )
 from xian.utils.tx import (
     canonical_transaction_size_bytes,
+    format_dictionary,
     unpack_transaction,
     verify,
 )
+
+SEED = bytes(range(32))
+SENDER = nacl.signing.SigningKey(SEED).verify_key.encode(
+    encoder=nacl.encoding.HexEncoder
+).decode("ascii")
+
+
+def _canonical_json(value: dict) -> str:
+    return encode(decode(encode(format_dictionary(value))))
+
+
+def _signed_transaction_json(*, mutate_signature: bool = False) -> str:
+    payload = {
+        "chain_id": "xian-local",
+        "contract": "currency",
+        "function": "transfer",
+        "kwargs": {"amount": 0.00000252, "to": "JAVASCRIPT_TRANSACTION_TEST"},
+        "nonce": 40,
+        "sender": SENDER,
+        "chi_supplied": 10,
+    }
+    signing_key = nacl.signing.SigningKey(SEED)
+    signature = signing_key.sign(
+        _canonical_json(payload).encode("utf-8")
+    ).signature.hex()
+    if mutate_signature:
+        signature = signature[:-1] + ("0" if signature[-1] != "0" else "1")
+    tx = {"metadata": {"signature": signature}, "payload": format_dictionary(payload)}
+    return _canonical_json(tx)
 
 
 class TestPayloadStrExtraction(unittest.TestCase):
@@ -124,24 +157,20 @@ class TestPayloadStrExtraction(unittest.TestCase):
 class TestVerification(unittest.TestCase):
     @parameterized.expand(
         [
-            (
-                "valid_transaction",
-                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550d"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
-                True,
-            ),
-            (
-                "invalid_signature",
-                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550c"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
-                False,
-            ),
+            ("valid_transaction", False, True),
+            ("invalid_signature", True, False),
         ]
     )
-    def test_verify(self, name, tx_str, expected_result):
+    def test_verify(self, name, mutate_signature, expected_result):
+        tx_str = _signed_transaction_json(mutate_signature=mutate_signature)
         tx_json = json.loads(tx_str)
         payload_str = extract_payload_string(tx_str)
         sender, signature, payload = unpack_transaction(tx_json)
         self.assertEqual(
             verify(sender, payload_str, signature), expected_result
+        )
+        self.assertEqual(
+            verify(sender, payload, signature), expected_result
         )
 
 
