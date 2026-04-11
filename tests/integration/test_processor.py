@@ -189,7 +189,7 @@ class TestProcessor(unittest.TestCase):
         self.assertEqual(now.second, 56)
         self.assertEqual(now.microsecond, 789123)
 
-    def test_failed_tx_stamp_deduction_floors_balance_at_zero(self):
+    def test_failed_tx_chi_deduction_floors_balance_at_zero(self):
         self.d.set("currency.balances:bob", 1)
 
         writes = self.tx_processor.determine_writes_from_output(
