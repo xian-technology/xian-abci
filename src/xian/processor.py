@@ -190,9 +190,7 @@ class TxProcessor:
                     tx=transaction,
                     extra={
                         "chi_cost": chi_cost,
-                        "chi_supplied": transaction["payload"][
-                            "chi_supplied"
-                        ],
+                        "chi_supplied": transaction["payload"]["chi_supplied"],
                         "metering": metering,
                         "error_type": type(err).__name__,
                     },

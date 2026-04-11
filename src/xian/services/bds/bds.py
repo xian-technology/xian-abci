@@ -1230,16 +1230,17 @@ class BDS:
                 note_index_start = data.get("note_index_start")
                 output_count = data.get("output_count")
                 commitments_blob = data.get("commitments_blob")
-                if (
-                    not isinstance(note_index_start, int)
-                    or not isinstance(commitments_blob, str)
+                if not isinstance(note_index_start, int) or not isinstance(
+                    commitments_blob, str
                 ):
                     continue
                 commitments = [
                     item for item in commitments_blob.split("|") if item != ""
                 ]
                 resolved_output_count = (
-                    output_count if isinstance(output_count, int) else len(commitments)
+                    output_count
+                    if isinstance(output_count, int)
+                    else len(commitments)
                 )
                 if len(commitments) < resolved_output_count:
                     continue

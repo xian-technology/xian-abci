@@ -261,9 +261,7 @@ class RewardsHandler:
         contract_costs=None,
     ):
         developer_ratio = self._as_decimal(developer_ratio)
-        developer_total = (
-            self._as_decimal(total_chi_to_split) * developer_ratio
-        )
+        developer_total = self._as_decimal(total_chi_to_split) * developer_ratio
 
         send_map = defaultdict(lambda: ContractingDecimal("0"))
         developer_records = []
