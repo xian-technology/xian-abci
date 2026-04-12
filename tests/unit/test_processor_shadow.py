@@ -7,7 +7,7 @@ from xian_runtime_types.time import Datetime
 
 
 class ProcessorShadowExecutionTests(unittest.TestCase):
-    def test_execute_tx_skips_native_shadow_for_source_only_submission(self):
+    def test_execute_tx_rejects_source_only_submission_for_xian_vm(self):
         driver = SimpleNamespace(
             pending_writes={},
             pending_reads={},
@@ -27,15 +27,7 @@ class ProcessorShadowExecutionTests(unittest.TestCase):
         )
         processor.profiler = None
         processor.trace_logging = False
-        processor.executor = SimpleNamespace(
-            execute=lambda **_kwargs: {
-                "status_code": 0,
-                "result": "ok",
-                "writes": {},
-                "events": [],
-                "chi_used": 1,
-            }
-        )
+        processor.executor = SimpleNamespace(execute=mock.Mock())
 
         with (
             mock.patch(
@@ -61,12 +53,14 @@ class ProcessorShadowExecutionTests(unittest.TestCase):
                 metering=False,
             )
 
-        self.assertEqual(output["status_code"], 0)
+        self.assertEqual(output["status_code"], 1)
+        self.assertIn("requires deployment_artifacts", str(output["result"]))
         prepare.assert_called_once_with(
             processor.execution_runtime,
             processor.client.raw_driver,
             "submission",
         )
+        processor.executor.execute.assert_not_called()
         native_execute.assert_not_called()
 
     def test_execute_tx_runs_native_shadow_without_clobbering_python_state(self):
@@ -188,18 +182,18 @@ class ProcessorShadowExecutionTests(unittest.TestCase):
                 "xian.processor.prepare_contract_for_execution"
             ) as prepare,
             mock.patch(
-                "xian.processor.execute_native_contract",
+                "xian.processor.execute_authoritative_native_contract",
                 return_value=SimpleNamespace(
-                    status_code=0,
-                    result="ok",
+                    output=SimpleNamespace(
+                        status_code=0,
+                        result="ok",
+                        events=[],
+                    ),
                     writes={"currency.balances:alice": 5},
-                    events=[],
+                    chi_used=11,
+                    contract_costs={"currency": 100},
                 ),
             ) as native_execute,
-            mock.patch(
-                "xian.processor.compare_execution_results",
-                return_value={},
-            ) as compare,
         ):
             output = processor.execute_tx(
                 transaction={
@@ -232,7 +226,6 @@ class ProcessorShadowExecutionTests(unittest.TestCase):
             "currency",
         )
         native_execute.assert_called_once()
-        compare.assert_called_once()
 
 
 if __name__ == "__main__":

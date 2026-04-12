@@ -11,18 +11,20 @@ from contracting.client import ContractingClient
 from contracting.execution.executor import Executor
 from loguru import logger
 from xian_runtime_types.encoding import convert_dict
-from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.time import Datetime
 
 from xian.app_logging import build_log_fields
 from xian.execution_engine import (
     ExecutionRuntime,
     compare_execution_results,
+    execute_authoritative_native_contract,
     execute_native_contract,
-    native_execution_requires_deployment_artifacts,
+    metering_write_keys,
     prepare_contract_for_execution,
     restore_driver_state,
     snapshot_driver_state,
+    xian_vm_deployment_artifacts_error,
+    xian_vm_requires_deployment_artifacts,
 )
 from xian.utils.block import (
     get_latest_block_nanos,
@@ -140,6 +142,19 @@ class TransactionSimulator:
                 payload["contract"],
             )
             converted_kwargs = convert_dict(payload.get("kwargs", {}))
+            if xian_vm_requires_deployment_artifacts(
+                execution_runtime,
+                payload["contract"],
+                payload["function"],
+                converted_kwargs,
+            ):
+                return _simulation_error_result(
+                    payload=payload,
+                    message=xian_vm_deployment_artifacts_error(
+                        payload["contract"],
+                        payload["function"],
+                    ),
+                )
             environment = self._make_environment(payload, block_meta=block_meta)
             if getattr(execution_runtime, "native_authoritative", False):
                 return self._execute_native_authoritative_simulation(
@@ -148,7 +163,6 @@ class TransactionSimulator:
                     environment=environment,
                     max_chi=max_chi,
                     chi_cost=chi_cost,
-                    base_driver_state=state_snapshot,
                 )
             output = self.executor.execute(
                 sender=payload["sender"],
@@ -162,27 +176,13 @@ class TransactionSimulator:
                 metering=True,
             )
             if getattr(execution_runtime, "shadow_execution", False):
-                if native_execution_requires_deployment_artifacts(
-                    payload["contract"],
-                    payload["function"],
-                    converted_kwargs,
-                ):
-                    logger.bind(
-                        **build_log_fields(
-                            stage="simulate_tx_native_shadow_skip",
-                            payload=payload,
-                        )
-                    ).debug(
-                        "Skipping native shadow simulation for source-only contract deployment"
-                    )
-                else:
-                    self._run_native_shadow_execution(
-                        payload=payload,
-                        kwargs=converted_kwargs,
-                        output=output,
-                        environment=environment,
-                        base_driver_state=state_snapshot,
-                    )
+                self._run_native_shadow_execution(
+                    payload=payload,
+                    kwargs=converted_kwargs,
+                    output=output,
+                    environment=environment,
+                    base_driver_state=state_snapshot,
+                )
 
             writes = [
                 {"key": key, "value": value}
@@ -230,7 +230,16 @@ class TransactionSimulator:
         mismatches = compare_execution_results(
             output,
             native_output,
-            ignore_write_keys=self._metering_write_keys(payload["sender"]),
+            ignore_write_keys=metering_write_keys(
+                self.client.raw_driver,
+                sender=payload["sender"],
+                currency_contract=getattr(
+                    self.executor, "currency_contract", "currency"
+                ),
+                balances_hash=getattr(
+                    self.executor, "balances_hash", "balances"
+                ),
+            ),
         )
         if mismatches:
             logger.bind(
@@ -252,107 +261,35 @@ class TransactionSimulator:
         environment: dict,
         max_chi: int | None,
         chi_cost: int,
-        base_driver_state: dict,
     ) -> dict:
-        native_output = execute_native_contract(
+        outcome = execute_authoritative_native_contract(
             self.execution_runtime,
             self.client.raw_driver,
+            executor=self.executor,
             sender=payload["sender"],
             contract_name=payload["contract"],
             function_name=payload["function"],
             kwargs=kwargs,
             environment=environment,
-            meter=True,
             chi_budget=max(int(max_chi or 1_000_000), 1),
+            chi_cost=chi_cost,
+            meter=True,
+            mismatch_label="native authoritative simulation",
+            apply_metering_on_success_only=False,
         )
-
-        native_chi_used = getattr(native_output, "chi_used", None)
-        chi_used = int(native_chi_used or 0)
-        metering_write_keys = self._metering_write_keys(payload["sender"])
-        if self.execution_runtime.tracer_mode:
-            restore_driver_state(self.client.raw_driver, base_driver_state)
-            python_output = self.executor.execute(
-                sender=payload["sender"],
-                contract_name=payload["contract"],
-                function_name=payload["function"],
-                chi=max(int(max_chi or 1_000_000), 1),
-                chi_cost=chi_cost,
-                kwargs=kwargs,
-                environment=environment,
-                auto_commit=False,
-                metering=True,
-            )
-            restore_driver_state(self.client.raw_driver, base_driver_state)
-            mismatches = compare_execution_results(
-                python_output,
-                native_output,
-                ignore_write_keys=metering_write_keys,
-            )
-            if mismatches:
-                raise ValueError(
-                    "native authoritative simulation mismatch in "
-                    + ", ".join(sorted(mismatches))
-                )
-            if native_chi_used is None:
-                chi_used = python_output["chi_used"]
-            merged_writes = dict(native_output.writes)
-        else:
-            merged_writes = dict(native_output.writes)
-
-        if native_chi_used is not None:
-            merged_writes.update(
-                self._native_metering_writes(
-                    sender=payload["sender"],
-                    chi_used=chi_used,
-                    chi_cost=chi_cost,
-                )
-            )
 
         writes = [
             {"key": key, "value": value}
-            for key, value in merged_writes.items()
+            for key, value in outcome.writes.items()
         ]
         result = {
             "payload": payload,
-            "status": native_output.status_code,
+            "status": outcome.output.status_code,
             "state": writes,
-            "chi_used": chi_used,
-            "result": normalize_for_abci_json(native_output.result),
+            "chi_used": outcome.chi_used,
+            "result": normalize_for_abci_json(outcome.output.result),
         }
         return stringify_decimals(format_dictionary(result))
-
-    def _metering_write_keys(self, sender: str) -> set[str]:
-        driver = getattr(self.executor, "driver", None) or self.client.raw_driver
-        currency_contract = getattr(
-            self.executor, "currency_contract", "currency"
-        )
-        balances_hash = getattr(self.executor, "balances_hash", "balances")
-        if hasattr(driver, "make_key"):
-            key = driver.make_key(currency_contract, balances_hash, [sender])
-        else:
-            key = f"{currency_contract}.{balances_hash}:{sender}"
-        return {
-            key
-        }
-
-    def _native_metering_writes(
-        self,
-        *,
-        sender: str,
-        chi_used: int,
-        chi_cost: int,
-    ) -> dict[str, object]:
-        if chi_used <= 0:
-            return {}
-        balances_key = next(iter(self._metering_write_keys(sender)))
-        coerce_balance = getattr(
-            self.executor, "_coerce_balance_value", Executor._coerce_balance_value
-        )
-        driver_get = getattr(self.client.raw_driver, "get", lambda _key: None)
-        balance = coerce_balance(driver_get(balances_key))
-        to_deduct = ContractingDecimal(chi_used / chi_cost)
-        balance = max(balance - to_deduct, 0)
-        return {balances_key: balance}
 
     @staticmethod
     def _normalize_payload(payload: dict) -> dict:

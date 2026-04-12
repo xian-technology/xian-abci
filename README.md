@@ -102,10 +102,16 @@ The current `xian_vm_v1` rollout model is intentionally strict:
   `submission.submit_contract(...)` calls that must succeed under
   `authority=native` need `deployment_artifacts` instead of relying on a
   source-only compile path
+- native deployment is also deterministic-context-driven:
+  the native deploy path requires explicit `now`/block context from the node
+  runtime and will not fall back to local wall-clock time
 - `xian_vm_v1` execution is strict about artifacts:
   contracts must already carry persisted `__xian_ir_v1__`; stored
   `__source__` remains available for inspection, but it is not used as a
   runtime fallback
+- `xian_vm_v1` shadow-mode rollout also enforces artifact-backed deployment:
+  `submission.submit_contract(...)` with source only is rejected instead of
+  being admitted and skipped by native comparison
 - the node does not silently try native first and then hide problems behind a
   fallback to Python
 - transaction simulation remains explicit client-triggered behavior; the node

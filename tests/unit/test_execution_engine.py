@@ -19,6 +19,7 @@ from xian.execution_engine import (
     snapshot_driver_state,
 )
 from xian.execution_policy import ExecutionPolicy
+from xian_runtime_types.time import Datetime
 
 
 class ExecutionEngineRuntimeTests(unittest.TestCase):
@@ -321,7 +322,12 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 "deployment_artifacts": artifacts,
                 "constructor_args": {"value": 9},
             },
-            environment={},
+            environment={
+                "now": Datetime(2026, 4, 12, 12, 0),
+                "block_num": 7,
+                "block_hash": "abc123",
+                "chain_id": "xian-local",
+            },
             meter=True,
             chi_budget=10_000,
             transaction_size_bytes=256,
@@ -372,7 +378,12 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             contract_name="submission",
             function_name="change_owner",
             kwargs={"contract": "con_owned", "new_owner": "bob"},
-            environment={},
+            environment={
+                "now": Datetime(2026, 4, 12, 12, 0),
+                "block_num": 7,
+                "block_hash": "abc123",
+                "chain_id": "xian-local",
+            },
         )
 
         self.assertEqual(output.status_code, 0)
@@ -426,7 +437,12 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 "initial_holder": "bob",
                 "operator_address": "carol",
             },
-            environment={},
+            environment={
+                "now": Datetime(2026, 4, 12, 12, 0),
+                "block_num": 7,
+                "block_hash": "abc123",
+                "chain_id": "xian-local",
+            },
             meter=True,
             chi_budget=100_000,
             transaction_size_bytes=512,
@@ -555,6 +571,46 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self.assertEqual(output.writes, {})
         self.assertEqual(output.events, [])
 
+    def test_execute_native_contract_tolerates_missing_get_owner(self):
+        runtime = types.SimpleNamespace(mode="xian_vm_v1")
+        driver = types.SimpleNamespace()
+        captured = {}
+
+        def fake_execute_contract(**kwargs):
+            captured["context"] = kwargs["context"]
+            return types.SimpleNamespace(
+                status_code=0,
+                result="ok",
+                writes={},
+                events=[],
+                chi_used=0,
+                contract_costs={},
+            )
+
+        fake_bindings = types.SimpleNamespace(execute_contract=fake_execute_contract)
+
+        with mock.patch(
+            "xian.execution_engine._load_vm_runtime_bindings",
+            return_value=fake_bindings,
+        ):
+            output = execute_native_contract(
+                runtime,
+                driver,
+                sender="alice",
+                contract_name="currency",
+                function_name="transfer",
+                kwargs={"amount": 5},
+                environment={
+                    "now": "ts",
+                    "block_num": 7,
+                    "block_hash": "abc",
+                    "chain_id": "xian-local",
+                },
+            )
+
+        self.assertEqual(output.status_code, 0)
+        self.assertIsNone(captured["context"]["owner"])
+
     def test_execute_native_contract_rejects_source_only_contracts(self):
         runtime = build_execution_runtime(
             ExecutionPolicy(
@@ -588,6 +644,42 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
         self.assertEqual(output.status_code, 1)
         self.assertIn("requires persisted __xian_ir_v1__", str(output.result))
+
+    def test_execute_native_submission_requires_deterministic_now(self):
+        runtime = build_execution_runtime(
+            ExecutionPolicy(
+                mode="xian_vm_v1",
+                bytecode_version="xvm-1",
+                gas_schedule="xvm-gas-1",
+                authority="native",
+            )
+        )
+        driver = Driver()
+        driver.flush_full()
+        ContractingClient(driver=driver)
+        artifacts = build_contract_artifacts(
+            module_name="con_deterministic_probe",
+            source="@export\ndef ping():\n    return 'pong'\n",
+            lint=True,
+            vm_profile="xian_vm_v1",
+        )
+
+        output = execute_native_contract(
+            runtime,
+            driver,
+            sender="sys",
+            contract_name="submission",
+            function_name="submit_contract",
+            kwargs={
+                "name": "con_deterministic_probe",
+                "code": None,
+                "deployment_artifacts": artifacts,
+            },
+            environment={},
+        )
+
+        self.assertEqual(output.status_code, 1)
+        self.assertIn("deterministic now context", str(output.result))
 
     def test_compare_execution_results_reports_mismatched_fields(self):
         native_output = types.SimpleNamespace(

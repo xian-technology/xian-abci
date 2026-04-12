@@ -313,7 +313,7 @@ class SimulatorTests(unittest.TestCase):
         native_execute.assert_called_once()
         compare.assert_called_once()
 
-    def test_execute_skips_native_shadow_for_source_only_submission(self):
+    def test_execute_rejects_source_only_submission_for_xian_vm(self):
         simulator = object.__new__(TransactionSimulator)
         simulator.client = SimpleNamespace(
             raw_driver=SimpleNamespace(
@@ -331,15 +331,7 @@ class SimulatorTests(unittest.TestCase):
             mode="xian_vm_v1",
             shadow_execution=True,
         )
-        simulator.executor = SimpleNamespace(
-            execute=lambda **kwargs: {
-                "status_code": 0,
-                "writes": {},
-                "chi_used": 1,
-                "result": "ok",
-                "events": [],
-            }
-        )
+        simulator.executor = SimpleNamespace(execute=mock.Mock())
         simulator._make_environment = lambda payload, block_meta=None: {}
 
         with (
@@ -360,12 +352,14 @@ class SimulatorTests(unittest.TestCase):
                 }
             )
 
-        self.assertEqual(result["status"], 0)
+        self.assertEqual(result["status"], 1)
+        self.assertIn("requires deployment_artifacts", result["result"])
         prepare.assert_called_once_with(
             simulator.execution_runtime,
             simulator.client.raw_driver,
             "submission",
         )
+        simulator.executor.execute.assert_not_called()
         native_execute.assert_not_called()
 
     def test_execute_runs_native_authoritative_simulation(self):
@@ -410,18 +404,16 @@ class SimulatorTests(unittest.TestCase):
                 "xian.simulator.prepare_contract_for_execution"
             ) as prepare,
             mock.patch(
-                "xian.simulator.execute_native_contract",
+                "xian.simulator.execute_authoritative_native_contract",
                 return_value=SimpleNamespace(
-                    status_code=0,
-                    result="ok",
+                    output=SimpleNamespace(
+                        status_code=0,
+                        result="ok",
+                    ),
                     writes={"currency.balances:alice": 5},
-                    events=[],
+                    chi_used=9,
                 ),
             ) as native_execute,
-            mock.patch(
-                "xian.simulator.compare_execution_results",
-                return_value={},
-            ) as compare,
         ):
             result = simulator._execute(
                 {
@@ -440,7 +432,6 @@ class SimulatorTests(unittest.TestCase):
             "currency",
         )
         native_execute.assert_called_once()
-        compare.assert_called_once()
 
 
 class _TestQuerySimulationService(QuerySimulationService):

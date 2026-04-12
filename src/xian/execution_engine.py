@@ -6,6 +6,9 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
+
+from contracting.execution.executor import Executor
+from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import safe_repr
 
 from xian.execution_policy import ExecutionPolicy
@@ -44,6 +47,14 @@ class NativeExecutionResult:
     contract_costs: dict[str, int] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class NativeAuthoritativeExecutionResult:
+    output: NativeExecutionResult
+    writes: dict[str, Any]
+    chi_used: int
+    contract_costs: dict[str, int]
+
+
 _VM_PREPARED_CONTRACTS: dict[
     tuple[str, str, str, str],
     VmPreparedContract,
@@ -60,6 +71,77 @@ def native_execution_requires_deployment_artifacts(
         and function_name == "submit_contract"
         and not kwargs.get("deployment_artifacts")
     )
+
+
+def xian_vm_requires_deployment_artifacts(
+    runtime: ExecutionRuntime,
+    contract_name: str,
+    function_name: str,
+    kwargs: dict[str, Any],
+) -> bool:
+    return (
+        runtime.mode == "xian_vm_v1"
+        and native_execution_requires_deployment_artifacts(
+            contract_name,
+            function_name,
+            kwargs,
+        )
+    )
+
+
+def xian_vm_deployment_artifacts_error(
+    contract_name: str,
+    function_name: str,
+) -> str:
+    return (
+        "xian_vm_v1 requires deployment_artifacts for "
+        f"{contract_name}.{function_name}"
+    )
+
+
+def metering_write_keys(
+    driver,
+    *,
+    sender: str,
+    currency_contract: str = "currency",
+    balances_hash: str = "balances",
+) -> set[str]:
+    if hasattr(driver, "make_key"):
+        key = driver.make_key(currency_contract, balances_hash, [sender])
+    else:
+        key = f"{currency_contract}.{balances_hash}:{sender}"
+    return {key}
+
+
+def native_metering_writes(
+    driver,
+    *,
+    sender: str,
+    chi_used: int,
+    chi_cost: int,
+    coerce_balance=None,
+    currency_contract: str = "currency",
+    balances_hash: str = "balances",
+) -> dict[str, object]:
+    if chi_used <= 0:
+        return {}
+    balances_key = next(
+        iter(
+            metering_write_keys(
+                driver,
+                sender=sender,
+                currency_contract=currency_contract,
+                balances_hash=balances_hash,
+            )
+        )
+    )
+    if coerce_balance is None:
+        coerce_balance = Executor._coerce_balance_value
+    driver_get = getattr(driver, "get", lambda _key: None)
+    balance = coerce_balance(driver_get(balances_key))
+    to_deduct = ContractingDecimal(chi_used / chi_cost)
+    balance = max(balance - to_deduct, 0)
+    return {balances_key: balance}
 
 
 def clear_prepared_contract_cache() -> None:
@@ -218,7 +300,9 @@ def execute_native_contract(
         "caller": sender,
         "this": contract_name,
         "entry": (contract_name, function_name),
-        "owner": driver.get_owner(contract_name),
+        "owner": getattr(driver, "get_owner", lambda _name: None)(
+            contract_name
+        ),
         "submission_name": (
             kwargs.get("name") if contract_name == "submission" else None
         ),
@@ -256,6 +340,105 @@ def execute_native_contract(
         events=list(output.events),
         chi_used=int(getattr(output, "chi_used", 0)),
         contract_costs=dict(getattr(output, "contract_costs", {}) or {}),
+    )
+
+
+def execute_authoritative_native_contract(
+    runtime: ExecutionRuntime,
+    driver,
+    *,
+    executor,
+    sender: str,
+    contract_name: str,
+    function_name: str,
+    kwargs: dict[str, Any],
+    environment: dict[str, Any],
+    chi_budget: int,
+    chi_cost: int,
+    meter: bool,
+    transaction_size_bytes: int = 0,
+    mismatch_label: str,
+    apply_metering_on_success_only: bool = True,
+) -> NativeAuthoritativeExecutionResult:
+    base_driver_state = snapshot_driver_state(driver)
+    native_output = execute_native_contract(
+        runtime,
+        driver,
+        sender=sender,
+        contract_name=contract_name,
+        function_name=function_name,
+        kwargs=kwargs,
+        environment=environment,
+        meter=meter,
+        chi_budget=chi_budget,
+        transaction_size_bytes=transaction_size_bytes,
+    )
+
+    chi_used = int(native_output.chi_used or 0)
+    contract_costs = dict(native_output.contract_costs or {})
+    merged_writes = dict(native_output.writes)
+    ignore_write_keys = metering_write_keys(
+        driver,
+        sender=sender,
+        currency_contract=getattr(executor, "currency_contract", "currency"),
+        balances_hash=getattr(executor, "balances_hash", "balances"),
+    )
+
+    if runtime.tracer_mode:
+        restore_driver_state(driver, base_driver_state)
+        python_output = executor.execute(
+            sender=sender,
+            contract_name=contract_name,
+            function_name=function_name,
+            chi=chi_budget,
+            chi_cost=chi_cost,
+            kwargs=kwargs,
+            environment=environment,
+            auto_commit=False,
+            metering=meter,
+            transaction_size_bytes=transaction_size_bytes,
+        )
+        restore_driver_state(driver, base_driver_state)
+        mismatches = compare_execution_results(
+            python_output,
+            native_output,
+            ignore_write_keys=ignore_write_keys,
+        )
+        if mismatches:
+            raise ValueError(
+                f"{mismatch_label} mismatch in "
+                + ", ".join(sorted(mismatches))
+            )
+    else:
+        restore_driver_state(driver, base_driver_state)
+
+    if native_output.status_code == 0 or not apply_metering_on_success_only:
+        if meter and chi_used > 0:
+            merged_writes.update(
+                native_metering_writes(
+                    driver,
+                    sender=sender,
+                    chi_used=chi_used,
+                    chi_cost=chi_cost,
+                    coerce_balance=getattr(
+                        executor,
+                        "_coerce_balance_value",
+                        Executor._coerce_balance_value,
+                    ),
+                    currency_contract=getattr(
+                        executor, "currency_contract", "currency"
+                    ),
+                    balances_hash=getattr(
+                        executor, "balances_hash", "balances"
+                    ),
+                )
+            )
+
+    return NativeAuthoritativeExecutionResult(
+        output=native_output,
+        writes=merged_writes,
+        chi_used=chi_used,
+        contract_costs=contract_costs,
     )
 
 
