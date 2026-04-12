@@ -35,6 +35,9 @@ native = [
     "xian-tech-fastpath-core>=0.1.0,<0.2",
     "xian-tech-native-tracer>=0.1.1,<0.2",
 ]
+vm = [
+    "xian-tech-vm-core>=0.1.0,<0.2",
+]
 
 [project.urls]
 Repository = "https://github.com/xian-technology/xian-abci"
@@ -99,3 +102,4 @@ xian-tech-contracting = { path = "../xian-contracting", editable = true }
 xian-tech-runtime-types = { path = "../xian-contracting/packages/xian-runtime-types", editable = true }
 xian-tech-fastpath-core = { path = "../xian-contracting/packages/xian-fastpath-core", editable = true }
 xian-tech-native-tracer = { path = "../xian-contracting/packages/xian-native-tracer", editable = true }
+xian-tech-vm-core = { path = "../xian-contracting/packages/xian-vm-core", editable = true }

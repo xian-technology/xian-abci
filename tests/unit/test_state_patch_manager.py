@@ -193,6 +193,7 @@ class StatePatchManagerTests(unittest.TestCase):
         change_keys = [change["key"] for change in executions[0]["changes"]]
         self.assertIn("con_patchable.__source__", change_keys)
         self.assertIn("con_patchable.__code__", change_keys)
+        self.assertIn("con_patchable.__xian_ir_v1__", change_keys)
 
     def test_missing_local_bundle_for_governed_patch_is_an_error(self):
         self.manager.load_patches(self.test_dir)
@@ -229,6 +230,25 @@ class StatePatchManagerTests(unittest.TestCase):
         self.assertFalse(self.manager.loaded)
         with self.assertRaises(RuntimeError):
             self.manager.get_local_bundle_inventory()
+
+    def test_bundle_cannot_patch_vm_ir_directly(self):
+        self.write_bundle(
+            "invalid-ir.json",
+            {
+                "version": 1,
+                "patch_id": "invalid-ir-patch",
+                "activation_height": 12,
+                "changes": [
+                    {
+                        "key": "con_invalid.__xian_ir_v1__",
+                        "value": "{}",
+                    }
+                ],
+            },
+        )
+
+        with self.assertRaises(ValueError):
+            self.manager.load_patches(self.test_dir)
 
     def test_bundle_hash_mismatch_is_a_hard_error(self):
         self.write_bundle(

@@ -17,6 +17,11 @@ from xian.app_logging import (
     log_level_includes,
 )
 from xian.constants import Constants
+from xian.execution_engine import (
+    build_execution_runtime,
+    snapshot_driver_state,
+)
+from xian.execution_policy import load_execution_policy
 from xian.methods import (
     check_tx,
     commit,
@@ -37,7 +42,7 @@ from xian.rewards import RewardsHandler
 from xian.services.bds.bds import BDS
 from xian.services.bds.config import BdsConfig
 from xian.services.state_sync import StateSnapshotManager
-from xian.simulator import QuerySimulationService, snapshot_driver_state
+from xian.simulator import QuerySimulationService
 from xian.utils.block import get_latest_block_height
 from xian.utils.cometbft import (
     load_genesis_data,
@@ -99,9 +104,18 @@ class Xian:
             logger.error(e)
             raise SystemExit()
 
-        self.tracer_mode = self.cometbft_config.get("xian", {}).get(
-            "tracer_mode", "python_line_v1"
+        xian_config = self.cometbft_config.get("xian", {})
+        self.execution_policy = load_execution_policy(
+            xian_config,
+            allow_future=True,
         )
+        self.execution_runtime = build_execution_runtime(
+            self.execution_policy
+        )
+        self.execution_mode = self.execution_runtime.mode
+        if not self.execution_runtime.supports_transaction_execution:
+            raise ValueError(self.execution_runtime.unavailable_reason)
+        self.tracer_mode = self.execution_runtime.tracer_mode
         self.client = ContractingClient(
             storage_home=constants.STORAGE_HOME,
             tracer_mode=self.tracer_mode,
@@ -120,7 +134,6 @@ class Xian:
             chain_id=self.chain_id,
         )
         self.validator_handler = ValidatorHandler(self)
-        xian_config = self.cometbft_config.get("xian", {})
         self.nonce_storage = NonceStorage(
             self.client,
             reservation_ttl_seconds=xian_config.get(
@@ -146,10 +159,12 @@ class Xian:
             client=self.client,
             profiler=self.profiler,
             trace_logging=self.transaction_trace_debug_logging,
+            execution_runtime=self.execution_runtime,
         )
         self.simulator = QuerySimulationService(
             storage_home=constants.STORAGE_HOME,
             tracer_mode=self.tracer_mode,
+            execution_runtime=self.execution_runtime,
             get_block_meta=lambda: self.current_block_meta,
             get_state_snapshot=lambda: snapshot_driver_state(
                 self.client.raw_driver
@@ -187,7 +202,7 @@ class Xian:
             min_transactions=xian_config.get(
                 "parallel_execution_min_transactions", 8
             ),
-            tracer_mode=self.tracer_mode,
+            execution_runtime=self.execution_runtime,
         )
         self.app_version = 1
         self.metrics_service = MetricsService.from_runtime_settings(
@@ -216,7 +231,9 @@ class Xian:
                 stage="startup",
                 extra={
                     "chain_id": self.chain_id,
+                    "execution_mode": self.execution_mode,
                     "tracer_mode": self.tracer_mode,
+                    "shadow_execution": self.execution_runtime.shadow_execution,
                     "service_node": self.block_service_mode,
                     "simulation_enabled": self.simulator.enabled,
                     "parallel_execution_enabled": (

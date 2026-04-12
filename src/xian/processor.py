@@ -6,9 +6,19 @@ from contracting.execution.parallel import ExecutionAccess as TransactionAccess
 from contracting.stdlib.bridge import zk as zk_bridge
 from loguru import logger
 from xian_runtime_types.encoding import convert_dict, safe_repr
+from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.time import Datetime
 
 from xian.app_logging import build_log_fields
+from xian.execution_engine import (
+    ExecutionRuntime,
+    compare_execution_results,
+    execute_native_contract,
+    native_execution_requires_deployment_artifacts,
+    prepare_contract_for_execution,
+    restore_driver_state,
+    snapshot_driver_state,
+)
 from xian.utils.block import nanoseconds_to_utc_datetime
 from xian.utils.tx import canonical_transaction_size_bytes, tx_hash_from_tx
 
@@ -20,10 +30,15 @@ class TxProcessor:
         metering=False,
         profiler=None,
         trace_logging: bool = False,
+        execution_runtime: ExecutionRuntime | None = None,
     ):
         self.client = client
         self.profiler = profiler
         self.trace_logging = trace_logging
+        self.execution_runtime = execution_runtime or ExecutionRuntime(
+            mode="python_line_v1",
+            tracer_mode="python_line_v1",
+        )
         self.executor = Executor(
             driver=self.client.raw_driver, metering=metering
         )
@@ -154,6 +169,14 @@ class TxProcessor:
     def execute_tx(
         self, transaction, chi_cost, environment: dict = {}, metering=False
     ):
+        execution_runtime = getattr(
+            self,
+            "execution_runtime",
+            ExecutionRuntime(
+                mode="python_line_v1",
+                tracer_mode="python_line_v1",
+            ),
+        )
         if self.trace_logging:
             logger.bind(
                 **build_log_fields(
@@ -168,14 +191,33 @@ class TxProcessor:
         started_ns = time.perf_counter_ns()
 
         try:
+            prepare_contract_for_execution(
+                execution_runtime,
+                self.client.raw_driver,
+                transaction["payload"]["contract"],
+            )
+            converted_kwargs = convert_dict(transaction["payload"]["kwargs"])
+            if getattr(execution_runtime, "native_authoritative", False):
+                return self._execute_native_authoritative_tx(
+                    transaction=transaction,
+                    kwargs=converted_kwargs,
+                    chi_cost=chi_cost,
+                    environment=environment,
+                    metering=metering,
+                )
+            pre_execution_state = None
+            if getattr(execution_runtime, "shadow_execution", False):
+                pre_execution_state = snapshot_driver_state(
+                    self.client.raw_driver
+                )
             # Execute transaction
-            return self.executor.execute(
+            output = self.executor.execute(
                 sender=transaction["payload"]["sender"],
                 contract_name=transaction["payload"]["contract"],
                 function_name=transaction["payload"]["function"],
                 chi=transaction["payload"]["chi_supplied"],
                 chi_cost=chi_cost,
-                kwargs=convert_dict(transaction["payload"]["kwargs"]),
+                kwargs=converted_kwargs,
                 environment=environment,
                 auto_commit=False,
                 metering=metering,
@@ -183,6 +225,68 @@ class TxProcessor:
                     transaction
                 ),
             )
+            if (
+                getattr(execution_runtime, "shadow_execution", False)
+                and pre_execution_state
+            ):
+                if native_execution_requires_deployment_artifacts(
+                    transaction["payload"]["contract"],
+                    transaction["payload"]["function"],
+                    converted_kwargs,
+                ):
+                    logger.bind(
+                        **build_log_fields(
+                            stage="execute_tx_native_shadow_skip",
+                            tx=transaction,
+                        )
+                    ).debug(
+                        "Skipping native shadow execution for source-only contract deployment"
+                    )
+                    return output
+                python_driver_state = snapshot_driver_state(
+                    self.client.raw_driver
+                )
+                restore_driver_state(
+                    self.client.raw_driver, pre_execution_state
+                )
+                native_output = execute_native_contract(
+                    execution_runtime,
+                    self.client.raw_driver,
+                    sender=transaction["payload"]["sender"],
+                    contract_name=transaction["payload"]["contract"],
+                    function_name=transaction["payload"]["function"],
+                    kwargs=converted_kwargs,
+                    environment=environment,
+                    meter=metering,
+                    chi_budget=transaction["payload"]["chi_supplied"],
+                    transaction_size_bytes=canonical_transaction_size_bytes(
+                        transaction
+                    ),
+                )
+                restore_driver_state(
+                    self.client.raw_driver, python_driver_state
+                )
+                mismatches = compare_execution_results(
+                    output,
+                    native_output,
+                    ignore_write_keys=self._metering_write_keys(
+                        transaction["payload"]["sender"]
+                    ),
+                )
+                if mismatches:
+                    logger.bind(
+                        **build_log_fields(
+                            stage="execute_tx_native_shadow",
+                            tx=transaction,
+                            extra={
+                                "mismatch_fields": sorted(mismatches),
+                            },
+                        )
+                    ).warning(
+                        "Native VM transaction shadow mismatch: {}",
+                        mismatches,
+                )
+            return output
         except (TypeError, ValueError) as err:
             logger.bind(
                 **build_log_fields(
@@ -206,6 +310,126 @@ class TxProcessor:
                     time.perf_counter_ns() - started_ns,
                     block_scoped=True,
                 )
+
+    def _execute_native_authoritative_tx(
+        self,
+        *,
+        transaction: dict,
+        kwargs: dict,
+        chi_cost: int,
+        environment: dict,
+        metering: bool,
+    ) -> dict:
+        driver = self.client.raw_driver
+        pre_execution_state = snapshot_driver_state(driver)
+        native_output = execute_native_contract(
+            self.execution_runtime,
+            driver,
+            sender=transaction["payload"]["sender"],
+            contract_name=transaction["payload"]["contract"],
+            function_name=transaction["payload"]["function"],
+            kwargs=kwargs,
+            environment=environment,
+            meter=metering,
+            chi_budget=transaction["payload"]["chi_supplied"],
+            transaction_size_bytes=canonical_transaction_size_bytes(transaction),
+        )
+
+        native_chi_used = getattr(native_output, "chi_used", None)
+        chi_used = int(native_chi_used or 0)
+        native_contract_costs = getattr(native_output, "contract_costs", None)
+        contract_costs = dict(native_contract_costs or {})
+        metering_write_keys = self._metering_write_keys(
+            transaction["payload"]["sender"]
+        )
+        if self.execution_runtime.tracer_mode:
+            restore_driver_state(driver, pre_execution_state)
+            python_output = self.executor.execute(
+                sender=transaction["payload"]["sender"],
+                contract_name=transaction["payload"]["contract"],
+                function_name=transaction["payload"]["function"],
+                chi=transaction["payload"]["chi_supplied"],
+                chi_cost=chi_cost,
+                kwargs=kwargs,
+                environment=environment,
+                auto_commit=False,
+                metering=metering,
+                transaction_size_bytes=canonical_transaction_size_bytes(
+                    transaction
+                ),
+            )
+            restore_driver_state(driver, pre_execution_state)
+            mismatches = compare_execution_results(
+                python_output,
+                native_output,
+                ignore_write_keys=metering_write_keys,
+            )
+            if mismatches:
+                raise ValueError(
+                    "native authoritative execution mismatch in "
+                    + ", ".join(sorted(mismatches))
+                )
+            if native_chi_used is None:
+                chi_used = python_output["chi_used"]
+            if native_contract_costs is None:
+                contract_costs = python_output.get("contract_costs") or {}
+            merged_writes = dict(native_output.writes)
+        else:
+            restore_driver_state(driver, pre_execution_state)
+            merged_writes = dict(native_output.writes)
+
+        if native_output.status_code == 0 and metering and native_chi_used is not None:
+            merged_writes.update(
+                self._native_metering_writes(
+                    sender=transaction["payload"]["sender"],
+                    chi_used=chi_used,
+                    chi_cost=chi_cost,
+                )
+            )
+
+        return {
+            "status_code": native_output.status_code,
+            "result": native_output.result,
+            "writes": merged_writes,
+            "events": list(native_output.events),
+            "chi_used": chi_used,
+            "reads": {},
+            "prefix_reads": frozenset(),
+            "contract_costs": contract_costs,
+        }
+
+    def _metering_write_keys(self, sender: str) -> set[str]:
+        driver = getattr(self.executor, "driver", None) or self.client.raw_driver
+        currency_contract = getattr(
+            self.executor, "currency_contract", "currency"
+        )
+        balances_hash = getattr(self.executor, "balances_hash", "balances")
+        if hasattr(driver, "make_key"):
+            key = driver.make_key(currency_contract, balances_hash, [sender])
+        else:
+            key = f"{currency_contract}.{balances_hash}:{sender}"
+        return {
+            key
+        }
+
+    def _native_metering_writes(
+        self,
+        *,
+        sender: str,
+        chi_used: int,
+        chi_cost: int,
+    ) -> dict[str, object]:
+        if chi_used <= 0:
+            return {}
+        balances_key = next(iter(self._metering_write_keys(sender)))
+        coerce_balance = getattr(
+            self.executor, "_coerce_balance_value", Executor._coerce_balance_value
+        )
+        driver_get = getattr(self.client.raw_driver, "get", lambda _key: None)
+        balance = coerce_balance(driver_get(balances_key))
+        to_deduct = ContractingDecimal(chi_used / chi_cost)
+        balance = max(balance - to_deduct, 0)
+        return {balances_key: balance}
 
     def process_tx_output(
         self,

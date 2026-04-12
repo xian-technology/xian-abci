@@ -83,6 +83,34 @@ UV_CACHE_DIR=/tmp/uv-cache uv sync --group dev
 ./scripts/validate-repo.sh
 ```
 
+Optional runtime extras:
+
+- `uv sync --extra native` for the native admission/tracer helpers
+- `uv sync --extra vm` for the experimental `xian_vm_v1` rollout path with:
+  - explicit `authority=python` shadow mode
+  - explicit `authority=native` native execution mode
+  - stored-IR-first native preflight plus native execution wiring on explicit
+    simulation requests and on the real tx path
+
+The current `xian_vm_v1` rollout model is intentionally strict:
+
+- `authority=python` means Python is authoritative and the native VM runs
+  alongside it for comparison only
+- `authority=native` means the native VM is authoritative for execution and
+  chi/metering, and Python comparison is optional rather than mandatory
+- native contract deployment is artifact-driven:
+  `submission.submit_contract(...)` calls that must succeed under
+  `authority=native` need `deployment_artifacts` instead of relying on a
+  source-only compile path
+- `xian_vm_v1` execution is strict about artifacts:
+  contracts must already carry persisted `__xian_ir_v1__`; stored
+  `__source__` remains available for inspection, but it is not used as a
+  runtime fallback
+- the node does not silently try native first and then hide problems behind a
+  fallback to Python
+- transaction simulation remains explicit client-triggered behavior; the node
+  does not auto-run simulation for every incoming transaction
+
 The BDS-backed test paths expect Postgres at
 `postgres://postgres:1234@localhost:5432/xian`.
 

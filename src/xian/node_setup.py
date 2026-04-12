@@ -12,6 +12,10 @@ from nacl.signing import SigningKey
 from xian_runtime_types.encoding import encode
 
 from xian import toml_utils
+from xian.execution_policy import (
+    DEFAULT_EXECUTION_MODE,
+    resolve_execution_policy,
+)
 
 DEFAULT_CONFIG_TOML = """
 version = "0.38.22"
@@ -151,6 +155,13 @@ parallel_execution_enabled = false
 parallel_execution_workers = 0
 parallel_execution_min_transactions = 8
 pending_nonce_reservation_ttl_seconds = 60.0
+
+[xian.execution.engine]
+mode = "python_line_v1"
+bytecode_version = ""
+gas_schedule = ""
+authority = ""
+shadow_tracer_mode = ""
 
 [xian.bds]
 dsn = ""
@@ -407,6 +418,11 @@ def render_cometbft_config(
     statesync_trust_hash: str = "",
     statesync_trust_period: str = "168h0m0s",
     tracer_mode: str = "python_line_v1",
+    execution_mode: str | None = None,
+    execution_bytecode_version: str = "",
+    execution_gas_schedule: str = "",
+    execution_authority: str = "",
+    execution_shadow_tracer_mode: str = "",
     metrics_enabled: bool = True,
     metrics_host: str = "127.0.0.1",
     metrics_port: int = 9108,
@@ -453,7 +469,23 @@ def render_cometbft_config(
         trust_hash=statesync_trust_hash,
         trust_period=statesync_trust_period,
     )
-    resolved_tracer_mode = resolve_tracer_mode(tracer_mode)
+    execution_policy = resolve_execution_policy(
+        mode=execution_mode,
+        tracer_mode=tracer_mode,
+        bytecode_version=execution_bytecode_version,
+        gas_schedule=execution_gas_schedule,
+        authority=execution_authority,
+        shadow_tracer_mode=execution_shadow_tracer_mode,
+        allow_future=True,
+    )
+    resolved_tracer_mode = (
+        execution_policy.shadow_tracer_mode
+        or (
+            execution_policy.mode
+            if execution_policy.is_current_tracer_mode
+            else DEFAULT_EXECUTION_MODE
+        )
+    )
     resolved_app_logging = resolve_app_logging_settings(
         level=app_log_level,
         json_logging=app_log_json,
@@ -485,6 +517,7 @@ def render_cometbft_config(
         "pruning_enabled": enable_pruning,
         "blocks_to_keep": blocks_to_keep,
         "tracer_mode": resolved_tracer_mode,
+        "execution": execution_policy.to_config_dict(),
         "metrics_enabled": metrics_enabled,
         "metrics_host": metrics_host,
         "metrics_port": metrics_port,

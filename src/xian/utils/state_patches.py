@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from contracting.compilation.compiler import ContractingCompiler
+from contracting.storage.driver import XIAN_VM_V1_IR_KEY
 from loguru import logger
 from xian_runtime_types.encoding import convert_dict
 
@@ -42,13 +43,20 @@ def _canonical_change(change: dict[str, Any]) -> dict[str, Any]:
 
 def build_contract_artifacts_from_source(
     change: dict[str, Any],
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     contract_name = change["key"].split(".", 1)[0]
     compiler = ContractingCompiler(module_name=contract_name)
 
     normalized_source = compiler.normalize_source(change["value"])
     transformed_code = compiler.parse_to_code(change["value"])
-    return normalized_source, transformed_code
+    vm_ir_json = compiler.lower_to_ir_json(
+        normalized_source,
+        lint=False,
+        vm_profile="xian_vm_v1",
+        indent=None,
+        sort_keys=True,
+    )
+    return normalized_source, transformed_code, vm_ir_json
 
 
 def hash_from_state_changes(state_changes: list[dict[str, Any]]) -> str:
@@ -290,6 +298,11 @@ class StatePatchManager:
                 raise ValueError(
                     f"{bundle_file} cannot patch __code__ directly; use __source__"
                 )
+            if key.endswith(f".{XIAN_VM_V1_IR_KEY}"):
+                raise ValueError(
+                    f"{bundle_file} cannot patch {XIAN_VM_V1_IR_KEY} directly; "
+                    "use __source__"
+                )
             seen_keys.add(key)
             normalized_changes.append(
                 {
@@ -458,7 +471,7 @@ class StatePatchManager:
             parts = change["key"].split(".")
             if len(parts) > 1 and parts[1] == "__source__":
                 contract_name = parts[0]
-                normalized_source, transformed_code = (
+                normalized_source, transformed_code, vm_ir_json = (
                     build_contract_artifacts_from_source(change)
                 )
                 applied_changes[-1]["value"] = normalized_source
@@ -467,6 +480,13 @@ class StatePatchManager:
                         "key": f"{contract_name}.__code__",
                         "value": transformed_code,
                         "comment": f"Canonical runtime code for {change.get('comment', '')}",
+                    }
+                )
+                applied_changes.append(
+                    {
+                        "key": f"{contract_name}.{XIAN_VM_V1_IR_KEY}",
+                        "value": vm_ir_json,
+                        "comment": f"Persisted VM IR for {change.get('comment', '')}",
                     }
                 )
 
@@ -543,12 +563,16 @@ class StatePatchManager:
             parts = key.split(".")
             if len(parts) > 1 and parts[1] == "__source__":
                 contract_name = parts[0]
-                normalized_source, transformed_code = (
+                normalized_source, transformed_code, vm_ir_json = (
                     build_contract_artifacts_from_source(change)
                 )
                 self.raw_driver.set(key, normalized_source)
                 self.raw_driver.set(
                     f"{contract_name}.__code__", transformed_code
+                )
+                self.raw_driver.set(
+                    f"{contract_name}.{XIAN_VM_V1_IR_KEY}",
+                    vm_ir_json,
                 )
                 continue
 

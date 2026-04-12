@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from xian.execution_policy import load_execution_policy
 from xian.node_setup import (
     build_priv_validator_key,
     generate_validator_material,
@@ -52,6 +53,10 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(config["xian"]["pruning_enabled"])
         self.assertEqual(config["xian"]["blocks_to_keep"], 5000)
         self.assertEqual(config["xian"]["tracer_mode"], "python_line_v1")
+        self.assertEqual(
+            config["xian"]["execution"]["engine"]["mode"],
+            "python_line_v1",
+        )
         self.assertTrue(config["xian"]["transaction_trace_logging"])
         self.assertEqual(config["xian"]["app_log_level"], "DEBUG")
         self.assertTrue(config["xian"]["app_log_json"])
@@ -123,6 +128,63 @@ class NodeSetupTests(unittest.TestCase):
         )
 
         self.assertEqual(config["xian"]["tracer_mode"], "native_instruction_v1")
+        self.assertEqual(
+            load_execution_policy(config["xian"]).mode,
+            "native_instruction_v1",
+        )
+
+    def test_render_config_supports_future_execution_policy_shape(self):
+        config = render_cometbft_config(
+            moniker="validator-1",
+            execution_mode="xian_vm_v1",
+            execution_bytecode_version="xvm-1",
+            execution_gas_schedule="xvm-gas-1",
+            execution_authority="python",
+            execution_shadow_tracer_mode="native_instruction_v1",
+        )
+
+        self.assertEqual(
+            config["xian"]["tracer_mode"], "native_instruction_v1"
+        )
+        self.assertEqual(
+            config["xian"]["execution"]["engine"]["bytecode_version"],
+            "xvm-1",
+        )
+        self.assertEqual(
+            config["xian"]["execution"]["engine"]["gas_schedule"],
+            "xvm-gas-1",
+        )
+        self.assertEqual(
+            config["xian"]["execution"]["engine"]["authority"],
+            "python",
+        )
+        self.assertEqual(
+            config["xian"]["execution"]["engine"]["shadow_tracer_mode"],
+            "native_instruction_v1",
+        )
+
+    def test_render_config_supports_native_vm_authority_without_shadow(self):
+        config = render_cometbft_config(
+            moniker="validator-1",
+            execution_mode="xian_vm_v1",
+            execution_bytecode_version="xvm-1",
+            execution_gas_schedule="xvm-gas-1",
+            execution_authority="native",
+        )
+
+        self.assertEqual(config["xian"]["tracer_mode"], "python_line_v1")
+        self.assertEqual(
+            config["xian"]["execution"]["engine"]["mode"],
+            "xian_vm_v1",
+        )
+        self.assertEqual(
+            config["xian"]["execution"]["engine"]["authority"],
+            "native",
+        )
+        self.assertEqual(
+            config["xian"]["execution"]["engine"]["shadow_tracer_mode"],
+            "",
+        )
 
     def test_render_config_supports_state_sync(self):
         config = render_cometbft_config(

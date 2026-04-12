@@ -5,6 +5,7 @@ from argparse import ArgumentParser, BooleanOptionalAction
 
 from contracting.execution.tracer import SUPPORTED_TRACER_MODES
 
+from xian.execution_policy import SUPPORTED_EXECUTION_ENGINE_MODES
 from xian.genesis_builder import build_bundle_network_genesis
 from xian.node_admin import configure_existing_home
 from xian.node_setup import (
@@ -180,6 +181,52 @@ def build_parser() -> ArgumentParser:
         help="execution tracer backend for contract metering",
         required=False,
         default="python_line_v1",
+    )
+    parser.add_argument(
+        "--execution-mode",
+        choices=sorted(SUPPORTED_EXECUTION_ENGINE_MODES),
+        help=(
+            "explicit execution engine mode written into "
+            "xian.execution.engine.mode; defaults to --tracer-mode"
+        ),
+        required=False,
+        default=None,
+    )
+    parser.add_argument(
+        "--execution-bytecode-version",
+        type=str,
+        help="bytecode version for future execution engines such as xian_vm_v1",
+        required=False,
+        default="",
+    )
+    parser.add_argument(
+        "--execution-gas-schedule",
+        type=str,
+        help="gas schedule id for future execution engines such as xian_vm_v1",
+        required=False,
+        default="",
+    )
+    parser.add_argument(
+        "--execution-authority",
+        choices=["python", "native"],
+        help=(
+            "authoritative executor for xian_vm_v1: 'python' keeps Python "
+            "authoritative and runs native in shadow, 'native' makes the "
+            "native VM authoritative"
+        ),
+        required=False,
+        default="",
+    )
+    parser.add_argument(
+        "--execution-shadow-tracer-mode",
+        choices=sorted(SUPPORTED_TRACER_MODES),
+        help=(
+            "explicit Python tracer backend used for xian_vm_v1 rollout: "
+            "authoritative in authority=python mode, comparison/metering "
+            "backend in authority=native mode"
+        ),
+        required=False,
+        default="",
     )
     parser.add_argument(
         "--metrics-enabled",
@@ -443,6 +490,11 @@ def main(argv: list[str] | None = None) -> int:
         statesync_trust_hash=args.statesync_trust_hash,
         statesync_trust_period=args.statesync_trust_period,
         tracer_mode=args.tracer_mode,
+        execution_mode=args.execution_mode,
+        execution_bytecode_version=args.execution_bytecode_version,
+        execution_gas_schedule=args.execution_gas_schedule,
+        execution_authority=args.execution_authority,
+        execution_shadow_tracer_mode=args.execution_shadow_tracer_mode,
         metrics_enabled=args.metrics_enabled,
         metrics_host=args.metrics_host,
         metrics_port=args.metrics_port,

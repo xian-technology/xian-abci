@@ -14,6 +14,7 @@ from contracting.execution.parallel import (
 from contracting.storage.driver import Driver
 from loguru import logger
 
+from xian.execution_engine import ExecutionRuntime
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
 
@@ -25,7 +26,7 @@ class _WorkerRuntime:
     rewards_handler: RewardsHandler | None
 
 
-_WORKER_RUNTIMES: dict[tuple[str, bool, str], _WorkerRuntime] = {}
+_WORKER_RUNTIMES: dict[tuple[object, ...], _WorkerRuntime] = {}
 
 
 @dataclass(frozen=True)
@@ -43,9 +44,26 @@ def _get_worker_runtime(
     *,
     storage_home: str,
     use_rewards_handler: bool,
-    tracer_mode: str,
+    execution_runtime: ExecutionRuntime | None = None,
+    tracer_mode: str | None = None,
 ) -> _WorkerRuntime:
-    key = (storage_home, use_rewards_handler, tracer_mode)
+    if execution_runtime is None:
+        resolved_tracer_mode = tracer_mode or "python_line_v1"
+        execution_runtime = ExecutionRuntime(
+            mode=resolved_tracer_mode,
+            tracer_mode=resolved_tracer_mode,
+        )
+    key = (
+        storage_home,
+        use_rewards_handler,
+        execution_runtime.mode,
+        execution_runtime.tracer_mode or "",
+        execution_runtime.bytecode_version,
+        execution_runtime.gas_schedule,
+        execution_runtime.authority,
+        execution_runtime.shadow_tracer_mode,
+        execution_runtime.native_authoritative,
+    )
     runtime = _WORKER_RUNTIMES.get(key)
     if runtime is not None:
         return runtime
@@ -55,11 +73,14 @@ def _get_worker_runtime(
         storage_home=Path(storage_home),
         driver=driver,
         submission_filename=None,
-        tracer_mode=tracer_mode,
+        tracer_mode=execution_runtime.tracer_mode,
     )
     runtime = _WorkerRuntime(
         client=client,
-        tx_processor=TxProcessor(client=client),
+        tx_processor=TxProcessor(
+            client=client,
+            execution_runtime=execution_runtime,
+        ),
         rewards_handler=(
             RewardsHandler(client=client) if use_rewards_handler else None
         ),
@@ -72,7 +93,7 @@ def _speculative_process_tx(task: dict) -> dict:
     runtime = _get_worker_runtime(
         storage_home=task["storage_home"],
         use_rewards_handler=task["use_rewards_handler"],
-        tracer_mode=task["tracer_mode"],
+        execution_runtime=task["execution_runtime"],
     )
     runtime.client.raw_driver.flush_cache()
     runtime.tx_processor.reset_block_cache()
@@ -99,10 +120,13 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         enabled: bool = False,
         workers: int = 0,
         min_transactions: int = 8,
-        tracer_mode: str = "python_line_v1",
+        execution_runtime: ExecutionRuntime | None = None,
     ) -> None:
         self.storage_home = Path(storage_home)
-        self.tracer_mode = tracer_mode
+        self.execution_runtime = execution_runtime or ExecutionRuntime(
+            mode="python_line_v1",
+            tracer_mode="python_line_v1",
+        )
         self._mp_context = multiprocessing.get_context("spawn")
         self._executor: ProcessPoolExecutor | None = None
         self._batch_tx_processor: TxProcessor | None = None
@@ -186,7 +210,7 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
                 "tx": tx,
                 "enabled_fees": self._batch_enabled_fees,
                 "use_rewards_handler": self._batch_rewards_handler is not None,
-                "tracer_mode": self.tracer_mode,
+                "execution_runtime": self.execution_runtime,
                 "base_pending_writes": deepcopy(base_pending_writes),
             }
             for tx in requests
