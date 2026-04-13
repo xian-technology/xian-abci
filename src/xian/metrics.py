@@ -371,9 +371,24 @@ class XianMetricsCollector:
             "Optional BDS worker and storage health metrics.",
             labels=["field"],
         )
+        _add_metric_if_present(
+            bds_family, ["enabled"], 1 if app.block_service_mode else 0
+        )
+        if app.block_service_mode:
+            _add_metric_if_present(
+                bds_family,
+                ["refresh_success"],
+                1 if self.service.last_bds_refresh_success else 0,
+            )
+            _add_metric_if_present(
+                bds_family,
+                ["refresh_age_seconds"],
+                self.service.last_bds_refresh_age_seconds,
+            )
         if bds_status:
             indexed = bds_status.get("indexed", {})
             for field, value in (
+                ("catchup_running", bds_status.get("catchup_running")),
                 ("worker_running", bds_status.get("worker_running")),
                 ("queue_depth", bds_status.get("queue_depth")),
                 ("queue_capacity", bds_status.get("queue_capacity")),
@@ -389,6 +404,12 @@ class XianMetricsCollector:
                 ),
                 ("height_lag", bds_status.get("height_lag")),
                 ("catching_up", bds_status.get("catching_up")),
+                ("db_ok", bds_status.get("db_status") == "ok"),
+                ("alert_count", len(bds_status.get("alerts", []))),
+                (
+                    "last_enqueue_error_present",
+                    bds_status.get("last_enqueue_error") is not None,
+                ),
                 ("indexed_block_count", indexed.get("indexed_block_count")),
                 ("indexed_height", indexed.get("indexed_height")),
                 ("indexed_tx_count", indexed.get("indexed_tx_count")),
@@ -403,8 +424,12 @@ class XianMetricsCollector:
         )
         if bds_status:
             for alert in bds_status.get("alerts", []):
-                severity = str(alert.get("severity", "unknown"))
-                kind = str(alert.get("kind", "unknown"))
+                severity = str(
+                    alert.get("severity") or alert.get("level") or "unknown"
+                )
+                kind = str(
+                    alert.get("kind") or alert.get("code") or "unknown"
+                )
                 bds_alerts.add_metric([severity, kind], 1.0)
         yield bds_alerts
 
