@@ -50,6 +50,7 @@ from xian.utils.cometbft import (
 )
 from xian.utils.state_patches import StatePatchManager, resolve_state_patch_dir
 from xian.validators import ValidatorHandler
+from xian.vm_observability import VmShadowObserver
 
 get_logger("requests").setLevel(30)
 get_logger("urllib3").setLevel(30)
@@ -155,11 +156,18 @@ class Xian:
             self.transaction_trace_logging
             and log_level_includes(self.app_log_level, "TRACE")
         )
+        self.vm_shadow_observer = VmShadowObserver.for_runtime(
+            storage_home=constants.STORAGE_HOME,
+            mode=self.execution_runtime.mode,
+            authority=self.execution_runtime.authority or "python",
+            shadow_execution=self.execution_runtime.shadow_execution,
+        )
         self.tx_processor = TxProcessor(
             client=self.client,
             profiler=self.profiler,
             trace_logging=self.transaction_trace_debug_logging,
             execution_runtime=self.execution_runtime,
+            shadow_observer=self.vm_shadow_observer,
         )
         self.simulator = QuerySimulationService(
             storage_home=constants.STORAGE_HOME,
@@ -173,6 +181,7 @@ class Xian:
             max_concurrency=xian_config.get("simulation_max_concurrency", 2),
             timeout_ms=xian_config.get("simulation_timeout_ms", 3000),
             max_chi=xian_config.get("simulation_max_chi", 1_000_000),
+            shadow_observer=self.vm_shadow_observer,
         )
         self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None
@@ -234,6 +243,14 @@ class Xian:
                     "execution_mode": self.execution_mode,
                     "tracer_mode": self.tracer_mode,
                     "shadow_execution": self.execution_runtime.shadow_execution,
+                    "vm_shadow_observer_enabled": (
+                        self.vm_shadow_observer.enabled
+                    ),
+                    "vm_shadow_mismatch_log_path": (
+                        None
+                        if self.vm_shadow_observer.mismatch_log_path is None
+                        else str(self.vm_shadow_observer.mismatch_log_path)
+                    ),
                     "service_node": self.block_service_mode,
                     "simulation_enabled": self.simulator.enabled,
                     "parallel_execution_enabled": (

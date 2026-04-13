@@ -55,6 +55,7 @@ class NativeAuthoritativeExecutionResult:
     contract_costs: dict[str, int]
     reads: dict[str, Any]
     prefix_reads: frozenset[str]
+    shadow_mismatches: dict[str, tuple[Any, Any]]
 
 
 _VM_PREPARED_CONTRACTS: dict[
@@ -379,6 +380,9 @@ def execute_authoritative_native_contract(
     transaction_size_bytes: int = 0,
     mismatch_label: str,
     apply_metering_on_success_only: bool = True,
+    shadow_observer=None,
+    shadow_stage: str = "",
+    shadow_context: dict[str, Any] | None = None,
 ) -> NativeAuthoritativeExecutionResult:
     base_driver_state = snapshot_driver_state(driver)
     native_output = execute_native_contract(
@@ -407,6 +411,7 @@ def execute_authoritative_native_contract(
         currency_contract=getattr(executor, "currency_contract", "currency"),
         balances_hash=getattr(executor, "balances_hash", "balances"),
     )
+    shadow_mismatches: dict[str, tuple[Any, Any]] = {}
 
     if runtime.tracer_mode:
         restore_driver_state(driver, base_driver_state)
@@ -433,6 +438,22 @@ def execute_authoritative_native_contract(
             native_output,
             ignore_write_keys=ignore_write_keys,
         )
+        shadow_mismatches = mismatches
+        if shadow_observer is not None:
+            shadow_observer.record_comparison(
+                stage=shadow_stage or mismatch_label,
+                contract=str(
+                    (shadow_context or {}).get("contract", contract_name)
+                ),
+                function=str(
+                    (shadow_context or {}).get("function", function_name)
+                ),
+                sender=(shadow_context or {}).get("sender", sender),
+                nonce=(shadow_context or {}).get("nonce"),
+                tx_hash=(shadow_context or {}).get("tx_hash"),
+                block_height=(shadow_context or {}).get("block_height"),
+                mismatches=mismatches,
+            )
         if mismatches:
             raise ValueError(
                 f"{mismatch_label} mismatch in "
@@ -470,6 +491,7 @@ def execute_authoritative_native_contract(
         contract_costs=contract_costs,
         reads=native_reads,
         prefix_reads=native_prefix_reads,
+        shadow_mismatches=shadow_mismatches,
     )
 
 

@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from contracting.client import ContractingClient
+from contracting.compilation.artifacts import build_contract_artifacts
 
 from xian.execution_engine import build_execution_runtime
 from xian.execution_policy import ExecutionPolicy
@@ -52,6 +53,22 @@ def accumulate(values: list):
     return counter.get()
 """.strip()
 
+DEPLOYED_PROBE_SOURCE = """
+counter = Variable()
+
+
+@construct
+def seed(start: int = 0):
+    counter.set(start)
+
+
+@export
+def bump(delta: int):
+    updated = counter.get() + delta
+    counter.set(updated)
+    return updated
+""".strip()
+
 
 def make_block_meta(offset_seconds: int) -> dict:
     dt = datetime(2026, 4, 12, 12, 0, 0, tzinfo=UTC) + timedelta(
@@ -66,10 +83,17 @@ def make_block_meta(offset_seconds: int) -> dict:
     }
 
 
-def make_tx(*, sender: str, function: str, kwargs: dict, offset_seconds: int) -> dict:
+def make_tx(
+    *,
+    sender: str,
+    function: str,
+    kwargs: dict,
+    offset_seconds: int,
+    contract: str = "con_vm_parity_probe",
+) -> dict:
     return {
         "payload": {
-            "contract": "con_vm_parity_probe",
+            "contract": contract,
             "function": function,
             "sender": sender,
             "kwargs": kwargs,
@@ -88,6 +112,16 @@ class TestVmReplayParity(unittest.TestCase):
         # independently, so its installation timestamp is not part of replay parity.
         normalized.pop("submission.__submitted__", None)
         return normalized
+
+    @staticmethod
+    def _normalized_tx_result(tx_result: dict) -> dict:
+        return {
+            "status": tx_result.get("status"),
+            "hash": tx_result.get("hash"),
+            "result": tx_result.get("result"),
+            "state": tx_result.get("state"),
+            "events": tx_result.get("events"),
+        }
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory(prefix="xian-vm-parity-")
@@ -160,14 +194,75 @@ class TestVmReplayParity(unittest.TestCase):
                 enabled_fees=False,
             )
 
-            self.assertEqual(python_result["tx_result"], native_result["tx_result"])
             self.assertEqual(
-                python_result["chi_rewards_amount"],
-                native_result["chi_rewards_amount"],
+                self._normalized_tx_result(python_result["tx_result"]),
+                self._normalized_tx_result(native_result["tx_result"]),
             )
+            block_nanos = tx["b_meta"]["nanos"]
+            self.python_client.raw_driver.hard_apply(block_nanos)
+            self.native_client.raw_driver.hard_apply(block_nanos)
+
+        python_contract_state, python_run_state = fetch_filebased_state(
+            storage_home=self.python_home
+        )
+        native_contract_state, native_run_state = fetch_filebased_state(
+            storage_home=self.native_home
+        )
+
+        self.assertEqual(
+            self._normalized_contract_state(python_contract_state),
+            self._normalized_contract_state(native_contract_state),
+        )
+        self.assertEqual(python_run_state, native_run_state)
+
+    def test_python_and_native_processors_replay_submission_deployment_sequence(
+        self,
+    ):
+        artifacts = build_contract_artifacts(
+            module_name="con_vm_replay_child",
+            source=DEPLOYED_PROBE_SOURCE,
+        )
+        txs = [
+            make_tx(
+                sender="alice",
+                contract="submission",
+                function="submit_contract",
+                kwargs={
+                    "name": "con_vm_replay_child",
+                    "deployment_artifacts": artifacts,
+                    "constructor_args": {"start": 3},
+                },
+                offset_seconds=1,
+            ),
+            make_tx(
+                sender="alice",
+                contract="con_vm_replay_child",
+                function="bump",
+                kwargs={"delta": 2},
+                offset_seconds=2,
+            ),
+            make_tx(
+                sender="alice",
+                contract="con_vm_replay_child",
+                function="bump",
+                kwargs={"delta": 5},
+                offset_seconds=3,
+            ),
+        ]
+
+        for tx in txs:
+            python_result = self.python_processor.process_tx(
+                tx=tx,
+                enabled_fees=False,
+            )
+            native_result = self.native_processor.process_tx(
+                tx=tx,
+                enabled_fees=False,
+            )
+
             self.assertEqual(
-                python_result["chi_rewards_contract"],
-                native_result["chi_rewards_contract"],
+                self._normalized_tx_result(python_result["tx_result"]),
+                self._normalized_tx_result(native_result["tx_result"]),
             )
 
             block_nanos = tx["b_meta"]["nanos"]

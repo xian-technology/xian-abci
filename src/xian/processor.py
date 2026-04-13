@@ -34,6 +34,7 @@ class TxProcessor:
         profiler=None,
         trace_logging: bool = False,
         execution_runtime: ExecutionRuntime | None = None,
+        shadow_observer=None,
     ):
         self.client = client
         self.profiler = profiler
@@ -51,6 +52,7 @@ class TxProcessor:
             ["value"],
         )
         self.cached_chi_cost = None
+        self.shadow_observer = shadow_observer
 
     def reset_block_cache(self) -> None:
         self.cached_chi_cost = None
@@ -229,8 +231,14 @@ class TxProcessor:
                     environment=environment,
                     metering=metering,
                 )
+            track_driver_output = getattr(
+                execution_runtime, "shadow_execution", False
+            ) or (
+                transaction["payload"]["contract"] == "submission"
+                and transaction["payload"]["function"] == "submit_contract"
+            )
             pre_execution_state = None
-            if getattr(execution_runtime, "shadow_execution", False):
+            if track_driver_output:
                 pre_execution_state = snapshot_driver_state(
                     self.client.raw_driver
                 )
@@ -249,13 +257,21 @@ class TxProcessor:
                     transaction
                 ),
             )
-            if (
-                getattr(execution_runtime, "shadow_execution", False)
-                and pre_execution_state
-            ):
+            python_driver_state = None
+            if pre_execution_state:
                 python_driver_state = snapshot_driver_state(
                     self.client.raw_driver
                 )
+                output = augment_execution_output_with_driver_state(
+                    output,
+                    before_state=pre_execution_state,
+                    after_state=python_driver_state,
+                )
+            if (
+                getattr(execution_runtime, "shadow_execution", False)
+                and pre_execution_state
+                and python_driver_state is not None
+            ):
                 restore_driver_state(
                     self.client.raw_driver, pre_execution_state
                 )
@@ -276,13 +292,8 @@ class TxProcessor:
                 restore_driver_state(
                     self.client.raw_driver, python_driver_state
                 )
-                output_for_compare = augment_execution_output_with_driver_state(
-                    output,
-                    before_state=pre_execution_state,
-                    after_state=python_driver_state,
-                )
                 mismatches = compare_execution_results(
-                    output_for_compare,
+                    output,
                     native_output,
                     ignore_write_keys=metering_write_keys(
                         self.client.raw_driver,
@@ -295,6 +306,18 @@ class TxProcessor:
                         ),
                     ),
                 )
+                shadow_observer = getattr(self, "shadow_observer", None)
+                if shadow_observer is not None:
+                    shadow_observer.record_comparison(
+                        stage="execute_tx_native_shadow",
+                        contract=transaction["payload"]["contract"],
+                        function=transaction["payload"]["function"],
+                        sender=transaction["payload"]["sender"],
+                        nonce=transaction["payload"].get("nonce"),
+                        tx_hash=tx_hash_from_tx(transaction),
+                        block_height=environment.get("block_num"),
+                        mismatches=mismatches,
+                    )
                 if mismatches:
                     logger.bind(
                         **build_log_fields(
@@ -307,7 +330,7 @@ class TxProcessor:
                     ).warning(
                         "Native VM transaction shadow mismatch: {}",
                         mismatches,
-                )
+                    )
             return output
         except (TypeError, ValueError) as err:
             logger.bind(
@@ -366,6 +389,16 @@ class TxProcessor:
             meter=metering,
             transaction_size_bytes=canonical_transaction_size_bytes(transaction),
             mismatch_label="native authoritative execution",
+            shadow_observer=getattr(self, "shadow_observer", None),
+            shadow_stage="execute_tx_native_authoritative",
+            shadow_context={
+                "contract": transaction["payload"]["contract"],
+                "function": transaction["payload"]["function"],
+                "sender": transaction["payload"]["sender"],
+                "nonce": transaction["payload"].get("nonce"),
+                "tx_hash": tx_hash_from_tx(transaction),
+                "block_height": environment.get("block_num"),
+            },
         )
 
         return {

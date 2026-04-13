@@ -549,6 +549,43 @@ class QuerySimulationServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], 1)
         self.assertIn("timed out", result["result"])
 
+    async def test_records_shadow_comparisons_from_worker_result(self):
+        observer = mock.Mock()
+        service = _TestQuerySimulationService(
+            enabled=True,
+            shadow_observer=observer,
+        )
+        service.response["__xian_shadow_comparisons__"] = [
+            {
+                "stage": "simulate_tx_native_authoritative",
+                "contract": "currency",
+                "function": "balance_of",
+                "sender": "alice",
+                "nonce": 7,
+                "block_height": 11,
+                "mismatches": {},
+            }
+        ]
+        payload = (
+            '{"sender":"alice","contract":"currency","function":"balance_of",'
+            '"kwargs":{"account":"alice"}}'
+        ).encode("utf-8").hex()
+
+        service.release_event.set()
+        result = await service.simulate_encoded_transaction(payload)
+
+        self.assertEqual(result["status"], 0)
+        self.assertNotIn("__xian_shadow_comparisons__", result)
+        observer.record_comparison.assert_called_once_with(
+            stage="simulate_tx_native_authoritative",
+            contract="currency",
+            function="balance_of",
+            sender="alice",
+            nonce=7,
+            block_height=11,
+            mismatches={},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

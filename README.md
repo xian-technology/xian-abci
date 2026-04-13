@@ -116,6 +116,14 @@ The current `xian_vm_v1` rollout model is intentionally strict:
   fallback to Python
 - transaction simulation remains explicit client-triggered behavior; the node
   does not auto-run simulation for every incoming transaction
+- VM shadow/native observability is exported through the Prometheus endpoint:
+  - `xian_node_info` now includes execution mode, authority, shadow flag,
+    bytecode version, and gas schedule
+  - `xian_vm_shadow_metric` and `xian_vm_shadow_stage_metric` expose
+    comparison and mismatch counters
+  - `xian_vm_shadow_last_mismatch_info` exposes the latest mismatch context
+- when VM comparison is active, mismatch records are also appended to:
+  `storage/logs/xian-vm-shadow-mismatches.jsonl`
 
 The BDS-backed test paths expect Postgres at
 `postgres://postgres:1234@localhost:5432/xian`.

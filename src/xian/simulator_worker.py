@@ -27,6 +27,7 @@ def main() -> int:
         simulator = TransactionSimulator(
             client=client,
             execution_runtime=task.get("execution_runtime"),
+            collect_shadow_comparisons=True,
         )
         result = simulator.simulate(
             task["payload"],

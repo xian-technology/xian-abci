@@ -34,6 +34,9 @@ from xian.utils.block import (
 from xian.utils.encoding import normalize_for_abci_json, stringify_decimals
 from xian.utils.tx import format_dictionary
 
+_SHADOW_COMPARISONS_KEY = "__xian_shadow_comparisons__"
+
+
 def _simulation_error_result(
     *,
     payload: dict | None,
@@ -55,6 +58,8 @@ class TransactionSimulator:
         client: ContractingClient,
         get_block_meta=None,
         execution_runtime: ExecutionRuntime | None = None,
+        shadow_observer=None,
+        collect_shadow_comparisons: bool = False,
     ):
         self.client = client
         self.get_block_meta = get_block_meta or (lambda: None)
@@ -67,6 +72,8 @@ class TransactionSimulator:
             metering=False,
             bypass_balance_amount=True,
         )
+        self.shadow_observer = shadow_observer
+        self.collect_shadow_comparisons = collect_shadow_comparisons
 
     def simulate(
         self,
@@ -125,6 +132,7 @@ class TransactionSimulator:
             ),
         )
         state_snapshot = self._snapshot_driver_state()
+        shadow_comparisons = []
         try:
             chi_cost = int(
                 self.client.get_var(
@@ -165,6 +173,12 @@ class TransactionSimulator:
                     max_chi=max_chi,
                     chi_cost=chi_cost,
                 )
+            track_driver_output = getattr(
+                execution_runtime, "shadow_execution", False
+            ) or (
+                payload["contract"] == "submission"
+                and payload["function"] == "submit_contract"
+            )
             output = self.executor.execute(
                 sender=payload["sender"],
                 contract_name=payload["contract"],
@@ -176,13 +190,21 @@ class TransactionSimulator:
                 auto_commit=False,
                 metering=True,
             )
+            if track_driver_output:
+                output = augment_execution_output_with_driver_state(
+                    output,
+                    before_state=state_snapshot,
+                    after_state=snapshot_driver_state(self.client.raw_driver),
+                )
             if getattr(execution_runtime, "shadow_execution", False):
-                self._run_native_shadow_execution(
-                    payload=payload,
-                    kwargs=converted_kwargs,
-                    output=output,
-                    environment=environment,
-                    base_driver_state=state_snapshot,
+                shadow_comparisons.append(
+                    self._run_native_shadow_execution(
+                        payload=payload,
+                        kwargs=converted_kwargs,
+                        output=output,
+                        environment=environment,
+                        base_driver_state=state_snapshot,
+                    )
                 )
 
             writes = [
@@ -197,6 +219,8 @@ class TransactionSimulator:
                 "chi_used": output["chi_used"],
                 "result": normalize_for_abci_json(output["result"]),
             }
+            if getattr(self, "collect_shadow_comparisons", False):
+                result[_SHADOW_COMPARISONS_KEY] = shadow_comparisons
             return stringify_decimals(format_dictionary(result))
         finally:
             self._restore_driver_state(state_snapshot)
@@ -247,6 +271,17 @@ class TransactionSimulator:
                 ),
             ),
         )
+        shadow_observer = getattr(self, "shadow_observer", None)
+        if shadow_observer is not None:
+            shadow_observer.record_comparison(
+                stage="simulate_tx_native_shadow",
+                contract=payload["contract"],
+                function=payload["function"],
+                sender=payload.get("sender"),
+                nonce=payload.get("nonce"),
+                block_height=environment.get("block_num"),
+                mismatches=mismatches,
+            )
         if mismatches:
             logger.bind(
                 **build_log_fields(
@@ -258,6 +293,15 @@ class TransactionSimulator:
                 "Native VM simulation shadow mismatch: {}",
                 mismatches,
             )
+        return {
+            "stage": "simulate_tx_native_shadow",
+            "contract": payload["contract"],
+            "function": payload["function"],
+            "sender": payload.get("sender"),
+            "nonce": payload.get("nonce"),
+            "block_height": environment.get("block_num"),
+            "mismatches": mismatches,
+        }
 
     def _execute_native_authoritative_simulation(
         self,
@@ -282,6 +326,15 @@ class TransactionSimulator:
             meter=True,
             mismatch_label="native authoritative simulation",
             apply_metering_on_success_only=False,
+            shadow_observer=getattr(self, "shadow_observer", None),
+            shadow_stage="simulate_tx_native_authoritative",
+            shadow_context={
+                "contract": payload["contract"],
+                "function": payload["function"],
+                "sender": payload.get("sender"),
+                "nonce": payload.get("nonce"),
+                "block_height": environment.get("block_num"),
+            },
         )
 
         writes = [
@@ -295,6 +348,18 @@ class TransactionSimulator:
             "chi_used": outcome.chi_used,
             "result": normalize_for_abci_json(outcome.output.result),
         }
+        if getattr(self, "collect_shadow_comparisons", False):
+            result[_SHADOW_COMPARISONS_KEY] = [
+                {
+                    "stage": "simulate_tx_native_authoritative",
+                    "contract": payload["contract"],
+                    "function": payload["function"],
+                    "sender": payload.get("sender"),
+                    "nonce": payload.get("nonce"),
+                    "block_height": environment.get("block_num"),
+                    "mismatches": outcome.shadow_mismatches,
+                }
+            ]
         return stringify_decimals(format_dictionary(result))
 
     @staticmethod
@@ -389,6 +454,7 @@ class QuerySimulationService:
         max_concurrency: int = 2,
         timeout_ms: int = 3000,
         max_chi: int = 1_000_000,
+        shadow_observer=None,
     ) -> None:
         self.storage_home = Path(storage_home)
         self.tracer_mode = tracer_mode
@@ -402,6 +468,7 @@ class QuerySimulationService:
         self.max_concurrency = max(int(max_concurrency), 1)
         self.timeout_ms = max(int(timeout_ms), 1)
         self.max_chi = max(int(max_chi), 1)
+        self.shadow_observer = shadow_observer
         self._active_requests = 0
         self._counter_lock = asyncio.Lock()
 
@@ -465,7 +532,9 @@ class QuerySimulationService:
                 "max_chi": self.max_chi,
                 "driver_state": self.get_state_snapshot(),
             }
-            return await self._run_task(task, normalized_payload)
+            result = await self._run_task(task, normalized_payload)
+            self._record_shadow_comparisons(result)
+            return result
         finally:
             async with self._counter_lock:
                 self._active_requests -= 1
@@ -550,3 +619,19 @@ class QuerySimulationService:
 
     def close(self) -> None:
         return None
+
+    def _record_shadow_comparisons(self, result: dict) -> None:
+        comparisons = result.pop(_SHADOW_COMPARISONS_KEY, None)
+        observer = getattr(self, "shadow_observer", None)
+        if observer is None or not comparisons:
+            return
+        for comparison in comparisons:
+            observer.record_comparison(
+                stage=comparison.get("stage", "simulate_tx"),
+                contract=comparison.get("contract"),
+                function=comparison.get("function"),
+                sender=comparison.get("sender"),
+                nonce=comparison.get("nonce"),
+                block_height=comparison.get("block_height"),
+                mismatches=comparison.get("mismatches") or {},
+            )
