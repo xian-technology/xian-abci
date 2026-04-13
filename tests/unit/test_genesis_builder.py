@@ -39,7 +39,6 @@ class GenesisBuilderTests(unittest.TestCase):
         state_by_key = {
             entry["key"]: entry["value"] for entry in genesis_block["genesis"]
         }
-        self.assertIn("zk_registry.__code__", state_by_key)
         self.assertIn("zk_registry.__source__", state_by_key)
         self.assertIn("zk_registry.__xian_ir_v1__", state_by_key)
         self.assertEqual(state_by_key["zk_registry.registry_owner"], "governance")
@@ -97,7 +96,6 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertTrue(genesis_block["origin"]["signature"])
         self.assertIn("submission.__source__", state_by_key)
         self.assertIn("submission.__xian_ir_v1__", state_by_key)
-        self.assertIn("con_seed.__code__", state_by_key)
         self.assertIn("con_seed.__source__", state_by_key)
         self.assertIn("con_seed.__xian_ir_v1__", state_by_key)
         self.assertEqual(

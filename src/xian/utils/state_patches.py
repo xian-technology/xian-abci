@@ -43,12 +43,11 @@ def _canonical_change(change: dict[str, Any]) -> dict[str, Any]:
 
 def build_contract_artifacts_from_source(
     change: dict[str, Any],
-) -> tuple[str, str, str]:
+) -> tuple[str, str]:
     contract_name = change["key"].split(".", 1)[0]
     compiler = ContractingCompiler(module_name=contract_name)
 
     normalized_source = compiler.normalize_source(change["value"])
-    transformed_code = compiler.parse_to_code(change["value"])
     vm_ir_json = compiler.lower_to_ir_json(
         normalized_source,
         lint=False,
@@ -56,7 +55,7 @@ def build_contract_artifacts_from_source(
         indent=None,
         sort_keys=True,
     )
-    return normalized_source, transformed_code, vm_ir_json
+    return normalized_source, vm_ir_json
 
 
 def hash_from_state_changes(state_changes: list[dict[str, Any]]) -> str:
@@ -471,17 +470,10 @@ class StatePatchManager:
             parts = change["key"].split(".")
             if len(parts) > 1 and parts[1] == "__source__":
                 contract_name = parts[0]
-                normalized_source, transformed_code, vm_ir_json = (
+                normalized_source, vm_ir_json = (
                     build_contract_artifacts_from_source(change)
                 )
                 applied_changes[-1]["value"] = normalized_source
-                applied_changes.append(
-                    {
-                        "key": f"{contract_name}.__code__",
-                        "value": transformed_code,
-                        "comment": f"Canonical runtime code for {change.get('comment', '')}",
-                    }
-                )
                 applied_changes.append(
                     {
                         "key": f"{contract_name}.{XIAN_VM_V1_IR_KEY}",
@@ -563,13 +555,10 @@ class StatePatchManager:
             parts = key.split(".")
             if len(parts) > 1 and parts[1] == "__source__":
                 contract_name = parts[0]
-                normalized_source, transformed_code, vm_ir_json = (
+                normalized_source, vm_ir_json = (
                     build_contract_artifacts_from_source(change)
                 )
                 self.raw_driver.set(key, normalized_source)
-                self.raw_driver.set(
-                    f"{contract_name}.__code__", transformed_code
-                )
                 self.raw_driver.set(
                     f"{contract_name}.{XIAN_VM_V1_IR_KEY}",
                     vm_ir_json,

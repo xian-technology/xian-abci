@@ -208,11 +208,10 @@ def build_parser() -> ArgumentParser:
     )
     parser.add_argument(
         "--execution-authority",
-        choices=["python", "native"],
+        choices=["native"],
         help=(
-            "authoritative executor for xian_vm_v1: 'python' keeps Python "
-            "authoritative and runs native in shadow, 'native' makes the "
-            "native VM authoritative"
+            "authoritative executor for xian_vm_v1; only 'native' is "
+            "supported on the VM-native branch"
         ),
         required=False,
         default="",
@@ -221,9 +220,8 @@ def build_parser() -> ArgumentParser:
         "--execution-shadow-tracer-mode",
         choices=sorted(SUPPORTED_TRACER_MODES),
         help=(
-            "explicit Python tracer backend used for xian_vm_v1 rollout: "
-            "authoritative in authority=python mode, comparison/metering "
-            "backend in authority=native mode"
+            "legacy rollout option for older VM branches; xian_vm_v1 on "
+            "this branch rejects shadow_tracer_mode"
         ),
         required=False,
         default="",

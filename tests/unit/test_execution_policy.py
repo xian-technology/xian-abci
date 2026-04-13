@@ -32,14 +32,6 @@ class ExecutionPolicyTests(unittest.TestCase):
                 bytecode_version="xvm-1",
             )
 
-        with self.assertRaisesRegex(ValueError, "shadow_tracer_mode"):
-            resolve_execution_policy(
-                mode="xian_vm_v1",
-                allow_future=True,
-                bytecode_version="xvm-1",
-                gas_schedule="xvm-gas-1",
-            )
-
     def test_resolve_future_mode_requires_explicit_opt_in(self):
         with self.assertRaisesRegex(ValueError, "not implemented"):
             resolve_execution_policy(
@@ -75,34 +67,20 @@ class ExecutionPolicyTests(unittest.TestCase):
                 }
             )
 
-    def test_resolve_future_mode_accepts_shadow_tracer_mode(self):
+    def test_resolve_future_mode_defaults_to_native_authority(self):
         policy = resolve_execution_policy(
             mode="xian_vm_v1",
             allow_future=True,
             bytecode_version="xvm-1",
             gas_schedule="xvm-gas-1",
-            shadow_tracer_mode="native_instruction_v1",
-        )
-
-        self.assertEqual(policy.mode, "xian_vm_v1")
-        self.assertEqual(policy.authority, "python")
-        self.assertEqual(policy.shadow_tracer_mode, "native_instruction_v1")
-
-    def test_resolve_future_mode_accepts_native_authority(self):
-        policy = resolve_execution_policy(
-            mode="xian_vm_v1",
-            allow_future=True,
-            bytecode_version="xvm-1",
-            gas_schedule="xvm-gas-1",
-            authority="native",
         )
 
         self.assertEqual(policy.mode, "xian_vm_v1")
         self.assertEqual(policy.authority, "native")
         self.assertEqual(policy.shadow_tracer_mode, "")
 
-    def test_resolve_future_mode_rejects_invalid_shadow_tracer_mode(self):
-        with self.assertRaisesRegex(ValueError, "shadow_tracer_mode"):
+    def test_resolve_future_mode_rejects_shadow_tracer_mode(self):
+        with self.assertRaisesRegex(ValueError, "no longer supports shadow_tracer_mode"):
             resolve_execution_policy(
                 mode="xian_vm_v1",
                 allow_future=True,
@@ -119,5 +97,4 @@ class ExecutionPolicyTests(unittest.TestCase):
                 bytecode_version="xvm-1",
                 gas_schedule="xvm-gas-1",
                 authority="fallback",
-                shadow_tracer_mode="python_line_v1",
             )

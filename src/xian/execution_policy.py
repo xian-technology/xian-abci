@@ -69,24 +69,16 @@ def resolve_execution_policy(
             raise ValueError(
                 "xian_vm_v1 requires a gas_schedule in execution policy"
             )
-        normalized_authority = (authority or "python").strip()
-        if normalized_authority not in {"python", "native"}:
+        normalized_authority = (authority or "native").strip()
+        if normalized_authority != "native":
             raise ValueError(
-                "xian_vm_v1 authority must be one of ['native', 'python']"
+                "xian_vm_v1 authority must be 'native'"
             )
         normalized_shadow_tracer_mode = shadow_tracer_mode.strip()
-        if (
-            normalized_shadow_tracer_mode
-            and normalized_shadow_tracer_mode not in SUPPORTED_TRACER_MODES
-        ):
+        if normalized_shadow_tracer_mode:
             raise ValueError(
-                "xian_vm_v1 shadow_tracer_mode must be one of "
-                f"{sorted(SUPPORTED_TRACER_MODES)}"
-            )
-        if normalized_authority != "native" and not normalized_shadow_tracer_mode:
-            raise ValueError(
-                "xian_vm_v1 requires shadow_tracer_mode when authority is "
-                "'python' so native execution has an explicit comparison mode"
+                "xian_vm_v1 no longer supports shadow_tracer_mode; "
+                "native execution is authoritative"
             )
         return ExecutionPolicy(
             mode=selected,

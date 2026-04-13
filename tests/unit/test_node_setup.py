@@ -139,12 +139,10 @@ class NodeSetupTests(unittest.TestCase):
             execution_mode="xian_vm_v1",
             execution_bytecode_version="xvm-1",
             execution_gas_schedule="xvm-gas-1",
-            execution_authority="python",
-            execution_shadow_tracer_mode="native_instruction_v1",
         )
 
         self.assertEqual(
-            config["xian"]["tracer_mode"], "native_instruction_v1"
+            config["xian"]["tracer_mode"], "python_line_v1"
         )
         self.assertEqual(
             config["xian"]["execution"]["engine"]["bytecode_version"],
@@ -156,11 +154,11 @@ class NodeSetupTests(unittest.TestCase):
         )
         self.assertEqual(
             config["xian"]["execution"]["engine"]["authority"],
-            "python",
+            "native",
         )
         self.assertEqual(
             config["xian"]["execution"]["engine"]["shadow_tracer_mode"],
-            "native_instruction_v1",
+            "",
         )
 
     def test_render_config_supports_native_vm_authority_without_shadow(self):

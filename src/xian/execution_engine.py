@@ -239,43 +239,27 @@ def build_execution_runtime(policy: ExecutionPolicy) -> ExecutionRuntime:
             f"bytecode_version={policy.bytecode_version!r} "
             f"gas_schedule={policy.gas_schedule!r}"
         )
-
-    authority = policy.authority or "python"
-    if authority not in {"python", "native"}:
+    if policy.authority and policy.authority != "native":
         raise ValueError(
-            f"unsupported xian_vm_v1 authority {authority!r}"
+            "xian_vm_v1 authority must be 'native'"
         )
-    if authority != "native" and not policy.shadow_tracer_mode:
+    if policy.shadow_tracer_mode:
         raise ValueError(
-            "xian_vm_v1 runtime requires shadow_tracer_mode when authority "
-            "is 'python'"
-        )
-    if authority == "native":
-        return ExecutionRuntime(
-            mode=policy.mode,
-            tracer_mode=policy.shadow_tracer_mode or None,
-            bytecode_version=policy.bytecode_version,
-            gas_schedule=policy.gas_schedule,
-            authority="native",
-            shadow_tracer_mode=policy.shadow_tracer_mode,
-            native_runtime_info=runtime_info,
-            supports_transaction_execution=True,
-            shadow_execution=bool(policy.shadow_tracer_mode),
-            native_authoritative=True,
-            unavailable_reason="",
+            "xian_vm_v1 no longer supports shadow_tracer_mode; "
+            "native execution is authoritative"
         )
 
     return ExecutionRuntime(
         mode=policy.mode,
-        tracer_mode=policy.shadow_tracer_mode or None,
+        tracer_mode=None,
         bytecode_version=policy.bytecode_version,
         gas_schedule=policy.gas_schedule,
-        authority="python",
-        shadow_tracer_mode=policy.shadow_tracer_mode,
+        authority="native",
+        shadow_tracer_mode="",
         native_runtime_info=runtime_info,
         supports_transaction_execution=True,
-        shadow_execution=True,
-        native_authoritative=False,
+        shadow_execution=False,
+        native_authoritative=True,
         unavailable_reason="",
     )
 

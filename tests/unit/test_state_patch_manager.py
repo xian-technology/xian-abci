@@ -152,7 +152,7 @@ class StatePatchManagerTests(unittest.TestCase):
         )
         self.assertEqual(self.driver.hard_apply_calls, [123456])
 
-    def test_build_applied_patches_for_source_patch_includes_runtime_code(self):
+    def test_build_applied_patches_for_source_patch_includes_vm_ir(self):
         self.write_bundle(
             "patch-source.json",
             {
@@ -192,7 +192,6 @@ class StatePatchManagerTests(unittest.TestCase):
         self.assertEqual(len(executions), 1)
         change_keys = [change["key"] for change in executions[0]["changes"]]
         self.assertIn("con_patchable.__source__", change_keys)
-        self.assertIn("con_patchable.__code__", change_keys)
         self.assertIn("con_patchable.__xian_ir_v1__", change_keys)
 
     def test_missing_local_bundle_for_governed_patch_is_an_error(self):

@@ -53,8 +53,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                         mode="xian_vm_v1",
                         bytecode_version="xvm-1",
                         gas_schedule="xvm-gas-1",
-                        authority="python",
-                        shadow_tracer_mode="python_line_v1",
+                        authority="native",
                     )
                 )
 
@@ -74,14 +73,11 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                         mode="xian_vm_v1",
                         bytecode_version="xvm-9",
                         gas_schedule="xvm-gas-9",
-                        authority="python",
-                        shadow_tracer_mode="python_line_v1",
+                        authority="native",
                     )
                 )
 
-    def test_build_runtime_for_vm_python_authority_requires_shadow_tracer_mode(
-        self,
-    ):
+    def test_build_runtime_for_vm_rejects_python_authority(self):
         fake_bindings = types.SimpleNamespace(
             runtime_info=lambda: {
                 "vm_profile": "xian_vm_v1",
@@ -100,7 +96,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             "xian.execution_engine._load_vm_runtime_bindings",
             return_value=fake_bindings,
         ):
-            with self.assertRaisesRegex(ValueError, "shadow_tracer_mode"):
+            with self.assertRaisesRegex(ValueError, "authority must be 'native'"):
                 build_execution_runtime(
                     ExecutionPolicy(
                         mode="xian_vm_v1",
@@ -110,7 +106,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     )
                 )
 
-    def test_build_runtime_for_vm_shadow_mode_enables_transaction_path(self):
+    def test_build_runtime_for_vm_rejects_shadow_mode(self):
         fake_bindings = types.SimpleNamespace(
             runtime_info=lambda: {
                 "vm_profile": "xian_vm_v1",
@@ -123,23 +119,16 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             "xian.execution_engine._load_vm_runtime_bindings",
             return_value=fake_bindings,
         ):
-            runtime = build_execution_runtime(
-                ExecutionPolicy(
-                    mode="xian_vm_v1",
-                    bytecode_version="xvm-1",
-                    gas_schedule="xvm-gas-1",
-                    authority="python",
-                    shadow_tracer_mode="python_line_v1",
+            with self.assertRaisesRegex(ValueError, "shadow_tracer_mode"):
+                build_execution_runtime(
+                    ExecutionPolicy(
+                        mode="xian_vm_v1",
+                        bytecode_version="xvm-1",
+                        gas_schedule="xvm-gas-1",
+                        authority="native",
+                        shadow_tracer_mode="python_line_v1",
+                    )
                 )
-            )
-
-        self.assertTrue(runtime.supports_transaction_execution)
-        self.assertTrue(runtime.shadow_execution)
-        self.assertFalse(runtime.native_authoritative)
-        self.assertEqual(runtime.authority, "python")
-        self.assertEqual(runtime.tracer_mode, "python_line_v1")
-        self.assertEqual(runtime.shadow_tracer_mode, "python_line_v1")
-        self.assertEqual(runtime.unavailable_reason, "")
 
     def test_build_runtime_for_vm_native_authority_enables_native_execution(self):
         fake_bindings = types.SimpleNamespace(
@@ -168,6 +157,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self.assertTrue(runtime.native_authoritative)
         self.assertEqual(runtime.authority, "native")
         self.assertIsNone(runtime.tracer_mode)
+        self.assertEqual(runtime.shadow_tracer_mode, "")
 
     def test_prepare_contract_for_execution_recurses_static_imports(self):
         fake_bindings = types.SimpleNamespace(
@@ -188,8 +178,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     mode="xian_vm_v1",
                     bytecode_version="xvm-1",
                     gas_schedule="xvm-gas-1",
-                    authority="python",
-                    shadow_tracer_mode="python_line_v1",
+                    authority="native",
                 )
             )
             driver = mock.Mock()
@@ -340,7 +329,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         )
 
         self.assertEqual(output.status_code, 0)
-        self.assertIn("con_native_submission_probe.__code__", output.writes)
         self.assertIn("con_native_submission_probe.__source__", output.writes)
         self.assertIn(
             "con_native_submission_probe.__xian_ir_v1__", output.writes
@@ -455,7 +443,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         )
 
         self.assertEqual(output.status_code, 0)
-        self.assertIn("con_demo_token.__code__", output.writes)
         self.assertIn("con_demo_token.__source__", output.writes)
         self.assertIn("con_demo_token.__xian_ir_v1__", output.writes)
         self.assertEqual(output.writes["con_demo_token.balances:bob"], 42)
@@ -532,7 +519,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     bytecode_version="xvm-1",
                     gas_schedule="xvm-gas-1",
                     authority="native",
-                    shadow_tracer_mode="native_instruction_v1",
                 )
             )
             processor = TxProcessor(
@@ -644,7 +630,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     bytecode_version="xvm-1",
                     gas_schedule="xvm-gas-1",
                     authority="native",
-                    shadow_tracer_mode="native_instruction_v1",
                 )
             )
             outcome = execute_authoritative_native_contract(
@@ -742,7 +727,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     bytecode_version="xvm-1",
                     gas_schedule="xvm-gas-1",
                     authority="native",
-                    shadow_tracer_mode="native_instruction_v1",
                 )
             )
             outcome = execute_authoritative_native_contract(
@@ -811,7 +795,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     bytecode_version="xvm-1",
                     gas_schedule="xvm-gas-1",
                     authority="native",
-                    shadow_tracer_mode="native_instruction_v1",
                 )
             )
             outcome = execute_authoritative_native_contract(
@@ -881,7 +864,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     bytecode_version="xvm-1",
                     gas_schedule="xvm-gas-1",
                     authority="native",
-                    shadow_tracer_mode="native_instruction_v1",
                 )
             )
             outcome = execute_authoritative_native_contract(
@@ -911,7 +893,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
 
             self.assertEqual(outcome.output.status_code, 0)
-            self.assertIn(f"{contract_name}.__code__", outcome.output.writes)
             self.assertIn(f"{contract_name}.__xian_ir_v1__", outcome.output.writes)
         finally:
             client.flush()
@@ -956,7 +937,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     bytecode_version="xvm-1",
                     gas_schedule="xvm-gas-1",
                     authority="native",
-                    shadow_tracer_mode="native_instruction_v1",
                 )
             )
             outcome = execute_authoritative_native_contract(
@@ -991,7 +971,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
 
             self.assertEqual(outcome.output.status_code, 0)
-            self.assertIn(f"{contract_name}.__code__", outcome.output.writes)
             self.assertIn(f"{contract_name}.__xian_ir_v1__", outcome.output.writes)
             self.assertEqual(
                 outcome.output.writes[
@@ -1068,7 +1047,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     bytecode_version="xvm-1",
                     gas_schedule="xvm-gas-1",
                     authority="native",
-                    shadow_tracer_mode="native_instruction_v1",
                 )
             )
             outcome = execute_authoritative_native_contract(
@@ -1139,7 +1117,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     bytecode_version="xvm-1",
                     gas_schedule="xvm-gas-1",
                     authority="native",
-                    shadow_tracer_mode="native_instruction_v1",
                 )
             )
             outcome = execute_authoritative_native_contract(
@@ -1198,7 +1175,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 bytecode_version="xvm-1",
                 gas_schedule="xvm-gas-1",
                 authority="native",
-                shadow_tracer_mode="native_instruction_v1",
             )
         )
 
@@ -1396,8 +1372,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     mode="xian_vm_v1",
                     bytecode_version="xvm-1",
                     gas_schedule="xvm-gas-1",
-                    authority="python",
-                    shadow_tracer_mode="python_line_v1",
+                    authority="native",
                 )
             )
 
@@ -1681,7 +1656,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 bytecode_version="xvm-1",
                 gas_schedule="xvm-gas-1",
                 authority="native",
-                shadow_tracer_mode="python_line_v1",
             )
         )
         driver = Driver()
@@ -1696,6 +1670,8 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             "chain_id": "xian-local",
             "__xian_execution_mode__": "xian_vm_v1",
         }
+        submission_environment = dict(environment)
+        submission_environment.pop("__xian_execution_mode__", None)
         executor = Executor(driver=driver, metering=True)
 
         leaf_name = "con_dynamic_leaf"
@@ -1748,7 +1724,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     "deployment_artifacts": artifacts,
                     "constructor_args": {},
                 },
-                environment=environment,
+                environment=submission_environment,
                 auto_commit=False,
                 metering=True,
                 chi=180_000,

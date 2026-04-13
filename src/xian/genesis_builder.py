@@ -176,6 +176,8 @@ def _build_genesis_block(
     for key, value in contracting.raw_driver.pending_writes.items():
         if value is None:
             continue
+        if key.endswith(".__code__"):
+            continue
         genesis_block["genesis"].append({"key": key, "value": value})
 
     genesis_block["origin"]["sender"] = wallet.public_key
