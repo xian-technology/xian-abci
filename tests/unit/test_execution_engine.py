@@ -7,19 +7,25 @@ from unittest import mock
 from contracting.client import ContractingClient
 from contracting.compilation.artifacts import build_contract_artifacts
 from contracting.compilation.compiler import ContractingCompiler
+from contracting.execution.executor import Executor
 from contracting.storage.driver import Driver
+from xian_accounts import Ed25519Account
 from xian.execution_engine import (
     _load_vm_runtime_bindings,
+    augment_execution_output_with_driver_state,
     build_execution_runtime,
     compare_execution_results,
     clear_prepared_contract_cache,
+    execute_authoritative_native_contract,
     execute_native_contract,
     prepare_contract_for_execution,
     restore_driver_state,
     snapshot_driver_state,
 )
 from xian.execution_policy import ExecutionPolicy
+from xian.processor import TxProcessor
 from xian_runtime_types.time import Datetime
+from xian_runtime_types.decimal import ContractingDecimal
 
 
 class ExecutionEngineRuntimeTests(unittest.TestCase):
@@ -474,6 +480,902 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self.assertIn("submission", output.contract_costs)
         driver.flush_full()
 
+    def test_execute_native_members_reregister_after_removal_matches_python_runtime(
+        self,
+    ):
+        contracts_dir = (
+            Path(__file__).resolve().parents[3]
+            / "xian-configs"
+            / "contracts"
+        )
+        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client.flush()
+        try:
+            for name, constructor_args in (
+                ("currency", {"vk": "node1"}),
+                ("dao", None),
+                ("rewards", None),
+                ("chi_cost", {"initial_rate": 20}),
+            ):
+                client.submit(
+                    (contracts_dir / f"{name}.s.py").read_text(),
+                    name=name,
+                    constructor_args=constructor_args,
+                    owner="members" if name in {"dao", "rewards"} else None,
+                )
+
+            for node in ("node1", "node2", "node3", "node4", "node5"):
+                client.raw_driver.set(
+                    client.raw_driver.make_key("currency", "balances", [node]),
+                    1_000_000,
+                )
+            client.raw_driver.set("rewards.S:value", [0.88, 0.01, 0.01, 0.1])
+
+            client.submit(
+                (contracts_dir / "members.s.py").read_text(),
+                name="members",
+                constructor_args={
+                    "genesis_registration_fee": 100_000,
+                    "genesis_nodes": [
+                        "node1",
+                        "node2",
+                        "node3",
+                        "node4",
+                        "node5",
+                    ],
+                },
+            )
+
+            runtime = build_execution_runtime(
+                ExecutionPolicy(
+                    mode="xian_vm_v1",
+                    bytecode_version="xvm-1",
+                    gas_schedule="xvm-gas-1",
+                    authority="native",
+                    shadow_tracer_mode="native_instruction_v1",
+                )
+            )
+            processor = TxProcessor(
+                client=client,
+                execution_runtime=runtime,
+            )
+
+            def tx(sender, contract, function, kwargs, nonce, height):
+                return {
+                    "payload": {
+                        "sender": sender,
+                        "contract": contract,
+                        "function": function,
+                        "kwargs": kwargs,
+                        "nonce": nonce,
+                        "chi_supplied": 200_000,
+                        "chain_id": "test-chain",
+                    },
+                    "metadata": {"signature": "abc"},
+                    "b_meta": {
+                        "nanos": height * 1_000_000_000,
+                        "hash": f"0x{height:064x}",
+                        "height": height,
+                        "chain_id": "test-chain",
+                    },
+                }
+
+            remove_flow = (
+                tx(
+                    "node1",
+                    "members",
+                    "propose_vote",
+                    {"type_of_vote": "remove_member", "arg": "node3"},
+                    1,
+                    1,
+                ),
+                tx("node2", "members", "vote", {"proposal_id": 1, "vote": "yes"}, 1, 2),
+                tx("node4", "members", "vote", {"proposal_id": 1, "vote": "yes"}, 1, 3),
+                tx("node5", "members", "vote", {"proposal_id": 1, "vote": "yes"}, 1, 4),
+            )
+            for call in remove_flow:
+                result = processor.process_tx(call, enabled_fees=True)
+                self.assertIsNotNone(result["tx_result"])
+                self.assertEqual(result["tx_result"]["status"], 0)
+
+            approve_result = processor.process_tx(
+                tx(
+                    "node3",
+                    "currency",
+                    "approve",
+                    {"amount": 100_000, "to": "members"},
+                    1,
+                    5,
+                ),
+                enabled_fees=True,
+            )
+            self.assertEqual(approve_result["tx_result"]["status"], 0)
+
+            reregister_result = processor.process_tx(
+                tx(
+                    "node3",
+                    "members",
+                    "register",
+                    {
+                        "requested_validator_power": 12,
+                        "moniker": "node-3-return",
+                        "network_endpoint": "localnet://node-3",
+                    },
+                    2,
+                    6,
+                ),
+                enabled_fees=True,
+            )
+
+            self.assertIsNotNone(reregister_result["tx_result"])
+            self.assertEqual(reregister_result["tx_result"]["status"], 0)
+            self.assertEqual(
+                client.raw_driver.get("members.pending_registrations:node3"),
+                True,
+            )
+            self.assertIsNone(client.raw_driver.get("members.joined_at:node3"))
+            self.assertIsNone(client.raw_driver.get("members.left_at:node3"))
+        finally:
+            client.flush()
+
+    def test_execute_native_permit_authorizer_matches_python_runtime(self):
+        contracts_dir = (
+            Path(__file__).resolve().parents[3]
+            / "xian-configs"
+            / "contracts"
+        )
+        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client.flush()
+        try:
+            client.submit(
+                (contracts_dir / "permit_authorizer.s.py").read_text(),
+                name="permit_authorizer",
+            )
+            client.submit(
+                (contracts_dir / "currency.s.py").read_text(),
+                name="currency",
+                constructor_args={"vk": "sys"},
+            )
+            client.get_contract("currency").balances["sys"] = 100_000
+
+            runtime = build_execution_runtime(
+                ExecutionPolicy(
+                    mode="xian_vm_v1",
+                    bytecode_version="xvm-1",
+                    gas_schedule="xvm-gas-1",
+                    authority="native",
+                    shadow_tracer_mode="native_instruction_v1",
+                )
+            )
+            outcome = execute_authoritative_native_contract(
+                runtime,
+                client.raw_driver,
+                executor=Executor(driver=client.raw_driver),
+                sender="sys",
+                contract_name="permit_authorizer",
+                function_name="permit",
+                kwargs={
+                    "token_contract": "currency",
+                    "owner": (
+                        "ddd326fddb5d1677595311f298b744a4e9f415b577ac179a6afbf38483dc0791"
+                    ),
+                    "spender": "some_spender",
+                    "value": 100,
+                    "deadline": str(Datetime(2026, 4, 12, 12, 1)),
+                    "signature": Ed25519Account(
+                        "ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8"
+                    ).sign_msg(
+                        "currency:"
+                        "ddd326fddb5d1677595311f298b744a4e9f415b577ac179a6afbf38483dc0791:"
+                        "some_spender:100:2026-04-12 12:01:00:"
+                        "permit_authorizer:test-chain"
+                    ),
+                },
+                environment={
+                    "now": Datetime(2026, 4, 12, 12, 0),
+                    "block_num": 23,
+                    "block_hash": "abc123",
+                    "chain_id": "test-chain",
+                },
+                chi_budget=15_000,
+                chi_cost=20,
+                meter=True,
+                transaction_size_bytes=512,
+                mismatch_label="permit runtime parity",
+            )
+
+            self.assertEqual(outcome.output.status_code, 0)
+            self.assertEqual(
+                outcome.output.writes[
+                    "currency.approvals:"
+                    "ddd326fddb5d1677595311f298b744a4e9f415b577ac179a6afbf38483dc0791:"
+                    "some_spender"
+                ],
+                100,
+            )
+            self.assertTrue(
+                outcome.output.writes[
+                    "permit_authorizer.permits:"
+                    "0d42947f26b9b51b479cdc464bce07bd171842ba718f43f4e8d9d2a7ffceff22"
+                ]
+            )
+            self.assertTrue(
+                any(
+                    event.get("contract") == "currency"
+                    and event.get("event") == "Approve"
+                    for event in outcome.output.events
+                )
+            )
+        finally:
+            client.flush()
+
+    def test_execute_native_currency_transfer_coerces_float_kwargs_like_python(
+        self,
+    ):
+        contracts_dir = (
+            Path(__file__).resolve().parents[3]
+            / "xian-configs"
+            / "contracts"
+        )
+        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client.flush()
+        try:
+            client.submit(
+                (contracts_dir / "currency.s.py").read_text(),
+                name="currency",
+                constructor_args={"vk": "sys"},
+            )
+            client.raw_driver.delete("currency.__owner__")
+            client.raw_driver.set(
+                client.raw_driver.make_key("currency", "balances", ["worker0"]),
+                ContractingDecimal("5000"),
+            )
+            client.raw_driver.set(
+                client.raw_driver.make_key("currency", "balances", ["worker1"]),
+                ContractingDecimal("5000"),
+            )
+            client.raw_driver.commit()
+
+            runtime = build_execution_runtime(
+                ExecutionPolicy(
+                    mode="xian_vm_v1",
+                    bytecode_version="xvm-1",
+                    gas_schedule="xvm-gas-1",
+                    authority="native",
+                    shadow_tracer_mode="native_instruction_v1",
+                )
+            )
+            outcome = execute_authoritative_native_contract(
+                runtime,
+                client.raw_driver,
+                executor=Executor(driver=client.raw_driver),
+                sender="worker0",
+                contract_name="currency",
+                function_name="transfer",
+                kwargs={"amount": 1.0, "to": "worker1"},
+                environment={
+                    "now": Datetime(2026, 4, 12, 12, 0),
+                    "block_num": 40,
+                    "block_hash": "abc123",
+                    "chain_id": "test-chain",
+                },
+                chi_budget=1_500,
+                chi_cost=20,
+                meter=True,
+                transaction_size_bytes=936,
+                mismatch_label="currency transfer parity",
+            )
+
+            self.assertEqual(outcome.output.status_code, 0)
+            self.assertEqual(
+                outcome.output.writes["currency.balances:worker1"],
+                ContractingDecimal("5001"),
+            )
+            self.assertTrue(
+                any(
+                    event.get("contract") == "currency"
+                    and event.get("event") == "Transfer"
+                    and event.get("data", {}).get("amount")
+                    == ContractingDecimal("1")
+                    for event in outcome.output.events
+                )
+            )
+        finally:
+            client.flush()
+
+    def test_execute_native_submission_coerces_constructor_arg_floats(self):
+        root_dir = Path(__file__).resolve().parents[3]
+        source = (
+            root_dir
+            / "xian-stack"
+            / "workloads"
+            / "dex_mixed"
+            / "token_fixture.py"
+        ).read_text()
+        contract_name = "con_tokena_probe"
+        artifacts = build_contract_artifacts(
+            module_name=contract_name,
+            source=source,
+            lint=True,
+            vm_profile="xian_vm_v1",
+        )
+        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client.flush()
+        try:
+            client.raw_driver.set("currency.balances:sys", 100_000)
+            client.raw_driver.commit()
+
+            runtime = build_execution_runtime(
+                ExecutionPolicy(
+                    mode="xian_vm_v1",
+                    bytecode_version="xvm-1",
+                    gas_schedule="xvm-gas-1",
+                    authority="native",
+                    shadow_tracer_mode="native_instruction_v1",
+                )
+            )
+            outcome = execute_authoritative_native_contract(
+                runtime,
+                client.raw_driver,
+                executor=Executor(driver=client.raw_driver),
+                sender="sys",
+                contract_name="submission",
+                function_name="submit_contract",
+                kwargs={
+                    "name": contract_name,
+                    "code": source,
+                    "deployment_artifacts": artifacts,
+                    "constructor_args": {
+                        "owner": "sys",
+                        "supply": 5_000_000.0,
+                        "name": "Workload Token A",
+                        "symbol": "WTA",
+                    },
+                },
+                environment={
+                    "now": Datetime(2026, 4, 12, 12, 0),
+                    "block_num": 54,
+                    "block_hash": "abc123",
+                    "chain_id": "test-chain",
+                },
+                chi_budget=150_000,
+                chi_cost=20,
+                meter=True,
+                transaction_size_bytes=len(source.encode("utf-8")),
+                mismatch_label="submission constructor parity",
+            )
+
+            self.assertEqual(outcome.output.status_code, 0)
+            self.assertEqual(
+                outcome.output.writes[f"{contract_name}.balances:sys"],
+                ContractingDecimal("5000000"),
+            )
+        finally:
+            client.flush()
+
+    def test_execute_native_submission_large_artifact_deployment_succeeds(self):
+        root_dir = Path(__file__).resolve().parents[3]
+        source = (
+            root_dir
+            / "xian-stack"
+            / "workloads"
+            / "dex_mixed"
+            / "con_pairs.py"
+        ).read_text()
+        contract_name = "con_pairs_probe"
+        artifacts = build_contract_artifacts(
+            module_name=contract_name,
+            source=source,
+            lint=True,
+            vm_profile="xian_vm_v1",
+        )
+        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client.flush()
+        try:
+            client.raw_driver.set("currency.balances:sys", 250_000)
+            client.raw_driver.commit()
+
+            runtime = build_execution_runtime(
+                ExecutionPolicy(
+                    mode="xian_vm_v1",
+                    bytecode_version="xvm-1",
+                    gas_schedule="xvm-gas-1",
+                    authority="native",
+                    shadow_tracer_mode="native_instruction_v1",
+                )
+            )
+            outcome = execute_authoritative_native_contract(
+                runtime,
+                client.raw_driver,
+                executor=Executor(driver=client.raw_driver),
+                sender="sys",
+                contract_name="submission",
+                function_name="submit_contract",
+                kwargs={
+                    "name": contract_name,
+                    "code": source,
+                    "deployment_artifacts": artifacts,
+                    "constructor_args": {},
+                },
+                environment={
+                    "now": Datetime(2026, 4, 12, 12, 0),
+                    "block_num": 56,
+                    "block_hash": "abc123",
+                    "chain_id": "test-chain",
+                },
+                chi_budget=300_000,
+                chi_cost=20,
+                meter=True,
+                transaction_size_bytes=len(source.encode("utf-8")),
+                mismatch_label="submission large deployment parity",
+            )
+
+            self.assertEqual(outcome.output.status_code, 0)
+            self.assertIn(f"{contract_name}.__code__", outcome.output.writes)
+            self.assertIn(f"{contract_name}.__xian_ir_v1__", outcome.output.writes)
+        finally:
+            client.flush()
+
+    def test_execute_native_submission_compact_shielded_artifacts_match_python_runtime(
+        self,
+    ):
+        root_dir = Path(__file__).resolve().parents[3]
+        source = (
+            root_dir
+            / "xian-contracts"
+            / "contracts"
+            / "shielded-note-token"
+            / "src"
+            / "con_shielded_note_token.py"
+        ).read_text()
+        zk_registry_source = (
+            root_dir / "xian-configs" / "contracts" / "zk_registry.s.py"
+        ).read_text()
+        contract_name = "con_shielded_note_probe"
+        artifacts = build_contract_artifacts(
+            module_name=contract_name,
+            source=source,
+            lint=True,
+            vm_profile="xian_vm_v1",
+            compact=True,
+        )
+        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client.flush()
+        try:
+            client.raw_driver.set("currency.balances:sys", 100_000_000)
+            client.raw_driver.commit()
+            client.submit(
+                zk_registry_source,
+                name="zk_registry",
+                owner="governance",
+            )
+
+            runtime = build_execution_runtime(
+                ExecutionPolicy(
+                    mode="xian_vm_v1",
+                    bytecode_version="xvm-1",
+                    gas_schedule="xvm-gas-1",
+                    authority="native",
+                    shadow_tracer_mode="native_instruction_v1",
+                )
+            )
+            outcome = execute_authoritative_native_contract(
+                runtime,
+                client.raw_driver,
+                executor=Executor(driver=client.raw_driver),
+                sender="sys",
+                contract_name="submission",
+                function_name="submit_contract",
+                kwargs={
+                    "name": contract_name,
+                    "code": None,
+                    "deployment_artifacts": artifacts,
+                    "constructor_args": {
+                        "token_name": "Local Private USD",
+                        "token_symbol": "lpUSD",
+                        "operator_address": "sys",
+                        "root_window_size": 32,
+                    },
+                },
+                environment={
+                    "now": Datetime(2026, 4, 12, 12, 0),
+                    "block_num": 58,
+                    "block_hash": "abc123",
+                    "chain_id": "test-chain",
+                },
+                chi_budget=25_000_000,
+                chi_cost=20,
+                meter=True,
+                transaction_size_bytes=len(source.encode("utf-8")),
+                mismatch_label="submission compact shielded deployment parity",
+            )
+
+            self.assertEqual(outcome.output.status_code, 0)
+            self.assertIn(f"{contract_name}.__code__", outcome.output.writes)
+            self.assertIn(f"{contract_name}.__xian_ir_v1__", outcome.output.writes)
+            self.assertEqual(
+                outcome.output.writes[
+                    f"{contract_name}.metadata:token_symbol"
+                ],
+                "lpUSD",
+            )
+            self.assertTrue(
+                any(
+                    event.get("event") == "ContractDeployed"
+                    for event in outcome.output.events
+                )
+            )
+        finally:
+            client.flush()
+
+    def test_execute_native_shielded_configure_vk_matches_python_runtime(self):
+        root_dir = Path(__file__).resolve().parents[3]
+        source = (
+            root_dir
+            / "xian-contracts"
+            / "contracts"
+            / "shielded-note-token"
+            / "src"
+            / "con_shielded_note_token.py"
+        ).read_text()
+        zk_registry_source = (
+            root_dir / "xian-configs" / "contracts" / "zk_registry.s.py"
+        ).read_text()
+        contract_name = "con_shielded_note_probe"
+        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client.flush()
+        try:
+            driver = client.raw_driver
+            driver.set("currency.balances:sys", 100_000_000)
+            driver.commit()
+            client.submit(
+                zk_registry_source,
+                name="zk_registry",
+                owner="sys",
+            )
+            client.submit(
+                source,
+                name=contract_name,
+                constructor_args={
+                    "token_name": "Local Private USD",
+                    "token_symbol": "lpUSD",
+                    "operator_address": "sys",
+                    "root_window_size": 32,
+                },
+            )
+            registry = client.get_contract("zk_registry")
+            registry.register_vk(
+                vk_id="demo-note",
+                vk_hex="0x1234",
+                circuit_name="demo",
+                version="1",
+                circuit_family="shielded_note_v3",
+                statement_version="3",
+                tree_depth=20,
+                leaf_capacity=2**20,
+                max_inputs=4,
+                max_outputs=4,
+                setup_mode="dev",
+                setup_ceremony="test",
+                artifact_hash="0x12",
+                bundle_hash="0x34",
+                warning="",
+            )
+
+            runtime = build_execution_runtime(
+                ExecutionPolicy(
+                    mode="xian_vm_v1",
+                    bytecode_version="xvm-1",
+                    gas_schedule="xvm-gas-1",
+                    authority="native",
+                    shadow_tracer_mode="native_instruction_v1",
+                )
+            )
+            outcome = execute_authoritative_native_contract(
+                runtime,
+                driver,
+                executor=Executor(driver=driver),
+                sender="sys",
+                contract_name=contract_name,
+                function_name="configure_vk",
+                kwargs={
+                    "action": "deposit",
+                    "vk_id": "demo-note",
+                },
+                environment={
+                    "now": Datetime(2026, 4, 13, 1, 0),
+                    "block_num": 250,
+                    "block_hash": "block-250",
+                    "chain_id": "test-chain",
+                },
+                chi_budget=500_000,
+                chi_cost=20,
+                meter=True,
+                transaction_size_bytes=0,
+                mismatch_label="shielded configure_vk parity",
+            )
+
+            self.assertEqual(outcome.output.status_code, 0)
+            self.assertEqual(outcome.output.result, "demo-note")
+            self.assertEqual(
+                outcome.output.writes[
+                    f"{contract_name}.vk_ids:deposit"
+                ],
+                "demo-note",
+            )
+            self.assertTrue(
+                any(
+                    event.get("event") == "VerifyingKeyConfigured"
+                    and event.get("data_indexed", {}).get("action") == "deposit"
+                    for event in outcome.output.events
+                )
+            )
+        finally:
+            client.flush()
+
+    def test_execute_native_hash_prefix_scan_matches_python_runtime(self):
+        root_dir = Path(__file__).resolve().parents[3]
+        source = (
+            root_dir
+            / "xian-stack"
+            / "workloads"
+            / "parallel_probe"
+            / "con_parallel_probe.py"
+        ).read_text()
+
+        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client.flush()
+        try:
+            driver = client.raw_driver
+            driver.set("currency.balances:sys", 100_000_000)
+            driver.commit()
+            client.submit(source, name="con_parallel_probe", owner="sys")
+            driver.set("con_parallel_probe.values:g:seed", 13)
+            driver.commit()
+
+            runtime = build_execution_runtime(
+                ExecutionPolicy(
+                    mode="xian_vm_v1",
+                    bytecode_version="xvm-1",
+                    gas_schedule="xvm-gas-1",
+                    authority="native",
+                    shadow_tracer_mode="native_instruction_v1",
+                )
+            )
+            outcome = execute_authoritative_native_contract(
+                runtime,
+                driver,
+                executor=Executor(driver=driver),
+                sender="sys",
+                contract_name="con_parallel_probe",
+                function_name="snapshot_sum",
+                kwargs={"group": "g", "tag": "obs-1"},
+                environment={
+                    "now": Datetime(2026, 4, 13, 1, 0),
+                    "block_num": 251,
+                    "block_hash": "block-251",
+                    "chain_id": "test-chain",
+                },
+                chi_budget=2_000,
+                chi_cost=20,
+                meter=True,
+                transaction_size_bytes=len(source.encode("utf-8")),
+                mismatch_label="hash prefix scan parity",
+            )
+
+            self.assertEqual(outcome.output.status_code, 0)
+            self.assertEqual(outcome.output.result, 13)
+            self.assertEqual(
+                outcome.output.writes["con_parallel_probe.observations:obs-1"],
+                13,
+            )
+            self.assertIn("con_parallel_probe.values:g:", outcome.prefix_reads)
+        finally:
+            client.flush()
+
+    def test_execute_native_dex_add_liquidity_matches_python_runtime(self):
+        root_dir = Path(__file__).resolve().parents[3]
+        workload_dir = (
+            root_dir / "xian-stack" / "workloads" / "dex_mixed"
+        )
+        token_source = (workload_dir / "token_fixture.py").read_text()
+        pairs_source = (workload_dir / "con_pairs.py").read_text()
+        pairs_name = "con_pairs_probe"
+        dex_name = "con_dex_probe"
+        dex_source = (workload_dir / "con_dex.py").read_text().replace(
+            'DEX_PAIRS = "con_pairs"',
+            f'DEX_PAIRS = "{pairs_name}"',
+            1,
+        )
+
+        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client.flush()
+        driver = client.raw_driver
+        executor = Executor(driver=driver)
+        runtime = build_execution_runtime(
+            ExecutionPolicy(
+                mode="xian_vm_v1",
+                bytecode_version="xvm-1",
+                gas_schedule="xvm-gas-1",
+                authority="native",
+                shadow_tracer_mode="native_instruction_v1",
+            )
+        )
+
+        def apply_output_writes(output: dict[str, object]) -> None:
+            for key, value in output["writes"].items():
+                driver.set(key, value)
+            driver.commit()
+
+        def execute_python(
+            *,
+            sender: str,
+            contract_name: str,
+            function_name: str,
+            kwargs: dict[str, object],
+            environment: dict[str, object],
+            chi: int,
+            transaction_size_bytes: int,
+        ) -> dict[str, object]:
+            before_state = snapshot_driver_state(driver)
+            output = executor.execute(
+                sender=sender,
+                contract_name=contract_name,
+                function_name=function_name,
+                kwargs=kwargs,
+                environment=environment,
+                auto_commit=False,
+                metering=True,
+                chi=chi,
+                chi_cost=20,
+                transaction_size_bytes=transaction_size_bytes,
+            )
+            output = augment_execution_output_with_driver_state(
+                output,
+                before_state=before_state,
+                after_state=snapshot_driver_state(driver),
+            )
+            restore_driver_state(driver, before_state)
+            return output
+
+        def deploy_contract(
+            name: str,
+            source: str,
+            constructor_args: dict[str, object],
+            *,
+            chi: int,
+        ) -> None:
+            artifacts = build_contract_artifacts(
+                module_name=name,
+                source=source,
+                lint=True,
+                vm_profile="xian_vm_v1",
+            )
+            output = execute_python(
+                sender="sys",
+                contract_name="submission",
+                function_name="submit_contract",
+                kwargs={
+                    "name": name,
+                    "code": source,
+                    "deployment_artifacts": artifacts,
+                    "constructor_args": constructor_args,
+                },
+                environment={
+                    "now": Datetime(2026, 4, 12, 12, 0),
+                    "block_num": 1,
+                    "block_hash": "deploy-block",
+                    "chain_id": "test-chain",
+                },
+                chi=chi,
+                transaction_size_bytes=len(source.encode("utf-8")),
+            )
+            self.assertEqual(output["status_code"], 0)
+            apply_output_writes(output)
+
+        try:
+            driver.set("currency.balances:sys", 1_000_000)
+            driver.commit()
+
+            deploy_contract(
+                "con_tokena_probe",
+                token_source,
+                {
+                    "owner": "sys",
+                    "supply": 5_000_000.0,
+                    "name": "Token A",
+                    "symbol": "TA",
+                },
+                chi=150_000,
+            )
+            deploy_contract(
+                "con_tokenb_probe",
+                token_source,
+                {
+                    "owner": "sys",
+                    "supply": 5_000_000.0,
+                    "name": "Token B",
+                    "symbol": "TB",
+                },
+                chi=150_000,
+            )
+            deploy_contract(pairs_name, pairs_source, {}, chi=300_000)
+            deploy_contract(dex_name, dex_source, {}, chi=200_000)
+
+            execution_environment = {
+                "now": Datetime(2026, 4, 12, 12, 5),
+                "block_num": 77,
+                "block_hash": "block-77",
+                "chain_id": "test-chain",
+            }
+            for token_name in ("con_tokena_probe", "con_tokenb_probe"):
+                approval = execute_python(
+                    sender="sys",
+                    contract_name=token_name,
+                    function_name="approve",
+                    kwargs={
+                        "amount": 500_000.0,
+                        "to": dex_name,
+                    },
+                    environment=execution_environment,
+                    chi=7_500,
+                    transaction_size_bytes=0,
+                )
+                self.assertEqual(approval["status_code"], 0)
+                apply_output_writes(approval)
+
+            outcome = execute_authoritative_native_contract(
+                runtime,
+                driver,
+                executor=executor,
+                sender="sys",
+                contract_name=dex_name,
+                function_name="addLiquidity",
+                kwargs={
+                    "tokenA": "con_tokena_probe",
+                    "tokenB": "con_tokenb_probe",
+                    "amountADesired": 250_000.0,
+                    "amountBDesired": 250_000.0,
+                    "amountAMin": 240_000.0,
+                    "amountBMin": 240_000.0,
+                    "to": "sys",
+                    "deadline": Datetime(2026, 4, 12, 12, 10),
+                },
+                environment=execution_environment,
+                chi_budget=60_000,
+                chi_cost=20,
+                meter=True,
+                transaction_size_bytes=0,
+                mismatch_label="dex addLiquidity parity",
+            )
+
+            self.assertEqual(outcome.output.status_code, 0)
+            self.assertEqual(
+                outcome.output.result,
+                (
+                    ContractingDecimal("250000"),
+                    ContractingDecimal("250000"),
+                    ContractingDecimal("249999.99999999"),
+                ),
+            )
+            self.assertEqual(
+                outcome.output.writes["con_pairs_probe.pairs:1:reserve0"],
+                ContractingDecimal("250000"),
+            )
+            self.assertEqual(
+                outcome.output.writes["con_pairs_probe.pairs:1:reserve1"],
+                ContractingDecimal("250000"),
+            )
+            self.assertTrue(
+                any(
+                    event.get("contract") == "con_pairs_probe"
+                    and event.get("event") == "Mint"
+                    for event in outcome.output.events
+                )
+            )
+        finally:
+            client.flush()
+
     def test_prepare_contract_for_execution_requires_persisted_ir(
         self,
     ):
@@ -538,6 +1440,38 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self.assertEqual(driver.pending_writes, {"currency.balances:alice": 5})
         self.assertEqual(driver.transaction_read_prefixes, {"currency."})
         self.assertEqual(driver.log_events, [{"event": "Transfer"}])
+
+    def test_augment_execution_output_with_driver_state_merges_hidden_writes(self):
+        before_state = {
+            "pending_writes": {"currency.balances:alice": 1_000_000},
+        }
+        after_state = {
+            "pending_writes": {
+                "currency.balances:alice": "999966.05",
+                "con_demo.__source__": "source",
+                "con_demo.counter": 0,
+            },
+        }
+
+        augmented = augment_execution_output_with_driver_state(
+            {
+                "status_code": 0,
+                "result": None,
+                "writes": {"currency.balances:alice": "999966.05"},
+                "events": [],
+            },
+            before_state=before_state,
+            after_state=after_state,
+        )
+
+        self.assertEqual(
+            augmented["writes"],
+            {
+                "currency.balances:alice": "999966.05",
+                "con_demo.__source__": "source",
+                "con_demo.counter": 0,
+            },
+        )
 
     def test_execute_native_contract_converts_runtime_errors(self):
         runtime = types.SimpleNamespace(mode="xian_vm_v1")
@@ -680,6 +1614,217 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
         self.assertEqual(output.status_code, 1)
         self.assertIn("deterministic now context", str(output.result))
+
+    def test_execute_native_submission_enforces_constructor_write_capacity_limit(
+        self,
+    ):
+        runtime = build_execution_runtime(
+            ExecutionPolicy(
+                mode="xian_vm_v1",
+                bytecode_version="xvm-1",
+                gas_schedule="xvm-gas-1",
+                authority="native",
+            )
+        )
+        driver = Driver()
+        driver.flush_full()
+        ContractingClient(driver=driver)
+        source = (
+            "blob = Variable()\n\n"
+            "@construct\n"
+            "def seed(payload: str):\n"
+            "    blob.set(payload)\n\n"
+            "@export\n"
+            "def blob_size():\n"
+            "    return len(blob.get())\n"
+        )
+        artifacts = build_contract_artifacts(
+            module_name="con_write_limit_probe",
+            source=source,
+            lint=True,
+            vm_profile="xian_vm_v1",
+        )
+
+        output = execute_native_contract(
+            runtime,
+            driver,
+            sender="alice",
+            contract_name="submission",
+            function_name="submit_contract",
+            kwargs={
+                "name": "con_write_limit_probe",
+                "code": source,
+                "deployment_artifacts": artifacts,
+                "constructor_args": {"payload": "a" * 140_000},
+            },
+            environment={
+                "now": Datetime(2026, 4, 12, 12, 0),
+                "block_num": 7,
+                "block_hash": "abc123",
+                "chain_id": "xian-local",
+                "__xian_execution_mode__": "xian_vm_v1",
+            },
+            meter=True,
+            chi_budget=180_000,
+            transaction_size_bytes=150_000,
+        )
+
+        self.assertEqual(output.status_code, 1)
+        self.assertIn("maximum write capacity", str(output.result))
+        self.assertEqual(output.writes, {})
+        self.assertEqual(output.events, [])
+
+    def test_dynamic_importlib_call_matches_python_runtime(self):
+        runtime = build_execution_runtime(
+            ExecutionPolicy(
+                mode="xian_vm_v1",
+                bytecode_version="xvm-1",
+                gas_schedule="xvm-gas-1",
+                authority="native",
+                shadow_tracer_mode="python_line_v1",
+            )
+        )
+        driver = Driver()
+        driver.flush_full()
+        ContractingClient(driver=driver)
+        driver.set(driver.make_key("currency", "balances", ["alice"]), 1_000_000)
+
+        environment = {
+            "now": Datetime(2026, 4, 12, 12, 0),
+            "block_num": 7,
+            "block_hash": "abc123",
+            "chain_id": "xian-local",
+            "__xian_execution_mode__": "xian_vm_v1",
+        }
+        executor = Executor(driver=driver, metering=True)
+
+        leaf_name = "con_dynamic_leaf"
+        leaf_source = (
+            "touch_total = Variable()\n\n"
+            "@construct\n"
+            "def seed():\n"
+            "    touch_total.set(0)\n\n"
+            "@export\n"
+            "def touch(account: str, amount: int):\n"
+            "    touch_total.set((touch_total.get() or 0) + amount)\n"
+            "    return touch_total.get()\n"
+        )
+        router_name = "con_dynamic_router"
+        router_source = (
+            "@export\n"
+            "def dynamic_touch(target_contract: str, function_name: str, account: str, amount: int):\n"
+            "    return {\n"
+            "        'router_ctx': {\n"
+            "            'this': ctx.this,\n"
+            "            'caller': ctx.caller,\n"
+            "            'signer': ctx.signer,\n"
+            "            'entry': f'{ctx.entry[0]}.{ctx.entry[1]}',\n"
+            "        },\n"
+            "        'result': importlib.call(\n"
+            "            target_contract,\n"
+            "            function_name,\n"
+            "            {'account': account, 'amount': amount},\n"
+            "        ),\n"
+            "    }\n"
+        )
+
+        for name, source in (
+            (leaf_name, leaf_source),
+            (router_name, router_source),
+        ):
+            artifacts = build_contract_artifacts(
+                module_name=name,
+                source=source,
+                lint=True,
+                vm_profile="xian_vm_v1",
+            )
+            output = executor.execute(
+                sender="alice",
+                contract_name="submission",
+                function_name="submit_contract",
+                kwargs={
+                    "name": name,
+                    "code": source,
+                    "deployment_artifacts": artifacts,
+                    "constructor_args": {},
+                },
+                environment=environment,
+                auto_commit=False,
+                metering=True,
+                chi=180_000,
+                transaction_size_bytes=len(source.encode("utf-8")),
+            )
+            output = augment_execution_output_with_driver_state(
+                output,
+                before_state=snapshot_driver_state(driver),
+                after_state=snapshot_driver_state(driver),
+            )
+            for key, value in output["writes"].items():
+                driver.set(key, value)
+            driver.commit()
+            driver.set(driver.make_key("currency", "balances", ["alice"]), 1_000_000)
+            driver.commit()
+
+        call_kwargs = {
+            "target_contract": leaf_name,
+            "function_name": "touch",
+            "account": "alice",
+            "amount": 3,
+        }
+        before_state = snapshot_driver_state(driver)
+        native_output = execute_native_contract(
+            runtime,
+            driver,
+            sender="alice",
+            contract_name=router_name,
+            function_name="dynamic_touch",
+            kwargs=call_kwargs,
+            environment=environment,
+            meter=False,
+            chi_budget=0,
+            transaction_size_bytes=0,
+        )
+        restore_driver_state(driver, before_state)
+        python_output = executor.execute(
+            sender="alice",
+            contract_name=router_name,
+            function_name="dynamic_touch",
+            kwargs=call_kwargs,
+            environment=environment,
+            auto_commit=False,
+            metering=False,
+            transaction_size_bytes=0,
+        )
+        python_output = augment_execution_output_with_driver_state(
+            python_output,
+            before_state=before_state,
+            after_state=snapshot_driver_state(driver),
+        )
+        restore_driver_state(driver, before_state)
+
+        mismatches = compare_execution_results(
+            python_output,
+            native_output,
+        )
+
+        self.assertEqual(native_output.status_code, 0)
+        self.assertEqual(
+            native_output.result,
+            {
+                "router_ctx": {
+                    "this": router_name,
+                    "caller": "alice",
+                    "signer": "alice",
+                    "entry": f"{router_name}.dynamic_touch",
+                },
+                "result": 3,
+            },
+        )
+        self.assertEqual(
+            native_output.writes,
+            {f"{leaf_name}.touch_total": 3},
+        )
+        self.assertEqual(mismatches, {})
 
     def test_compare_execution_results_reports_mismatched_fields(self):
         native_output = types.SimpleNamespace(

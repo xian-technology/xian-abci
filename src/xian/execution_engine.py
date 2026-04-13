@@ -53,6 +53,8 @@ class NativeAuthoritativeExecutionResult:
     writes: dict[str, Any]
     chi_used: int
     contract_costs: dict[str, int]
+    reads: dict[str, Any]
+    prefix_reads: frozenset[str]
 
 
 _VM_PREPARED_CONTRACTS: dict[
@@ -174,6 +176,24 @@ def restore_driver_state(driver, state_snapshot: dict | None) -> None:
     )
     driver.transaction_writes = deepcopy(state_snapshot["transaction_writes"])
     driver.log_events = deepcopy(state_snapshot["log_events"])
+
+
+def augment_execution_output_with_driver_state(
+    output: dict[str, Any],
+    *,
+    before_state: dict | None,
+    after_state: dict,
+) -> dict[str, Any]:
+    augmented = dict(output)
+    merged_writes = dict(augmented.get("writes", {}))
+    previous_pending = {} if before_state is None else before_state["pending_writes"]
+    for key, value in after_state["pending_writes"].items():
+        if key not in previous_pending or _normalize_shadow_value(
+            previous_pending[key]
+        ) != _normalize_shadow_value(value):
+            merged_writes[key] = value
+    augmented["writes"] = merged_writes
+    return augmented
 
 
 @lru_cache(maxsize=1)
@@ -373,6 +393,10 @@ def execute_authoritative_native_contract(
         chi_budget=chi_budget,
         transaction_size_bytes=transaction_size_bytes,
     )
+    native_reads = deepcopy(driver.transaction_reads)
+    native_prefix_reads = frozenset(
+        deepcopy(getattr(driver, "transaction_read_prefixes", set()))
+    )
 
     chi_used = int(native_output.chi_used or 0)
     contract_costs = dict(native_output.contract_costs or {})
@@ -397,6 +421,11 @@ def execute_authoritative_native_contract(
             auto_commit=False,
             metering=meter,
             transaction_size_bytes=transaction_size_bytes,
+        )
+        python_output = augment_execution_output_with_driver_state(
+            python_output,
+            before_state=base_driver_state,
+            after_state=snapshot_driver_state(driver),
         )
         restore_driver_state(driver, base_driver_state)
         mismatches = compare_execution_results(
@@ -439,6 +468,8 @@ def execute_authoritative_native_contract(
         writes=merged_writes,
         chi_used=chi_used,
         contract_costs=contract_costs,
+        reads=native_reads,
+        prefix_reads=native_prefix_reads,
     )
 
 

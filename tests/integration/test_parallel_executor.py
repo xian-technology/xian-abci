@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 from contracting.client import ContractingClient
 
+from xian.execution_engine import build_execution_runtime
+from xian.execution_policy import ExecutionPolicy
 from xian.parallel_executor import (
     _WORKER_RUNTIMES,
     ParallelBlockExecutor,
@@ -46,6 +48,28 @@ READ_WRITE_CONTRACT_CODE = textwrap.dedent(
     @export
     def get_value():
         return value.get()
+    """
+)
+
+PARALLEL_HASH_PROBE_CONTRACT_CODE = textwrap.dedent(
+    """
+    observations = Hash(default_value=0)
+    flags = Hash(default_value=0)
+
+    @construct
+    def seed():
+        pass
+
+    @export
+    def set_flag(group: str, value: int):
+        flags[group] = value
+        return flags[group]
+
+    @export
+    def observe_flag(group: str, tag: str):
+        observed = flags[group] or 0
+        observations[tag] = observed
+        return observed
     """
 )
 
@@ -479,6 +503,115 @@ class TestParallelBlockExecutor(unittest.TestCase):
             self.assertEqual(
                 parallel_client.raw_driver.get("con_token_c.metadata:gamma"),
                 serial_client.raw_driver.get("con_token_c.metadata:gamma"),
+            )
+
+    def test_parallel_executor_tracks_native_hash_read_after_write_conflicts(
+        self,
+    ):
+        txs = [
+            self._tx(
+                sender="alice",
+                contract="con_parallel_probe",
+                function="set_flag",
+                kwargs={"group": "g", "value": 7},
+                nonce=0,
+                signature="sig-flag-1",
+            ),
+            self._tx(
+                sender="bob",
+                contract="con_parallel_probe",
+                function="observe_flag",
+                kwargs={"group": "g", "tag": "obs-1"},
+                nonce=0,
+                signature="sig-flag-2",
+            ),
+        ]
+
+        runtime = build_execution_runtime(
+            ExecutionPolicy(
+                mode="xian_vm_v1",
+                bytecode_version="xvm-1",
+                gas_schedule="xvm-gas-1",
+                authority="native",
+                shadow_tracer_mode="python_line_v1",
+            )
+        )
+
+        with (
+            tempfile.TemporaryDirectory() as serial_dir,
+            tempfile.TemporaryDirectory() as parallel_dir,
+        ):
+            serial_client = ContractingClient(
+                storage_home=Path(serial_dir) / "xian"
+            )
+            parallel_client = ContractingClient(
+                storage_home=Path(parallel_dir) / "xian"
+            )
+            serial_client.submit(
+                PARALLEL_HASH_PROBE_CONTRACT_CODE,
+                name="con_parallel_probe",
+                signer="sys",
+            )
+            parallel_client.submit(
+                PARALLEL_HASH_PROBE_CONTRACT_CODE,
+                name="con_parallel_probe",
+                signer="sys",
+            )
+            serial_client.raw_driver.commit()
+            parallel_client.raw_driver.commit()
+
+            serial_processor = TxProcessor(
+                client=serial_client,
+                execution_runtime=runtime,
+            )
+            parallel_processor = TxProcessor(
+                client=parallel_client,
+                execution_runtime=runtime,
+            )
+
+            serial_results = [
+                serial_processor.process_tx(
+                    deepcopy(tx),
+                    enabled_fees=False,
+                    rewards_handler=None,
+                    track_access=True,
+                )
+                for tx in txs
+            ]
+
+            executor = ParallelBlockExecutor(
+                storage_home=Path(parallel_dir) / "xian",
+                enabled=True,
+                workers=1,
+                min_transactions=1,
+                execution_runtime=runtime,
+            )
+            parallel_results, stats = executor.execute(
+                txs=deepcopy(txs),
+                tx_processor=parallel_processor,
+                enabled_fees=False,
+                rewards_handler=None,
+            )
+
+            self.assertGreaterEqual(stats.speculative_accepted, 1)
+            self.assertEqual(stats.serial_fallbacks, 0)
+
+            serial_tx_results = [
+                self._tx_result_without_state(result["tx_result"])
+                for result in serial_results
+            ]
+            parallel_tx_results = [
+                self._tx_result_without_state(result["tx_result"])
+                for result in parallel_results
+            ]
+            self.assertEqual(parallel_tx_results, serial_tx_results)
+            self.assertEqual(
+                parallel_client.raw_driver.get("con_parallel_probe.observations:obs-1"),
+                serial_client.raw_driver.get("con_parallel_probe.observations:obs-1"),
+            )
+            self.assertEqual(
+                parallel_client.raw_driver.get("con_parallel_probe.observations:obs-1"),
+                7,
             )
 
     def test_process_tx_without_reward_config_keeps_rewards_optional(self):

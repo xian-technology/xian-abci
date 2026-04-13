@@ -7,6 +7,29 @@ from xian_runtime_types.time import Datetime
 
 
 class ProcessorShadowExecutionTests(unittest.TestCase):
+    def test_get_environment_exposes_internal_execution_mode(self):
+        processor = object.__new__(TxProcessor)
+        processor.execution_runtime = SimpleNamespace(mode="xian_vm_v1")
+        processor.get_timestamp_hash_from_tx = lambda nanos, signature: (
+            f"{nanos}:{signature}"
+        )
+        processor.get_now_from_nanos = lambda nanos: f"now:{nanos}"
+
+        environment = processor.get_environment(
+            {
+                "b_meta": {
+                    "hash": "abc123",
+                    "height": 7,
+                    "nanos": 123,
+                    "chain_id": "xian-local",
+                },
+                "metadata": {"signature": "sig"},
+            }
+        )
+
+        self.assertEqual(environment["__xian_execution_mode__"], "xian_vm_v1")
+        self.assertEqual(environment["block_hash"], "abc123")
+
     def test_execute_tx_rejects_source_only_submission_for_xian_vm(self):
         driver = SimpleNamespace(
             pending_writes={},

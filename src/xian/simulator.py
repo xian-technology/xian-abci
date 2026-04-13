@@ -16,6 +16,7 @@ from xian_runtime_types.time import Datetime
 from xian.app_logging import build_log_fields
 from xian.execution_engine import (
     ExecutionRuntime,
+    augment_execution_output_with_driver_state,
     compare_execution_results,
     execute_authoritative_native_contract,
     execute_native_contract,
@@ -227,8 +228,13 @@ class TransactionSimulator:
             meter=True,
             chi_budget=1_000_000,
         )
-        mismatches = compare_execution_results(
+        output_for_compare = augment_execution_output_with_driver_state(
             output,
+            before_state=base_driver_state,
+            after_state=snapshot_driver_state(self.client.raw_driver),
+        )
+        mismatches = compare_execution_results(
+            output_for_compare,
             native_output,
             ignore_write_keys=metering_write_keys(
                 self.client.raw_driver,
@@ -357,10 +363,14 @@ class TransactionSimulator:
         now = Datetime._from_datetime(
             nanoseconds_to_utc_datetime(int(block_nanos or 0))
         )
+        execution_runtime = getattr(self, "execution_runtime", None)
         return {
             "block_hash": block_hash,
             "block_num": block_meta.get("height", block_num),
             "__input_hash": input_hash,
+            "__xian_execution_mode__": (
+                getattr(execution_runtime, "mode", None) or "python_line_v1"
+            ),
             "now": now,
             "chain_id": block_meta.get("chain_id"),
         }

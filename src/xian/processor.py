@@ -11,6 +11,7 @@ from xian_runtime_types.time import Datetime
 from xian.app_logging import build_log_fields
 from xian.execution_engine import (
     ExecutionRuntime,
+    augment_execution_output_with_driver_state,
     compare_execution_results,
     execute_authoritative_native_contract,
     execute_native_contract,
@@ -275,8 +276,13 @@ class TxProcessor:
                 restore_driver_state(
                     self.client.raw_driver, python_driver_state
                 )
-                mismatches = compare_execution_results(
+                output_for_compare = augment_execution_output_with_driver_state(
                     output,
+                    before_state=pre_execution_state,
+                    after_state=python_driver_state,
+                )
+                mismatches = compare_execution_results(
+                    output_for_compare,
                     native_output,
                     ignore_write_keys=metering_write_keys(
                         self.client.raw_driver,
@@ -336,9 +342,19 @@ class TxProcessor:
         environment: dict,
         metering: bool,
     ) -> dict:
+        driver = self.client.raw_driver
+        if hasattr(driver, "clear_transaction_reads"):
+            driver.clear_transaction_reads()
+        else:
+            getattr(driver, "transaction_reads", {}).clear()
+            getattr(driver, "transaction_read_prefixes", set()).clear()
+        if hasattr(driver, "clear_transaction_writes"):
+            driver.clear_transaction_writes()
+        else:
+            getattr(driver, "transaction_writes", {}).clear()
         outcome = execute_authoritative_native_contract(
             self.execution_runtime,
-            self.client.raw_driver,
+            driver,
             executor=self.executor,
             sender=transaction["payload"]["sender"],
             contract_name=transaction["payload"]["contract"],
@@ -358,8 +374,10 @@ class TxProcessor:
             "writes": outcome.writes,
             "events": list(outcome.output.events),
             "chi_used": outcome.chi_used,
-            "reads": {},
-            "prefix_reads": frozenset(),
+            "reads": dict(getattr(outcome, "reads", {}) or {}),
+            "prefix_reads": frozenset(
+                getattr(outcome, "prefix_reads", frozenset()) or ()
+            ),
             "contract_costs": outcome.contract_costs,
         }
 
@@ -422,16 +440,26 @@ class TxProcessor:
                 tx_sender=transaction["payload"]["sender"],
             )
             writes = self.materialize_writes(base_writes, reward_deltas)
-            reads = (
-                frozenset(self.client.raw_driver.transaction_reads.keys())
-                if track_access
-                else frozenset()
-            )
-            prefix_reads = (
-                frozenset(self.client.raw_driver.transaction_read_prefixes)
-                if track_access
-                else frozenset()
-            )
+            reads = frozenset()
+            prefix_reads = frozenset()
+            if track_access:
+                output_reads = output.get("reads")
+                if isinstance(output_reads, dict):
+                    reads = frozenset(output_reads.keys())
+                elif output_reads is not None:
+                    reads = frozenset(output_reads)
+                else:
+                    reads = frozenset(
+                        self.client.raw_driver.transaction_reads.keys()
+                    )
+
+                output_prefix_reads = output.get("prefix_reads")
+                if output_prefix_reads is not None:
+                    prefix_reads = frozenset(output_prefix_reads)
+                else:
+                    prefix_reads = frozenset(
+                        self.client.raw_driver.transaction_read_prefixes
+                    )
 
             for write in writes:
                 self.client.raw_driver.set(
@@ -551,6 +579,7 @@ class TxProcessor:
             "block_hash": block_meta["hash"],  # hash nanos
             "block_num": block_meta["height"],  # block number
             "__input_hash": self.get_timestamp_hash_from_tx(nanos, signature),
+            "__xian_execution_mode__": self.execution_runtime.mode,
             "now": self.get_now_from_nanos(nanos=nanos),
             "chain_id": chain_id,
         }

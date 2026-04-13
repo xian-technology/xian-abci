@@ -108,6 +108,25 @@ class SimulatorTests(unittest.TestCase):
             self.assertEqual(left["block_hash"], right["block_hash"])
             self.assertNotEqual(left["__input_hash"], right["__input_hash"])
 
+    def test_make_environment_exposes_internal_execution_mode(self):
+        with TemporaryDirectory() as tmpdir:
+            storage_home = Path(tmpdir)
+
+            simulator = object.__new__(TransactionSimulator)
+            simulator.client = SimpleNamespace(
+                raw_driver=SimpleNamespace(storage_home=storage_home)
+            )
+            simulator.execution_runtime = SimpleNamespace(mode="xian_vm_v1")
+            simulator.get_block_meta = lambda: {
+                "height": 7,
+                "nanos": 1_710_000_000_123_000_000,
+                "chain_id": "xian-local",
+            }
+
+            environment = simulator._make_environment({"contract": "currency"})
+
+            self.assertEqual(environment["__xian_execution_mode__"], "xian_vm_v1")
+
     def test_execute_normalizes_structured_result_for_abci(self):
         simulator = object.__new__(TransactionSimulator)
         simulator.client = SimpleNamespace(
