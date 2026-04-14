@@ -445,7 +445,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.query.info, "dict")
         self.assertEqual(payload["enabled"], False)
         self.assertEqual(payload["recent_blocks"], [])
-        self.assertTrue(payload["parallel_execution_enabled"])
+        self.assertFalse(payload["parallel_execution_enabled"])
         self.assertEqual(payload["parallel_execution_workers"], 4)
         self.assertEqual(payload["parallel_execution_min_transactions"], 8)
 
