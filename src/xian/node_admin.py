@@ -17,6 +17,9 @@ from xian.config_paths import (
 )
 from xian.constants import Constants as c
 from xian.node_setup import (
+    DEFAULT_PARALLEL_EXECUTION_ENABLED,
+    DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
+    DEFAULT_PARALLEL_EXECUTION_WORKERS,
     build_priv_validator_key,
     render_cometbft_config,
     write_json,
@@ -210,6 +213,11 @@ def configure_existing_home(
     statesync_trust_hash: str = "",
     statesync_trust_period: str = "168h0m0s",
     tracer_mode: str = "python_line_v1",
+    execution_mode: str | None = None,
+    execution_bytecode_version: str = "",
+    execution_gas_schedule: str = "",
+    execution_authority: str = "",
+    execution_shadow_tracer_mode: str = "",
     metrics_enabled: bool = True,
     metrics_host: str = "127.0.0.1",
     metrics_port: int = 9108,
@@ -223,9 +231,11 @@ def configure_existing_home(
     simulation_max_concurrency: int = 2,
     simulation_timeout_ms: int = 3000,
     simulation_max_chi: int = 1_000_000,
-    parallel_execution_enabled: bool = False,
-    parallel_execution_workers: int = 0,
-    parallel_execution_min_transactions: int = 8,
+    parallel_execution_enabled: bool = DEFAULT_PARALLEL_EXECUTION_ENABLED,
+    parallel_execution_workers: int = DEFAULT_PARALLEL_EXECUTION_WORKERS,
+    parallel_execution_min_transactions: int = (
+        DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS
+    ),
     pending_nonce_reservation_ttl_seconds: float = 60.0,
     bds_dsn: str = "",
     bds_host: str = "",
@@ -263,6 +273,11 @@ def configure_existing_home(
         statesync_trust_hash=statesync_trust_hash,
         statesync_trust_period=statesync_trust_period,
         tracer_mode=tracer_mode,
+        execution_mode=execution_mode,
+        execution_bytecode_version=execution_bytecode_version,
+        execution_gas_schedule=execution_gas_schedule,
+        execution_authority=execution_authority,
+        execution_shadow_tracer_mode=execution_shadow_tracer_mode,
         metrics_enabled=metrics_enabled,
         metrics_host=metrics_host,
         metrics_port=metrics_port,

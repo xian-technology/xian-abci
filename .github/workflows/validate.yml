@@ -33,29 +33,54 @@ jobs:
         with:
           path: xian-abci
 
-      - name: Resolve xian-contracting ref
-        id: xian-contracting-ref
+      - name: Resolve matching branch ref
+        id: branch-ref
         env:
           REF_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
-          if git ls-remote --exit-code --heads https://github.com/xian-technology/xian-contracting "${REF_NAME}" >/dev/null 2>&1; then
-            echo "ref=${REF_NAME}" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=main" >> "$GITHUB_OUTPUT"
-          fi
+          echo "ref=${REF_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Check out xian-contracting
         uses: actions/checkout@v6
         with:
           repository: xian-technology/xian-contracting
-          ref: ${{ steps.xian-contracting-ref.outputs.ref }}
+          ref: main
           path: xian-contracting
 
       - name: Check out xian-configs
         uses: actions/checkout@v6
         with:
           repository: xian-technology/xian-configs
+          ref: main
           path: xian-configs
+
+      - name: Check out xian-contracts
+        uses: actions/checkout@v6
+        with:
+          repository: xian-technology/xian-contracts
+          ref: main
+          path: xian-contracts
+
+      - name: Check out xian-stack
+        uses: actions/checkout@v6
+        with:
+          repository: xian-technology/xian-stack
+          ref: main
+          path: xian-stack
+
+      - name: Use matching dependency branches when available
+        shell: bash
+        env:
+          REF_NAME: ${{ steps.branch-ref.outputs.ref }}
+        run: |
+          set -euo pipefail
+          for repo in xian-contracting xian-configs xian-contracts xian-stack; do
+            REMOTE="https://github.com/xian-technology/${repo}"
+            if git ls-remote --exit-code --heads "$REMOTE" "$REF_NAME" >/dev/null 2>&1; then
+              git -C "$repo" fetch --depth=1 origin "$REF_NAME"
+              git -C "$repo" checkout -B "$REF_NAME" FETCH_HEAD
+            fi
+          done
 
       - name: Set up Python 3.14
         uses: actions/setup-python@v6

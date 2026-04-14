@@ -12,6 +12,10 @@ from nacl.signing import SigningKey
 from xian_runtime_types.encoding import encode
 
 from xian import toml_utils
+from xian.execution_policy import (
+    DEFAULT_EXECUTION_MODE,
+    resolve_execution_policy,
+)
 
 DEFAULT_CONFIG_TOML = """
 version = "0.38.22"
@@ -44,7 +48,7 @@ experimental_subscription_buffer_size = 200
 experimental_websocket_write_buffer_size = 200
 experimental_close_on_slow_client = false
 timeout_broadcast_tx_commit = "10s"
-max_body_bytes = 1000000
+max_body_bytes = 10485760
 max_header_bytes = 1048576
 tls_cert_file = ""
 tls_key_file = ""
@@ -81,7 +85,7 @@ size = 5000
 max_txs_bytes = 1073741824
 cache_size = 10000
 keep-invalid-txs-in-cache = false
-max_tx_bytes = 1048576
+max_tx_bytes = 4194304
 max_batch_bytes = 0
 experimental_max_gossip_connections_to_persistent_peers = 0
 experimental_max_gossip_connections_to_non_persistent_peers = 0
@@ -148,9 +152,16 @@ simulation_max_concurrency = 2
 simulation_timeout_ms = 3000
 simulation_max_chi = 1000000
 parallel_execution_enabled = false
-parallel_execution_workers = 0
+parallel_execution_workers = 4
 parallel_execution_min_transactions = 8
 pending_nonce_reservation_ttl_seconds = 60.0
+
+[xian.execution.engine]
+mode = "python_line_v1"
+bytecode_version = ""
+gas_schedule = ""
+authority = ""
+shadow_tracer_mode = ""
 
 [xian.bds]
 dsn = ""
@@ -168,6 +179,10 @@ spool_warn_entries = 256
 spool_warn_bytes = 536870912
 disk_free_warn_bytes = 2147483648
 """.strip()
+
+DEFAULT_PARALLEL_EXECUTION_ENABLED = False
+DEFAULT_PARALLEL_EXECUTION_WORKERS = 4
+DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS = 8
 
 SUPPORTED_BLOCK_POLICY_MODES = {"on_demand", "idle_interval", "periodic"}
 SUPPORTED_APP_LOG_LEVELS = {
@@ -407,6 +422,11 @@ def render_cometbft_config(
     statesync_trust_hash: str = "",
     statesync_trust_period: str = "168h0m0s",
     tracer_mode: str = "python_line_v1",
+    execution_mode: str | None = None,
+    execution_bytecode_version: str = "",
+    execution_gas_schedule: str = "",
+    execution_authority: str = "",
+    execution_shadow_tracer_mode: str = "",
     metrics_enabled: bool = True,
     metrics_host: str = "127.0.0.1",
     metrics_port: int = 9108,
@@ -420,9 +440,11 @@ def render_cometbft_config(
     simulation_max_concurrency: int = 2,
     simulation_timeout_ms: int = 3000,
     simulation_max_chi: int = 1_000_000,
-    parallel_execution_enabled: bool = False,
-    parallel_execution_workers: int = 0,
-    parallel_execution_min_transactions: int = 8,
+    parallel_execution_enabled: bool = DEFAULT_PARALLEL_EXECUTION_ENABLED,
+    parallel_execution_workers: int = DEFAULT_PARALLEL_EXECUTION_WORKERS,
+    parallel_execution_min_transactions: int = (
+        DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS
+    ),
     pending_nonce_reservation_ttl_seconds: float = 60.0,
     bds_dsn: str = "",
     bds_host: str = "",
@@ -453,7 +475,20 @@ def render_cometbft_config(
         trust_hash=statesync_trust_hash,
         trust_period=statesync_trust_period,
     )
-    resolved_tracer_mode = resolve_tracer_mode(tracer_mode)
+    execution_policy = resolve_execution_policy(
+        mode=execution_mode,
+        tracer_mode=tracer_mode,
+        bytecode_version=execution_bytecode_version,
+        gas_schedule=execution_gas_schedule,
+        authority=execution_authority,
+        shadow_tracer_mode=execution_shadow_tracer_mode,
+        allow_future=True,
+    )
+    resolved_tracer_mode = execution_policy.shadow_tracer_mode or (
+        execution_policy.mode
+        if execution_policy.is_current_tracer_mode
+        else DEFAULT_EXECUTION_MODE
+    )
     resolved_app_logging = resolve_app_logging_settings(
         level=app_log_level,
         json_logging=app_log_json,
@@ -485,6 +520,7 @@ def render_cometbft_config(
         "pruning_enabled": enable_pruning,
         "blocks_to_keep": blocks_to_keep,
         "tracer_mode": resolved_tracer_mode,
+        "execution": execution_policy.to_config_dict(),
         "metrics_enabled": metrics_enabled,
         "metrics_host": metrics_host,
         "metrics_port": metrics_port,

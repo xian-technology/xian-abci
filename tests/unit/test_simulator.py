@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from unittest import mock
 
 from xian.simulator import QuerySimulationService, TransactionSimulator
 from xian.utils.block import set_latest_block_nanos
@@ -107,6 +108,25 @@ class SimulatorTests(unittest.TestCase):
             self.assertEqual(left["block_hash"], right["block_hash"])
             self.assertNotEqual(left["__input_hash"], right["__input_hash"])
 
+    def test_make_environment_exposes_internal_execution_mode(self):
+        with TemporaryDirectory() as tmpdir:
+            storage_home = Path(tmpdir)
+
+            simulator = object.__new__(TransactionSimulator)
+            simulator.client = SimpleNamespace(
+                raw_driver=SimpleNamespace(storage_home=storage_home)
+            )
+            simulator.execution_runtime = SimpleNamespace(mode="xian_vm_v1")
+            simulator.get_block_meta = lambda: {
+                "height": 7,
+                "nanos": 1_710_000_000_123_000_000,
+                "chain_id": "xian-local",
+            }
+
+            environment = simulator._make_environment({"contract": "currency"})
+
+            self.assertEqual(environment["__xian_execution_mode__"], "xian_vm_v1")
+
     def test_execute_normalizes_structured_result_for_abci(self):
         simulator = object.__new__(TransactionSimulator)
         simulator.client = SimpleNamespace(
@@ -195,6 +215,242 @@ class SimulatorTests(unittest.TestCase):
             result["result"],
             [1, "0.637954245540464949970792229477"],
         )
+
+    def test_execute_preflights_contract_when_vm_shadow_runtime_is_active(self):
+        simulator = object.__new__(TransactionSimulator)
+        simulator.client = SimpleNamespace(
+            raw_driver=SimpleNamespace(
+                pending_writes={},
+                pending_reads={},
+                pending_deltas={},
+                transaction_reads={},
+                transaction_read_prefixes=set(),
+                transaction_writes={},
+                log_events=[],
+            ),
+            get_var=lambda **kwargs: 20,
+        )
+        simulator.execution_runtime = SimpleNamespace(mode="xian_vm_v1")
+        simulator.executor = SimpleNamespace(
+            execute=lambda **kwargs: {
+                "status_code": 0,
+                "writes": {},
+                "chi_used": 1,
+                "result": "ok",
+            }
+        )
+        simulator._make_environment = lambda payload, block_meta=None: {}
+
+        with mock.patch(
+            "xian.simulator.prepare_contract_for_execution"
+        ) as prepare:
+            result = simulator._execute(
+                {
+                    "sender": "alice",
+                    "contract": "currency",
+                    "function": "balance_of",
+                    "kwargs": {"account": "alice"},
+                }
+            )
+
+        self.assertEqual(result["status"], 0)
+        prepare.assert_called_once_with(
+            simulator.execution_runtime,
+            simulator.client.raw_driver,
+            "currency",
+        )
+
+    def test_execute_runs_native_shadow_when_vm_shadow_runtime_is_active(self):
+        simulator = object.__new__(TransactionSimulator)
+        simulator.client = SimpleNamespace(
+            raw_driver=SimpleNamespace(
+                pending_writes={},
+                pending_reads={},
+                pending_deltas={},
+                transaction_reads={},
+                transaction_read_prefixes=set(),
+                transaction_writes={},
+                log_events=[],
+            ),
+            get_var=lambda **kwargs: 20,
+        )
+        simulator.execution_runtime = SimpleNamespace(
+            mode="xian_vm_v1",
+            shadow_execution=True,
+        )
+        simulator.executor = SimpleNamespace(
+            execute=lambda **kwargs: {
+                "status_code": 0,
+                "writes": {"currency.balances:alice": 5},
+                "chi_used": 1,
+                "result": "ok",
+                "events": [],
+            }
+        )
+        simulator._make_environment = (
+            lambda payload, block_meta=None: {
+                "now": Datetime(2026, 4, 12, 12, 0),
+                "block_num": 7,
+                "block_hash": "abc123",
+                "chain_id": "xian-local",
+            }
+        )
+
+        with (
+            mock.patch(
+                "xian.simulator.prepare_contract_for_execution"
+            ) as prepare,
+            mock.patch(
+                "xian.simulator.execute_native_contract",
+                return_value=SimpleNamespace(
+                    status_code=0,
+                    result="ok",
+                    writes={"currency.balances:alice": 5},
+                    events=[],
+                ),
+            ) as native_execute,
+            mock.patch(
+                "xian.simulator.compare_execution_results",
+                return_value={},
+            ) as compare,
+        ):
+            result = simulator._execute(
+                {
+                    "sender": "alice",
+                    "contract": "currency",
+                    "function": "balance_of",
+                    "kwargs": {"account": "alice"},
+                }
+            )
+
+        self.assertEqual(result["status"], 0)
+        prepare.assert_called_once_with(
+            simulator.execution_runtime,
+            simulator.client.raw_driver,
+            "currency",
+        )
+        native_execute.assert_called_once()
+        compare.assert_called_once()
+
+    def test_execute_rejects_source_only_submission_for_xian_vm(self):
+        simulator = object.__new__(TransactionSimulator)
+        simulator.client = SimpleNamespace(
+            raw_driver=SimpleNamespace(
+                pending_writes={},
+                pending_reads={},
+                pending_deltas={},
+                transaction_reads={},
+                transaction_read_prefixes=set(),
+                transaction_writes={},
+                log_events=[],
+            ),
+            get_var=lambda **kwargs: 20,
+        )
+        simulator.execution_runtime = SimpleNamespace(
+            mode="xian_vm_v1",
+            shadow_execution=True,
+        )
+        simulator.executor = SimpleNamespace(execute=mock.Mock())
+        simulator._make_environment = lambda payload, block_meta=None: {}
+
+        with (
+            mock.patch(
+                "xian.simulator.prepare_contract_for_execution"
+            ) as prepare,
+            mock.patch("xian.simulator.execute_native_contract") as native_execute,
+        ):
+            result = simulator._execute(
+                {
+                    "sender": "sys",
+                    "contract": "submission",
+                    "function": "submit_contract",
+                    "kwargs": {
+                        "name": "con_probe",
+                        "code": "@export\\ndef ping():\\n    return 'pong'\\n",
+                    },
+                }
+            )
+
+        self.assertEqual(result["status"], 1)
+        self.assertIn("requires deployment_artifacts", result["result"])
+        prepare.assert_called_once_with(
+            simulator.execution_runtime,
+            simulator.client.raw_driver,
+            "submission",
+        )
+        simulator.executor.execute.assert_not_called()
+        native_execute.assert_not_called()
+
+    def test_execute_runs_native_authoritative_simulation(self):
+        simulator = object.__new__(TransactionSimulator)
+        simulator.client = SimpleNamespace(
+            raw_driver=SimpleNamespace(
+                pending_writes={},
+                pending_reads={},
+                pending_deltas={},
+                transaction_reads={},
+                transaction_read_prefixes=set(),
+                transaction_writes={},
+                log_events=[],
+            ),
+            get_var=lambda **kwargs: 20,
+        )
+        simulator.execution_runtime = SimpleNamespace(
+            mode="xian_vm_v1",
+            native_authoritative=True,
+            tracer_mode="python_line_v1",
+        )
+        simulator.executor = SimpleNamespace(
+            execute=lambda **kwargs: {
+                "status_code": 0,
+                "writes": {"currency.balances:alice": 5},
+                "chi_used": 9,
+                "result": "ok",
+                "events": [],
+            }
+        )
+        simulator._make_environment = (
+            lambda payload, block_meta=None: {
+                "now": Datetime(2026, 4, 12, 12, 0),
+                "block_num": 7,
+                "block_hash": "abc123",
+                "chain_id": "xian-local",
+            }
+        )
+
+        with (
+            mock.patch(
+                "xian.simulator.prepare_contract_for_execution"
+            ) as prepare,
+            mock.patch(
+                "xian.simulator.execute_authoritative_native_contract",
+                return_value=SimpleNamespace(
+                    output=SimpleNamespace(
+                        status_code=0,
+                        result="ok",
+                    ),
+                    writes={"currency.balances:alice": 5},
+                    chi_used=9,
+                ),
+            ) as native_execute,
+        ):
+            result = simulator._execute(
+                {
+                    "sender": "alice",
+                    "contract": "currency",
+                    "function": "balance_of",
+                    "kwargs": {"account": "alice"},
+                }
+            )
+
+        self.assertEqual(result["status"], 0)
+        self.assertEqual(result["chi_used"], 9)
+        prepare.assert_called_once_with(
+            simulator.execution_runtime,
+            simulator.client.raw_driver,
+            "currency",
+        )
+        native_execute.assert_called_once()
 
 
 class _TestQuerySimulationService(QuerySimulationService):
@@ -292,6 +548,43 @@ class QuerySimulationServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["status"], 1)
         self.assertIn("timed out", result["result"])
+
+    async def test_records_shadow_comparisons_from_worker_result(self):
+        observer = mock.Mock()
+        service = _TestQuerySimulationService(
+            enabled=True,
+            shadow_observer=observer,
+        )
+        service.response["__xian_shadow_comparisons__"] = [
+            {
+                "stage": "simulate_tx_native_authoritative",
+                "contract": "currency",
+                "function": "balance_of",
+                "sender": "alice",
+                "nonce": 7,
+                "block_height": 11,
+                "mismatches": {},
+            }
+        ]
+        payload = (
+            '{"sender":"alice","contract":"currency","function":"balance_of",'
+            '"kwargs":{"account":"alice"}}'
+        ).encode("utf-8").hex()
+
+        service.release_event.set()
+        result = await service.simulate_encoded_transaction(payload)
+
+        self.assertEqual(result["status"], 0)
+        self.assertNotIn("__xian_shadow_comparisons__", result)
+        observer.record_comparison.assert_called_once_with(
+            stage="simulate_tx_native_authoritative",
+            contract="currency",
+            function="balance_of",
+            sender="alice",
+            nonce=7,
+            block_height=11,
+            mismatches={},
+        )
 
 
 if __name__ == "__main__":

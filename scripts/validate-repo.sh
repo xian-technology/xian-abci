@@ -18,7 +18,7 @@ fi
 
 cd "${repo_root}"
 
-UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" sync --python "${python_version}" --group dev
+UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" sync --python "${python_version}" --group dev --extra vm
 UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run --python "${python_version}" python build_proto.py
 git diff --exit-code -- src/cometbft src/gogoproto src/tendermint
 UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run --python "${python_version}" ruff check .

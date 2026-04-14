@@ -9,6 +9,19 @@ from xian_runtime_types.encoding import convert_dict, safe_repr
 from xian_runtime_types.time import Datetime
 
 from xian.app_logging import build_log_fields
+from xian.execution_engine import (
+    ExecutionRuntime,
+    augment_execution_output_with_driver_state,
+    compare_execution_results,
+    execute_authoritative_native_contract,
+    execute_native_contract,
+    metering_write_keys,
+    prepare_contract_for_execution,
+    restore_driver_state,
+    snapshot_driver_state,
+    xian_vm_deployment_artifacts_error,
+    xian_vm_requires_deployment_artifacts,
+)
 from xian.utils.block import nanoseconds_to_utc_datetime
 from xian.utils.tx import canonical_transaction_size_bytes, tx_hash_from_tx
 
@@ -20,10 +33,16 @@ class TxProcessor:
         metering=False,
         profiler=None,
         trace_logging: bool = False,
+        execution_runtime: ExecutionRuntime | None = None,
+        shadow_observer=None,
     ):
         self.client = client
         self.profiler = profiler
         self.trace_logging = trace_logging
+        self.execution_runtime = execution_runtime or ExecutionRuntime(
+            mode="python_line_v1",
+            tracer_mode="python_line_v1",
+        )
         self.executor = Executor(
             driver=self.client.raw_driver, metering=metering
         )
@@ -33,6 +52,7 @@ class TxProcessor:
             ["value"],
         )
         self.cached_chi_cost = None
+        self.shadow_observer = shadow_observer
 
     def reset_block_cache(self) -> None:
         self.cached_chi_cost = None
@@ -154,6 +174,14 @@ class TxProcessor:
     def execute_tx(
         self, transaction, chi_cost, environment: dict = {}, metering=False
     ):
+        execution_runtime = getattr(
+            self,
+            "execution_runtime",
+            ExecutionRuntime(
+                mode="python_line_v1",
+                tracer_mode="python_line_v1",
+            ),
+        )
         if self.trace_logging:
             logger.bind(
                 **build_log_fields(
@@ -168,14 +196,60 @@ class TxProcessor:
         started_ns = time.perf_counter_ns()
 
         try:
+            prepare_contract_for_execution(
+                execution_runtime,
+                self.client.raw_driver,
+                transaction["payload"]["contract"],
+            )
+            converted_kwargs = convert_dict(transaction["payload"]["kwargs"])
+            if xian_vm_requires_deployment_artifacts(
+                execution_runtime,
+                transaction["payload"]["contract"],
+                transaction["payload"]["function"],
+                converted_kwargs,
+            ):
+                return {
+                    "status_code": 1,
+                    "result": ValueError(
+                        xian_vm_deployment_artifacts_error(
+                            transaction["payload"]["contract"],
+                            transaction["payload"]["function"],
+                        )
+                    ),
+                    "writes": {},
+                    "events": [],
+                    "chi_used": 0,
+                    "reads": {},
+                    "prefix_reads": frozenset(),
+                    "contract_costs": {},
+                }
+            if getattr(execution_runtime, "native_authoritative", False):
+                return self._execute_native_authoritative_tx(
+                    transaction=transaction,
+                    kwargs=converted_kwargs,
+                    chi_cost=chi_cost,
+                    environment=environment,
+                    metering=metering,
+                )
+            track_driver_output = getattr(
+                execution_runtime, "shadow_execution", False
+            ) or (
+                transaction["payload"]["contract"] == "submission"
+                and transaction["payload"]["function"] == "submit_contract"
+            )
+            pre_execution_state = None
+            if track_driver_output:
+                pre_execution_state = snapshot_driver_state(
+                    self.client.raw_driver
+                )
             # Execute transaction
-            return self.executor.execute(
+            output = self.executor.execute(
                 sender=transaction["payload"]["sender"],
                 contract_name=transaction["payload"]["contract"],
                 function_name=transaction["payload"]["function"],
                 chi=transaction["payload"]["chi_supplied"],
                 chi_cost=chi_cost,
-                kwargs=convert_dict(transaction["payload"]["kwargs"]),
+                kwargs=converted_kwargs,
                 environment=environment,
                 auto_commit=False,
                 metering=metering,
@@ -183,6 +257,81 @@ class TxProcessor:
                     transaction
                 ),
             )
+            python_driver_state = None
+            if pre_execution_state:
+                python_driver_state = snapshot_driver_state(
+                    self.client.raw_driver
+                )
+                output = augment_execution_output_with_driver_state(
+                    output,
+                    before_state=pre_execution_state,
+                    after_state=python_driver_state,
+                )
+            if (
+                getattr(execution_runtime, "shadow_execution", False)
+                and pre_execution_state
+                and python_driver_state is not None
+            ):
+                restore_driver_state(
+                    self.client.raw_driver, pre_execution_state
+                )
+                native_output = execute_native_contract(
+                    execution_runtime,
+                    self.client.raw_driver,
+                    sender=transaction["payload"]["sender"],
+                    contract_name=transaction["payload"]["contract"],
+                    function_name=transaction["payload"]["function"],
+                    kwargs=converted_kwargs,
+                    environment=environment,
+                    meter=metering,
+                    chi_budget=transaction["payload"]["chi_supplied"],
+                    transaction_size_bytes=canonical_transaction_size_bytes(
+                        transaction
+                    ),
+                )
+                restore_driver_state(
+                    self.client.raw_driver, python_driver_state
+                )
+                mismatches = compare_execution_results(
+                    output,
+                    native_output,
+                    ignore_write_keys=metering_write_keys(
+                        self.client.raw_driver,
+                        sender=transaction["payload"]["sender"],
+                        currency_contract=getattr(
+                            self.executor, "currency_contract", "currency"
+                        ),
+                        balances_hash=getattr(
+                            self.executor, "balances_hash", "balances"
+                        ),
+                    ),
+                )
+                shadow_observer = getattr(self, "shadow_observer", None)
+                if shadow_observer is not None:
+                    shadow_observer.record_comparison(
+                        stage="execute_tx_native_shadow",
+                        contract=transaction["payload"]["contract"],
+                        function=transaction["payload"]["function"],
+                        sender=transaction["payload"]["sender"],
+                        nonce=transaction["payload"].get("nonce"),
+                        tx_hash=tx_hash_from_tx(transaction),
+                        block_height=environment.get("block_num"),
+                        mismatches=mismatches,
+                    )
+                if mismatches:
+                    logger.bind(
+                        **build_log_fields(
+                            stage="execute_tx_native_shadow",
+                            tx=transaction,
+                            extra={
+                                "mismatch_fields": sorted(mismatches),
+                            },
+                        )
+                    ).warning(
+                        "Native VM transaction shadow mismatch: {}",
+                        mismatches,
+                    )
+            return output
         except (TypeError, ValueError) as err:
             logger.bind(
                 **build_log_fields(
@@ -206,6 +355,66 @@ class TxProcessor:
                     time.perf_counter_ns() - started_ns,
                     block_scoped=True,
                 )
+
+    def _execute_native_authoritative_tx(
+        self,
+        *,
+        transaction: dict,
+        kwargs: dict,
+        chi_cost: int,
+        environment: dict,
+        metering: bool,
+    ) -> dict:
+        driver = self.client.raw_driver
+        if hasattr(driver, "clear_transaction_reads"):
+            driver.clear_transaction_reads()
+        else:
+            getattr(driver, "transaction_reads", {}).clear()
+            getattr(driver, "transaction_read_prefixes", set()).clear()
+        if hasattr(driver, "clear_transaction_writes"):
+            driver.clear_transaction_writes()
+        else:
+            getattr(driver, "transaction_writes", {}).clear()
+        outcome = execute_authoritative_native_contract(
+            self.execution_runtime,
+            driver,
+            executor=self.executor,
+            sender=transaction["payload"]["sender"],
+            contract_name=transaction["payload"]["contract"],
+            function_name=transaction["payload"]["function"],
+            kwargs=kwargs,
+            environment=environment,
+            chi_budget=transaction["payload"]["chi_supplied"],
+            chi_cost=chi_cost,
+            meter=metering,
+            transaction_size_bytes=canonical_transaction_size_bytes(
+                transaction
+            ),
+            mismatch_label="native authoritative execution",
+            shadow_observer=getattr(self, "shadow_observer", None),
+            shadow_stage="execute_tx_native_authoritative",
+            shadow_context={
+                "contract": transaction["payload"]["contract"],
+                "function": transaction["payload"]["function"],
+                "sender": transaction["payload"]["sender"],
+                "nonce": transaction["payload"].get("nonce"),
+                "tx_hash": tx_hash_from_tx(transaction),
+                "block_height": environment.get("block_num"),
+            },
+        )
+
+        return {
+            "status_code": outcome.output.status_code,
+            "result": outcome.output.result,
+            "writes": outcome.writes,
+            "events": list(outcome.output.events),
+            "chi_used": outcome.chi_used,
+            "reads": dict(getattr(outcome, "reads", {}) or {}),
+            "prefix_reads": frozenset(
+                getattr(outcome, "prefix_reads", frozenset()) or ()
+            ),
+            "contract_costs": outcome.contract_costs,
+        }
 
     def process_tx_output(
         self,
@@ -266,16 +475,26 @@ class TxProcessor:
                 tx_sender=transaction["payload"]["sender"],
             )
             writes = self.materialize_writes(base_writes, reward_deltas)
-            reads = (
-                frozenset(self.client.raw_driver.transaction_reads.keys())
-                if track_access
-                else frozenset()
-            )
-            prefix_reads = (
-                frozenset(self.client.raw_driver.transaction_read_prefixes)
-                if track_access
-                else frozenset()
-            )
+            reads = frozenset()
+            prefix_reads = frozenset()
+            if track_access:
+                output_reads = output.get("reads")
+                if isinstance(output_reads, dict):
+                    reads = frozenset(output_reads.keys())
+                elif output_reads is not None:
+                    reads = frozenset(output_reads)
+                else:
+                    reads = frozenset(
+                        self.client.raw_driver.transaction_reads.keys()
+                    )
+
+                output_prefix_reads = output.get("prefix_reads")
+                if output_prefix_reads is not None:
+                    prefix_reads = frozenset(output_prefix_reads)
+                else:
+                    prefix_reads = frozenset(
+                        self.client.raw_driver.transaction_read_prefixes
+                    )
 
             for write in writes:
                 self.client.raw_driver.set(
@@ -395,6 +614,7 @@ class TxProcessor:
             "block_hash": block_meta["hash"],  # hash nanos
             "block_num": block_meta["height"],  # block number
             "__input_hash": self.get_timestamp_hash_from_tx(nanos, signature),
+            "__xian_execution_mode__": self.execution_runtime.mode,
             "now": self.get_now_from_nanos(nanos=nanos),
             "chain_id": chain_id,
         }

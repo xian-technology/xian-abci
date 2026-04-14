@@ -17,6 +17,11 @@ from xian.app_logging import (
     log_level_includes,
 )
 from xian.constants import Constants
+from xian.execution_engine import (
+    build_execution_runtime,
+    snapshot_driver_state,
+)
+from xian.execution_policy import load_execution_policy
 from xian.methods import (
     check_tx,
     commit,
@@ -29,6 +34,11 @@ from xian.methods import (
     query,
 )
 from xian.metrics import MetricsService
+from xian.node_setup import (
+    DEFAULT_PARALLEL_EXECUTION_ENABLED,
+    DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
+    DEFAULT_PARALLEL_EXECUTION_WORKERS,
+)
 from xian.nonce import NonceStorage
 from xian.parallel_executor import ParallelBlockExecutor
 from xian.perf import PerfTracker
@@ -37,7 +47,7 @@ from xian.rewards import RewardsHandler
 from xian.services.bds.bds import BDS
 from xian.services.bds.config import BdsConfig
 from xian.services.state_sync import StateSnapshotManager
-from xian.simulator import QuerySimulationService, snapshot_driver_state
+from xian.simulator import QuerySimulationService
 from xian.utils.block import get_latest_block_height
 from xian.utils.cometbft import (
     load_genesis_data,
@@ -45,6 +55,7 @@ from xian.utils.cometbft import (
 )
 from xian.utils.state_patches import StatePatchManager, resolve_state_patch_dir
 from xian.validators import ValidatorHandler
+from xian.vm_observability import VmShadowObserver
 
 get_logger("requests").setLevel(30)
 get_logger("urllib3").setLevel(30)
@@ -99,9 +110,16 @@ class Xian:
             logger.error(e)
             raise SystemExit()
 
-        self.tracer_mode = self.cometbft_config.get("xian", {}).get(
-            "tracer_mode", "python_line_v1"
+        xian_config = self.cometbft_config.get("xian", {})
+        self.execution_policy = load_execution_policy(
+            xian_config,
+            allow_future=True,
         )
+        self.execution_runtime = build_execution_runtime(self.execution_policy)
+        self.execution_mode = self.execution_runtime.mode
+        if not self.execution_runtime.supports_transaction_execution:
+            raise ValueError(self.execution_runtime.unavailable_reason)
+        self.tracer_mode = self.execution_runtime.tracer_mode
         self.client = ContractingClient(
             storage_home=constants.STORAGE_HOME,
             tracer_mode=self.tracer_mode,
@@ -120,7 +138,6 @@ class Xian:
             chain_id=self.chain_id,
         )
         self.validator_handler = ValidatorHandler(self)
-        xian_config = self.cometbft_config.get("xian", {})
         self.nonce_storage = NonceStorage(
             self.client,
             reservation_ttl_seconds=xian_config.get(
@@ -142,14 +159,23 @@ class Xian:
             self.transaction_trace_logging
             and log_level_includes(self.app_log_level, "TRACE")
         )
+        self.vm_shadow_observer = VmShadowObserver.for_runtime(
+            storage_home=constants.STORAGE_HOME,
+            mode=self.execution_runtime.mode,
+            authority=self.execution_runtime.authority or "python",
+            shadow_execution=self.execution_runtime.shadow_execution,
+        )
         self.tx_processor = TxProcessor(
             client=self.client,
             profiler=self.profiler,
             trace_logging=self.transaction_trace_debug_logging,
+            execution_runtime=self.execution_runtime,
+            shadow_observer=self.vm_shadow_observer,
         )
         self.simulator = QuerySimulationService(
             storage_home=constants.STORAGE_HOME,
             tracer_mode=self.tracer_mode,
+            execution_runtime=self.execution_runtime,
             get_block_meta=lambda: self.current_block_meta,
             get_state_snapshot=lambda: snapshot_driver_state(
                 self.client.raw_driver
@@ -158,6 +184,7 @@ class Xian:
             max_concurrency=xian_config.get("simulation_max_concurrency", 2),
             timeout_ms=xian_config.get("simulation_timeout_ms", 3000),
             max_chi=xian_config.get("simulation_max_chi", 1_000_000),
+            shadow_observer=self.vm_shadow_observer,
         )
         self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None
@@ -182,12 +209,19 @@ class Xian:
         self.blocks_to_keep = xian_config.get("blocks_to_keep", 100000)
         self.parallel_block_executor = ParallelBlockExecutor(
             storage_home=constants.STORAGE_HOME,
-            enabled=xian_config.get("parallel_execution_enabled", False),
-            workers=xian_config.get("parallel_execution_workers", 0),
-            min_transactions=xian_config.get(
-                "parallel_execution_min_transactions", 8
+            enabled=xian_config.get(
+                "parallel_execution_enabled",
+                DEFAULT_PARALLEL_EXECUTION_ENABLED,
             ),
-            tracer_mode=self.tracer_mode,
+            workers=xian_config.get(
+                "parallel_execution_workers",
+                DEFAULT_PARALLEL_EXECUTION_WORKERS,
+            ),
+            min_transactions=xian_config.get(
+                "parallel_execution_min_transactions",
+                DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
+            ),
+            execution_runtime=self.execution_runtime,
         )
         self.app_version = 1
         self.metrics_service = MetricsService.from_runtime_settings(
@@ -208,6 +242,7 @@ class Xian:
         self.state_patch_manager = StatePatchManager(
             self.client.raw_driver,
             chain_id=self.chain_id,
+            include_runtime_code=self.execution_mode != "xian_vm_v1",
         )
         patch_dir_path = resolve_state_patch_dir(self.constants)
 
@@ -216,7 +251,17 @@ class Xian:
                 stage="startup",
                 extra={
                     "chain_id": self.chain_id,
+                    "execution_mode": self.execution_mode,
                     "tracer_mode": self.tracer_mode,
+                    "shadow_execution": self.execution_runtime.shadow_execution,
+                    "vm_shadow_observer_enabled": (
+                        self.vm_shadow_observer.enabled
+                    ),
+                    "vm_shadow_mismatch_log_path": (
+                        None
+                        if self.vm_shadow_observer.mismatch_log_path is None
+                        else str(self.vm_shadow_observer.mismatch_log_path)
+                    ),
                     "service_node": self.block_service_mode,
                     "simulation_enabled": self.simulator.enabled,
                     "parallel_execution_enabled": (

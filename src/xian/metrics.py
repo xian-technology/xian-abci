@@ -74,6 +74,19 @@ class XianMetricsCollector:
             {
                 "chain_id": str(app.chain_id),
                 "tracer_mode": str(app.tracer_mode),
+                "execution_mode": str(getattr(app, "execution_mode", "")),
+                "execution_authority": str(
+                    getattr(app.execution_runtime, "authority", "python")
+                ),
+                "execution_shadow": str(
+                    getattr(app.execution_runtime, "shadow_execution", False)
+                ).lower(),
+                "execution_bytecode_version": str(
+                    getattr(app.execution_runtime, "bytecode_version", "")
+                ),
+                "execution_gas_schedule": str(
+                    getattr(app.execution_runtime, "gas_schedule", "")
+                ),
                 "block_service_mode": str(app.block_service_mode).lower(),
                 "parallel_execution_enabled": str(
                     app.parallel_block_executor.enabled
@@ -217,6 +230,122 @@ class XianMetricsCollector:
         )
         yield exporter_health
 
+        vm_shadow = getattr(app, "vm_shadow_observer", None)
+        vm_shadow_snapshot = (
+            vm_shadow.snapshot() if vm_shadow is not None else None
+        )
+
+        vm_shadow_family = GaugeMetricFamily(
+            "xian_vm_shadow_metric",
+            "Xian VM shadow/native comparison metrics.",
+            labels=["field"],
+        )
+        if vm_shadow_snapshot is not None:
+            _add_metric_if_present(
+                vm_shadow_family,
+                ["enabled"],
+                vm_shadow_snapshot.get("enabled"),
+            )
+            _add_metric_if_present(
+                vm_shadow_family,
+                ["shadow_execution"],
+                vm_shadow_snapshot.get("shadow_execution"),
+            )
+            _add_metric_if_present(
+                vm_shadow_family,
+                ["comparisons_total"],
+                vm_shadow_snapshot.get("comparisons_total"),
+            )
+            _add_metric_if_present(
+                vm_shadow_family,
+                ["mismatches_total"],
+                vm_shadow_snapshot.get("mismatches_total"),
+            )
+            _add_metric_if_present(
+                vm_shadow_family,
+                ["recent_mismatch_count"],
+                len(vm_shadow_snapshot.get("recent_mismatches", [])),
+            )
+            last_comparison_at = vm_shadow_snapshot.get(
+                "last_comparison_at_unix"
+            )
+            last_mismatch_at = vm_shadow_snapshot.get("last_mismatch_at_unix")
+            _add_metric_if_present(
+                vm_shadow_family,
+                ["last_comparison_age_seconds"],
+                time() - last_comparison_at if last_comparison_at else None,
+            )
+            _add_metric_if_present(
+                vm_shadow_family,
+                ["last_mismatch_age_seconds"],
+                time() - last_mismatch_at if last_mismatch_at else None,
+            )
+        yield vm_shadow_family
+
+        vm_shadow_stage_family = GaugeMetricFamily(
+            "xian_vm_shadow_stage_metric",
+            "Per-stage Xian VM shadow/native comparison counters.",
+            labels=["stage", "field"],
+        )
+        if vm_shadow_snapshot is not None:
+            for stage_name, values in vm_shadow_snapshot.get(
+                "stages", {}
+            ).items():
+                _add_metric_if_present(
+                    vm_shadow_stage_family,
+                    [stage_name, "comparisons_total"],
+                    values.get("comparisons_total"),
+                )
+                _add_metric_if_present(
+                    vm_shadow_stage_family,
+                    [stage_name, "mismatches_total"],
+                    values.get("mismatches_total"),
+                )
+        yield vm_shadow_stage_family
+
+        vm_shadow_last_mismatch = InfoMetricFamily(
+            "xian_vm_shadow_last_mismatch",
+            "Most recent Xian VM shadow/native mismatch context.",
+        )
+        latest_mismatch = (
+            vm_shadow_snapshot.get("latest_mismatch")
+            if vm_shadow_snapshot is not None
+            else None
+        )
+        if latest_mismatch:
+            vm_shadow_last_mismatch.add_metric(
+                [],
+                {
+                    "stage": str(latest_mismatch.get("stage", "")),
+                    "contract": str(latest_mismatch.get("contract", "")),
+                    "function": str(latest_mismatch.get("function", "")),
+                    "sender": str(latest_mismatch.get("sender", "")),
+                    "nonce": str(latest_mismatch.get("nonce", "")),
+                    "tx_hash": str(latest_mismatch.get("tx_hash", "")),
+                    "block_height": str(
+                        latest_mismatch.get("block_height", "")
+                    ),
+                    "mismatch_fields": ",".join(
+                        latest_mismatch.get("mismatch_fields", [])
+                    ),
+                },
+            )
+        else:
+            vm_shadow_last_mismatch.add_metric(
+                [],
+                {
+                    "stage": "",
+                    "contract": "",
+                    "function": "",
+                    "sender": "",
+                    "nonce": "",
+                    "tx_hash": "",
+                    "block_height": "",
+                    "mismatch_fields": "",
+                },
+            )
+        yield vm_shadow_last_mismatch
+
         bds_info = InfoMetricFamily(
             "xian_bds",
             "Optional BDS runtime information.",
@@ -242,9 +371,24 @@ class XianMetricsCollector:
             "Optional BDS worker and storage health metrics.",
             labels=["field"],
         )
+        _add_metric_if_present(
+            bds_family, ["enabled"], 1 if app.block_service_mode else 0
+        )
+        if app.block_service_mode:
+            _add_metric_if_present(
+                bds_family,
+                ["refresh_success"],
+                1 if self.service.last_bds_refresh_success else 0,
+            )
+            _add_metric_if_present(
+                bds_family,
+                ["refresh_age_seconds"],
+                self.service.last_bds_refresh_age_seconds,
+            )
         if bds_status:
             indexed = bds_status.get("indexed", {})
             for field, value in (
+                ("catchup_running", bds_status.get("catchup_running")),
                 ("worker_running", bds_status.get("worker_running")),
                 ("queue_depth", bds_status.get("queue_depth")),
                 ("queue_capacity", bds_status.get("queue_capacity")),
@@ -260,6 +404,12 @@ class XianMetricsCollector:
                 ),
                 ("height_lag", bds_status.get("height_lag")),
                 ("catching_up", bds_status.get("catching_up")),
+                ("db_ok", bds_status.get("db_status") == "ok"),
+                ("alert_count", len(bds_status.get("alerts", []))),
+                (
+                    "last_enqueue_error_present",
+                    bds_status.get("last_enqueue_error") is not None,
+                ),
                 ("indexed_block_count", indexed.get("indexed_block_count")),
                 ("indexed_height", indexed.get("indexed_height")),
                 ("indexed_tx_count", indexed.get("indexed_tx_count")),
@@ -274,8 +424,10 @@ class XianMetricsCollector:
         )
         if bds_status:
             for alert in bds_status.get("alerts", []):
-                severity = str(alert.get("severity", "unknown"))
-                kind = str(alert.get("kind", "unknown"))
+                severity = str(
+                    alert.get("severity") or alert.get("level") or "unknown"
+                )
+                kind = str(alert.get("kind") or alert.get("code") or "unknown")
                 bds_alerts.add_metric([severity, kind], 1.0)
         yield bds_alerts
 

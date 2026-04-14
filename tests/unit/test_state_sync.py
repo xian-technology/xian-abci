@@ -68,10 +68,8 @@ class StateSyncTests(unittest.TestCase):
                 target_driver.get("demo.__source__"),
                 CANONICAL_CONTRACT_SOURCE,
             )
-            self.assertIn(
-                "def ____():",
-                target_driver.get("demo.__code__"),
-            )
+            self.assertIsNone(target_driver.get("demo.__code__"))
+            self.assertIsNotNone(target_driver.get("demo.__xian_ir_v1__"))
             self.assertEqual(target_driver.get("demo.count"), 7)
             self.assertEqual(
                 target_driver.get("demo.price"),
