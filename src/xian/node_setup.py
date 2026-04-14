@@ -484,13 +484,10 @@ def render_cometbft_config(
         shadow_tracer_mode=execution_shadow_tracer_mode,
         allow_future=True,
     )
-    resolved_tracer_mode = (
-        execution_policy.shadow_tracer_mode
-        or (
-            execution_policy.mode
-            if execution_policy.is_current_tracer_mode
-            else DEFAULT_EXECUTION_MODE
-        )
+    resolved_tracer_mode = execution_policy.shadow_tracer_mode or (
+        execution_policy.mode
+        if execution_policy.is_current_tracer_mode
+        else DEFAULT_EXECUTION_MODE
     )
     resolved_app_logging = resolve_app_logging_settings(
         level=app_log_level,

@@ -34,12 +34,12 @@ from xian.methods import (
     query,
 )
 from xian.metrics import MetricsService
-from xian.nonce import NonceStorage
 from xian.node_setup import (
     DEFAULT_PARALLEL_EXECUTION_ENABLED,
     DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
     DEFAULT_PARALLEL_EXECUTION_WORKERS,
 )
+from xian.nonce import NonceStorage
 from xian.parallel_executor import ParallelBlockExecutor
 from xian.perf import PerfTracker
 from xian.processor import TxProcessor
@@ -115,9 +115,7 @@ class Xian:
             xian_config,
             allow_future=True,
         )
-        self.execution_runtime = build_execution_runtime(
-            self.execution_policy
-        )
+        self.execution_runtime = build_execution_runtime(self.execution_policy)
         self.execution_mode = self.execution_runtime.mode
         if not self.execution_runtime.supports_transaction_execution:
             raise ValueError(self.execution_runtime.unavailable_reason)
@@ -244,6 +242,7 @@ class Xian:
         self.state_patch_manager = StatePatchManager(
             self.client.raw_driver,
             chain_id=self.chain_id,
+            include_runtime_code=self.execution_mode != "xian_vm_v1",
         )
         patch_dir_path = resolve_state_patch_dir(self.constants)
 

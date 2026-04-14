@@ -486,9 +486,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                     }
                 )
 
-        with self.profiler.scope(
-            "finalize_result_assembly", block_scoped=True
-        ):
+        with self.profiler.scope("finalize_result_assembly", block_scoped=True):
             for entry in processed_entries:
                 if "error" in entry:
                     tx_results.append(entry["error"])
@@ -529,9 +527,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                             extra={
                                 "chi_used": tx_result["chi_used"],
                                 "state_write_count": len(tx_result["state"]),
-                                "event_count": len(
-                                    tx_result.get("events", [])
-                                ),
+                                "event_count": len(tx_result.get("events", [])),
                             },
                         )
                     ).debug("Finalized transaction result")
@@ -596,7 +592,9 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                                     index=True,
                                 )
                             )
-                        for key, value in contract_event.get("data", {}).items():
+                        for key, value in contract_event.get(
+                            "data", {}
+                        ).items():
                             attrs.append(
                                 EventAttribute(
                                     key=str(key),
@@ -607,9 +605,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         tx_events.append(
                             Event(
                                 type=str(
-                                    contract_event.get(
-                                        "event", "ContractEvent"
-                                    )
+                                    contract_event.get("event", "ContractEvent")
                                 ),
                                 attributes=attrs,
                             )
@@ -675,9 +671,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 ).exception("Static reward distribution failed for block")
 
     with self.profiler.scope("finalize_fingerprint", block_scoped=True):
-        with self.profiler.scope(
-            "finalize_commit_prepare", block_scoped=True
-        ):
+        with self.profiler.scope("finalize_commit_prepare", block_scoped=True):
             reward_hash = hash_from_rewards(reward_writes)
             validator_updates = self.validator_handler.build_validator_updates(
                 height
@@ -721,9 +715,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
             )
 
         if self.block_service_mode:
-            with self.profiler.scope(
-                "finalize_bds_enqueue", block_scoped=True
-            ):
+            with self.profiler.scope("finalize_bds_enqueue", block_scoped=True):
                 try:
                     await self.bds.enqueue_block(
                         BdsBlockPayload(

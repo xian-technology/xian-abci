@@ -17,7 +17,10 @@ from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.time import Datetime
 
-from xian.execution_engine import build_execution_runtime, prepare_contract_for_execution
+from xian.execution_engine import (
+    build_execution_runtime,
+    prepare_contract_for_execution,
+)
 from xian.execution_policy import ExecutionPolicy
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
@@ -185,7 +188,9 @@ class LegacyTransactionInventoryRecord:
     function: str
 
 
-def _legacy_runtime_event_schemas(runtime_code: str | None) -> dict[str, tuple[str, ast.AST]]:
+def _legacy_runtime_event_schemas(
+    runtime_code: str | None,
+) -> dict[str, tuple[str, ast.AST]]:
     if not runtime_code:
         return {}
     try:
@@ -205,7 +210,9 @@ def _legacy_runtime_event_schemas(runtime_code: str | None) -> dict[str, tuple[s
             continue
         if not isinstance(call.func, ast.Name) or call.func.id != "LogEvent":
             continue
-        keyword_values = {keyword.arg: keyword.value for keyword in call.keywords}
+        keyword_values = {
+            keyword.arg: keyword.value for keyword in call.keywords
+        }
         event_node = keyword_values.get("event")
         params_node = keyword_values.get("params")
         if not isinstance(event_node, ast.Constant) or not isinstance(
@@ -286,10 +293,7 @@ def _coerce_legacy_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_coerce_legacy_value(item) for item in value]
     if isinstance(value, dict):
-        return {
-            key: _coerce_legacy_value(item)
-            for key, item in value.items()
-        }
+        return {key: _coerce_legacy_value(item) for key, item in value.items()}
     if not isinstance(value, str):
         return value
 
@@ -318,7 +322,9 @@ def _coerce_legacy_value(value: Any) -> Any:
     return value
 
 
-def _normalize_state_entries(entries: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+def _normalize_state_entries(
+    entries: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
     if not entries:
         return []
     normalized = []
@@ -386,7 +392,9 @@ def _subset_mismatch_fields(
     return mismatches
 
 
-def _decode_legacy_tx_result(tx_result_rpc: dict[str, Any]) -> dict[str, Any] | None:
+def _decode_legacy_tx_result(
+    tx_result_rpc: dict[str, Any],
+) -> dict[str, Any] | None:
     data_b64 = tx_result_rpc.get("data")
     if not data_b64:
         return None
@@ -427,7 +435,9 @@ def _normalize_legacy_transaction(
     }
 
 
-def _build_legacy_exported_state(genesis_entries: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_legacy_exported_state(
+    genesis_entries: list[dict[str, Any]],
+) -> dict[str, Any]:
     return {
         "hash": "0" * 64,
         "number": 0,
@@ -460,7 +470,9 @@ def _build_runtime_code_inventory(
 
 def _coerce_graphql_tx_payload(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
-        raise ValueError("legacy GraphQL transaction jsonContent must be a dict")
+        raise ValueError(
+            "legacy GraphQL transaction jsonContent must be a dict"
+        )
     payload = dict(value)
     tx_payload = dict(payload.get("payload") or {})
     if "kwargs" in tx_payload:
@@ -493,7 +505,9 @@ def _historical_record_from_graphql_node(
         block_meta["hash"] = str(
             block_meta.get("hash", node.get("blockHash") or "")
         ).upper()
-        block_meta["nanos"] = int(block_meta.get("nanos", node.get("blockTime") or 0))
+        block_meta["nanos"] = int(
+            block_meta.get("nanos", node.get("blockTime") or 0)
+        )
         block_meta["chain_id"] = str(
             block_meta.get(
                 "chain_id",
@@ -534,8 +548,8 @@ def _state_patch_record_from_graphql_node(
         "chain_id": "xian-1",
     }
     state_changes = (
-        ((node.get("stateChangesByTxHash") or {}).get("nodes")) or []
-    )
+        (node.get("stateChangesByTxHash") or {}).get("nodes")
+    ) or []
     events = ((node.get("eventsByTxHash") or {}).get("nodes")) or []
     return HistoricalTxRecord(
         tx_hash=tx_hash,
@@ -568,7 +582,9 @@ def _state_patch_record_from_graphql_node(
     )
 
 
-def _apply_historical_state_changes(driver, state_changes: list[dict[str, Any]]) -> None:
+def _apply_historical_state_changes(
+    driver, state_changes: list[dict[str, Any]]
+) -> None:
     writes = {
         str(entry["key"]): _coerce_legacy_value(entry.get("value"))
         for entry in state_changes
@@ -907,7 +923,9 @@ async def iter_historical_transactions_graphql(
                 tx_hash = str(node["hash"]).upper()
                 if not tx_hash.startswith("STATE_PATCH_"):
                     continue
-                patch_node = await graphql_client.fetch_state_patch_record(tx_hash)
+                patch_node = await graphql_client.fetch_state_patch_record(
+                    tx_hash
+                )
                 if patch_node is None:
                     continue
                 record = _state_patch_record_from_graphql_node(
@@ -979,7 +997,9 @@ class LegacyReplayHarness:
                 continue
             if (
                 result.tx_hash != "GENESIS"
-                and self.python_client.raw_driver.get_contract_source(result.name)
+                and self.python_client.raw_driver.get_contract_source(
+                    result.name
+                )
                 is None
             ):
                 continue
@@ -1032,7 +1052,8 @@ class LegacyReplayHarness:
         if cached is not None:
             return cached
         exists = (
-            self.python_client.raw_driver.get_contract(contract_name) is not None
+            self.python_client.raw_driver.get_contract(contract_name)
+            is not None
         )
         self._python_contract_exists[contract_name] = exists
         return exists
@@ -1131,10 +1152,12 @@ class LegacyReplayHarness:
         tx = record.transaction
         if not record.replayable:
             self._rollback_pending()
-            artifact_install_count, installed_names = self._advance_historical_state(
-                tx=tx,
-                historical_result=record.historical_result,
-                deployment_artifacts=None,
+            artifact_install_count, installed_names = (
+                self._advance_historical_state(
+                    tx=tx,
+                    historical_result=record.historical_result,
+                    deployment_artifacts=None,
+                )
             )
             for name in installed_names:
                 self._python_contract_exists[name] = True
@@ -1168,8 +1191,8 @@ class LegacyReplayHarness:
                 "native_logic": None,
                 "pseudo_state_patch": True,
             }
-        deployment_artifacts, deployment_error = self._prepare_deployment_artifacts(
-            tx
+        deployment_artifacts, deployment_error = (
+            self._prepare_deployment_artifacts(tx)
         )
         normalized_tx = _normalize_legacy_transaction(
             tx,
@@ -1204,7 +1227,9 @@ class LegacyReplayHarness:
                         enabled_fees=True,
                         rewards_handler=self.python_rewards,
                     )
-                    python_strict_view = _normalized_tx_view(output["tx_result"])
+                    python_strict_view = _normalized_tx_view(
+                        output["tx_result"]
+                    )
                     python_strict_mismatches = _mismatch_fields(
                         historical_view,
                         python_strict_view,
@@ -1223,11 +1248,11 @@ class LegacyReplayHarness:
             except Exception as exc:  # pragma: no cover - defensive
                 python_error = str(exc)
         elif should_run_python:
-            skipped_reason = (
-                f"python contract {normalized_tx['payload']['contract']} not installed"
-            )
+            skipped_reason = f"python contract {normalized_tx['payload']['contract']} not installed"
 
-        native_can_run, native_block_reason = self._can_run_native(normalized_tx)
+        native_can_run, native_block_reason = self._can_run_native(
+            normalized_tx
+        )
         if native_can_run:
             try:
                 if should_run_strict:
@@ -1236,7 +1261,9 @@ class LegacyReplayHarness:
                         enabled_fees=True,
                         rewards_handler=self.native_rewards,
                     )
-                    native_strict_view = _normalized_tx_view(output["tx_result"])
+                    native_strict_view = _normalized_tx_view(
+                        output["tx_result"]
+                    )
                     native_strict_mismatches = _mismatch_fields(
                         historical_view,
                         native_strict_view,
@@ -1470,36 +1497,36 @@ async def run_legacy_network_replay_audit(
                     if tx_report["skip_reason"] is not None:
                         report["replay"]["skipped"] += 1
                     if not tx_report["python_strict_vs_historical"]:
-                        report["replay"]["python_strict_matches_historical"] += int(
-                            tx_report["python_ran"]
-                        )
+                        report["replay"][
+                            "python_strict_matches_historical"
+                        ] += int(tx_report["python_ran"])
                     if not tx_report["native_strict_vs_historical"]:
-                        report["replay"]["native_strict_matches_historical"] += int(
-                            tx_report["native_ran"]
-                        )
+                        report["replay"][
+                            "native_strict_matches_historical"
+                        ] += int(tx_report["native_ran"])
                     if not tx_report["python_logic_vs_historical"]:
-                        report["replay"]["python_logic_matches_historical"] += int(
-                            tx_report["python_logic_ran"]
+                        report["replay"]["python_logic_matches_historical"] += (
+                            int(tx_report["python_logic_ran"])
                         )
                     if not tx_report["native_logic_vs_historical"]:
-                        report["replay"]["native_logic_matches_historical"] += int(
-                            tx_report["native_logic_ran"]
+                        report["replay"]["native_logic_matches_historical"] += (
+                            int(tx_report["native_logic_ran"])
                         )
                     if _historical_tx_succeeded(record.historical_result):
-                        report["replay"]["historical_success_python_logic_ran"] += int(
-                            tx_report["python_logic_ran"]
-                        )
-                        report["replay"]["historical_success_native_logic_ran"] += int(
-                            tx_report["native_logic_ran"]
-                        )
+                        report["replay"][
+                            "historical_success_python_logic_ran"
+                        ] += int(tx_report["python_logic_ran"])
+                        report["replay"][
+                            "historical_success_native_logic_ran"
+                        ] += int(tx_report["native_logic_ran"])
                         if not tx_report["python_logic_vs_historical"]:
-                            report["replay"]["historical_success_python_logic_matches"] += int(
-                                tx_report["python_logic_ran"]
-                            )
+                            report["replay"][
+                                "historical_success_python_logic_matches"
+                            ] += int(tx_report["python_logic_ran"])
                         if not tx_report["native_logic_vs_historical"]:
-                            report["replay"]["historical_success_native_logic_matches"] += int(
-                                tx_report["native_logic_ran"]
-                            )
+                            report["replay"][
+                                "historical_success_native_logic_matches"
+                            ] += int(tx_report["native_logic_ran"])
                     if (
                         tx_report["python_ran"]
                         and tx_report["native_ran"]
@@ -1530,9 +1557,7 @@ async def run_legacy_network_replay_audit(
                     )
                     stream.write(json.dumps(_json_safe(compact_record)) + "\n")
 
-                    if (
-                        not tx_report["pseudo_state_patch"]
-                        and (
+                    if not tx_report["pseudo_state_patch"] and (
                         tx_report["python_strict_vs_historical"]
                         or tx_report["native_strict_vs_historical"]
                         or tx_report["python_logic_vs_historical"]
@@ -1541,7 +1566,6 @@ async def run_legacy_network_replay_audit(
                         or tx_report["python_logic_vs_native"]
                         or tx_report["python_error"] is not None
                         or tx_report["native_error"] is not None
-                        )
                     ):
                         report["mismatches"].append(
                             {

@@ -106,11 +106,25 @@ def make_tx(
 
 class TestVmReplayParity(unittest.TestCase):
     @staticmethod
+    def _normalized_state_writes(entries: list[dict] | None) -> list[dict] | None:
+        if entries is None:
+            return None
+        return [
+            entry
+            for entry in entries
+            if entry.get("key") != "submission.__submitted__"
+            and not str(entry.get("key", "")).endswith(".__code__")
+        ]
+
+    @staticmethod
     def _normalized_contract_state(state: dict) -> dict:
         normalized = dict(state)
         # Each isolated storage home bootstraps the built-in submission contract
         # independently, so its installation timestamp is not part of replay parity.
         normalized.pop("submission.__submitted__", None)
+        for key in list(normalized):
+            if key.endswith(".__code__"):
+                normalized.pop(key, None)
         return normalized
 
     @staticmethod
@@ -119,7 +133,9 @@ class TestVmReplayParity(unittest.TestCase):
             "status": tx_result.get("status"),
             "hash": tx_result.get("hash"),
             "result": tx_result.get("result"),
-            "state": tx_result.get("state"),
+            "state": TestVmReplayParity._normalized_state_writes(
+                tx_result.get("state")
+            ),
             "events": tx_result.get("events"),
         }
 

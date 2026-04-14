@@ -5,7 +5,7 @@ from typing import Callable
 from loguru import logger
 from xian_accounts import verify_message
 from xian_runtime_types.decimal import ContractingDecimal
-from xian_runtime_types.encoding import decode, encode
+from xian_runtime_types.encoding import encode
 
 from xian.exceptions import TransactionException
 from xian.formatting import (

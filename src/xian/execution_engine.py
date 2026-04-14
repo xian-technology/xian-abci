@@ -187,7 +187,9 @@ def augment_execution_output_with_driver_state(
 ) -> dict[str, Any]:
     augmented = dict(output)
     merged_writes = dict(augmented.get("writes", {}))
-    previous_pending = {} if before_state is None else before_state["pending_writes"]
+    previous_pending = (
+        {} if before_state is None else before_state["pending_writes"]
+    )
     for key, value in after_state["pending_writes"].items():
         if key not in previous_pending or _normalize_shadow_value(
             previous_pending[key]
@@ -219,9 +221,7 @@ def build_execution_runtime(policy: ExecutionPolicy) -> ExecutionRuntime:
         )
 
     if policy.mode != "xian_vm_v1":
-        raise ValueError(
-            f"unsupported execution engine mode {policy.mode!r}"
-        )
+        raise ValueError(f"unsupported execution engine mode {policy.mode!r}")
 
     bindings = _load_vm_runtime_bindings()
     runtime_info = bindings.runtime_info()
@@ -240,9 +240,7 @@ def build_execution_runtime(policy: ExecutionPolicy) -> ExecutionRuntime:
             f"gas_schedule={policy.gas_schedule!r}"
         )
     if policy.authority and policy.authority != "native":
-        raise ValueError(
-            "xian_vm_v1 authority must be 'native'"
-        )
+        raise ValueError("xian_vm_v1 authority must be 'native'")
     if policy.shadow_tracer_mode:
         raise ValueError(
             "xian_vm_v1 no longer supports shadow_tracer_mode; "
@@ -440,8 +438,7 @@ def execute_authoritative_native_contract(
             )
         if mismatches:
             raise ValueError(
-                f"{mismatch_label} mismatch in "
-                + ", ".join(sorted(mismatches))
+                f"{mismatch_label} mismatch in " + ", ".join(sorted(mismatches))
             )
     else:
         restore_driver_state(driver, base_driver_state)
@@ -552,7 +549,9 @@ def _prepare_vm_contract_bundle(
             + " -> ".join((*stack, contract_name))
         )
 
-    artifact_hash, module_ir_json = _load_vm_module_ir_json(driver, contract_name)
+    artifact_hash, module_ir_json = _load_vm_module_ir_json(
+        driver, contract_name
+    )
     cache_key = (
         contract_name,
         artifact_hash,

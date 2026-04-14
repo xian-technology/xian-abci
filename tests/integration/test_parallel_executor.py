@@ -533,7 +533,6 @@ class TestParallelBlockExecutor(unittest.TestCase):
                 bytecode_version="xvm-1",
                 gas_schedule="xvm-gas-1",
                 authority="native",
-                shadow_tracer_mode="python_line_v1",
             )
         )
 

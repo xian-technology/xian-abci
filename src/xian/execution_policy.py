@@ -71,9 +71,7 @@ def resolve_execution_policy(
             )
         normalized_authority = (authority or "native").strip()
         if normalized_authority != "native":
-            raise ValueError(
-                "xian_vm_v1 authority must be 'native'"
-            )
+            raise ValueError("xian_vm_v1 authority must be 'native'")
         normalized_shadow_tracer_mode = shadow_tracer_mode.strip()
         if normalized_shadow_tracer_mode:
             raise ValueError(
@@ -100,9 +98,10 @@ def load_execution_policy(
     allow_future: bool = False,
 ) -> ExecutionPolicy:
     payload = xian_config or {}
-    legacy_mode = str(
-        payload.get("tracer_mode", DEFAULT_EXECUTION_MODE)
-    ).strip() or DEFAULT_EXECUTION_MODE
+    legacy_mode = (
+        str(payload.get("tracer_mode", DEFAULT_EXECUTION_MODE)).strip()
+        or DEFAULT_EXECUTION_MODE
+    )
     engine_payload = payload.get("execution", {}).get("engine", {})
     configured_mode = str(engine_payload.get("mode", "")).strip()
     if (

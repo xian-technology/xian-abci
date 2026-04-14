@@ -192,7 +192,58 @@ class StatePatchManagerTests(unittest.TestCase):
         self.assertEqual(len(executions), 1)
         change_keys = [change["key"] for change in executions[0]["changes"]]
         self.assertIn("con_patchable.__source__", change_keys)
+        self.assertIn("con_patchable.__code__", change_keys)
         self.assertIn("con_patchable.__xian_ir_v1__", change_keys)
+
+    def test_build_applied_patches_for_vm_native_source_patch_omits_runtime_code(
+        self,
+    ):
+        manager = StatePatchManager(
+            self.driver,
+            chain_id="test-chain",
+            include_runtime_code=False,
+        )
+        self.write_bundle(
+            "patch-vm-native.json",
+            {
+                "version": 1,
+                "patch_id": "patch-vm-native",
+                "activation_height": 55,
+                "changes": [
+                    {
+                        "key": "con_vm_native.__source__",
+                        "value": (
+                            "value = Variable()\n\n"
+                            "@export\n"
+                            "def get_value():\n"
+                            "    return value.get()\n"
+                        ),
+                        "comment": "deploy vm-native contract",
+                    }
+                ],
+            },
+        )
+        manager.load_patches(self.test_dir)
+        bundle_hash = manager.local_bundles["patch-vm-native"].bundle_hash
+        self.schedule_bundle(
+            patch_id="patch-vm-native",
+            bundle_hash=bundle_hash,
+            height=55,
+        )
+        self.driver.set_var(
+            "governance",
+            "patches",
+            ["patch-vm-native", "status"],
+            "applied",
+        )
+
+        patch_hash, executions = manager.build_applied_patches_for_block(55)
+
+        self.assertIsNotNone(patch_hash)
+        change_keys = [change["key"] for change in executions[0]["changes"]]
+        self.assertIn("con_vm_native.__source__", change_keys)
+        self.assertNotIn("con_vm_native.__code__", change_keys)
+        self.assertIn("con_vm_native.__xian_ir_v1__", change_keys)
 
     def test_missing_local_bundle_for_governed_patch_is_an_error(self):
         self.manager.load_patches(self.test_dir)

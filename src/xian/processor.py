@@ -387,7 +387,9 @@ class TxProcessor:
             chi_budget=transaction["payload"]["chi_supplied"],
             chi_cost=chi_cost,
             meter=metering,
-            transaction_size_bytes=canonical_transaction_size_bytes(transaction),
+            transaction_size_bytes=canonical_transaction_size_bytes(
+                transaction
+            ),
             mismatch_label="native authoritative execution",
             shadow_observer=getattr(self, "shadow_observer", None),
             shadow_stage="execute_tx_native_authoritative",

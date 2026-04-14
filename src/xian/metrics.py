@@ -427,9 +427,7 @@ class XianMetricsCollector:
                 severity = str(
                     alert.get("severity") or alert.get("level") or "unknown"
                 )
-                kind = str(
-                    alert.get("kind") or alert.get("code") or "unknown"
-                )
+                kind = str(alert.get("kind") or alert.get("code") or "unknown")
                 bds_alerts.add_metric([severity, kind], 1.0)
         yield bds_alerts
 
