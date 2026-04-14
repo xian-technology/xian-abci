@@ -151,8 +151,8 @@ simulation_enabled = true
 simulation_max_concurrency = 2
 simulation_timeout_ms = 3000
 simulation_max_chi = 1000000
-parallel_execution_enabled = false
-parallel_execution_workers = 0
+parallel_execution_enabled = true
+parallel_execution_workers = 4
 parallel_execution_min_transactions = 8
 pending_nonce_reservation_ttl_seconds = 60.0
 
@@ -179,6 +179,10 @@ spool_warn_entries = 256
 spool_warn_bytes = 536870912
 disk_free_warn_bytes = 2147483648
 """.strip()
+
+DEFAULT_PARALLEL_EXECUTION_ENABLED = True
+DEFAULT_PARALLEL_EXECUTION_WORKERS = 4
+DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS = 8
 
 SUPPORTED_BLOCK_POLICY_MODES = {"on_demand", "idle_interval", "periodic"}
 SUPPORTED_APP_LOG_LEVELS = {
@@ -436,9 +440,11 @@ def render_cometbft_config(
     simulation_max_concurrency: int = 2,
     simulation_timeout_ms: int = 3000,
     simulation_max_chi: int = 1_000_000,
-    parallel_execution_enabled: bool = False,
-    parallel_execution_workers: int = 0,
-    parallel_execution_min_transactions: int = 8,
+    parallel_execution_enabled: bool = DEFAULT_PARALLEL_EXECUTION_ENABLED,
+    parallel_execution_workers: int = DEFAULT_PARALLEL_EXECUTION_WORKERS,
+    parallel_execution_min_transactions: int = (
+        DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS
+    ),
     pending_nonce_reservation_ttl_seconds: float = 60.0,
     bds_dsn: str = "",
     bds_host: str = "",

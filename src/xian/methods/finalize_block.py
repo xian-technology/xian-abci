@@ -423,191 +423,222 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         ).info("Parallel block execution summary")
 
     processed_iter = iter(processed_results or [])
+    processed_entries = []
 
     with self.profiler.scope("finalize_tx_loop", block_scoped=True):
-        for block_tx_index, entry in enumerate(decoded_entries):
-            if "error" in entry:
-                tx_results.append(entry["error"])
-                continue
+        with self.profiler.scope("finalize_execute", block_scoped=True):
+            for block_tx_index, entry in enumerate(decoded_entries):
+                if "error" in entry:
+                    processed_entries.append({"error": entry["error"]})
+                    continue
 
-            tx = entry["tx"]
-            tx_bytes = entry["tx_bytes"]
-            try:
-                if processed_results is not None:
-                    result = next(processed_iter)
-                else:
-                    result = self.tx_processor.process_tx(
-                        tx,
-                        enabled_fees=self.enable_tx_fee,
-                        rewards_handler=self.rewards_handler,
-                        track_access=False,
+                tx = entry["tx"]
+                tx_bytes = entry["tx_bytes"]
+                try:
+                    if processed_results is not None:
+                        result = next(processed_iter)
+                    else:
+                        result = self.tx_processor.process_tx(
+                            tx,
+                            enabled_fees=self.enable_tx_fee,
+                            rewards_handler=self.rewards_handler,
+                            track_access=False,
+                        )
+                except Exception as e:
+                    processed_entries.append(
+                        {
+                            "error": _error_tx_result(
+                                f"Error processing tx: {e}",
+                                stage="finalize_execute",
+                                tx=tx,
+                                raw_tx=tx_bytes,
+                                block_height=height,
+                                block_hash=hash,
+                                tx_index=block_tx_index,
+                            )
+                        }
                     )
-            except Exception as e:
-                tx_results.append(
-                    _error_tx_result(
-                        f"Error processing tx: {e}",
-                        stage="finalize_tx_loop",
-                        tx=tx,
-                        raw_tx=tx_bytes,
-                        block_height=height,
-                        block_hash=hash,
-                        tx_index=block_tx_index,
+                    continue
+
+                tx_result = result.get("tx_result")
+                if tx_result is None:
+                    processed_entries.append(
+                        {
+                            "error": _error_tx_result(
+                                "Transaction processor returned no tx_result",
+                                stage="finalize_execute",
+                                tx=tx,
+                                raw_tx=tx_bytes,
+                                block_height=height,
+                                block_hash=hash,
+                                tx_index=block_tx_index,
+                            )
+                        }
                     )
+                    continue
+
+                processed_entries.append(
+                    {
+                        "block_tx_index": block_tx_index,
+                        "tx": tx,
+                        "tx_bytes": tx_bytes,
+                        "tx_result": tx_result,
+                    }
                 )
-                continue
 
-            tx_result = result.get("tx_result")
-            if tx_result is None:
-                tx_results.append(
-                    _error_tx_result(
-                        "Transaction processor returned no tx_result",
-                        stage="finalize_tx_loop",
-                        tx=tx,
-                        raw_tx=tx_bytes,
-                        block_height=height,
-                        block_hash=hash,
-                        tx_index=block_tx_index,
-                    )
-                )
-                continue
+        with self.profiler.scope(
+            "finalize_result_assembly", block_scoped=True
+        ):
+            for entry in processed_entries:
+                if "error" in entry:
+                    tx_results.append(entry["error"])
+                    continue
 
-            self.nonce_storage.set_nonce_by_tx(tx)
-            tx_hash = tx_result.get("hash")
-            if not tx_hash:
-                tx_results.append(
-                    _error_tx_result(
-                        "Transaction processor returned no tx hash",
-                        stage="finalize_tx_loop",
-                        tx=tx,
-                        raw_tx=tx_bytes,
-                        block_height=height,
-                        block_hash=hash,
-                        tx_index=block_tx_index,
-                    )
-                )
-                continue
-            self.fingerprint_hashes.append(tx_hash)
-            parsed_tx_result = encode_abci_json(tx_result)
-            if self.transaction_trace_debug_logging:
-                logger.bind(
-                    **build_log_fields(
-                        stage="finalize_tx_result",
-                        tx=tx,
-                        tx_hash=tx_hash,
-                        block_height=height,
-                        block_hash=hash,
-                        tx_index=block_tx_index,
-                        status=tx_result["status"],
-                        extra={
-                            "chi_used": tx_result["chi_used"],
-                            "state_write_count": len(tx_result["state"]),
-                            "event_count": len(tx_result.get("events", [])),
-                        },
-                    )
-                ).debug("Finalized transaction result")
-            if self.transaction_trace_full_logging:
-                logger.bind(
-                    **build_log_fields(
-                        stage="finalize_tx_result",
-                        tx=tx,
-                        tx_hash=tx_hash,
-                        block_height=height,
-                        block_hash=hash,
-                        tx_index=block_tx_index,
-                        status=tx_result["status"],
-                        extra={
-                            "payload_bytes": len(parsed_tx_result),
-                        },
-                    )
-                ).trace(parsed_tx_result.decode())
+                block_tx_index = entry["block_tx_index"]
+                tx = entry["tx"]
+                tx_bytes = entry["tx_bytes"]
+                tx_result = entry["tx_result"]
 
-            tx_events = []
+                self.nonce_storage.set_nonce_by_tx(tx)
+                tx_hash = tx_result.get("hash")
+                if not tx_hash:
+                    tx_results.append(
+                        _error_tx_result(
+                            "Transaction processor returned no tx hash",
+                            stage="finalize_result_assembly",
+                            tx=tx,
+                            raw_tx=tx_bytes,
+                            block_height=height,
+                            block_hash=hash,
+                            tx_index=block_tx_index,
+                        )
+                    )
+                    continue
+                self.fingerprint_hashes.append(tx_hash)
+                parsed_tx_result = encode_abci_json(tx_result)
+                if self.transaction_trace_debug_logging:
+                    logger.bind(
+                        **build_log_fields(
+                            stage="finalize_tx_result",
+                            tx=tx,
+                            tx_hash=tx_hash,
+                            block_height=height,
+                            block_hash=hash,
+                            tx_index=block_tx_index,
+                            status=tx_result["status"],
+                            extra={
+                                "chi_used": tx_result["chi_used"],
+                                "state_write_count": len(tx_result["state"]),
+                                "event_count": len(
+                                    tx_result.get("events", [])
+                                ),
+                            },
+                        )
+                    ).debug("Finalized transaction result")
+                if self.transaction_trace_full_logging:
+                    logger.bind(
+                        **build_log_fields(
+                            stage="finalize_tx_result",
+                            tx=tx,
+                            tx_hash=tx_hash,
+                            block_height=height,
+                            block_hash=hash,
+                            tx_index=block_tx_index,
+                            status=tx_result["status"],
+                            extra={
+                                "payload_bytes": len(parsed_tx_result),
+                            },
+                        )
+                    ).trace(parsed_tx_result.decode())
 
-            if tx_result["status"] == 0:
-                state_changes = []
-                for state in tx_result["state"]:
-                    state_key = state["key"].translate(
-                        STATE_CHANGE_TRANSLATION_TABLE
-                    )
-                    state_value = str(state["value"])
-                    state_changes.append(
-                        EventAttribute(key=state_key, value=state_value)
-                    )
-                if state_changes:
-                    tx_events.append(
-                        Event(type="StateChange", attributes=state_changes)
-                    )
+                tx_events = []
 
-                for contract_event in tx_result.get("events", []):
-                    attrs = [
-                        EventAttribute(
-                            key="contract",
-                            value=str(contract_event.get("contract", "")),
-                            index=True,
-                        ),
-                        EventAttribute(
-                            key="signer",
-                            value=str(contract_event.get("signer", "")),
-                            index=True,
-                        ),
-                        EventAttribute(
-                            key="caller",
-                            value=str(contract_event.get("caller", "")),
-                            index=True,
-                        ),
-                    ]
-                    for key, value in contract_event.get(
-                        "data_indexed", {}
-                    ).items():
-                        attrs.append(
+                if tx_result["status"] == 0:
+                    state_changes = []
+                    for state in tx_result["state"]:
+                        state_key = state["key"].translate(
+                            STATE_CHANGE_TRANSLATION_TABLE
+                        )
+                        state_value = str(state["value"])
+                        state_changes.append(
+                            EventAttribute(key=state_key, value=state_value)
+                        )
+                    if state_changes:
+                        tx_events.append(
+                            Event(type="StateChange", attributes=state_changes)
+                        )
+
+                    for contract_event in tx_result.get("events", []):
+                        attrs = [
                             EventAttribute(
-                                key=str(key),
-                                value=str(stringify_decimals(value)),
+                                key="contract",
+                                value=str(contract_event.get("contract", "")),
                                 index=True,
-                            )
-                        )
-                    for key, value in contract_event.get("data", {}).items():
-                        attrs.append(
-                            EventAttribute(
-                                key=str(key),
-                                value=str(stringify_decimals(value)),
-                                index=False,
-                            )
-                        )
-                    tx_events.append(
-                        Event(
-                            type=str(
-                                contract_event.get("event", "ContractEvent")
                             ),
-                            attributes=attrs,
+                            EventAttribute(
+                                key="signer",
+                                value=str(contract_event.get("signer", "")),
+                                index=True,
+                            ),
+                            EventAttribute(
+                                key="caller",
+                                value=str(contract_event.get("caller", "")),
+                                index=True,
+                            ),
+                        ]
+                        for key, value in contract_event.get(
+                            "data_indexed", {}
+                        ).items():
+                            attrs.append(
+                                EventAttribute(
+                                    key=str(key),
+                                    value=str(stringify_decimals(value)),
+                                    index=True,
+                                )
+                            )
+                        for key, value in contract_event.get("data", {}).items():
+                            attrs.append(
+                                EventAttribute(
+                                    key=str(key),
+                                    value=str(stringify_decimals(value)),
+                                    index=False,
+                                )
+                            )
+                        tx_events.append(
+                            Event(
+                                type=str(
+                                    contract_event.get(
+                                        "event", "ContractEvent"
+                                    )
+                                ),
+                                attributes=attrs,
+                            )
+                        )
+
+                tx_results.append(
+                    ExecTxResult(
+                        code=tx_result["status"],
+                        data=parsed_tx_result,
+                        gas_used=0,
+                        events=tx_events,
+                    )
+                )
+
+                if self.block_service_mode:
+                    cometbft_hash = hash_bytes(tx_bytes).upper()
+                    tx_result["hash"] = cometbft_hash
+                    bds_transactions.append(
+                        BdsTransactionPayload(
+                            tx_index=block_tx_index,
+                            envelope={
+                                key: value
+                                for key, value in tx.items()
+                                if key != "b_meta"
+                            },
+                            payload=tx["payload"],
+                            tx_result=tx_result,
                         )
                     )
-
-            tx_results.append(
-                ExecTxResult(
-                    code=tx_result["status"],
-                    data=parsed_tx_result,
-                    gas_used=0,
-                    events=tx_events,
-                )
-            )
-
-            # Save data to BDS - Add tx data to batch
-            if self.block_service_mode:
-                cometbft_hash = hash_bytes(tx_bytes).upper()
-                tx_result["hash"] = cometbft_hash
-                bds_transactions.append(
-                    BdsTransactionPayload(
-                        tx_index=block_tx_index,
-                        envelope={
-                            key: value
-                            for key, value in tx.items()
-                            if key != "b_meta"
-                        },
-                        payload=tx["payload"],
-                        tx_result=tx_result,
-                    )
-                )
 
     evidence_penalty_applied = False
     with self.profiler.scope("finalize_evidence", block_scoped=True):
@@ -644,54 +675,55 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 ).exception("Static reward distribution failed for block")
 
     with self.profiler.scope("finalize_fingerprint", block_scoped=True):
-        reward_hash = hash_from_rewards(reward_writes)
-        validator_updates = self.validator_handler.build_validator_updates(
-            height
-        )
-
-        self.fingerprint_hashes.append(reward_hash)
-
-        # Apply any state patches for this block and include hash in fingerprint
-        state_patch_applied = False
-        patch_hash = None
-        applied_patches = []
-        if hasattr(self, "state_patch_manager"):
-            patch_hash, applied_patches = (
-                self.state_patch_manager.apply_patches_for_block(
-                    height,
-                    nanos,
-                    block_hash=hash,
-                )
+        with self.profiler.scope(
+            "finalize_commit_prepare", block_scoped=True
+        ):
+            reward_hash = hash_from_rewards(reward_writes)
+            validator_updates = self.validator_handler.build_validator_updates(
+                height
             )
 
-            # If patches were applied, include the hash in fingerprint hashes
-            if patch_hash:
-                self.fingerprint_hashes.append(patch_hash)
-                state_patch_applied = True
-                logger.bind(
-                    **build_log_fields(
-                        stage="finalize_fingerprint",
-                        block_height=height,
+            self.fingerprint_hashes.append(reward_hash)
+
+            state_patch_applied = False
+            patch_hash = None
+            applied_patches = []
+            if hasattr(self, "state_patch_manager"):
+                patch_hash, applied_patches = (
+                    self.state_patch_manager.apply_patches_for_block(
+                        height,
+                        nanos,
                         block_hash=hash,
-                        extra={"patch_hash": patch_hash},
                     )
-                ).info("Added state patch hash to block fingerprint")
+                )
 
-        # No transactions and no state patches = no change to ABCI state, use previous block hash.
-        # Otherwise, compute a new hash from the fingerprint hashes.
-        self.merkle_root_hash = (
-            latest_block_hash
-            if (
-                len(req.txs) == 0
-                and not state_patch_applied
-                and not evidence_penalty_applied
-                and not automatic_rebalance_applied
+                if patch_hash:
+                    self.fingerprint_hashes.append(patch_hash)
+                    state_patch_applied = True
+                    logger.bind(
+                        **build_log_fields(
+                            stage="finalize_fingerprint",
+                            block_height=height,
+                            block_hash=hash,
+                            extra={"patch_hash": patch_hash},
+                        )
+                    ).info("Added state patch hash to block fingerprint")
+
+            self.merkle_root_hash = (
+                latest_block_hash
+                if (
+                    len(req.txs) == 0
+                    and not state_patch_applied
+                    and not evidence_penalty_applied
+                    and not automatic_rebalance_applied
+                )
+                else hash_list(self.fingerprint_hashes)
             )
-            else hash_list(self.fingerprint_hashes)
-        )
 
         if self.block_service_mode:
-            with self.profiler.scope("finalize_bds_enqueue"):
+            with self.profiler.scope(
+                "finalize_bds_enqueue", block_scoped=True
+            ):
                 try:
                     await self.bds.enqueue_block(
                         BdsBlockPayload(

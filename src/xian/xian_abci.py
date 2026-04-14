@@ -35,6 +35,11 @@ from xian.methods import (
 )
 from xian.metrics import MetricsService
 from xian.nonce import NonceStorage
+from xian.node_setup import (
+    DEFAULT_PARALLEL_EXECUTION_ENABLED,
+    DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
+    DEFAULT_PARALLEL_EXECUTION_WORKERS,
+)
 from xian.parallel_executor import ParallelBlockExecutor
 from xian.perf import PerfTracker
 from xian.processor import TxProcessor
@@ -206,10 +211,17 @@ class Xian:
         self.blocks_to_keep = xian_config.get("blocks_to_keep", 100000)
         self.parallel_block_executor = ParallelBlockExecutor(
             storage_home=constants.STORAGE_HOME,
-            enabled=xian_config.get("parallel_execution_enabled", False),
-            workers=xian_config.get("parallel_execution_workers", 0),
+            enabled=xian_config.get(
+                "parallel_execution_enabled",
+                DEFAULT_PARALLEL_EXECUTION_ENABLED,
+            ),
+            workers=xian_config.get(
+                "parallel_execution_workers",
+                DEFAULT_PARALLEL_EXECUTION_WORKERS,
+            ),
             min_transactions=xian_config.get(
-                "parallel_execution_min_transactions", 8
+                "parallel_execution_min_transactions",
+                DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
             ),
             execution_runtime=self.execution_runtime,
         )
