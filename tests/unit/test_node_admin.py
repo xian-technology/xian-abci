@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from xian_accounts import Ed25519Account
 from xian.node_admin import (
     apply_snapshot_archive,
     configure_existing_home,
@@ -15,6 +16,28 @@ from xian.node_admin import (
 from xian.node_setup import write_toml
 from xian.toml_utils import load as load_toml
 from xian.toml_utils import loads as load_toml_string
+
+
+def _signed_snapshot_manifest(
+    *,
+    archive_url: str,
+    archive_bytes: bytes,
+    chain_id: str = "xian-test-1",
+    height: int = 123,
+    signing_account: Ed25519Account | None = None,
+) -> tuple[dict[str, object], Ed25519Account]:
+    account = signing_account or Ed25519Account.generate()
+    manifest = {
+        "manifest_version": 1,
+        "chain_id": chain_id,
+        "height": height,
+        "snapshot_url": archive_url,
+        "snapshot_sha256": hashlib.sha256(archive_bytes).hexdigest(),
+        "signing_public_key": account.public_key,
+    }
+    payload = json.dumps(manifest, separators=(",", ":"), sort_keys=True)
+    manifest["signature"] = account.sign_message(payload)
+    return manifest, account
 
 
 class NodeAdminTests(unittest.TestCase):
@@ -34,7 +57,9 @@ class NodeAdminTests(unittest.TestCase):
                 ["node-123@127.0.0.1:26656"],
             )
 
-    def test_apply_snapshot_archive_removes_old_dirs_and_extracts_tar(self):
+    def test_apply_snapshot_archive_verifies_signed_manifest_and_extracts_tar(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmp_dir:
             home = Path(tmp_dir)
             (home / "data").mkdir()
@@ -48,20 +73,74 @@ class NodeAdminTests(unittest.TestCase):
                 info = tarfile.TarInfo("data/new.txt")
                 info.size = len(payload)
                 archive.addfile(info, io.BytesIO(payload))
+            archive_bytes = archive_stream.getvalue()
+            manifest, account = _signed_snapshot_manifest(
+                archive_url="https://example.invalid/snapshot.tar.gz",
+                archive_bytes=archive_bytes,
+            )
 
-            with patch(
-                "xian.node_admin._download_binary_url",
-                return_value=archive_stream.getvalue(),
+            with (
+                patch(
+                    "xian.node_admin._fetch_json_url",
+                    return_value=manifest,
+                ),
+                patch(
+                    "xian.node_admin._download_binary_url",
+                    return_value=archive_bytes,
+                ),
             ):
                 archive_path = apply_snapshot_archive(
-                    "https://example.invalid/snapshot.tar.gz",
+                    "https://example.invalid/snapshot-manifest.json",
                     home,
+                    trusted_manifest_public_keys=[account.public_key],
+                    expected_chain_id="xian-test-1",
                 )
 
             self.assertTrue((home / "data" / "new.txt").exists())
             self.assertFalse((home / "data" / "old.txt").exists())
             self.assertFalse((home / "xian" / "old.txt").exists())
             self.assertEqual(archive_path, "snapshot.tar.gz")
+
+    def test_apply_snapshot_archive_rejects_unsigned_remote_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = Path(tmp_dir)
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "requires expected_sha256 or trusted snapshot signing keys",
+            ):
+                apply_snapshot_archive(
+                    "https://example.invalid/snapshot.tar.gz",
+                    home,
+                )
+
+    def test_apply_snapshot_archive_rejects_untrusted_manifest_signer(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = Path(tmp_dir)
+            archive_stream = io.BytesIO()
+            with tarfile.open(fileobj=archive_stream, mode="w:gz") as archive:
+                payload = b"new state"
+                info = tarfile.TarInfo("data/new.txt")
+                info.size = len(payload)
+                archive.addfile(info, io.BytesIO(payload))
+            manifest, _account = _signed_snapshot_manifest(
+                archive_url="https://example.invalid/snapshot.tar.gz",
+                archive_bytes=archive_stream.getvalue(),
+            )
+
+            with patch(
+                "xian.node_admin._fetch_json_url",
+                return_value=manifest,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "signer is not trusted",
+                ):
+                    apply_snapshot_archive(
+                        "https://example.invalid/snapshot-manifest.json",
+                        home,
+                        trusted_manifest_public_keys=["b" * 64],
+                    )
 
     def test_apply_snapshot_archive_verifies_expected_sha256(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

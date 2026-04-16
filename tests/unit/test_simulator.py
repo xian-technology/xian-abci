@@ -216,6 +216,42 @@ class SimulatorTests(unittest.TestCase):
             [1, "0.637954245540464949970792229477"],
         )
 
+    def test_execute_normalizes_exception_result_for_abci(self):
+        simulator = object.__new__(TransactionSimulator)
+        simulator.client = SimpleNamespace(
+            raw_driver=SimpleNamespace(
+                pending_writes={},
+                pending_reads={},
+                pending_deltas={},
+                transaction_reads={},
+                transaction_read_prefixes=set(),
+                transaction_writes={},
+                log_events=[],
+            ),
+            get_var=lambda **kwargs: 20,
+        )
+        simulator.executor = SimpleNamespace(
+            execute=lambda **kwargs: {
+                "status_code": 1,
+                "writes": {},
+                "chi_used": 0,
+                "result": AssertionError("boom"),
+            }
+        )
+        simulator._make_environment = lambda payload, block_meta=None: {}
+
+        result = simulator._execute(
+            {
+                "sender": "alice",
+                "contract": "con_demo",
+                "function": "f",
+                "kwargs": {},
+            }
+        )
+
+        self.assertEqual(result["status"], 1)
+        self.assertEqual(result["result"], "AssertionError('boom')")
+
     def test_execute_preflights_contract_when_vm_shadow_runtime_is_active(self):
         simulator = object.__new__(TransactionSimulator)
         simulator.client = SimpleNamespace(

@@ -24,6 +24,8 @@ Important properties:
 - restores full local node state from a file or URL
 - does not use CometBFT state sync
 - does not require peer-served snapshot chunks
+- remote restore should use either an explicit archive SHA256 or a signed
+  snapshot manifest validated against trusted signing keys
 
 ## CometBFT State Sync Snapshots
 

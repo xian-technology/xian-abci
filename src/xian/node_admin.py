@@ -12,6 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
+from xian_accounts import is_valid_ed25519_key, verify_message
 from xian.config_paths import (
     resolve_genesis_source,
 )
@@ -155,23 +156,158 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _normalize_snapshot_manifest_public_keys(
+    public_keys: list[str] | None,
+) -> list[str]:
+    if public_keys is None:
+        return []
+
+    normalized: list[str] = []
+    for value in public_keys:
+        if not isinstance(value, str):
+            raise ValueError(
+                "trusted snapshot signing keys must be hex strings"
+            )
+        key = value.strip()
+        if not is_valid_ed25519_key(key):
+            raise ValueError(f"invalid snapshot signing key: {value!r}")
+        normalized.append(key)
+    return normalized
+
+
+def _canonical_snapshot_manifest_payload(manifest: dict[str, Any]) -> str:
+    payload = {
+        "manifest_version": manifest["manifest_version"],
+        "chain_id": manifest["chain_id"],
+        "height": manifest["height"],
+        "snapshot_url": manifest["snapshot_url"],
+        "snapshot_sha256": manifest["snapshot_sha256"],
+        "signing_public_key": manifest["signing_public_key"],
+    }
+    return json.dumps(payload, separators=(",", ":"), sort_keys=True)
+
+
+def _verify_snapshot_manifest(
+    manifest: dict[str, Any],
+    *,
+    trusted_manifest_public_keys: list[str],
+    expected_chain_id: str | None,
+) -> dict[str, Any]:
+    if not isinstance(manifest, dict):
+        raise ValueError("snapshot manifest must be a JSON object")
+
+    manifest_version = manifest.get("manifest_version")
+    if isinstance(manifest_version, bool) or not isinstance(
+        manifest_version, int
+    ):
+        raise ValueError("snapshot manifest_version must be an integer")
+    if manifest_version != 1:
+        raise ValueError(
+            f"unsupported snapshot manifest_version: {manifest_version}"
+        )
+
+    chain_id = manifest.get("chain_id")
+    if not isinstance(chain_id, str) or chain_id == "":
+        raise ValueError("snapshot manifest chain_id must be a string")
+    if expected_chain_id is not None and chain_id != expected_chain_id:
+        raise ValueError(
+            "snapshot manifest chain_id mismatch: "
+            f"expected {expected_chain_id}, got {chain_id}"
+        )
+
+    height = manifest.get("height")
+    if isinstance(height, bool) or not isinstance(height, int) or height <= 0:
+        raise ValueError("snapshot manifest height must be a positive integer")
+
+    snapshot_url = manifest.get("snapshot_url")
+    if not isinstance(snapshot_url, str) or snapshot_url == "":
+        raise ValueError("snapshot manifest snapshot_url must be a string")
+
+    snapshot_sha256 = manifest.get("snapshot_sha256")
+    if not isinstance(snapshot_sha256, str) or len(snapshot_sha256) != 64:
+        raise ValueError(
+            "snapshot manifest snapshot_sha256 must be a 64-character hex string"
+        )
+    try:
+        bytes.fromhex(snapshot_sha256)
+    except ValueError as ex:
+        raise ValueError(
+            "snapshot manifest snapshot_sha256 must be a 64-character hex string"
+        ) from ex
+    snapshot_sha256 = snapshot_sha256.lower()
+
+    signing_public_key = manifest.get("signing_public_key")
+    if (
+        not isinstance(signing_public_key, str)
+        or not is_valid_ed25519_key(signing_public_key)
+    ):
+        raise ValueError(
+            "snapshot manifest signing_public_key must be a valid Ed25519 hex key"
+        )
+    if signing_public_key not in trusted_manifest_public_keys:
+        raise ValueError("snapshot manifest signer is not trusted")
+
+    signature = manifest.get("signature")
+    if not isinstance(signature, str) or signature == "":
+        raise ValueError("snapshot manifest signature must be a hex string")
+
+    normalized_manifest = {
+        "manifest_version": manifest_version,
+        "chain_id": chain_id,
+        "height": height,
+        "snapshot_url": snapshot_url,
+        "snapshot_sha256": snapshot_sha256,
+        "signing_public_key": signing_public_key,
+        "signature": signature,
+    }
+    payload = _canonical_snapshot_manifest_payload(normalized_manifest)
+    if not verify_message(signing_public_key, payload, signature):
+        raise ValueError("snapshot manifest signature verification failed")
+    return normalized_manifest
+
+
 def apply_snapshot_archive(
     snapshot_url: str,
     home: Path,
     *,
     expected_sha256: str | None = None,
+    trusted_manifest_public_keys: list[str] | None = None,
+    expected_chain_id: str | None = None,
 ) -> str:
     home.mkdir(parents=True, exist_ok=True)
+    trusted_keys = _normalize_snapshot_manifest_public_keys(
+        trusted_manifest_public_keys
+    )
+    effective_snapshot_url = snapshot_url
+    effective_sha256 = expected_sha256
+    if expected_sha256 is None:
+        if not trusted_keys:
+            raise ValueError(
+                "remote snapshot restore requires expected_sha256 or "
+                "trusted snapshot signing keys"
+            )
+        manifest = _fetch_json_url(snapshot_url, timeout=30)
+        verified_manifest = _verify_snapshot_manifest(
+            manifest,
+            trusted_manifest_public_keys=trusted_keys,
+            expected_chain_id=expected_chain_id,
+        )
+        effective_snapshot_url = verified_manifest["snapshot_url"]
+        effective_sha256 = verified_manifest["snapshot_sha256"]
+
     with tempfile.TemporaryDirectory(dir=home) as tmp_dir:
-        archive_path = _download_snapshot_archive(snapshot_url, Path(tmp_dir))
+        archive_path = _download_snapshot_archive(
+            effective_snapshot_url,
+            Path(tmp_dir),
+        )
         if not tarfile.is_tarfile(archive_path):
             raise ValueError("snapshot archive must be a .tar or .tar.gz file")
-        if expected_sha256 is not None:
+        if effective_sha256 is not None:
             actual_sha256 = _sha256_file(archive_path)
-            if actual_sha256.lower() != expected_sha256.lower():
+            if actual_sha256.lower() != effective_sha256.lower():
                 raise ValueError(
                     "snapshot archive sha256 mismatch: "
-                    f"expected {expected_sha256}, got {actual_sha256}"
+                    f"expected {effective_sha256}, got {actual_sha256}"
                 )
 
         for directory in (home / "data", home / "xian"):
@@ -198,6 +334,8 @@ def configure_existing_home(
     seed_node: str | None = None,
     seed_node_address: str | None = None,
     snapshot_url: str | None = None,
+    snapshot_signing_public_keys: list[str] | None = None,
+    snapshot_expected_chain_id: str | None = None,
     copy_genesis: bool = False,
     genesis_source: str | None = None,
     genesis_payload: dict[str, Any] | None = None,
@@ -319,7 +457,12 @@ def configure_existing_home(
 
     snapshot_archive_name: str | None = None
     if snapshot_url:
-        snapshot_archive_name = apply_snapshot_archive(snapshot_url, home)
+        snapshot_archive_name = apply_snapshot_archive(
+            snapshot_url,
+            home,
+            trusted_manifest_public_keys=snapshot_signing_public_keys,
+            expected_chain_id=snapshot_expected_chain_id,
+        )
 
     genesis_target_path: Path | None = None
     if copy_genesis:

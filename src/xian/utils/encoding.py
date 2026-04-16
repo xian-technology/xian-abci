@@ -7,6 +7,7 @@ from typing import Tuple
 
 from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal
+from xian_runtime_types.encoding import safe_repr
 from xian_runtime_types.time import Datetime
 
 try:
@@ -142,6 +143,8 @@ def stringify_decimals(obj):
 
 
 def normalize_for_abci_json(obj):
+    if isinstance(obj, BaseException):
+        return safe_repr(obj) or str(obj)
     if isinstance(obj, ContractingDecimal):
         return _decimal_to_plain_string(obj)
     if isinstance(obj, decimal.Decimal):

@@ -52,7 +52,25 @@ def build_parser() -> ArgumentParser:
     parser.add_argument(
         "--snapshot-url",
         type=str,
-        help="URL of snapshot in tar.gz or tar format",
+        help="URL of signed snapshot manifest JSON or snapshot archive",
+        required=False,
+    )
+    parser.add_argument(
+        "--snapshot-signing-key",
+        action="append",
+        help=(
+            "trusted Ed25519 public key for signed snapshot manifests; "
+            "may be repeated"
+        ),
+        required=False,
+    )
+    parser.add_argument(
+        "--snapshot-expected-chain-id",
+        type=str,
+        help=(
+            "expected chain_id for signed snapshot manifest validation; "
+            "defaults to unchecked when omitted"
+        ),
         required=False,
     )
     parser.add_argument(
@@ -473,6 +491,8 @@ def main(argv: list[str] | None = None) -> int:
         seed_node=args.seed_node,
         seed_node_address=args.seed_node_address,
         snapshot_url=args.snapshot_url,
+        snapshot_signing_public_keys=args.snapshot_signing_key,
+        snapshot_expected_chain_id=args.snapshot_expected_chain_id,
         copy_genesis=args.copy_genesis,
         genesis_source=args.genesis_source,
         genesis_payload=genesis_payload,
