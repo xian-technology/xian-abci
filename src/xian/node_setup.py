@@ -18,7 +18,7 @@ from xian.execution_policy import (
 )
 
 DEFAULT_CONFIG_TOML = """
-version = "0.38.22"
+version = "0.39.1"
 proxy_app = "unix:///tmp/abci.sock"
 moniker = "xian-node"
 db_backend = "goleveldb"

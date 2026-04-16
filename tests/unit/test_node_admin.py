@@ -200,7 +200,7 @@ class NodeAdminTests(unittest.TestCase):
 
             existing_config = load_toml_string(
                 """
-version = "0.38.22"
+version = "0.39.1"
 proxy_app = "unix:///tmp/abci.sock"
 moniker = "initial-node"
 db_backend = "rocksdb"
@@ -422,7 +422,7 @@ blocks_to_keep = 100000
 
             existing_config = load_toml_string(
                 """
-version = "0.38.22"
+version = "0.39.1"
 proxy_app = "unix:///tmp/abci.sock"
 moniker = "initial-node"
 db_backend = "goleveldb"
@@ -501,7 +501,7 @@ blocks_to_keep = 100000
 
             existing_config = load_toml_string(
                 """
-version = "0.38.22"
+version = "0.39.1"
 proxy_app = "unix:///tmp/abci.sock"
 moniker = "initial-node"
 db_backend = "goleveldb"
