@@ -930,7 +930,7 @@ requires-dist = [{ name = "pynacl", specifier = ">=1.5.0,<2" }]
 
 [[package]]
 name = "xian-tech-contracting"
-version = "1.0.5"
+version = "1.0.6"
 source = { editable = "../xian-contracting" }
 dependencies = [
     { name = "autopep8" },
@@ -972,7 +972,7 @@ source = { editable = "../xian-contracting/packages/xian-native-tracer" }
 
 [[package]]
 name = "xian-tech-runtime-types"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "../xian-contracting/packages/xian-runtime-types" }
 
 [[package]]

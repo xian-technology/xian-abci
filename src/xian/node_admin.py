@@ -13,9 +13,8 @@ from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from xian_accounts import is_valid_ed25519_key, verify_message
-from xian.config_paths import (
-    resolve_genesis_source,
-)
+
+from xian.config_paths import resolve_genesis_source
 from xian.constants import Constants as c
 from xian.node_setup import (
     DEFAULT_PARALLEL_EXECUTION_ENABLED,
@@ -237,9 +236,8 @@ def _verify_snapshot_manifest(
     snapshot_sha256 = snapshot_sha256.lower()
 
     signing_public_key = manifest.get("signing_public_key")
-    if (
-        not isinstance(signing_public_key, str)
-        or not is_valid_ed25519_key(signing_public_key)
+    if not isinstance(signing_public_key, str) or not is_valid_ed25519_key(
+        signing_public_key
     ):
         raise ValueError(
             "snapshot manifest signing_public_key must be a valid Ed25519 hex key"
