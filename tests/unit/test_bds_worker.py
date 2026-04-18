@@ -3,7 +3,7 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from xian.services.bds.bds import BDS
 from xian.services.bds.config import BdsConfig
@@ -86,6 +86,11 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
             Path(spool_dir).mkdir(parents=True, exist_ok=True)
             bds._write_spool_file(_payload(11, "A"))
             bds._write_spool_file(_payload(12, "B"))
+            bds.db.pool = MagicMock()
+            bds.db.pool.get_size.return_value = 8
+            bds.db.pool.get_idle_size.return_value = 3
+            bds.db.pool.get_max_size.return_value = 10
+            bds.db.pool.get_min_size.return_value = 2
             bds.db.fetchrow = AsyncMock(
                 return_value={
                     "indexed_block_count": 10,
@@ -108,6 +113,17 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(status["indexed"]["indexed_height"], 9)
             self.assertEqual(status["height_lag"], 3)
             self.assertTrue(status["catching_up"])
+            self.assertEqual(
+                status["pool"],
+                {
+                    "size": 8,
+                    "idle": 3,
+                    "in_use": 5,
+                    "max_size": 10,
+                    "min_size": 2,
+                    "utilization": 0.5,
+                },
+            )
             self.assertIsInstance(status["alerts"], list)
             self.assertIsNone(status["last_enqueue_error"])
 

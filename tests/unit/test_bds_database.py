@@ -1,40 +1,43 @@
 import unittest
+from unittest.mock import AsyncMock, MagicMock
 
 from xian.services.bds.config import BdsConfig
 from xian.services.bds.database import DB
 
 
-class BdsDatabaseTests(unittest.TestCase):
-    def test_pool_kwargs_use_dsn_when_present(self):
-        db = DB(
-            BdsConfig(
-                dsn="postgresql://user:pass@db.example:5432/xian",
-                pool_min_size=2,
-                pool_max_size=8,
-                statement_timeout_ms=1500,
-                application_name="xian-bds-test",
-            )
+class BdsDatabaseTests(unittest.IsolatedAsyncioTestCase):
+    async def test_has_entries_queries_allowlisted_table(self):
+        db = DB(BdsConfig())
+        db.fetch = AsyncMock(return_value=[{"count": 1}])
+
+        result = await db.has_entries("blocks")
+
+        self.assertTrue(result)
+        db.fetch.assert_awaited_once_with(
+            'SELECT COUNT(*) AS count FROM "blocks"'
         )
 
-        kwargs = db._pool_kwargs()
+    async def test_has_entries_rejects_disallowed_table(self):
+        db = DB(BdsConfig())
+        db.fetch = AsyncMock()
 
-        self.assertEqual(
-            kwargs["dsn"], "postgresql://user:pass@db.example:5432/xian"
-        )
-        self.assertEqual(kwargs["min_size"], 2)
-        self.assertEqual(kwargs["max_size"], 8)
-        self.assertEqual(
-            kwargs["server_settings"]["application_name"], "xian-bds-test"
-        )
-        self.assertEqual(
-            kwargs["server_settings"]["statement_timeout"], "1500ms"
-        )
-        self.assertNotIn("host", kwargs)
+        with self.assertRaisesRegex(ValueError, "disallowed table name"):
+            await db.has_entries("blocks; drop table blocks")
 
-    def test_validate_database_name_rejects_invalid_names(self):
-        with self.assertRaisesRegex(ValueError, "invalid database name"):
-            DB._validate_database_name("xian;drop database")
+        db.fetch.assert_not_awaited()
 
+    async def test_has_entries_propagates_database_errors(self):
+        db = DB(BdsConfig())
+        db.fetch = AsyncMock(side_effect=RuntimeError("db unavailable"))
 
-if __name__ == "__main__":
-    unittest.main()
+        with self.assertRaisesRegex(RuntimeError, "db unavailable"):
+            await db.has_entries("transactions")
+
+    def test_acquire_uses_configured_timeout(self):
+        db = DB(BdsConfig(acquire_timeout_ms=2500))
+        db.pool = MagicMock()
+        db.pool.acquire.return_value = object()
+
+        db.acquire()
+
+        db.pool.acquire.assert_called_once_with(timeout=2.5)

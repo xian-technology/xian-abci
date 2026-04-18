@@ -65,6 +65,14 @@ class BdsMetricsCollectorTests(unittest.TestCase):
                     "indexed_height": 125,
                     "indexed_tx_count": 512,
                 },
+                "pool": {
+                    "size": 8,
+                    "idle": 3,
+                    "in_use": 5,
+                    "max_size": 10,
+                    "min_size": 2,
+                    "utilization": 0.5,
+                },
             },
             last_bds_refresh_success=True,
             last_bds_refresh_age_seconds=4.5,
@@ -96,6 +104,12 @@ class BdsMetricsCollectorTests(unittest.TestCase):
         self.assertEqual(bds_metrics["db_ok"], 1.0)
         self.assertEqual(bds_metrics["alert_count"], 1.0)
         self.assertEqual(bds_metrics["last_enqueue_error_present"], 1.0)
+        self.assertEqual(bds_metrics["pool_size"], 8.0)
+        self.assertEqual(bds_metrics["pool_idle"], 3.0)
+        self.assertEqual(bds_metrics["pool_in_use"], 5.0)
+        self.assertEqual(bds_metrics["pool_max_size"], 10.0)
+        self.assertEqual(bds_metrics["pool_min_size"], 2.0)
+        self.assertEqual(bds_metrics["pool_utilization"], 0.5)
 
         bds_alert = sample_by_name["xian_bds_alert"][0]
         self.assertEqual(bds_alert.labels["severity"], "warning")
