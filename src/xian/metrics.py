@@ -415,6 +415,16 @@ class XianMetricsCollector:
                 ("indexed_tx_count", indexed.get("indexed_tx_count")),
             ):
                 _add_metric_if_present(bds_family, [field], value)
+            pool = bds_status.get("pool") or {}
+            for field, value in (
+                ("pool_size", pool.get("size")),
+                ("pool_idle", pool.get("idle")),
+                ("pool_in_use", pool.get("in_use")),
+                ("pool_max_size", pool.get("max_size")),
+                ("pool_min_size", pool.get("min_size")),
+                ("pool_utilization", pool.get("utilization")),
+            ):
+                _add_metric_if_present(bds_family, [field], value)
         yield bds_family
 
         bds_alerts = GaugeMetricFamily(

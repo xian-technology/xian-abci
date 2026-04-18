@@ -309,7 +309,7 @@ async def export_bds_snapshot(
             "tables": {},
         }
 
-        async with bds.db.pool.acquire() as connection:
+        async with bds.db.acquire() as connection:
             async with connection.transaction():
                 for spec in TABLE_SPECS:
                     row_count = 0
@@ -380,7 +380,7 @@ async def import_bds_snapshot(
         if clear_spool:
             bds.clear_spool()
 
-        async with bds.db.pool.acquire() as connection:
+        async with bds.db.acquire() as connection:
             async with connection.transaction():
                 for spec in TABLE_SPECS:
                     table_path = temp_root / f"{spec.name}.jsonl"

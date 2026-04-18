@@ -51,7 +51,10 @@ class _FakePool:
     def __init__(self, connection: _FakeConnection):
         self.connection = connection
 
-    def acquire(self):
+    def acquire(self, *, timeout=None):
+        # The production DB passes a pool acquire timeout; the fake ignores
+        # it but accepts the kwarg so the call sites stay identical.
+        del timeout
         return _FakeAcquireContext(self.connection)
 
 

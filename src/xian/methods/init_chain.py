@@ -1,5 +1,3 @@
-import asyncio
-
 from cometbft.abci.v1beta3.types_pb2 import ResponseInitChain
 from xian.utils.block import set_latest_block, store_genesis_block
 
@@ -7,8 +5,11 @@ from xian.utils.block import set_latest_block, store_genesis_block
 async def init_chain(self, req) -> ResponseInitChain:
     abci_genesis_state = self.genesis["abci_genesis"]
     set_latest_block(block_hash=bytes.fromhex(abci_genesis_state["hash"]))
-    asyncio.ensure_future(
-        store_genesis_block(self.client, self.nonce_storage, abci_genesis_state)
+    # Await so the genesis write is durable before InitChain returns. The
+    # previous fire-and-forget `asyncio.ensure_future(...)` could drop the
+    # write if the app crashed or restarted before the coroutine ran.
+    await store_genesis_block(
+        self.client, self.nonce_storage, abci_genesis_state
     )
 
     return ResponseInitChain()

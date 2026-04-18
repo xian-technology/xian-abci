@@ -433,6 +433,26 @@ class BDS:
         queue_capacity = max(self.config.queue_max_size, 1)
         disk_usage = shutil.disk_usage(self.spool_dir)
 
+        pool_stats: dict[str, Any] | None = None
+        if self.db.pool is not None:
+            try:
+                size = self.db.pool.get_size()
+                idle = self.db.pool.get_idle_size()
+                max_size = self.db.pool.get_max_size()
+                min_size = self.db.pool.get_min_size()
+                in_use = max(size - idle, 0)
+                utilization = (in_use / max_size) if max_size > 0 else 0.0
+                pool_stats = {
+                    "size": size,
+                    "idle": idle,
+                    "in_use": in_use,
+                    "max_size": max_size,
+                    "min_size": min_size,
+                    "utilization": utilization,
+                }
+            except Exception as exc:  # asyncpg API quirks — don't fail status
+                logger.debug(f"Unable to collect pool stats: {exc}")
+
         alerts: list[dict[str, Any]] = []
         if db_status != "ok":
             alerts.append(
@@ -496,6 +516,7 @@ class BDS:
             },
             "db_status": db_status,
             "db_error": db_error,
+            "pool": pool_stats,
             "last_enqueue_error": self._last_enqueue_error,
             "indexed": indexed,
             "current_block_height": current_block_height,
@@ -649,7 +670,7 @@ class BDS:
         genesis_state = cometbft_genesis["abci_genesis"]["genesis"]
         block_time = GENESIS_CREATED_AT
 
-        async with self.db.pool.acquire() as connection:
+        async with self.db.acquire() as connection:
             async with connection.transaction():
                 await connection.execute(
                     sql.insert_block(),
@@ -757,7 +778,7 @@ class BDS:
             if already_persisted:
                 return True
 
-            async with self.db.pool.acquire() as connection:
+            async with self.db.acquire() as connection:
                 async with connection.transaction():
                     await connection.execute(
                         sql.insert_block(),

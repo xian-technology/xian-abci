@@ -63,13 +63,18 @@ class _FakePool:
     def __init__(self, connection):
         self._connection = connection
 
-    def acquire(self):
+    def acquire(self, *, timeout=None):
+        # Production DB passes an acquire timeout; fake ignores it.
+        del timeout
         return _FakeAcquire(self._connection)
 
 
 class _FakeDb:
     def __init__(self, connection):
         self.pool = _FakePool(connection)
+
+    def acquire(self, *, timeout=None):
+        return self.pool.acquire(timeout=timeout)
 
 
 class _FakeBds:

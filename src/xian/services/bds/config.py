@@ -42,6 +42,10 @@ class BdsConfig:
     pool_min_size: int = 1
     pool_max_size: int = 10
     statement_timeout_ms: int = 0
+    # How long to wait when borrowing a connection from the pool. Zero means
+    # wait forever (asyncpg's default); positive values cap the wait so an
+    # exhausted pool fails fast instead of hanging the ABCI app.
+    acquire_timeout_ms: int = 10_000
     application_name: str = "xian-bds"
     queue_max_size: int = 128
     catchup_enabled: bool = True
@@ -144,6 +148,13 @@ class BdsConfig:
                     env.get("XIAN_BDS_STATEMENT_TIMEOUT_MS"),
                 ),
                 default=0,
+            ),
+            acquire_timeout_ms=_coerce_int(
+                _first_non_empty(
+                    bds_settings.get("acquire_timeout_ms"),
+                    env.get("XIAN_BDS_ACQUIRE_TIMEOUT_MS"),
+                ),
+                default=10_000,
             ),
             application_name=str(
                 _first_non_empty(
