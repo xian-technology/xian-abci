@@ -11,6 +11,7 @@ from typing import Any
 
 from xian.services.bds import sql
 from xian.services.bds.bds import BDS
+from xian.services.bds.reindex import RpcBlockSource
 
 SNAPSHOT_FORMAT_VERSION = 1
 IMPORT_BATCH_SIZE = 1000
@@ -359,6 +360,7 @@ async def import_bds_snapshot(
     bds: BDS,
     snapshot_path: Path,
     clear_spool: bool = False,
+    trusted_block_source: RpcBlockSource | None = None,
 ) -> dict[str, Any]:
     if not snapshot_path.exists():
         raise FileNotFoundError(f"snapshot not found: {snapshot_path}")
@@ -375,6 +377,10 @@ async def import_bds_snapshot(
             raise ValueError("unsupported BDS snapshot format version")
         if metadata.get("schema_version") != sql.SCHEMA_VERSION:
             raise ValueError("BDS snapshot schema version mismatch")
+        await _verify_snapshot_indexed_chain_state(
+            metadata=metadata,
+            trusted_block_source=trusted_block_source,
+        )
 
         await bds.reset_schema()
         if clear_spool:
@@ -443,3 +449,37 @@ async def import_bds_snapshot(
         "compacted": compacted,
         "status": status,
     }
+
+
+async def _verify_snapshot_indexed_chain_state(
+    *,
+    metadata: dict[str, Any],
+    trusted_block_source: RpcBlockSource | None,
+) -> None:
+    indexed = metadata.get("indexed")
+    if not isinstance(indexed, dict):
+        raise ValueError("BDS snapshot indexed metadata missing")
+
+    indexed_height = indexed.get("indexed_height")
+    if indexed_height is None:
+        return
+
+    indexed_block_hash = indexed.get("indexed_block_hash")
+    indexed_app_hash = indexed.get("indexed_app_hash")
+    if not isinstance(indexed_block_hash, str) or indexed_block_hash == "":
+        raise ValueError("BDS snapshot indexed block hash missing")
+    if not isinstance(indexed_app_hash, str) or indexed_app_hash == "":
+        raise ValueError("BDS snapshot indexed app hash missing")
+
+    if trusted_block_source is None:
+        return
+
+    trusted_block = await trusted_block_source.block(int(indexed_height))
+    trusted_block_hash = str(trusted_block["block_id"]["hash"]).upper()
+    trusted_app_hash = str(
+        trusted_block["block"]["header"]["app_hash"]
+    ).upper()
+    if trusted_block_hash != str(indexed_block_hash).upper():
+        raise ValueError("BDS snapshot indexed block hash mismatch")
+    if trusted_app_hash != str(indexed_app_hash).upper():
+        raise ValueError("BDS snapshot indexed app hash mismatch")

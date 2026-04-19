@@ -224,6 +224,35 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Wrong chain_id", response.check_tx.log)
         self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 
+    async def test_check_tx_rejects_tx_larger_than_configured_max_bytes(self):
+        self.app.max_tx_bytes = len(VALID_TX_BYTES) - 1
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+
+        response = await self.process_request(self.make_request())
+
+        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertIn("maximum configured size", response.check_tx.log)
+        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+
+    async def test_check_tx_rejects_sender_with_too_many_pending_nonces(self):
+        self.app.nonce_storage.max_pending_nonces_per_sender = 1
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+        next_tx = make_signed_tx_bytes(nonce=VALID_NONCE + 1)
+
+        first_response = await self.process_request(self.make_request())
+        second_response = await self.process_request(self.make_request(next_tx))
+
+        self.assertEqual(first_response.check_tx.code, c.OkCode)
+        self.assertEqual(second_response.check_tx.code, c.ErrorCode)
+        self.assertIn(
+            "Too many pending transactions reserved for sender",
+            second_response.check_tx.log,
+        )
+        self.assertEqual(
+            self.app.nonce_storage.get_pending_nonce(SENDER),
+            VALID_NONCE,
+        )
+
     async def test_check_tx_rejects_duplicate_payload_wire_format(self):
         self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
         malicious_tx = (

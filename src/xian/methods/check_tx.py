@@ -16,6 +16,7 @@ async def check_tx(self, raw_tx) -> ResponseCheckTx:
         tx = decode_and_validate_transaction_static_bytes(
             raw_tx,
             chain_id=self.chain_id,
+            max_raw_tx_bytes=self.max_tx_bytes,
         )
     except Exception as e:
         logger.bind(

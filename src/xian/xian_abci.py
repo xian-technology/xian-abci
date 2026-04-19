@@ -144,7 +144,21 @@ class Xian:
                 "pending_nonce_reservation_ttl_seconds",
                 60.0,
             ),
+            max_pending_nonces_per_sender=xian_config.get(
+                "max_pending_nonces_per_sender",
+                128,
+            ),
         )
+        try:
+            configured_max_tx_bytes = int(
+                self.cometbft_config.get("mempool", {}).get(
+                    "max_tx_bytes",
+                    4 * 1024 * 1024,
+                )
+            )
+        except (TypeError, ValueError):
+            configured_max_tx_bytes = 4 * 1024 * 1024
+        self.max_tx_bytes = max(configured_max_tx_bytes, 1)
         self.app_log_level = str(
             xian_config.get("app_log_level", "INFO")
         ).upper()

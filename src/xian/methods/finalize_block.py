@@ -152,6 +152,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 tx = decode_and_validate_transaction_static_bytes(
                     tx_bytes,
                     chain_id=self.chain_id,
+                    max_raw_tx_bytes=self.max_tx_bytes,
                 )
             except Exception as e:
                 decoded_entries.append(

@@ -133,6 +133,44 @@ class BdsReindexerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload.transactions[0].tx_result["status"], 0)
         self.assertIn("hash", payload.transactions[0].tx_result)
 
+    async def test_build_payload_rejects_source_hash_mismatch_against_trusted_block(self):
+        source = _FakeBlockSource()
+        source.blocks[12] = {
+            "block_id": {"hash": "BLOCK-12"},
+            "block": {
+                "header": {
+                    "height": "12",
+                    "time": "2026-01-01T00:00:12Z",
+                    "app_hash": "APP-12",
+                },
+                "data": {"txs": []},
+            },
+        }
+        source.block_results_map[12] = {"txs_results": []}
+
+        trusted = _FakeBlockSource()
+        trusted.blocks[12] = {
+            "block_id": {"hash": "BLOCK-999"},
+            "block": {
+                "header": {
+                    "height": "12",
+                    "time": "2026-01-01T00:00:12Z",
+                    "app_hash": "APP-12",
+                },
+                "data": {"txs": []},
+            },
+        }
+
+        reindexer = BdsReindexer(
+            bds=_FakeBds(indexed_height=0),
+            block_source=source,
+            state_patch_manager=_FakeStatePatchManager(),
+            trusted_block_source=trusted,
+        )
+
+        with self.assertRaisesRegex(ValueError, "hash mismatch"):
+            await reindexer.build_payload(12)
+
     async def test_build_payload_skips_non_indexable_error_results(self):
         tx = {
             "payload": {

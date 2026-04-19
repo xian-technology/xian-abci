@@ -1,58 +1,44 @@
-import base64
-import json
 import logging
-from urllib.request import urlopen
 
 from cometbft.abci.v1beta1.types_pb2 import ValidatorUpdate
 from cometbft.crypto.v1.keys_pb2 import PublicKey
 
 
 class ValidatorHandler:
+    DEFAULT_VALIDATOR_POWER = 10
+
     def __init__(self, app):
         self.client = app.client
 
-    def get_validators_from_state(self) -> dict[str, int]:
-        validators = self.client.raw_driver.get("masternodes.nodes") or []
+    def get_validators_from_state(self, *, committed: bool = False) -> dict[str, int]:
+        read = (
+            self.client.raw_driver.value_from_disk
+            if committed
+            else self.client.raw_driver.get
+        )
+        validators = read("masternodes.nodes") or []
         desired = {}
         for validator in validators:
-            power = self.client.raw_driver.get(
-                f"masternodes.validator_power:{validator}"
-            )
+            power = read(f"masternodes.validator_power:{validator}")
             if power is None:
-                power = 10
+                power = self.DEFAULT_VALIDATOR_POWER
             if power <= 0:
-                power = 10
+                power = self.DEFAULT_VALIDATOR_POWER
             desired[validator] = int(power)
         return desired
-
-    def get_tendermint_validators(self) -> dict[str, int]:
-        try:
-            with urlopen("http://localhost:26657/validators") as response:
-                payload = json.loads(response.read().decode("utf-8"))
-            validators = {}
-            for validator in payload["result"]["validators"]:
-                voting_power = int(validator["voting_power"])
-                if voting_power <= 0:
-                    continue
-                validators[
-                    base64.b64decode(validator["pub_key"]["value"]).hex()
-                ] = voting_power
-        except Exception:
-            validators = {}
-        return validators
 
     def to_bytes(self, data: str) -> bytes:
         return bytes.fromhex(data)
 
     def build_validator_updates(self, height) -> list[ValidatorUpdate]:
+        del height
         validators_state = self.get_validators_from_state() or {}
-        validators_tendermint = self.get_tendermint_validators()
-        if len(validators_tendermint) == 0:
-            logging.error("Failed to get validators from tendermint")
-            return []
+        validators_committed = (
+            self.get_validators_from_state(committed=True) or {}
+        )
         updates = []
         for validator, power in validators_state.items():
-            current_power = validators_tendermint.get(validator)
+            current_power = validators_committed.get(validator)
             if current_power != power:
                 updates.append(
                     ValidatorUpdate(
@@ -61,9 +47,9 @@ class ValidatorHandler:
                     )
                 )
                 logging.info(
-                    f"Updating {validator} in tendermint validators to power {power}"
+                    f"Updating {validator} in validator set to power {power}"
                 )
-        for validator in validators_tendermint:
+        for validator in validators_committed:
             if validator not in validators_state:
                 updates.append(
                     ValidatorUpdate(
@@ -71,6 +57,6 @@ class ValidatorHandler:
                         power=0,
                     )
                 )
-                logging.info(f"Removing {validator} from tendermint validators")
+                logging.info(f"Removing {validator} from validator set")
 
         return updates

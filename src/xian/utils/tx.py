@@ -252,7 +252,12 @@ def decode_and_validate_transaction_static_bytes(
     raw_tx: bytes,
     *,
     chain_id: str,
+    max_raw_tx_bytes: int | None = None,
 ) -> dict:
+    if max_raw_tx_bytes is not None and len(raw_tx) > max_raw_tx_bytes:
+        raise TransactionException(
+            f"Transaction exceeds maximum configured size of {max_raw_tx_bytes} bytes"
+        )
     if _native_decode_and_validate_transaction_static is not None:
         try:
             return _native_decode_and_validate_transaction_static(

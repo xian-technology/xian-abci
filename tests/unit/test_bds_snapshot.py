@@ -98,6 +98,14 @@ class _FakeBds:
         return self.compact_result
 
 
+class _FakeBlockSource:
+    def __init__(self):
+        self.blocks = {}
+
+    async def block(self, height: int) -> dict:
+        return self.blocks[height]
+
+
 class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
     def test_default_snapshot_output_path_includes_height(self):
         output = default_snapshot_output_path(
@@ -188,7 +196,11 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
             ],
         }
         status = {
-            "indexed": {"indexed_height": 12},
+            "indexed": {
+                "indexed_height": 12,
+                "indexed_block_hash": "BLOCK-12",
+                "indexed_app_hash": "APP-12",
+            },
             "spool_pending_count": 0,
         }
         connection = _FakeConnection(rows_by_table)
@@ -217,10 +229,16 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
 
             import_connection = _FakeConnection({})
             import_bds = _FakeBds(import_connection, status)
+            trusted_block_source = _FakeBlockSource()
+            trusted_block_source.blocks[12] = {
+                "block_id": {"hash": "BLOCK-12"},
+                "block": {"header": {"app_hash": "APP-12"}},
+            }
             import_result = await import_bds_snapshot(
                 bds=import_bds,
                 snapshot_path=snapshot_path,
                 clear_spool=True,
+                trusted_block_source=trusted_block_source,
             )
 
             self.assertEqual(import_bds.reset_count, 1)
@@ -267,6 +285,48 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
                     bds=bds,
                     snapshot_path=snapshot_path,
                     clear_spool=False,
+                )
+
+    async def test_import_snapshot_rejects_indexed_hash_mismatch(self):
+        status = {
+            "indexed": {
+                "indexed_height": 12,
+                "indexed_block_hash": "BLOCK-12",
+                "indexed_app_hash": "APP-12",
+            },
+            "spool_pending_count": 0,
+        }
+        bds = _FakeBds(_FakeConnection({}), status)
+        trusted_block_source = _FakeBlockSource()
+        trusted_block_source.blocks[12] = {
+            "block_id": {"hash": "BLOCK-999"},
+            "block": {"header": {"app_hash": "APP-12"}},
+        }
+
+        with TemporaryDirectory() as temp_dir:
+            snapshot_path = Path(temp_dir) / "snapshot.tar.gz"
+            metadata_path = Path(temp_dir) / "metadata.json"
+            metadata_path.write_text(
+                json.dumps(
+                    {
+                        "snapshot_format_version": 1,
+                        "schema_version": sql.SCHEMA_VERSION,
+                        "indexed": status["indexed"],
+                        "tables": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with tarfile.open(snapshot_path, "w:gz") as archive:
+                archive.add(metadata_path, arcname="metadata.json")
+
+            with self.assertRaisesRegex(ValueError, "block hash mismatch"):
+                await import_bds_snapshot(
+                    bds=bds,
+                    snapshot_path=snapshot_path,
+                    clear_spool=False,
+                    trusted_block_source=trusted_block_source,
                 )
 
 

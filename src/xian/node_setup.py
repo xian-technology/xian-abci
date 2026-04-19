@@ -155,6 +155,7 @@ parallel_execution_enabled = false
 parallel_execution_workers = 4
 parallel_execution_min_transactions = 8
 pending_nonce_reservation_ttl_seconds = 60.0
+max_pending_nonces_per_sender = 128
 
 [xian.execution.engine]
 mode = "python_line_v1"
@@ -446,6 +447,7 @@ def render_cometbft_config(
         DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS
     ),
     pending_nonce_reservation_ttl_seconds: float = 60.0,
+    max_pending_nonces_per_sender: int = 128,
     bds_dsn: str = "",
     bds_host: str = "",
     bds_port: int = 5432,
@@ -541,6 +543,9 @@ def render_cometbft_config(
         ),
         "pending_nonce_reservation_ttl_seconds": (
             pending_nonce_reservation_ttl_seconds
+        ),
+        "max_pending_nonces_per_sender": (
+            max_pending_nonces_per_sender
         ),
         "bds": {
             "dsn": bds_dsn,

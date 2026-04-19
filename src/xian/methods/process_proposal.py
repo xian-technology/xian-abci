@@ -19,6 +19,7 @@ async def process_proposal(self, req) -> ResponseProcessProposal:
             tx = decode_and_validate_transaction_static_bytes(
                 raw_tx,
                 chain_id=self.chain_id,
+                max_raw_tx_bytes=self.max_tx_bytes,
             )
             validate_consensus_transaction_after_static(
                 tx,

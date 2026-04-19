@@ -7,6 +7,7 @@ from xian.constants import Constants as c
 from xian.exceptions import TransactionException
 
 DEFAULT_PENDING_NONCE_RESERVATION_TTL_SECONDS = 60.0
+DEFAULT_MAX_PENDING_NONCES_PER_SENDER = 128
 
 
 @dataclass
@@ -21,11 +22,16 @@ class NonceStorage:
         client,
         root=None,
         reservation_ttl_seconds: float = DEFAULT_PENDING_NONCE_RESERVATION_TTL_SECONDS,
+        max_pending_nonces_per_sender: int = DEFAULT_MAX_PENDING_NONCES_PER_SENDER,
     ):
         root = root if root is not None else c.STORAGE_HOME
         self.client = client
         self.pending_nonces: dict[str, dict[int, NonceReservation]] = {}
         self.reservation_ttl_seconds = float(reservation_ttl_seconds)
+        self.max_pending_nonces_per_sender = max(
+            int(max_pending_nonces_per_sender),
+            1,
+        )
 
     def _now(self) -> float:
         return time.monotonic()
@@ -72,6 +78,11 @@ class NonceStorage:
         if tx_nonce != expected_nonce:
             raise TransactionException(
                 f"Transaction nonce is invalid. Expected {expected_nonce}, got {tx_nonce}"
+            )
+
+        if len(sender_pending) >= self.max_pending_nonces_per_sender:
+            raise TransactionException(
+                "Too many pending transactions reserved for sender"
             )
 
         sender_pending[tx_nonce] = NonceReservation(

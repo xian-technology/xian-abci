@@ -137,10 +137,12 @@ class BdsReindexer:
         bds: BDS,
         block_source: RpcBlockSource,
         state_patch_manager: StatePatchManager,
+        trusted_block_source: RpcBlockSource | None = None,
     ):
         self.bds = bds
         self.block_source = block_source
         self.state_patch_manager = state_patch_manager
+        self.trusted_block_source = trusted_block_source
 
     async def build_plan(
         self,
@@ -183,6 +185,10 @@ class BdsReindexer:
 
     async def build_payload(self, height: int) -> BdsBlockPayload:
         block_response = await self.block_source.block(height)
+        await self._verify_block_against_trusted_source(
+            height=height,
+            block_response=block_response,
+        )
         block_results = await self.block_source.block_results(height)
 
         block = block_response["block"]
@@ -223,6 +229,36 @@ class BdsReindexer:
             state_patches=applied_patches,
             state_patch_hash=patch_hash,
         )
+
+    async def _verify_block_against_trusted_source(
+        self,
+        *,
+        height: int,
+        block_response: dict[str, Any],
+    ) -> None:
+        if self.trusted_block_source is None:
+            return
+
+        trusted_block = await self.trusted_block_source.block(height)
+        source_block_hash = str(block_response["block_id"]["hash"]).upper()
+        trusted_block_hash = str(trusted_block["block_id"]["hash"]).upper()
+        if source_block_hash != trusted_block_hash:
+            raise ValueError(
+                f"block {height} hash mismatch: "
+                f"source={source_block_hash} trusted={trusted_block_hash}"
+            )
+
+        source_app_hash = str(
+            block_response["block"]["header"]["app_hash"]
+        ).upper()
+        trusted_app_hash = str(
+            trusted_block["block"]["header"]["app_hash"]
+        ).upper()
+        if source_app_hash != trusted_app_hash:
+            raise ValueError(
+                f"block {height} app hash mismatch: "
+                f"source={source_app_hash} trusted={trusted_app_hash}"
+            )
 
     @staticmethod
     def _extract_block_txs(block: dict[str, Any]) -> list[str]:
@@ -307,11 +343,19 @@ async def run_bds_reindex(
     patch_dir_path = resolve_state_patch_dir(constants)
     state_patch_manager.load_patches(str(patch_dir_path))
 
-    block_source = CometBftRpcClient(resolve_rpc_url(constants, rpc_url))
+    source_rpc_url = resolve_rpc_url(constants, rpc_url)
+    trusted_rpc_url = resolve_rpc_url(constants)
+    block_source = CometBftRpcClient(source_rpc_url)
+    trusted_block_source = (
+        None
+        if source_rpc_url == trusted_rpc_url
+        else CometBftRpcClient(trusted_rpc_url)
+    )
     reindexer = BdsReindexer(
         bds=bds,
         block_source=block_source,
         state_patch_manager=state_patch_manager,
+        trusted_block_source=trusted_block_source,
     )
     try:
         plan = await reindexer.build_plan(
@@ -334,4 +378,6 @@ async def run_bds_reindex(
         return plan
     finally:
         await block_source.close()
+        if trusted_block_source is not None:
+            await trusted_block_source.close()
         await bds.close()

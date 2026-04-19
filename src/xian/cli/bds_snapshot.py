@@ -6,6 +6,7 @@ from pathlib import Path
 
 from xian.constants import Constants
 from xian.services.bds.bds import BDS
+from xian.services.bds.reindex import CometBftRpcClient, resolve_rpc_url
 from xian.services.bds.runtime import resolve_bds_config
 from xian.services.bds.snapshot import (
     default_snapshot_output_path,
@@ -73,14 +74,17 @@ async def _run_export(*, output_path: str | None, force: bool) -> dict:
 async def _run_import(*, input_path: str, clear_spool: bool) -> dict:
     constants = Constants()
     bds = BDS(config=resolve_bds_config(constants))
+    trusted_block_source = CometBftRpcClient(resolve_rpc_url(constants))
     try:
         await bds.open_storage()
         return await import_bds_snapshot(
             bds=bds,
             snapshot_path=Path(input_path).expanduser().resolve(),
             clear_spool=clear_spool,
+            trusted_block_source=trusted_block_source,
         )
     finally:
+        await trusted_block_source.close()
         await bds.close()
 
 

@@ -1,90 +1,52 @@
-import base64
-import json
 import unittest
-from unittest.mock import patch
 
 from xian.validators import ValidatorHandler
 
 
-def _validator_payload(entries):
-    return {
-        "result": {
-            "validators": [
-                {
-                    "pub_key": {
-                        "value": base64.b64encode(
-                            bytes.fromhex(entry["validator"])
-                        ).decode("ascii")
-                    },
-                    "voting_power": str(entry["power"]),
-                }
-                for entry in entries
-            ]
-        }
-    }
-
-
-class _FakeResponse:
-    def __init__(self, payload):
-        self._payload = payload
-
-    def read(self):
-        return json.dumps(self._payload).encode("utf-8")
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-
 class _FakeDriver:
-    def __init__(self, values):
-        self._values = values
+    def __init__(self, current_values, committed_values=None):
+        self._current_values = dict(current_values)
+        self._committed_values = (
+            dict(committed_values)
+            if committed_values is not None
+            else dict(current_values)
+        )
 
     def get(self, key):
-        return self._values.get(key)
+        return self._current_values.get(key)
+
+    def value_from_disk(self, key):
+        return self._committed_values.get(key)
 
 
 class _FakeClient:
-    def __init__(self, values):
-        self.raw_driver = _FakeDriver(values)
+    def __init__(self, current_values, committed_values=None):
+        self.raw_driver = _FakeDriver(current_values, committed_values)
 
 
 class _FakeApp:
-    def __init__(self, values):
-        self.client = _FakeClient(values)
+    def __init__(self, current_values, committed_values=None):
+        self.client = _FakeClient(current_values, committed_values)
 
 
 class ValidatorHandlerTests(unittest.TestCase):
     def test_build_validator_updates_adds_new_validator_with_configured_power(self):
         validator = "11" * 32
+        stale_validator = "22" * 32
         handler = ValidatorHandler(
             _FakeApp(
-                {
+                current_values={
                     "masternodes.nodes": [validator],
                     f"masternodes.validator_power:{validator}": 25,
-                }
+                },
+                committed_values={
+                    "masternodes.nodes": [stale_validator],
+                    f"masternodes.validator_power:{stale_validator}": 10,
+                },
             )
         )
 
-        with patch(
-            "xian.validators.urlopen",
-            return_value=_FakeResponse(_validator_payload([])),
-        ):
-            updates = handler.build_validator_updates(height=10)
-
-        self.assertEqual(len(updates), 0)
-
-        with patch(
-            "xian.validators.urlopen",
-            return_value=_FakeResponse(
-                _validator_payload(
-                    [{"validator": "22" * 32, "power": 10}]
-                )
-            ),
-        ):
-            updates = handler.build_validator_updates(height=10)
+        updates = handler.build_validator_updates(height=10)
 
         self.assertEqual(len(updates), 2)
         self.assertEqual(updates[0].power, 25)
@@ -94,20 +56,18 @@ class ValidatorHandlerTests(unittest.TestCase):
         validator = "11" * 32
         handler = ValidatorHandler(
             _FakeApp(
-                {
+                current_values={
                     "masternodes.nodes": [validator],
                     f"masternodes.validator_power:{validator}": 42,
-                }
+                },
+                committed_values={
+                    "masternodes.nodes": [validator],
+                    f"masternodes.validator_power:{validator}": 10,
+                },
             )
         )
 
-        with patch(
-            "xian.validators.urlopen",
-            return_value=_FakeResponse(
-                _validator_payload([{"validator": validator, "power": 10}])
-            ),
-        ):
-            updates = handler.build_validator_updates(height=10)
+        updates = handler.build_validator_updates(height=10)
 
         self.assertEqual(len(updates), 1)
         self.assertEqual(updates[0].power, 42)
@@ -116,19 +76,31 @@ class ValidatorHandlerTests(unittest.TestCase):
         validator = "11" * 32
         handler = ValidatorHandler(
             _FakeApp(
-                {
+                current_values={
                     "masternodes.nodes": [validator],
-                }
+                },
+                committed_values={"masternodes.nodes": []},
             )
         )
 
-        with patch(
-            "xian.validators.urlopen",
-            return_value=_FakeResponse(
-                _validator_payload([{"validator": "22" * 32, "power": 10}])
-            ),
-        ):
-            updates = handler.build_validator_updates(height=10)
+        updates = handler.build_validator_updates(height=10)
 
-        self.assertEqual(len(updates), 2)
+        self.assertEqual(len(updates), 1)
         self.assertEqual(updates[0].power, 10)
+
+    def test_build_validator_updates_removes_validator_missing_from_current_state(self):
+        validator = "11" * 32
+        handler = ValidatorHandler(
+            _FakeApp(
+                current_values={"masternodes.nodes": []},
+                committed_values={
+                    "masternodes.nodes": [validator],
+                    f"masternodes.validator_power:{validator}": 10,
+                },
+            )
+        )
+
+        updates = handler.build_validator_updates(height=10)
+
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0].power, 0)

@@ -373,6 +373,7 @@ def configure_existing_home(
         DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS
     ),
     pending_nonce_reservation_ttl_seconds: float = 60.0,
+    max_pending_nonces_per_sender: int = 128,
     bds_dsn: str = "",
     bds_host: str = "",
     bds_port: int = 5432,
@@ -435,6 +436,7 @@ def configure_existing_home(
         pending_nonce_reservation_ttl_seconds=(
             pending_nonce_reservation_ttl_seconds
         ),
+        max_pending_nonces_per_sender=max_pending_nonces_per_sender,
         bds_dsn=bds_dsn,
         bds_host=bds_host,
         bds_port=bds_port,
