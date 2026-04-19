@@ -544,9 +544,7 @@ def render_cometbft_config(
         "pending_nonce_reservation_ttl_seconds": (
             pending_nonce_reservation_ttl_seconds
         ),
-        "max_pending_nonces_per_sender": (
-            max_pending_nonces_per_sender
-        ),
+        "max_pending_nonces_per_sender": (max_pending_nonces_per_sender),
         "bds": {
             "dsn": bds_dsn,
             "host": bds_host,

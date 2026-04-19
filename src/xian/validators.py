@@ -10,7 +10,9 @@ class ValidatorHandler:
     def __init__(self, app):
         self.client = app.client
 
-    def get_validators_from_state(self, *, committed: bool = False) -> dict[str, int]:
+    def get_validators_from_state(
+        self, *, committed: bool = False
+    ) -> dict[str, int]:
         read = (
             self.client.raw_driver.value_from_disk
             if committed

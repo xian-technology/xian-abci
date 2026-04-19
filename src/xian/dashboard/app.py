@@ -681,10 +681,7 @@ async def _close_dashboard_ws_client(
 
     if state is not None:
         sender_task = state.sender_task
-        if (
-            sender_task is not asyncio.current_task()
-            and not sender_task.done()
-        ):
+        if sender_task is not asyncio.current_task() and not sender_task.done():
             sender_task.cancel()
             try:
                 await sender_task
@@ -725,9 +722,9 @@ def _queue_dashboard_ws_message(
     ws: web.WebSocketResponse,
     message: str,
 ) -> bool:
-    state: _DashboardWsClientState | None = app.get(
-        "ws_client_states", {}
-    ).get(ws)
+    state: _DashboardWsClientState | None = app.get("ws_client_states", {}).get(
+        ws
+    )
     if state is None:
         return False
 

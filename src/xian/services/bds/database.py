@@ -107,7 +107,9 @@ class DB:
         that usually don't return data
         """
         bound_params = tuple(params or ())
-        async with self.pool.acquire(timeout=self._acquire_timeout_seconds()) as connection:
+        async with self.pool.acquire(
+            timeout=self._acquire_timeout_seconds()
+        ) as connection:
             try:
                 result = await connection.execute(query, *bound_params)
                 return result
@@ -120,7 +122,9 @@ class DB:
         This is meant for SELECT statements that return data
         """
         bound_params = tuple(params or ())
-        async with self.pool.acquire(timeout=self._acquire_timeout_seconds()) as connection:
+        async with self.pool.acquire(
+            timeout=self._acquire_timeout_seconds()
+        ) as connection:
             try:
                 result = await connection.fetch(query, *bound_params)
                 return result
@@ -132,7 +136,9 @@ class DB:
         self, query: str, params: Sequence[object] | None = None
     ):
         bound_params = tuple(params or ())
-        async with self.pool.acquire(timeout=self._acquire_timeout_seconds()) as connection:
+        async with self.pool.acquire(
+            timeout=self._acquire_timeout_seconds()
+        ) as connection:
             try:
                 return await connection.fetchrow(query, *bound_params)
             except Exception as e:
@@ -143,7 +149,9 @@ class DB:
         self, query: str, params: Sequence[object] | None = None
     ):
         bound_params = tuple(params or ())
-        async with self.pool.acquire(timeout=self._acquire_timeout_seconds()) as connection:
+        async with self.pool.acquire(
+            timeout=self._acquire_timeout_seconds()
+        ) as connection:
             try:
                 return await connection.fetchval(query, *bound_params)
             except Exception as e:

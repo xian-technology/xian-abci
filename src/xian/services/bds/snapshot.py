@@ -476,9 +476,7 @@ async def _verify_snapshot_indexed_chain_state(
 
     trusted_block = await trusted_block_source.block(int(indexed_height))
     trusted_block_hash = str(trusted_block["block_id"]["hash"]).upper()
-    trusted_app_hash = str(
-        trusted_block["block"]["header"]["app_hash"]
-    ).upper()
+    trusted_app_hash = str(trusted_block["block"]["header"]["app_hash"]).upper()
     if trusted_block_hash != str(indexed_block_hash).upper():
         raise ValueError("BDS snapshot indexed block hash mismatch")
     if trusted_app_hash != str(indexed_app_hash).upper():
