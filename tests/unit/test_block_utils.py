@@ -4,10 +4,12 @@ import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 from xian.utils.block import (
     LATEST_BLOCK_DEFAULT,
     LATEST_BLOCK_READ_RETRY_DELAY_SECONDS,
+    apply_state_changes_from_block,
     create_latest_block_json_if_not_exists,
     get_latest_block_hash,
     get_latest_block_height,
@@ -100,6 +102,50 @@ class LatestBlockUtilsTests(unittest.TestCase):
                 self.assertEqual(get_latest_block_height(storage_home), 42)
             finally:
                 repair_thread.join()
+
+    def test_apply_state_changes_materializes_runtime_code_from_source(self):
+        contract_source = """
+@export
+def ping():
+    return 'pong'
+"""
+
+        class _RawDriver:
+            def __init__(self):
+                self.pending_writes = {}
+                self.hard_apply_calls = []
+
+            def set(self, key, value):
+                self.pending_writes[key] = value
+
+            def hard_apply(self, nanos):
+                self.hard_apply_calls.append(nanos)
+
+        class _NonceStorage:
+            def __init__(self):
+                self.nonces = {}
+
+            def set_nonce(self, key, value):
+                self.nonces[key] = value
+
+        raw_driver = _RawDriver()
+        nonce_storage = _NonceStorage()
+        client = SimpleNamespace(raw_driver=raw_driver)
+        block = {
+            "genesis": [
+                {"key": "con_test.__source__", "value": contract_source},
+            ],
+            "hlc_timestamp": 1234,
+            "nonces": [],
+            "rewards": [],
+        }
+
+        apply_state_changes_from_block(client, nonce_storage, block)
+
+        self.assertEqual(raw_driver.pending_writes["con_test.__source__"], contract_source)
+        self.assertIn("con_test.__code__", raw_driver.pending_writes)
+        self.assertIn("con_test.__xian_ir_v1__", raw_driver.pending_writes)
+        self.assertEqual(raw_driver.hard_apply_calls, [1234])
 
 
 if __name__ == "__main__":

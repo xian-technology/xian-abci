@@ -91,11 +91,15 @@ Queries the data at a given path in the state store
       - `value`: Hex-encoded value
 
 #### Keys in a Hash
-Retrieves the keys in a given hash
+Retrieves keys in a given hash with bounded pagination.
 
 ##### Request
 - Method: GET
-- URL: `/abci_query?path="/keys/<contract>.<hash>"`
+- URL: `/abci_query?path="/keys/<contract>.<hash>/limit=100/after=<last-key>"`
+
+##### Query Parameters
+- `limit`: Optional page size, capped server-side at `200`
+- `after`: Optional key suffix from the previous page's `next_after`
 
 ##### Response
 - Content-Type: application/json
@@ -104,7 +108,13 @@ Retrieves the keys in a given hash
   - `id`: The request ID
   - `result`: The query result
     - `response`: The response data
-      - `value`: Hex-encoded JSON string with keys
+      - `value`: Hex-encoded JSON object with:
+        - `prefix`: The queried hash prefix
+        - `items`: List of key suffixes for the current page
+        - `limit`: Effective page size
+        - `after`: Supplied cursor, if any
+        - `next_after`: Cursor for the next page, if more results remain
+        - `has_more`: Whether more matching keys remain after this page
 
 #### Deployed Contracts
 Retrieves the deployed contracts
@@ -186,4 +196,3 @@ Lints the code for a given contract
   - `result`: The query result
     - `response`: The response data
       - `value`: Hex-encoded JSON string with lint result
-

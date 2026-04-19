@@ -5,6 +5,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from aiohttp import web
+
 from xian.dashboard import cli
 from xian.dashboard.app import (
     SubscriptionManager,
@@ -15,6 +17,7 @@ from xian.dashboard.app import (
     handle_addresses,
     handle_contract,
     handle_validator_dashboard,
+    handle_ws,
     normalize_rpc_url,
 )
 
@@ -74,6 +77,54 @@ class DashboardTests(unittest.TestCase):
             set(manager.match_event("currency", "Transfer")),
             {event_client, wildcard_client},
         )
+
+    def test_subscription_manager_enforces_per_client_limits(self) -> None:
+        manager = SubscriptionManager(
+            max_state_subscriptions_per_client=1,
+            max_event_subscriptions_per_client=1,
+        )
+        client = object()
+        manager.add_client(client)
+
+        first_state = manager.handle_message(
+            client,
+            {
+                "action": "subscribe",
+                "type": "state",
+                "key": "currency.balances:*",
+            },
+        )
+        second_state = manager.handle_message(
+            client,
+            {
+                "action": "subscribe",
+                "type": "state",
+                "key": "currency.balances:bob",
+            },
+        )
+        first_event = manager.handle_message(
+            client,
+            {
+                "action": "subscribe",
+                "type": "event",
+                "contract": "currency",
+            },
+        )
+        second_event = manager.handle_message(
+            client,
+            {
+                "action": "subscribe",
+                "type": "event",
+                "contract": "rewards",
+            },
+        )
+
+        self.assertEqual(first_state["status"], "ok")
+        self.assertEqual(second_state["status"], "error")
+        self.assertIn("limit reached", second_state["message"])
+        self.assertEqual(first_event["status"], "ok")
+        self.assertEqual(second_event["status"], "error")
+        self.assertIn("limit reached", second_event["message"])
 
     def test_decode_block_tx_entry_attaches_canonical_tx_hash(self) -> None:
         tx = {
@@ -177,15 +228,45 @@ class DashboardTests(unittest.TestCase):
                     "127.0.0.1",
                     "--port",
                     "18080",
+                    "--max-ws-clients",
+                    "24",
+                    "--max-state-subs-per-client",
+                    "10",
+                    "--max-event-subs-per-client",
+                    "8",
+                    "--max-ws-message-bytes",
+                    "4096",
+                    "--max-ws-outbound-queue",
+                    "32",
                 ]
             )
 
         self.assertEqual(exit_code, 0)
-        create_app.assert_called_once_with("http://127.0.0.1:26657")
+        create_app.assert_called_once_with(
+            "http://127.0.0.1:26657",
+            max_ws_clients=24,
+            max_state_subscriptions_per_client=10,
+            max_event_subscriptions_per_client=8,
+            max_ws_message_bytes=4096,
+            max_ws_outbound_queue=32,
+        )
         run_app.assert_called_once()
 
 
 class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_handle_ws_rejects_connections_when_client_limit_reached(
+        self,
+    ) -> None:
+        request = SimpleNamespace(
+            app={
+                "ws_clients": {object()},
+                "max_ws_clients": 1,
+            }
+        )
+
+        with self.assertRaises(web.HTTPServiceUnavailable):
+            await handle_ws(request)
+
     async def test_handle_contract_separates_source_from_runtime_code(
         self,
     ) -> None:

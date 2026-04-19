@@ -376,6 +376,39 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.query.value, b"True")
 
+    async def test_keys_query_paginates_and_caps_results(self):
+        prefix = "paging.hash"
+        for account in ("alice", "bob", "carol"):
+            self.app.client.raw_driver.set(
+                f"{prefix}:{account}",
+                1,
+            )
+        self.app.client.raw_driver.commit()
+
+        first_page = await self.process_request(
+            Request(query=RequestQuery(path=f"/keys/{prefix}/limit=2"))
+        )
+        second_page = await self.process_request(
+            Request(
+                query=RequestQuery(
+                    path=f"/keys/{prefix}/limit=2/after=bob"
+                )
+            )
+        )
+
+        first_payload = json.loads(first_page.query.value)
+        second_payload = json.loads(second_page.query.value)
+
+        self.assertEqual(first_page.query.code, Constants.OkCode)
+        self.assertEqual(first_page.query.info, "dict")
+        self.assertEqual(first_payload["prefix"], prefix)
+        self.assertEqual(first_payload["items"], ["alice", "bob"])
+        self.assertEqual(first_payload["next_after"], "bob")
+        self.assertTrue(first_payload["has_more"])
+        self.assertEqual(second_payload["items"], ["carol"])
+        self.assertFalse(second_payload["has_more"])
+        self.assertIsNone(second_payload["next_after"])
+
     async def test_simulate_tx_query(self):
         payload = {
             "sender": "alice",

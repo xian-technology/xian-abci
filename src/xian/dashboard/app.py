@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import re
+from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -15,6 +16,21 @@ from loguru import logger
 
 STATIC_DIR = Path(__file__).parent / "static"
 LOCALNET_PORT_STRIDE = 100
+DEFAULT_MAX_WS_CLIENTS = 100
+DEFAULT_MAX_STATE_SUBSCRIPTIONS_PER_CLIENT = 64
+DEFAULT_MAX_EVENT_SUBSCRIPTIONS_PER_CLIENT = 32
+DEFAULT_MAX_WS_MESSAGE_BYTES = 64 * 1024
+DEFAULT_MAX_WS_OUTBOUND_QUEUE = 128
+
+
+def _normalized_positive_int(value: int, *, minimum: int = 1) -> int:
+    return max(int(value), minimum)
+
+
+@dataclass
+class _DashboardWsClientState:
+    outbound_queue: asyncio.Queue[str]
+    sender_task: asyncio.Task[None]
 
 
 def normalize_rpc_url(address: str) -> str:
@@ -291,11 +307,22 @@ class SubscriptionManager:
     Event subscriptions match on contract and optionally event name.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        max_state_subscriptions_per_client: int = DEFAULT_MAX_STATE_SUBSCRIPTIONS_PER_CLIENT,
+        max_event_subscriptions_per_client: int = DEFAULT_MAX_EVENT_SUBSCRIPTIONS_PER_CLIENT,
+    ):
         # ws -> set of state key patterns
         self._state_subs: dict[web.WebSocketResponse, set[str]] = {}
         # ws -> list of {"contract": pattern, "event": pattern | None}
         self._event_subs: dict[web.WebSocketResponse, list[dict]] = {}
+        self._max_state_subscriptions_per_client = _normalized_positive_int(
+            max_state_subscriptions_per_client
+        )
+        self._max_event_subscriptions_per_client = _normalized_positive_int(
+            max_event_subscriptions_per_client
+        )
 
     def add_client(self, ws: web.WebSocketResponse) -> None:
         self._state_subs[ws] = set()
@@ -334,7 +361,16 @@ class SubscriptionManager:
             key = data.get("key", "")
             if not key:
                 return {"status": "error", "message": "missing key"}
-            self._state_subs.setdefault(ws, set()).add(key)
+            subs = self._state_subs.setdefault(ws, set())
+            if (
+                key not in subs
+                and len(subs) >= self._max_state_subscriptions_per_client
+            ):
+                return {
+                    "status": "error",
+                    "message": "state subscription limit reached",
+                }
+            subs.add(key)
             return {
                 "status": "ok",
                 "action": "subscribe",
@@ -346,6 +382,14 @@ class SubscriptionManager:
             event = data.get("event")
             entry = {"contract": contract, "event": event}
             subs = self._event_subs.setdefault(ws, [])
+            if (
+                entry not in subs
+                and len(subs) >= self._max_event_subscriptions_per_client
+            ):
+                return {
+                    "status": "error",
+                    "message": "event subscription limit reached",
+                }
             if entry not in subs:
                 subs.append(entry)
             return {
@@ -578,10 +622,7 @@ async def _handle_tx_event(app: web.Application, event_data: dict) -> None:
                         }
                     )
                     for ws in matched:
-                        try:
-                            await ws.send_str(msg)
-                        except Exception:
-                            pass
+                        _queue_dashboard_ws_message(app, ws, msg)
         else:
             # Contract event — extract attributes
             attrs = {}
@@ -622,22 +663,94 @@ async def _handle_tx_event(app: web.Application, event_data: dict) -> None:
                     }
                 )
                 for ws in matched:
-                    try:
-                        await ws.send_str(msg)
-                    except Exception:
-                        pass
+                    _queue_dashboard_ws_message(app, ws, msg)
+
+
+async def _close_dashboard_ws_client(
+    app: web.Application,
+    ws: web.WebSocketResponse,
+    *,
+    close_code: int | None = None,
+    message: str = "",
+) -> None:
+    state = app.get("ws_client_states", {}).pop(ws, None)
+    subs: SubscriptionManager | None = app.get("subscriptions")
+    if subs is not None:
+        subs.remove_client(ws)
+    app.get("ws_clients", set()).discard(ws)
+
+    if state is not None:
+        sender_task = state.sender_task
+        if (
+            sender_task is not asyncio.current_task()
+            and not sender_task.done()
+        ):
+            sender_task.cancel()
+            try:
+                await sender_task
+            except asyncio.CancelledError:
+                pass
+
+    if close_code is not None and not ws.closed:
+        try:
+            encoded_message = message.encode("utf-8") if message else b""
+            await ws.close(code=close_code, message=encoded_message)
+        except Exception:
+            pass
+
+
+async def _dashboard_ws_sender(
+    app: web.Application,
+    ws: web.WebSocketResponse,
+    outbound_queue: asyncio.Queue[str],
+) -> None:
+    try:
+        while True:
+            message = await outbound_queue.get()
+            await ws.send_str(message)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.debug("Dashboard WS sender closed")
+        await _close_dashboard_ws_client(
+            app,
+            ws,
+            close_code=web.WSCloseCode.GOING_AWAY,
+            message="send failed",
+        )
+
+
+def _queue_dashboard_ws_message(
+    app: web.Application,
+    ws: web.WebSocketResponse,
+    message: str,
+) -> bool:
+    state: _DashboardWsClientState | None = app.get(
+        "ws_client_states", {}
+    ).get(ws)
+    if state is None:
+        return False
+
+    try:
+        state.outbound_queue.put_nowait(message)
+        return True
+    except asyncio.QueueFull:
+        logger.warning("Disconnecting dashboard WS client with full queue")
+        asyncio.create_task(
+            _close_dashboard_ws_client(
+                app,
+                ws,
+                close_code=web.WSCloseCode.TRY_AGAIN_LATER,
+                message="client backlog exceeded",
+            )
+        )
+        return False
 
 
 async def _broadcast(app: web.Application, message: str) -> None:
     """Send a message to all connected browser WS clients."""
-    closed = []
     for ws in set(app["ws_clients"]):
-        try:
-            await ws.send_str(message)
-        except Exception:
-            closed.append(ws)
-    for ws in closed:
-        app["ws_clients"].discard(ws)
+        _queue_dashboard_ws_message(app, ws, message)
 
 
 async def _broadcast_status(app: web.Application, status: str) -> None:
@@ -649,12 +762,30 @@ async def _broadcast_status(app: web.Application, status: str) -> None:
 
 
 async def handle_ws(request: web.Request) -> web.WebSocketResponse:
-    ws = web.WebSocketResponse(heartbeat=25.0)
+    if len(request.app["ws_clients"]) >= request.app["max_ws_clients"]:
+        raise web.HTTPServiceUnavailable(
+            text="dashboard websocket client limit reached"
+        )
+
+    ws = web.WebSocketResponse(
+        heartbeat=25.0,
+        max_msg_size=request.app["max_ws_message_bytes"],
+    )
     await ws.prepare(request)
 
     subs: SubscriptionManager = request.app["subscriptions"]
     request.app["ws_clients"].add(ws)
     subs.add_client(ws)
+    state = _DashboardWsClientState(
+        outbound_queue=asyncio.Queue(
+            maxsize=request.app["max_ws_outbound_queue"]
+        ),
+        sender_task=None,
+    )
+    state.sender_task = asyncio.create_task(
+        _dashboard_ws_sender(request.app, ws, state.outbound_queue)
+    )
+    request.app["ws_client_states"][ws] = state
     logger.debug(
         f"Browser WS connected ({len(request.app['ws_clients'])} total)"
     )
@@ -666,22 +797,30 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                     data = json.loads(msg.data)
                     if "action" in data:
                         response = subs.handle_message(ws, data)
-                        await ws.send_str(json.dumps(response))
+                        if not _queue_dashboard_ws_message(
+                            request.app, ws, json.dumps(response)
+                        ):
+                            break
                 except json.JSONDecodeError:
-                    await ws.send_str(
+                    if not _queue_dashboard_ws_message(
+                        request.app,
+                        ws,
                         json.dumps(
                             {"status": "error", "message": "invalid JSON"}
-                        )
-                    )
+                        ),
+                    ):
+                        break
                 except Exception as exc:
-                    await ws.send_str(
-                        json.dumps({"status": "error", "message": str(exc)})
-                    )
+                    if not _queue_dashboard_ws_message(
+                        request.app,
+                        ws,
+                        json.dumps({"status": "error", "message": str(exc)}),
+                    ):
+                        break
             elif msg.type == aiohttp.WSMsgType.ERROR:
                 break
     finally:
-        subs.remove_client(ws)
-        request.app["ws_clients"].discard(ws)
+        await _close_dashboard_ws_client(request.app, ws)
         logger.debug(
             f"Browser WS disconnected ({len(request.app['ws_clients'])} total)"
         )
@@ -1202,7 +1341,15 @@ async def handle_monitoring(request: web.Request) -> web.Response:
 async def _on_startup(app: web.Application) -> None:
     app["session"] = aiohttp.ClientSession()
     app["ws_clients"] = set()
-    app["subscriptions"] = SubscriptionManager()
+    app["ws_client_states"] = {}
+    app["subscriptions"] = SubscriptionManager(
+        max_state_subscriptions_per_client=app[
+            "max_state_subscriptions_per_client"
+        ],
+        max_event_subscriptions_per_client=app[
+            "max_event_subscriptions_per_client"
+        ],
+    )
     app["_subscriber_task"] = asyncio.create_task(_cometbft_subscriber(app))
 
 
@@ -1216,18 +1363,43 @@ async def _on_cleanup(app: web.Application) -> None:
             pass
 
     for ws in set(app.get("ws_clients", set())):
-        await ws.close()
+        await _close_dashboard_ws_client(
+            app,
+            ws,
+            close_code=web.WSCloseCode.GOING_AWAY,
+            message="dashboard shutdown",
+        )
 
     await app["session"].close()
 
 
 def create_app(
     cometbft_rpc_url: str = "http://127.0.0.1:26657",
+    *,
+    max_ws_clients: int = DEFAULT_MAX_WS_CLIENTS,
+    max_state_subscriptions_per_client: int = DEFAULT_MAX_STATE_SUBSCRIPTIONS_PER_CLIENT,
+    max_event_subscriptions_per_client: int = DEFAULT_MAX_EVENT_SUBSCRIPTIONS_PER_CLIENT,
+    max_ws_message_bytes: int = DEFAULT_MAX_WS_MESSAGE_BYTES,
+    max_ws_outbound_queue: int = DEFAULT_MAX_WS_OUTBOUND_QUEUE,
 ) -> web.Application:
     normalized_rpc_url = normalize_rpc_url(cometbft_rpc_url)
     app = web.Application()
     app["rpc_url"] = normalized_rpc_url
     app["ws_url"] = _build_ws_url(normalized_rpc_url)
+    app["max_ws_clients"] = _normalized_positive_int(max_ws_clients)
+    app["max_state_subscriptions_per_client"] = _normalized_positive_int(
+        max_state_subscriptions_per_client
+    )
+    app["max_event_subscriptions_per_client"] = _normalized_positive_int(
+        max_event_subscriptions_per_client
+    )
+    app["max_ws_message_bytes"] = _normalized_positive_int(
+        max_ws_message_bytes,
+        minimum=1024,
+    )
+    app["max_ws_outbound_queue"] = _normalized_positive_int(
+        max_ws_outbound_queue
+    )
 
     app.on_startup.append(_on_startup)
     app.on_cleanup.append(_on_cleanup)
@@ -1262,8 +1434,21 @@ async def start_dashboard(
     host: str = "127.0.0.1",
     port: int = 8080,
     cometbft_rpc_url: str = "http://127.0.0.1:26657",
+    *,
+    max_ws_clients: int = DEFAULT_MAX_WS_CLIENTS,
+    max_state_subscriptions_per_client: int = DEFAULT_MAX_STATE_SUBSCRIPTIONS_PER_CLIENT,
+    max_event_subscriptions_per_client: int = DEFAULT_MAX_EVENT_SUBSCRIPTIONS_PER_CLIENT,
+    max_ws_message_bytes: int = DEFAULT_MAX_WS_MESSAGE_BYTES,
+    max_ws_outbound_queue: int = DEFAULT_MAX_WS_OUTBOUND_QUEUE,
 ) -> web.AppRunner:
-    app = create_app(cometbft_rpc_url)
+    app = create_app(
+        cometbft_rpc_url,
+        max_ws_clients=max_ws_clients,
+        max_state_subscriptions_per_client=max_state_subscriptions_per_client,
+        max_event_subscriptions_per_client=max_event_subscriptions_per_client,
+        max_ws_message_bytes=max_ws_message_bytes,
+        max_ws_outbound_queue=max_ws_outbound_queue,
+    )
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host, port)

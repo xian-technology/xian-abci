@@ -7,6 +7,9 @@ from xian.constants import Constants as c
 from xian.utils.block import get_latest_block_height
 from xian.utils.encoding import encode_abci_json, encode_str
 
+DEFAULT_KEYS_QUERY_LIMIT = 100
+MAX_KEYS_QUERY_LIMIT = 200
+
 
 def _query_params(path_parts: list[str]) -> dict[str, str]:
     params: dict[str, str] = {}
@@ -28,6 +31,46 @@ def _submission_iso(value) -> str | None:
                 f"{int(hour):02d}:{int(minute):02d}:{int(second):02d}Z"
             )
     return None
+
+
+def _bounded_int_param(
+    params: dict[str, str],
+    key: str,
+    *,
+    default: int,
+    minimum: int = 0,
+    maximum: int | None = None,
+) -> int:
+    try:
+        value = int(params.get(key, default))
+    except (TypeError, ValueError):
+        value = default
+    value = max(minimum, value)
+    if maximum is not None:
+        value = min(value, maximum)
+    return value
+
+
+def _keys_query_after_key(prefix: str, after: str | None) -> str | None:
+    if after is None:
+        return None
+    normalized = str(after).strip()
+    if not normalized:
+        return None
+    if normalized.startswith(prefix):
+        return normalized
+    delimiter = "" if prefix.endswith(":") else ":"
+    return f"{prefix}{delimiter}{normalized}"
+
+
+def _keys_query_suffix(prefix: str, full_key: str) -> str:
+    delimiter = "" if prefix.endswith(":") else ":"
+    prefix_with_delimiter = f"{prefix}{delimiter}"
+    if full_key.startswith(prefix_with_delimiter):
+        return full_key[len(prefix_with_delimiter) :]
+    if full_key.startswith(prefix):
+        return full_key[len(prefix) :].lstrip(":")
+    return full_key
 
 
 def _sort_contract_records(
@@ -314,6 +357,37 @@ async def query(self, req) -> ResponseQuery:
                 int(path_parts[1])
             )
 
+        # http://localhost:26657/abci_query?path="/keys/currency.balances/limit=100/after=alice"
+        elif path_parts[0] == "keys":
+            prefix = path_parts[1]
+            limit = _bounded_int_param(
+                params,
+                "limit",
+                default=DEFAULT_KEYS_QUERY_LIMIT,
+                minimum=1,
+                maximum=MAX_KEYS_QUERY_LIMIT,
+            )
+            after = params.get("after")
+            full_after_key = _keys_query_after_key(prefix, after)
+            list_of_keys, has_more = self.client.raw_driver.scan_keys_from_disk(
+                prefix,
+                limit=limit,
+                after_key=full_after_key,
+            )
+            items = [
+                _keys_query_suffix(prefix, full_key)
+                for full_key in list_of_keys
+            ]
+            result = {
+                "prefix": prefix,
+                "items": items,
+                "limit": limit,
+                "after": after if after else None,
+                "next_after": items[-1] if has_more and items else None,
+                "has_more": has_more,
+            }
+            key = prefix
+
         # Blockchain Data Service
         elif self.block_service_mode:
             if not hasattr(self, "bds"):
@@ -356,14 +430,8 @@ async def query(self, req) -> ResponseQuery:
                 except (ValueError, TypeError):
                     after_note_index = 0
 
-            # http://localhost:26657/abci_query?path="/keys/currency.balances"
-            if path_parts[0] == "keys":
-                list_of_keys = self.client.raw_driver.keys(path_parts[1])
-                result = [key.split(":")[1] for key in list_of_keys]
-                key = path_parts[1]
-
             # http://localhost:26657/abci_query?path="/blocks/limit=10/offset=20"
-            elif path_parts[0] == "blocks":
+            if path_parts[0] == "blocks":
                 result = await self.bds.get_blocks(limit, offset)
 
             # http://localhost:26657/abci_query?path="/bds_status"
