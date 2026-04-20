@@ -172,7 +172,11 @@ class TxProcessor:
                 )
 
     def execute_tx(
-        self, transaction, chi_cost, environment: dict = {}, metering=False
+        self,
+        transaction,
+        chi_cost,
+        environment: dict | None = None,
+        metering=False,
     ):
         execution_runtime = getattr(
             self,
@@ -182,6 +186,7 @@ class TxProcessor:
                 tracer_mode="python_line_v1",
             ),
         )
+        resolved_environment = environment or {}
         if self.trace_logging:
             logger.bind(
                 **build_log_fields(
@@ -228,7 +233,7 @@ class TxProcessor:
                     transaction=transaction,
                     kwargs=converted_kwargs,
                     chi_cost=chi_cost,
-                    environment=environment,
+                    environment=resolved_environment,
                     metering=metering,
                 )
             track_driver_output = getattr(
@@ -250,7 +255,7 @@ class TxProcessor:
                 chi=transaction["payload"]["chi_supplied"],
                 chi_cost=chi_cost,
                 kwargs=converted_kwargs,
-                environment=environment,
+                environment=resolved_environment,
                 auto_commit=False,
                 metering=metering,
                 transaction_size_bytes=canonical_transaction_size_bytes(
@@ -282,7 +287,7 @@ class TxProcessor:
                     contract_name=transaction["payload"]["contract"],
                     function_name=transaction["payload"]["function"],
                     kwargs=converted_kwargs,
-                    environment=environment,
+                    environment=resolved_environment,
                     meter=metering,
                     chi_budget=transaction["payload"]["chi_supplied"],
                     transaction_size_bytes=canonical_transaction_size_bytes(
@@ -315,7 +320,7 @@ class TxProcessor:
                         sender=transaction["payload"]["sender"],
                         nonce=transaction["payload"].get("nonce"),
                         tx_hash=tx_hash_from_tx(transaction),
-                        block_height=environment.get("block_num"),
+                        block_height=resolved_environment.get("block_num"),
                         mismatches=mismatches,
                     )
                 if mismatches:

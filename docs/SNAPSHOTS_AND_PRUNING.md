@@ -1,10 +1,11 @@
 # Snapshots And Pruning
 
-Xian now supports two different snapshot workflows, and they solve different
+`xian-abci` now has three separate snapshot workflows, and they solve different
 problems:
 
 1. full-home archive restore
 2. CometBFT state sync with Xian application snapshots
+3. BDS snapshot export/import for indexed Postgres state
 
 ## Full-Home Archive Restore
 
@@ -29,8 +30,8 @@ Important properties:
 
 ## CometBFT State Sync Snapshots
 
-Xian now also implements the ABCI snapshot lifecycle required for CometBFT
-state sync:
+Xian also implements the ABCI snapshot lifecycle required for CometBFT state
+sync:
 
 - `list_snapshots`
 - `offer_snapshot`
@@ -55,6 +56,9 @@ On import, Xian rebuilds:
 - LMDB state
 - nonce keys
 - latest block height/hash metadata
+
+Imported or exported application snapshots can then be served back to peers
+through the CometBFT snapshot lifecycle.
 
 ## Operator Tooling
 
@@ -87,6 +91,29 @@ The current implementation is intentionally conservative:
 - no automatic periodic snapshot generation yet
 
 This keeps the application state-sync path explicit and auditable.
+
+## BDS Snapshots
+
+BDS snapshots are a separate operator tool for the indexed Postgres state.
+They are not used by CometBFT state sync and they do not replace LMDB or full
+node-home restore.
+
+Use the dedicated BDS snapshot CLI:
+
+```bash
+uv run xian-bds-snapshot export
+uv run xian-bds-snapshot export --output-path ./xian-bds-snapshot.tar.gz
+uv run xian-bds-snapshot import --input-path ./xian-bds-snapshot.tar.gz
+uv run xian-bds-snapshot import --input-path ./xian-bds-snapshot.tar.gz --clear-spool
+```
+
+Important properties:
+
+- exports and imports the BDS schema and indexed chain data
+- helps bootstrap or recover the local index faster
+- validates imported indexed-head metadata against a trusted RPC block source
+- can optionally clear the local spool before import
+- does not affect consensus or the application snapshot lifecycle
 
 ## Pruning
 

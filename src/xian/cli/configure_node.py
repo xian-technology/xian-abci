@@ -7,10 +7,18 @@ from contracting.execution.tracer import SUPPORTED_TRACER_MODES
 
 from xian.execution_policy import SUPPORTED_EXECUTION_ENGINE_MODES
 from xian.genesis_builder import build_bundle_network_genesis
-from xian.node_admin import configure_existing_home
+from xian.node_admin import ExistingHomeOptions, configure_existing_home
 from xian.node_setup import (
     SUPPORTED_APP_LOG_LEVELS,
     SUPPORTED_BLOCK_POLICY_MODES,
+    AppLoggingOptions,
+    BdsOptions,
+    ExecutionOptions,
+    MetricsOptions,
+    NodeConfigOptions,
+    ParallelExecutionOptions,
+    SimulationOptions,
+    StateSyncOptions,
 )
 
 
@@ -230,16 +238,6 @@ def build_parser() -> ArgumentParser:
         help=(
             "authoritative executor for xian_vm_v1; only 'native' is "
             "supported on the VM-native branch"
-        ),
-        required=False,
-        default="",
-    )
-    parser.add_argument(
-        "--execution-shadow-tracer-mode",
-        choices=sorted(SUPPORTED_TRACER_MODES),
-        help=(
-            "legacy rollout option for older VM branches; xian_vm_v1 on "
-            "this branch rejects shadow_tracer_mode"
         ),
         required=False,
         default="",
@@ -495,70 +493,88 @@ def main(argv: list[str] | None = None) -> int:
             genesis_time=args.genesis_time,
         )
     result = configure_existing_home(
-        moniker=args.moniker,
-        validator_private_key_hex=args.validator_privkey,
-        allow_cors=args.allow_cors,
-        seed_node=args.seed_node,
-        seed_node_address=args.seed_node_address,
-        snapshot_url=args.snapshot_url,
-        snapshot_signing_public_keys=args.snapshot_signing_key,
-        snapshot_expected_chain_id=args.snapshot_expected_chain_id,
-        copy_genesis=args.copy_genesis,
-        genesis_source=args.genesis_source,
-        genesis_payload=genesis_payload,
-        prometheus=args.prometheus,
-        service_node=args.service_node,
-        enable_pruning=args.enable_pruning,
-        blocks_to_keep=args.blocks_to_keep,
-        block_policy_mode=args.block_policy_mode,
-        block_policy_interval=args.block_policy_interval,
-        statesync_enable=args.statesync_enable,
-        statesync_rpc_servers=args.statesync_rpc_server,
-        statesync_trust_height=args.statesync_trust_height,
-        statesync_trust_hash=args.statesync_trust_hash,
-        statesync_trust_period=args.statesync_trust_period,
-        tracer_mode=args.tracer_mode,
-        execution_mode=args.execution_mode,
-        execution_bytecode_version=args.execution_bytecode_version,
-        execution_gas_schedule=args.execution_gas_schedule,
-        execution_authority=args.execution_authority,
-        execution_shadow_tracer_mode=args.execution_shadow_tracer_mode,
-        metrics_enabled=args.metrics_enabled,
-        metrics_host=args.metrics_host,
-        metrics_port=args.metrics_port,
-        metrics_bds_refresh_seconds=args.metrics_bds_refresh_seconds,
-        transaction_trace_logging=args.transaction_trace_logging,
-        app_log_level=args.app_log_level,
-        app_log_json=args.app_log_json,
-        app_log_rotation_hours=args.app_log_rotation_hours,
-        app_log_retention_days=args.app_log_retention_days,
-        simulation_enabled=args.simulation_enabled,
-        simulation_max_concurrency=args.simulation_max_concurrency,
-        simulation_timeout_ms=args.simulation_timeout_ms,
-        simulation_max_chi=args.simulation_max_chi,
-        parallel_execution_enabled=args.parallel_execution_enabled,
-        parallel_execution_workers=args.parallel_execution_workers,
-        parallel_execution_min_transactions=(
-            args.parallel_execution_min_transactions
-        ),
-        pending_nonce_reservation_ttl_seconds=(
-            args.pending_nonce_reservation_ttl_seconds
-        ),
-        max_pending_nonces_per_sender=args.max_pending_nonces_per_sender,
-        bds_dsn=args.bds_dsn,
-        bds_host=args.bds_host,
-        bds_port=args.bds_port,
-        bds_database=args.bds_database,
-        bds_user=args.bds_user,
-        bds_password=args.bds_password,
-        bds_pool_min_size=args.bds_pool_min_size,
-        bds_pool_max_size=args.bds_pool_max_size,
-        bds_statement_timeout_ms=args.bds_statement_timeout_ms,
-        bds_application_name=args.bds_application_name,
-        bds_spool_dir=args.bds_spool_dir,
-        bds_spool_warn_entries=args.bds_spool_warn_entries,
-        bds_spool_warn_bytes=args.bds_spool_warn_bytes,
-        bds_disk_free_warn_bytes=args.bds_disk_free_warn_bytes,
+        options=ExistingHomeOptions(
+            moniker=args.moniker,
+            validator_private_key_hex=args.validator_privkey,
+            seed_node=args.seed_node,
+            seed_node_address=args.seed_node_address,
+            snapshot_url=args.snapshot_url,
+            snapshot_signing_public_keys=tuple(args.snapshot_signing_key or ()),
+            snapshot_expected_chain_id=args.snapshot_expected_chain_id,
+            copy_genesis=args.copy_genesis,
+            genesis_source=args.genesis_source,
+            genesis_payload=genesis_payload,
+            node_config=NodeConfigOptions(
+                moniker=args.moniker,
+                allow_cors=args.allow_cors,
+                service_node=args.service_node,
+                enable_pruning=args.enable_pruning,
+                blocks_to_keep=args.blocks_to_keep,
+                transaction_trace_logging=args.transaction_trace_logging,
+                block_policy_mode=args.block_policy_mode,
+                block_policy_interval=args.block_policy_interval,
+                statesync=StateSyncOptions(
+                    enable=args.statesync_enable,
+                    rpc_servers=tuple(args.statesync_rpc_server or ()),
+                    trust_height=args.statesync_trust_height,
+                    trust_hash=args.statesync_trust_hash,
+                    trust_period=args.statesync_trust_period,
+                ),
+                execution=ExecutionOptions(
+                    tracer_mode=args.tracer_mode,
+                    mode=args.execution_mode,
+                    bytecode_version=args.execution_bytecode_version,
+                    gas_schedule=args.execution_gas_schedule,
+                    authority=args.execution_authority,
+                ),
+                metrics=MetricsOptions(
+                    enabled=args.metrics_enabled,
+                    host=args.metrics_host,
+                    port=args.metrics_port,
+                    bds_refresh_seconds=args.metrics_bds_refresh_seconds,
+                ),
+                app_logging=AppLoggingOptions(
+                    level=args.app_log_level,
+                    json_logging=args.app_log_json,
+                    rotation_hours=args.app_log_rotation_hours,
+                    retention_days=args.app_log_retention_days,
+                ),
+                simulation=SimulationOptions(
+                    enabled=args.simulation_enabled,
+                    max_concurrency=args.simulation_max_concurrency,
+                    timeout_ms=args.simulation_timeout_ms,
+                    max_chi=args.simulation_max_chi,
+                ),
+                parallel_execution=ParallelExecutionOptions(
+                    enabled=args.parallel_execution_enabled,
+                    workers=args.parallel_execution_workers,
+                    min_transactions=args.parallel_execution_min_transactions,
+                ),
+                pending_nonce_reservation_ttl_seconds=(
+                    args.pending_nonce_reservation_ttl_seconds
+                ),
+                max_pending_nonces_per_sender=(
+                    args.max_pending_nonces_per_sender
+                ),
+                bds=BdsOptions(
+                    dsn=args.bds_dsn,
+                    host=args.bds_host,
+                    port=args.bds_port,
+                    database=args.bds_database,
+                    user=args.bds_user,
+                    password=args.bds_password,
+                    pool_min_size=args.bds_pool_min_size,
+                    pool_max_size=args.bds_pool_max_size,
+                    statement_timeout_ms=args.bds_statement_timeout_ms,
+                    application_name=args.bds_application_name,
+                    spool_dir=args.bds_spool_dir,
+                    spool_warn_entries=args.bds_spool_warn_entries,
+                    spool_warn_bytes=args.bds_spool_warn_bytes,
+                    disk_free_warn_bytes=args.bds_disk_free_warn_bytes,
+                ),
+                prometheus=args.prometheus,
+            ),
+        )
     )
     print("Make sure that port 26657 is open for the REST API")
     print("Make sure that port 26656 is open for P2P Node communication")

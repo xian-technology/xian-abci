@@ -61,7 +61,6 @@ def _get_worker_runtime(
         execution_runtime.bytecode_version,
         execution_runtime.gas_schedule,
         execution_runtime.authority,
-        execution_runtime.shadow_tracer_mode,
         execution_runtime.native_authoritative,
     )
     runtime = _WORKER_RUNTIMES.get(key)

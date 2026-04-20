@@ -54,7 +54,7 @@ class ExecutionPolicyTests(unittest.TestCase):
 
         self.assertEqual(policy.mode, "native_instruction_v1")
 
-    def test_load_execution_policy_rejects_mismatched_legacy_mode(self):
+    def test_load_execution_policy_rejects_mismatched_tracer_mode(self):
         with self.assertRaisesRegex(ValueError, "must match"):
             load_execution_policy(
                 {
@@ -77,16 +77,21 @@ class ExecutionPolicyTests(unittest.TestCase):
 
         self.assertEqual(policy.mode, "xian_vm_v1")
         self.assertEqual(policy.authority, "native")
-        self.assertEqual(policy.shadow_tracer_mode, "")
 
-    def test_resolve_future_mode_rejects_shadow_tracer_mode(self):
-        with self.assertRaisesRegex(ValueError, "no longer supports shadow_tracer_mode"):
-            resolve_execution_policy(
-                mode="xian_vm_v1",
+    def test_load_execution_policy_rejects_removed_shadow_tracer_mode(self):
+        with self.assertRaisesRegex(ValueError, "shadow_tracer_mode"):
+            load_execution_policy(
+                {
+                    "execution": {
+                        "engine": {
+                            "mode": "xian_vm_v1",
+                            "bytecode_version": "xvm-1",
+                            "gas_schedule": "xvm-gas-1",
+                            "shadow_tracer_mode": "python_line_v1",
+                        }
+                    }
+                },
                 allow_future=True,
-                bytecode_version="xvm-1",
-                gas_schedule="xvm-gas-1",
-                shadow_tracer_mode="not-a-tracer",
             )
 
     def test_resolve_future_mode_rejects_invalid_authority(self):

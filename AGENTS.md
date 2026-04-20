@@ -15,7 +15,7 @@
 - `src/xian/methods/`: ABCI request handlers.
 - `src/xian/services/`: background services such as simulator and BDS support.
 - `src/xian/cli/`: backend and developer entrypoints that wrap importable
-  helpers without living in legacy `tools/`.
+  helpers without living in script-only `tools/`.
 - `src/xian/node_setup.py`: reusable CometBFT home and config helpers.
 - `src/xian/node_admin.py`: importable helpers for configuring an initialized
   CometBFT home and applying snapshots.
@@ -35,8 +35,8 @@
   network creation support, add it as importable logic under `src/xian/`
   rather than as committed chain data. Local-network helpers may support one or
   more initial validators; keep that logic data-driven.
-- Treat `xian-configs` as the source of truth for committed legacy chain
-  fixtures. See `docs/LEGACY_CHAIN_ASSETS.md`.
+- Treat `xian-configs` as the source of truth for committed chain assets and
+  fixtures. See `docs/CHAIN_ASSETS.md`.
 - Changes to contract execution semantics usually belong in `xian-contracting`, not here.
 - Container lifecycle or Compose changes belong in `xian-stack`, even when they are needed to run this repo.
 

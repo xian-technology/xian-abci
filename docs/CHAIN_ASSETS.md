@@ -11,14 +11,9 @@ Active network assets now live in `xian-configs`:
 - `networks/<name>/genesis.json`
 - `contracts/`
 
-The old `legacy/` tree remains only as archival material. Runtime code should
-prefer the canonical network and contract paths.
-
 ## Policy
 
 - Do not add chain-specific genesis files, seed lists, snapshots, or product
   network metadata to `xian-abci`.
 - Keep genesis resolution and contract loading pointed at canonical paths in
   `xian-configs`.
-- Treat `legacy/` content in `xian-configs` as archive material, not a primary
-  runtime input.

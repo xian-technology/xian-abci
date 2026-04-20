@@ -14,6 +14,8 @@ import aiohttp
 from aiohttp import web
 from loguru import logger
 
+from xian.utils.cometbft import normalize_rpc_url
+
 STATIC_DIR = Path(__file__).parent / "static"
 LOCALNET_PORT_STRIDE = 100
 DEFAULT_MAX_WS_CLIENTS = 100
@@ -31,13 +33,6 @@ def _normalized_positive_int(value: int, *, minimum: int = 1) -> int:
 class _DashboardWsClientState:
     outbound_queue: asyncio.Queue[str]
     sender_task: asyncio.Task[None]
-
-
-def normalize_rpc_url(address: str) -> str:
-    if address.startswith(("http://", "https://")):
-        return address.rstrip("/")
-    addr = address.replace("tcp://", "").replace("unix://", "")
-    return f"http://{addr.rstrip('/')}"
 
 
 def _build_ws_url(rpc_url: str) -> str:

@@ -22,7 +22,6 @@ class ExecutionRuntime:
     bytecode_version: str = ""
     gas_schedule: str = ""
     authority: str = ""
-    shadow_tracer_mode: str = ""
     native_runtime_info: dict[str, Any] | None = None
     supports_transaction_execution: bool = True
     shadow_execution: bool = False
@@ -241,11 +240,6 @@ def build_execution_runtime(policy: ExecutionPolicy) -> ExecutionRuntime:
         )
     if policy.authority and policy.authority != "native":
         raise ValueError("xian_vm_v1 authority must be 'native'")
-    if policy.shadow_tracer_mode:
-        raise ValueError(
-            "xian_vm_v1 no longer supports shadow_tracer_mode; "
-            "native execution is authoritative"
-        )
 
     return ExecutionRuntime(
         mode=policy.mode,
@@ -253,7 +247,6 @@ def build_execution_runtime(policy: ExecutionPolicy) -> ExecutionRuntime:
         bytecode_version=policy.bytecode_version,
         gas_schedule=policy.gas_schedule,
         authority="native",
-        shadow_tracer_mode="",
         native_runtime_info=runtime_info,
         supports_transaction_execution=True,
         shadow_execution=False,

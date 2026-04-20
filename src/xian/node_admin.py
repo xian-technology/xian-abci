@@ -5,6 +5,7 @@ import json
 import shutil
 import tarfile
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from time import sleep
 from typing import Any
@@ -20,6 +21,14 @@ from xian.node_setup import (
     DEFAULT_PARALLEL_EXECUTION_ENABLED,
     DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
     DEFAULT_PARALLEL_EXECUTION_WORKERS,
+    AppLoggingOptions,
+    BdsOptions,
+    ExecutionOptions,
+    MetricsOptions,
+    NodeConfigOptions,
+    ParallelExecutionOptions,
+    SimulationOptions,
+    StateSyncOptions,
     build_priv_validator_key,
     render_cometbft_config,
     write_json,
@@ -43,6 +52,22 @@ _NESTED_CONFIG_KEYS_TO_PRESERVE = (
     ("rpc", "laddr"),
     ("p2p", "laddr"),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class ExistingHomeOptions:
+    moniker: str
+    validator_private_key_hex: str | None = None
+    home: Path = c.COMETBFT_HOME
+    seed_node: str | None = None
+    seed_node_address: str | None = None
+    snapshot_url: str | None = None
+    snapshot_signing_public_keys: tuple[str, ...] = ()
+    snapshot_expected_chain_id: str | None = None
+    copy_genesis: bool = False
+    genesis_source: str | None = None
+    genesis_payload: dict[str, Any] | None = None
+    node_config: NodeConfigOptions | None = None
 
 
 def load_existing_cometbft_config(
@@ -325,8 +350,9 @@ def resolve_home_relative_path(home: Path, configured_path: str) -> Path:
 
 def configure_existing_home(
     *,
-    moniker: str,
-    validator_private_key_hex: str | None,
+    options: ExistingHomeOptions | None = None,
+    moniker: str | None = None,
+    validator_private_key_hex: str | None = None,
     home: Path = c.COMETBFT_HOME,
     allow_cors: bool = True,
     seed_node: str | None = None,
@@ -353,7 +379,6 @@ def configure_existing_home(
     execution_bytecode_version: str = "",
     execution_gas_schedule: str = "",
     execution_authority: str = "",
-    execution_shadow_tracer_mode: str = "",
     metrics_enabled: bool = True,
     metrics_host: str = "127.0.0.1",
     metrics_port: int = 9108,
@@ -389,92 +414,161 @@ def configure_existing_home(
     bds_spool_warn_bytes: int = 536_870_912,
     bds_disk_free_warn_bytes: int = 2_147_483_648,
 ) -> dict[str, str | list[str] | None]:
-    config_path = home / "config" / "config.toml"
+    if options is None:
+        if moniker is None:
+            raise TypeError("moniker is required when options is not provided")
+        node_config = NodeConfigOptions(
+            moniker=moniker,
+            allow_cors=allow_cors,
+            service_node=service_node,
+            enable_pruning=enable_pruning,
+            blocks_to_keep=blocks_to_keep,
+            transaction_trace_logging=transaction_trace_logging,
+            block_policy_mode=block_policy_mode,
+            block_policy_interval=block_policy_interval,
+            statesync=StateSyncOptions(
+                enable=statesync_enable,
+                rpc_servers=tuple(statesync_rpc_servers or ()),
+                trust_height=statesync_trust_height,
+                trust_hash=statesync_trust_hash,
+                trust_period=statesync_trust_period,
+            ),
+            execution=ExecutionOptions(
+                tracer_mode=tracer_mode,
+                mode=execution_mode,
+                bytecode_version=execution_bytecode_version,
+                gas_schedule=execution_gas_schedule,
+                authority=execution_authority,
+            ),
+            metrics=MetricsOptions(
+                enabled=metrics_enabled,
+                host=metrics_host,
+                port=metrics_port,
+                bds_refresh_seconds=metrics_bds_refresh_seconds,
+            ),
+            app_logging=AppLoggingOptions(
+                level=app_log_level,
+                json_logging=app_log_json,
+                rotation_hours=app_log_rotation_hours,
+                retention_days=app_log_retention_days,
+            ),
+            simulation=SimulationOptions(
+                enabled=simulation_enabled,
+                max_concurrency=simulation_max_concurrency,
+                timeout_ms=simulation_timeout_ms,
+                max_chi=simulation_max_chi,
+            ),
+            parallel_execution=ParallelExecutionOptions(
+                enabled=parallel_execution_enabled,
+                workers=parallel_execution_workers,
+                min_transactions=parallel_execution_min_transactions,
+            ),
+            pending_nonce_reservation_ttl_seconds=(
+                pending_nonce_reservation_ttl_seconds
+            ),
+            max_pending_nonces_per_sender=max_pending_nonces_per_sender,
+            bds=BdsOptions(
+                dsn=bds_dsn,
+                host=bds_host,
+                port=bds_port,
+                database=bds_database,
+                user=bds_user,
+                password=bds_password,
+                pool_min_size=bds_pool_min_size,
+                pool_max_size=bds_pool_max_size,
+                statement_timeout_ms=bds_statement_timeout_ms,
+                application_name=bds_application_name,
+                spool_dir=bds_spool_dir,
+                spool_warn_entries=bds_spool_warn_entries,
+                spool_warn_bytes=bds_spool_warn_bytes,
+                disk_free_warn_bytes=bds_disk_free_warn_bytes,
+            ),
+            prometheus=prometheus,
+        )
+        options = ExistingHomeOptions(
+            moniker=moniker,
+            validator_private_key_hex=validator_private_key_hex,
+            home=home,
+            seed_node=seed_node,
+            seed_node_address=seed_node_address,
+            snapshot_url=snapshot_url,
+            snapshot_signing_public_keys=tuple(
+                snapshot_signing_public_keys or ()
+            ),
+            snapshot_expected_chain_id=snapshot_expected_chain_id,
+            copy_genesis=copy_genesis,
+            genesis_source=genesis_source,
+            genesis_payload=genesis_payload,
+            node_config=node_config,
+        )
+
+    request = options
+    node_config = request.node_config or NodeConfigOptions(
+        moniker=request.moniker
+    )
+    config_path = request.home / "config" / "config.toml"
     existing_config = load_existing_cometbft_config(config_path)
     seed_nodes = resolve_seed_nodes(
-        seed_node=seed_node,
-        seed_node_address=seed_node_address,
+        seed_node=request.seed_node,
+        seed_node_address=request.seed_node_address,
     )
     rendered_config = render_cometbft_config(
-        moniker=moniker,
-        seed_nodes=seed_nodes,
-        allow_cors=allow_cors,
-        service_node=service_node,
-        enable_pruning=enable_pruning,
-        blocks_to_keep=blocks_to_keep,
-        block_policy_mode=block_policy_mode,
-        block_policy_interval=block_policy_interval,
-        statesync_enable=statesync_enable,
-        statesync_rpc_servers=statesync_rpc_servers,
-        statesync_trust_height=statesync_trust_height,
-        statesync_trust_hash=statesync_trust_hash,
-        statesync_trust_period=statesync_trust_period,
-        tracer_mode=tracer_mode,
-        execution_mode=execution_mode,
-        execution_bytecode_version=execution_bytecode_version,
-        execution_gas_schedule=execution_gas_schedule,
-        execution_authority=execution_authority,
-        execution_shadow_tracer_mode=execution_shadow_tracer_mode,
-        metrics_enabled=metrics_enabled,
-        metrics_host=metrics_host,
-        metrics_port=metrics_port,
-        metrics_bds_refresh_seconds=metrics_bds_refresh_seconds,
-        transaction_trace_logging=transaction_trace_logging,
-        app_log_level=app_log_level,
-        app_log_json=app_log_json,
-        app_log_rotation_hours=app_log_rotation_hours,
-        app_log_retention_days=app_log_retention_days,
-        simulation_enabled=simulation_enabled,
-        simulation_max_concurrency=simulation_max_concurrency,
-        simulation_timeout_ms=simulation_timeout_ms,
-        simulation_max_chi=simulation_max_chi,
-        parallel_execution_enabled=parallel_execution_enabled,
-        parallel_execution_workers=parallel_execution_workers,
-        parallel_execution_min_transactions=(
-            parallel_execution_min_transactions
-        ),
-        pending_nonce_reservation_ttl_seconds=(
-            pending_nonce_reservation_ttl_seconds
-        ),
-        max_pending_nonces_per_sender=max_pending_nonces_per_sender,
-        bds_dsn=bds_dsn,
-        bds_host=bds_host,
-        bds_port=bds_port,
-        bds_database=bds_database,
-        bds_user=bds_user,
-        bds_password=bds_password,
-        bds_pool_min_size=bds_pool_min_size,
-        bds_pool_max_size=bds_pool_max_size,
-        bds_statement_timeout_ms=bds_statement_timeout_ms,
-        bds_application_name=bds_application_name,
-        bds_spool_dir=bds_spool_dir,
-        bds_spool_warn_entries=bds_spool_warn_entries,
-        bds_spool_warn_bytes=bds_spool_warn_bytes,
-        bds_disk_free_warn_bytes=bds_disk_free_warn_bytes,
-        prometheus=prometheus,
+        options=NodeConfigOptions(
+            moniker=node_config.moniker,
+            seed_nodes=tuple(seed_nodes),
+            allow_cors=node_config.allow_cors,
+            service_node=node_config.service_node,
+            enable_pruning=node_config.enable_pruning,
+            blocks_to_keep=node_config.blocks_to_keep,
+            transaction_trace_logging=node_config.transaction_trace_logging,
+            block_policy_mode=node_config.block_policy_mode,
+            block_policy_interval=node_config.block_policy_interval,
+            statesync=node_config.statesync,
+            execution=node_config.execution,
+            metrics=node_config.metrics,
+            app_logging=node_config.app_logging,
+            simulation=node_config.simulation,
+            parallel_execution=node_config.parallel_execution,
+            pending_nonce_reservation_ttl_seconds=(
+                node_config.pending_nonce_reservation_ttl_seconds
+            ),
+            max_pending_nonces_per_sender=(
+                node_config.max_pending_nonces_per_sender
+            ),
+            bds=node_config.bds,
+            proxy_app=node_config.proxy_app,
+            prometheus=node_config.prometheus,
+        )
     )
     config = preserve_runtime_config(rendered_config, existing_config)
 
     snapshot_archive_name: str | None = None
-    if snapshot_url:
+    if request.snapshot_url:
         snapshot_archive_name = apply_snapshot_archive(
-            snapshot_url,
-            home,
-            trusted_manifest_public_keys=snapshot_signing_public_keys,
-            expected_chain_id=snapshot_expected_chain_id,
+            request.snapshot_url,
+            request.home,
+            trusted_manifest_public_keys=list(
+                request.snapshot_signing_public_keys
+            )
+            or None,
+            expected_chain_id=request.snapshot_expected_chain_id,
         )
 
     genesis_target_path: Path | None = None
-    if copy_genesis:
+    if request.copy_genesis:
         genesis_target_path = resolve_home_relative_path(
-            home,
+            request.home,
             config["genesis_file"],
         )
         genesis_target_path.parent.mkdir(parents=True, exist_ok=True)
-        if genesis_payload is not None:
-            write_json(genesis_target_path, genesis_payload, overwrite=True)
-        elif genesis_source is not None:
-            genesis_source_path = resolve_genesis_source(genesis_source)
+        if request.genesis_payload is not None:
+            write_json(
+                genesis_target_path,
+                request.genesis_payload,
+                overwrite=True,
+            )
+        elif request.genesis_source is not None:
+            genesis_source_path = resolve_genesis_source(request.genesis_source)
             shutil.copy2(genesis_source_path, genesis_target_path)
         else:
             raise ValueError(
@@ -483,12 +577,14 @@ def configure_existing_home(
             )
 
     priv_validator_key_path: Path | None = None
-    if validator_private_key_hex is not None:
+    if request.validator_private_key_hex is not None:
         priv_validator_key_path = resolve_home_relative_path(
-            home,
+            request.home,
             config["priv_validator_key_file"],
         )
-        priv_validator_key = build_priv_validator_key(validator_private_key_hex)
+        priv_validator_key = build_priv_validator_key(
+            request.validator_private_key_hex
+        )
         priv_validator_key.pop("_private_key_hex", None)
         write_json(
             priv_validator_key_path,

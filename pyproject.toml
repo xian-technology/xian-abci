@@ -51,7 +51,6 @@ xian-state-snapshot = "xian.cli.state_snapshot:main"
 xian-bds-reindex = "xian.cli.reindex_bds:main"
 xian-bds-snapshot = "xian.cli.bds_snapshot:main"
 xian-bds-spool = "xian.cli.bds_spool:main"
-xian-legacy-replay-audit = "xian.cli.legacy_replay_audit:main"
 
 [dependency-groups]
 dev = [
@@ -87,7 +86,6 @@ exclude = [
     "build_proto.py",
     "src/cometbft",
     "src/gogoproto",
-    "src/tendermint",
     "src/xian/tools",
     "tests",
     "tests/tools/fixtures",
