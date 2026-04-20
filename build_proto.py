@@ -36,7 +36,7 @@ def protoc_command_prefix() -> list[str]:
         ]
 
     uv = shutil.which("uv")
-    if uv is not None:  # pragma: no cover - compatibility fallback
+    if uv is not None:  # pragma: no cover - uv tool runner fallback
         return [
             uv,
             "tool",

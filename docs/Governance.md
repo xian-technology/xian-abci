@@ -1,59 +1,61 @@
-# Governance on Xian Network
+# Governance Integration
 
-Governance is a key component of the Xian Network. It is the process by which the network is managed and decisions are made. The governance process is designed to ensure that the network is secure, stable, and scalable. It is also designed to ensure that the network is able to adapt to changing conditions and requirements.
+This file is runtime-centric. It documents how `xian-abci` integrates with the
+current governance contracts; it is not a full end-user governance manual.
 
-## Smart Contracts
+## Governance Layers
 
-The governance process is implemented through a series of smart contracts that are deployed on the Xian Network. These smart contracts are designed to allow validators to propose changes to the network and to vote on those changes, as well as directly interact with the network to enforce those changes.
+Current Xian runtime behavior spans two related governance layers:
 
-### Deployed Contracts
+- `masternodes`: membership and validator governance used for validator set,
+  candidate, unbond, and vote state
+- `governance`: protocol-governance contract used for governed contract calls
+  and scheduled state-patch bundles
 
-The following smart contracts are currently deployed on the Xian Network:
+Other contracts such as `dao`, `rewards`, and `chi_cost` still participate in
+network policy, but the runtime integration points in this repo center on
+membership state, validator power, rewards distribution, and governed state
+patch execution.
 
-- **masternodes**: This contract is the main governance contract for the Xian Network. It manages the list of validators and is used to propose and vote on changes to the network. It interacts with the other contracts to enforce the decisions that are made through the governance process.
-- **dao**: This contract is used to manage the DAO treasury.
-- **rewards**: This contract is used to manage the rewards that are distributed to contract developers, validators, foundation, and also for deflationary burn.
-- **chi_cost**: This contract is used to manage the cost of chi on the network (transaction fees).
+## Where `xian-abci` Integrates
 
-## Registration Process
+Validator and membership integration:
 
-To participate in the governance process, users can register as a validator on the Xian Network, which requires staking a certain amount of XIAN tokens. By registering as a validator candidate, other validators can propose and vote on whether to accept the candidate as a validator. Once a candidate is accepted as a validator, they participate in the blockchain consensus process and can propose and vote on changes to the network.
+- `src/xian/validators.py` reads validator membership and power from
+  `masternodes`
+- `src/xian/rewards.py` reads reward-related membership state from
+  `masternodes`
+- `src/xian/methods/query.py` exposes runtime queries such as:
+  - `/masternodes_policy`
+  - `/masternodes_active`
+  - `/masternodes_candidates`
+  - `/masternodes_validator/<account>`
+  - `/masternodes_pending_unbonds/<account>`
+  - `/masternodes_open_votes/limit=<n>/offset=<n>`
 
-### Validator Registration
+Protocol-governance integration:
 
-To register as a validator on the Xian Network, users must follow these steps:
+- `src/xian/utils/state_patches.py` loads local patch bundles and matches them
+  against approved governance state
+- `src/xian/methods/finalize_block.py` applies approved scheduled patches at the
+  configured activation height
+- `src/xian/methods/query.py` exposes:
+  - `/state_patch_bundles`
+  - `/scheduled_state_patches/<height>`
+- executed patches are fingerprinted into block execution and persisted to BDS
 
-1. **Approve Transfer**: Approve the masternodes contract to transfer the registration fee in XIAN tokens on your behalf.
-2. **Register**: Call the `register` function on the masternodes contract.
-3. **Proposal and Voting**: Wait for other validators to propose and vote on your registration.
-4. **Become a Validator**: If your registration is accepted, you will become a validator on the Xian Network.
+## Source Of Truth
 
-## Voting Process
+The authoritative contract semantics do not live in this docs folder.
 
-The governance process on the Xian Network is based on a voting mechanism. Validators can propose changes to the network and vote on those changes. The changes that receive a majority of votes are implemented on the network.
+- canonical contract sources live in `xian-configs/contracts/`
+- runtime integration lives in `src/xian/`
+- coverage lives in:
+  - `tests/governance/test_governance.py`
+  - `tests/governance/test_protocol_governance.py`
+  - `tests/abci_methods/test_abci_state_patches.py`
 
-### Proposal Submission
+## Notes
 
-To propose a change to the network, validators must follow these steps:
-
-1. **Submit Proposal**: Call the `propose_vote` function on the masternodes contract. The proposal must include the following information:
-   - **Type of Change**: Specify the type of change being proposed. Available options are: `add_member`, `remove_member`, `change_registration_fee`, `reward_change`, `dao_payout`, `chi_cost_change`, `change_types`.
-   - **Value of Change**: Provide the necessary details for the proposed change:
-     - `add_member` and `remove_member`: Include the address of the validator being added or removed as a string.
-     - `change_registration_fee`: Include the new registration fee as an integer (e.g., 1000).
-     - `reward_change`: Include the new reward distribution as a list (e.g., [0.49, 0.01, 0.01, 0.49]).
-     - `dao_payout`: Include the amount of XIAN tokens to be paid out and the address of the recipient as a dictionary (e.g., {"amount": 1000, "to": "receiver_address"}).
-     - `chi_cost_change`: Include the new chi cost as an integer.
-     - `change_types`: Include the new types of changes that can be proposed as a list (e.g., ["add_member", "remove_member", "change_registration_fee", "reward_change", "dao_payout", "chi_cost_change", "change_types"]).
-
-2. **Voting**: Wait for other validators to vote on the proposal.
-
-### Voting
-
-To vote on a proposal, validators must follow these steps:
-
-1. **Cast Vote**: Call the `vote` function on the masternodes contract with the following parameters:
-   - **Proposal ID**: The ID of the proposal being voted on (`proposal_id`).
-   - **Vote**: The vote being cast. Available options are: `yes` or `no` (`vote`).
-
-The proposal will be accepted if it receives a majority of `yes` votes from the validators. The proposal will be finalized if at least 50% of the validators have voted on it. The proposal will not be executed if it receives a majority of `no` votes from the validators or if `yes` and `no` votes are equal.
+- Keep user-facing governance documentation in `xian-docs-web`.
+- Keep this file focused on runtime-owned integration points and query surfaces.

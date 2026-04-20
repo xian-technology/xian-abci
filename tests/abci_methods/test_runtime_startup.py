@@ -4,7 +4,20 @@ from unittest.mock import AsyncMock, patch
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
 
-from xian.xian_abci import Xian
+from xian.xian_abci import Xian, resolve_abci_socket_path
+
+
+class AbciSocketPathTests(unittest.TestCase):
+    def test_resolve_abci_socket_path_defaults_and_normalizes_unix_proxy(self):
+        self.assertEqual(resolve_abci_socket_path(None), "/tmp/abci.sock")
+        self.assertEqual(
+            resolve_abci_socket_path("unix:///tmp/custom-abci.sock"),
+            "/tmp/custom-abci.sock",
+        )
+
+    def test_resolve_abci_socket_path_rejects_non_unix_proxy(self):
+        with self.assertRaisesRegex(ValueError, "only supports unix"):
+            resolve_abci_socket_path("tcp://127.0.0.1:26658")
 
 
 class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):

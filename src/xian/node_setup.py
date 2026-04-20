@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -162,7 +163,6 @@ mode = "python_line_v1"
 bytecode_version = ""
 gas_schedule = ""
 authority = ""
-shadow_tracer_mode = ""
 
 [xian.bds]
 dsn = ""
@@ -195,6 +195,99 @@ SUPPORTED_APP_LOG_LEVELS = {
     "ERROR",
     "CRITICAL",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class StateSyncOptions:
+    enable: bool = False
+    rpc_servers: tuple[str, ...] = ()
+    trust_height: int = 0
+    trust_hash: str = ""
+    trust_period: str = "168h0m0s"
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionOptions:
+    tracer_mode: str = "python_line_v1"
+    mode: str | None = None
+    bytecode_version: str = ""
+    gas_schedule: str = ""
+    authority: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsOptions:
+    enabled: bool = True
+    host: str = "127.0.0.1"
+    port: int = 9108
+    bds_refresh_seconds: float = 5.0
+
+
+@dataclass(frozen=True, slots=True)
+class AppLoggingOptions:
+    level: str = "INFO"
+    json_logging: bool = False
+    rotation_hours: int = 1
+    retention_days: int = 7
+
+
+@dataclass(frozen=True, slots=True)
+class SimulationOptions:
+    enabled: bool = True
+    max_concurrency: int = 2
+    timeout_ms: int = 3000
+    max_chi: int = 1_000_000
+
+
+@dataclass(frozen=True, slots=True)
+class ParallelExecutionOptions:
+    enabled: bool = DEFAULT_PARALLEL_EXECUTION_ENABLED
+    workers: int = DEFAULT_PARALLEL_EXECUTION_WORKERS
+    min_transactions: int = DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS
+
+
+@dataclass(frozen=True, slots=True)
+class BdsOptions:
+    dsn: str = ""
+    host: str = ""
+    port: int = 5432
+    database: str = "xian"
+    user: str = ""
+    password: str = ""
+    pool_min_size: int = 1
+    pool_max_size: int = 10
+    statement_timeout_ms: int = 0
+    application_name: str = "xian-bds"
+    spool_dir: str = ""
+    spool_warn_entries: int = 256
+    spool_warn_bytes: int = 536_870_912
+    disk_free_warn_bytes: int = 2_147_483_648
+
+
+@dataclass(frozen=True, slots=True)
+class NodeConfigOptions:
+    moniker: str
+    seed_nodes: tuple[str, ...] = ()
+    allow_cors: bool = True
+    service_node: bool = False
+    enable_pruning: bool = False
+    blocks_to_keep: int = 100000
+    transaction_trace_logging: bool = False
+    block_policy_mode: str = "on_demand"
+    block_policy_interval: str = "0s"
+    statesync: StateSyncOptions = field(default_factory=StateSyncOptions)
+    execution: ExecutionOptions = field(default_factory=ExecutionOptions)
+    metrics: MetricsOptions = field(default_factory=MetricsOptions)
+    app_logging: AppLoggingOptions = field(default_factory=AppLoggingOptions)
+    simulation: SimulationOptions = field(default_factory=SimulationOptions)
+    parallel_execution: ParallelExecutionOptions = field(
+        default_factory=ParallelExecutionOptions
+    )
+    pending_nonce_reservation_ttl_seconds: float = 60.0
+    max_pending_nonces_per_sender: int = 128
+    bds: BdsOptions = field(default_factory=BdsOptions)
+    proxy_app: str = "unix:///tmp/abci.sock"
+    prometheus: bool = True
 
 
 def resolve_block_policy(
@@ -409,7 +502,8 @@ def build_priv_validator_state() -> dict[str, Any]:
 
 def render_cometbft_config(
     *,
-    moniker: str,
+    options: NodeConfigOptions | None = None,
+    moniker: str | None = None,
     seed_nodes: Sequence[str] | None = None,
     allow_cors: bool = True,
     service_node: bool = False,
@@ -465,69 +559,147 @@ def render_cometbft_config(
     proxy_app: str = "unix:///tmp/abci.sock",
     prometheus: bool = True,
 ) -> dict[str, Any]:
+    if execution_shadow_tracer_mode:
+        raise ValueError(
+            "xian.execution.engine.shadow_tracer_mode is no longer supported"
+        )
+
+    if options is None:
+        if moniker is None:
+            raise TypeError("moniker is required when options is not provided")
+        options = NodeConfigOptions(
+            moniker=moniker,
+            seed_nodes=tuple(seed_nodes or ()),
+            allow_cors=allow_cors,
+            service_node=service_node,
+            enable_pruning=enable_pruning,
+            blocks_to_keep=blocks_to_keep,
+            transaction_trace_logging=transaction_trace_logging,
+            block_policy_mode=block_policy_mode,
+            block_policy_interval=block_policy_interval,
+            statesync=StateSyncOptions(
+                enable=statesync_enable,
+                rpc_servers=tuple(statesync_rpc_servers or ()),
+                trust_height=statesync_trust_height,
+                trust_hash=statesync_trust_hash,
+                trust_period=statesync_trust_period,
+            ),
+            execution=ExecutionOptions(
+                tracer_mode=tracer_mode,
+                mode=execution_mode,
+                bytecode_version=execution_bytecode_version,
+                gas_schedule=execution_gas_schedule,
+                authority=execution_authority,
+            ),
+            metrics=MetricsOptions(
+                enabled=metrics_enabled,
+                host=metrics_host,
+                port=metrics_port,
+                bds_refresh_seconds=metrics_bds_refresh_seconds,
+            ),
+            app_logging=AppLoggingOptions(
+                level=app_log_level,
+                json_logging=app_log_json,
+                rotation_hours=app_log_rotation_hours,
+                retention_days=app_log_retention_days,
+            ),
+            simulation=SimulationOptions(
+                enabled=simulation_enabled,
+                max_concurrency=simulation_max_concurrency,
+                timeout_ms=simulation_timeout_ms,
+                max_chi=simulation_max_chi,
+            ),
+            parallel_execution=ParallelExecutionOptions(
+                enabled=parallel_execution_enabled,
+                workers=parallel_execution_workers,
+                min_transactions=parallel_execution_min_transactions,
+            ),
+            pending_nonce_reservation_ttl_seconds=(
+                pending_nonce_reservation_ttl_seconds
+            ),
+            max_pending_nonces_per_sender=max_pending_nonces_per_sender,
+            bds=BdsOptions(
+                dsn=bds_dsn,
+                host=bds_host,
+                port=bds_port,
+                database=bds_database,
+                user=bds_user,
+                password=bds_password,
+                pool_min_size=bds_pool_min_size,
+                pool_max_size=bds_pool_max_size,
+                statement_timeout_ms=bds_statement_timeout_ms,
+                application_name=bds_application_name,
+                spool_dir=bds_spool_dir,
+                spool_warn_entries=bds_spool_warn_entries,
+                spool_warn_bytes=bds_spool_warn_bytes,
+                disk_free_warn_bytes=bds_disk_free_warn_bytes,
+            ),
+            proxy_app=proxy_app,
+            prometheus=prometheus,
+        )
+
     config = toml_utils.loads(DEFAULT_CONFIG_TOML)
     create_empty_blocks, create_empty_blocks_interval = resolve_block_policy(
-        mode=block_policy_mode,
-        interval=block_policy_interval,
+        mode=options.block_policy_mode,
+        interval=options.block_policy_interval,
     )
     resolved_statesync = resolve_statesync_settings(
-        enable=statesync_enable,
-        rpc_servers=statesync_rpc_servers,
-        trust_height=statesync_trust_height,
-        trust_hash=statesync_trust_hash,
-        trust_period=statesync_trust_period,
+        enable=options.statesync.enable,
+        rpc_servers=options.statesync.rpc_servers,
+        trust_height=options.statesync.trust_height,
+        trust_hash=options.statesync.trust_hash,
+        trust_period=options.statesync.trust_period,
     )
     execution_policy = resolve_execution_policy(
-        mode=execution_mode,
-        tracer_mode=tracer_mode,
-        bytecode_version=execution_bytecode_version,
-        gas_schedule=execution_gas_schedule,
-        authority=execution_authority,
-        shadow_tracer_mode=execution_shadow_tracer_mode,
+        mode=options.execution.mode,
+        tracer_mode=options.execution.tracer_mode,
+        bytecode_version=options.execution.bytecode_version,
+        gas_schedule=options.execution.gas_schedule,
+        authority=options.execution.authority,
         allow_future=True,
     )
-    resolved_tracer_mode = execution_policy.shadow_tracer_mode or (
+    resolved_tracer_mode = (
         execution_policy.mode
         if execution_policy.is_current_tracer_mode
         else DEFAULT_EXECUTION_MODE
     )
     resolved_app_logging = resolve_app_logging_settings(
-        level=app_log_level,
-        json_logging=app_log_json,
-        rotation_hours=app_log_rotation_hours,
-        retention_days=app_log_retention_days,
+        level=options.app_logging.level,
+        json_logging=options.app_logging.json_logging,
+        rotation_hours=options.app_logging.rotation_hours,
+        retention_days=options.app_logging.retention_days,
     )
     resolved_simulation = resolve_simulation_settings(
-        enabled=simulation_enabled,
-        max_concurrency=simulation_max_concurrency,
-        timeout_ms=simulation_timeout_ms,
-        max_chi=simulation_max_chi,
+        enabled=options.simulation.enabled,
+        max_concurrency=options.simulation.max_concurrency,
+        timeout_ms=options.simulation.timeout_ms,
+        max_chi=options.simulation.max_chi,
     )
-    config["proxy_app"] = proxy_app
-    config["moniker"] = moniker
+    config["proxy_app"] = options.proxy_app
+    config["moniker"] = options.moniker
     config["consensus"]["create_empty_blocks"] = create_empty_blocks
     config["consensus"]["create_empty_blocks_interval"] = (
         create_empty_blocks_interval
     )
-    config["p2p"]["seeds"] = ",".join(seed_nodes or [])
-    config["rpc"]["cors_allowed_origins"] = ["*"] if allow_cors else []
-    config["instrumentation"]["prometheus"] = prometheus
+    config["p2p"]["seeds"] = ",".join(options.seed_nodes)
+    config["rpc"]["cors_allowed_origins"] = ["*"] if options.allow_cors else []
+    config["instrumentation"]["prometheus"] = options.prometheus
     config["statesync"]["enable"] = resolved_statesync["enable"]
     config["statesync"]["rpc_servers"] = resolved_statesync["rpc_servers"]
     config["statesync"]["trust_height"] = resolved_statesync["trust_height"]
     config["statesync"]["trust_hash"] = resolved_statesync["trust_hash"]
     config["statesync"]["trust_period"] = resolved_statesync["trust_period"]
     config["xian"] = {
-        "block_service_mode": service_node,
-        "pruning_enabled": enable_pruning,
-        "blocks_to_keep": blocks_to_keep,
+        "block_service_mode": options.service_node,
+        "pruning_enabled": options.enable_pruning,
+        "blocks_to_keep": options.blocks_to_keep,
         "tracer_mode": resolved_tracer_mode,
         "execution": execution_policy.to_config_dict(),
-        "metrics_enabled": metrics_enabled,
-        "metrics_host": metrics_host,
-        "metrics_port": metrics_port,
-        "metrics_bds_refresh_seconds": metrics_bds_refresh_seconds,
-        "transaction_trace_logging": transaction_trace_logging,
+        "metrics_enabled": options.metrics.enabled,
+        "metrics_host": options.metrics.host,
+        "metrics_port": options.metrics.port,
+        "metrics_bds_refresh_seconds": options.metrics.bds_refresh_seconds,
+        "transaction_trace_logging": options.transaction_trace_logging,
         "app_log_level": resolved_app_logging["level"],
         "app_log_json": resolved_app_logging["json"],
         "app_log_rotation_hours": resolved_app_logging["rotation_hours"],
@@ -536,30 +708,32 @@ def render_cometbft_config(
         "simulation_max_concurrency": resolved_simulation["max_concurrency"],
         "simulation_timeout_ms": resolved_simulation["timeout_ms"],
         "simulation_max_chi": resolved_simulation["max_chi"],
-        "parallel_execution_enabled": parallel_execution_enabled,
-        "parallel_execution_workers": parallel_execution_workers,
+        "parallel_execution_enabled": options.parallel_execution.enabled,
+        "parallel_execution_workers": options.parallel_execution.workers,
         "parallel_execution_min_transactions": (
-            parallel_execution_min_transactions
+            options.parallel_execution.min_transactions
         ),
         "pending_nonce_reservation_ttl_seconds": (
-            pending_nonce_reservation_ttl_seconds
+            options.pending_nonce_reservation_ttl_seconds
         ),
-        "max_pending_nonces_per_sender": (max_pending_nonces_per_sender),
+        "max_pending_nonces_per_sender": (
+            options.max_pending_nonces_per_sender
+        ),
         "bds": {
-            "dsn": bds_dsn,
-            "host": bds_host,
-            "port": bds_port,
-            "database": bds_database,
-            "user": bds_user,
-            "password": bds_password,
-            "pool_min_size": bds_pool_min_size,
-            "pool_max_size": bds_pool_max_size,
-            "statement_timeout_ms": bds_statement_timeout_ms,
-            "application_name": bds_application_name,
-            "spool_dir": bds_spool_dir,
-            "spool_warn_entries": bds_spool_warn_entries,
-            "spool_warn_bytes": bds_spool_warn_bytes,
-            "disk_free_warn_bytes": bds_disk_free_warn_bytes,
+            "dsn": options.bds.dsn,
+            "host": options.bds.host,
+            "port": options.bds.port,
+            "database": options.bds.database,
+            "user": options.bds.user,
+            "password": options.bds.password,
+            "pool_min_size": options.bds.pool_min_size,
+            "pool_max_size": options.bds.pool_max_size,
+            "statement_timeout_ms": options.bds.statement_timeout_ms,
+            "application_name": options.bds.application_name,
+            "spool_dir": options.bds.spool_dir,
+            "spool_warn_entries": options.bds.spool_warn_entries,
+            "spool_warn_bytes": options.bds.spool_warn_bytes,
+            "disk_free_warn_bytes": options.bds.disk_free_warn_bytes,
         },
     }
     return config

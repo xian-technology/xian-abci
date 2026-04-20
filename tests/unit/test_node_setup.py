@@ -5,6 +5,14 @@ from pathlib import Path
 
 from xian.execution_policy import load_execution_policy
 from xian.node_setup import (
+    AppLoggingOptions,
+    BdsOptions,
+    ExecutionOptions,
+    MetricsOptions,
+    NodeConfigOptions,
+    ParallelExecutionOptions,
+    SimulationOptions,
+    StateSyncOptions,
     build_priv_validator_key,
     generate_validator_material,
     materialize_cometbft_home,
@@ -17,6 +25,95 @@ from xian.toml_utils import load as load_toml
 
 
 class NodeSetupTests(unittest.TestCase):
+    def test_render_config_accepts_node_config_options(self):
+        config = render_cometbft_config(
+            options=NodeConfigOptions(
+                moniker="validator-1",
+                seed_nodes=("seed-1@127.0.0.1:26656",),
+                allow_cors=False,
+                service_node=True,
+                enable_pruning=True,
+                blocks_to_keep=5000,
+                transaction_trace_logging=True,
+                block_policy_mode="on_demand",
+                block_policy_interval="0s",
+                statesync=StateSyncOptions(
+                    enable=True,
+                    rpc_servers=(
+                        "http://rpc-1.internal:26657",
+                        "http://rpc-2.internal:26657",
+                    ),
+                    trust_height=120,
+                    trust_hash="ab" * 32,
+                    trust_period="336h0m0s",
+                ),
+                execution=ExecutionOptions(
+                    tracer_mode="python_line_v1",
+                    mode="xian_vm_v1",
+                    bytecode_version="xvm-1",
+                    gas_schedule="xvm-gas-1",
+                    authority="native",
+                ),
+                metrics=MetricsOptions(
+                    enabled=True,
+                    host="0.0.0.0",
+                    port=9208,
+                    bds_refresh_seconds=7.5,
+                ),
+                app_logging=AppLoggingOptions(
+                    level="warning",
+                    json_logging=True,
+                    rotation_hours=4,
+                    retention_days=12,
+                ),
+                simulation=SimulationOptions(
+                    enabled=False,
+                    max_concurrency=4,
+                    timeout_ms=4500,
+                    max_chi=750000,
+                ),
+                parallel_execution=ParallelExecutionOptions(
+                    enabled=True,
+                    workers=4,
+                    min_transactions=12,
+                ),
+                pending_nonce_reservation_ttl_seconds=90.0,
+                max_pending_nonces_per_sender=64,
+                bds=BdsOptions(
+                    host="postgres",
+                    port=5544,
+                    database="xian_index",
+                    user="indexer",
+                    password="secret",
+                    pool_min_size=2,
+                    pool_max_size=6,
+                    statement_timeout_ms=5000,
+                    application_name="xian-bds-test",
+                    spool_dir="/var/lib/xian/bds-spool",
+                    spool_warn_entries=512,
+                    spool_warn_bytes=1_073_741_824,
+                    disk_free_warn_bytes=4_294_967_296,
+                ),
+            )
+        )
+
+        self.assertEqual(config["moniker"], "validator-1")
+        self.assertEqual(
+            config["p2p"]["seeds"],
+            "seed-1@127.0.0.1:26656",
+        )
+        self.assertFalse(config["rpc"]["cors_allowed_origins"])
+        self.assertTrue(config["xian"]["block_service_mode"])
+        self.assertTrue(config["xian"]["pruning_enabled"])
+        self.assertEqual(config["xian"]["metrics_port"], 9208)
+        self.assertEqual(
+            config["xian"]["execution"]["engine"]["bytecode_version"],
+            "xvm-1",
+        )
+        self.assertEqual(
+            config["xian"]["bds"]["application_name"], "xian-bds-test"
+        )
+
     def test_render_config_applies_xian_settings(self):
         config = render_cometbft_config(
             moniker="validator-1",
@@ -74,9 +171,7 @@ class NodeSetupTests(unittest.TestCase):
         self.assertEqual(config["xian"]["bds"]["database"], "xian")
         self.assertEqual(config["xian"]["bds"]["application_name"], "xian-bds")
         self.assertEqual(config["xian"]["bds"]["spool_warn_entries"], 256)
-        self.assertEqual(
-            config["xian"]["bds"]["spool_warn_bytes"], 536_870_912
-        )
+        self.assertEqual(config["xian"]["bds"]["spool_warn_bytes"], 536_870_912)
         self.assertEqual(
             config["xian"]["bds"]["disk_free_warn_bytes"], 2_147_483_648
         )
@@ -141,9 +236,7 @@ class NodeSetupTests(unittest.TestCase):
             execution_gas_schedule="xvm-gas-1",
         )
 
-        self.assertEqual(
-            config["xian"]["tracer_mode"], "python_line_v1"
-        )
+        self.assertEqual(config["xian"]["tracer_mode"], "python_line_v1")
         self.assertEqual(
             config["xian"]["execution"]["engine"]["bytecode_version"],
             "xvm-1",
@@ -156,9 +249,9 @@ class NodeSetupTests(unittest.TestCase):
             config["xian"]["execution"]["engine"]["authority"],
             "native",
         )
-        self.assertEqual(
-            config["xian"]["execution"]["engine"]["shadow_tracer_mode"],
-            "",
+        self.assertNotIn(
+            "shadow_tracer_mode",
+            config["xian"]["execution"]["engine"],
         )
 
     def test_render_config_supports_native_vm_authority_without_shadow(self):
@@ -179,10 +272,28 @@ class NodeSetupTests(unittest.TestCase):
             config["xian"]["execution"]["engine"]["authority"],
             "native",
         )
-        self.assertEqual(
-            config["xian"]["execution"]["engine"]["shadow_tracer_mode"],
-            "",
+        self.assertNotIn(
+            "shadow_tracer_mode",
+            config["xian"]["execution"]["engine"],
         )
+
+    def test_render_config_accepts_empty_legacy_shadow_kwarg(self):
+        config = render_cometbft_config(
+            moniker="validator-1",
+            execution_shadow_tracer_mode="",
+        )
+
+        self.assertNotIn(
+            "shadow_tracer_mode",
+            config["xian"]["execution"]["engine"],
+        )
+
+    def test_render_config_rejects_legacy_shadow_kwarg(self):
+        with self.assertRaisesRegex(ValueError, "shadow_tracer_mode"):
+            render_cometbft_config(
+                moniker="validator-1",
+                execution_shadow_tracer_mode="python_line_v1",
+            )
 
     def test_render_config_supports_state_sync(self):
         config = render_cometbft_config(

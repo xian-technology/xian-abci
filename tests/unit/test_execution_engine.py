@@ -106,30 +106,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     )
                 )
 
-    def test_build_runtime_for_vm_rejects_shadow_mode(self):
-        fake_bindings = types.SimpleNamespace(
-            runtime_info=lambda: {
-                "vm_profile": "xian_vm_v1",
-                "host_catalog_version": "xian_vm_v1_host_v1",
-            },
-            supports_execution_policy=lambda *_args: True,
-        )
-
-        with mock.patch(
-            "xian.execution_engine._load_vm_runtime_bindings",
-            return_value=fake_bindings,
-        ):
-            with self.assertRaisesRegex(ValueError, "shadow_tracer_mode"):
-                build_execution_runtime(
-                    ExecutionPolicy(
-                        mode="xian_vm_v1",
-                        bytecode_version="xvm-1",
-                        gas_schedule="xvm-gas-1",
-                        authority="native",
-                        shadow_tracer_mode="python_line_v1",
-                    )
-                )
-
     def test_build_runtime_for_vm_native_authority_enables_native_execution(self):
         fake_bindings = types.SimpleNamespace(
             runtime_info=lambda: {
@@ -157,7 +133,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self.assertTrue(runtime.native_authoritative)
         self.assertEqual(runtime.authority, "native")
         self.assertIsNone(runtime.tracer_mode)
-        self.assertEqual(runtime.shadow_tracer_mode, "")
 
     def test_prepare_contract_for_execution_recurses_static_imports(self):
         fake_bindings = types.SimpleNamespace(

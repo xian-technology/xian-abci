@@ -18,7 +18,6 @@ class ExecutionPolicy:
     bytecode_version: str = ""
     gas_schedule: str = ""
     authority: str = ""
-    shadow_tracer_mode: str = ""
 
     @property
     def is_current_tracer_mode(self) -> bool:
@@ -31,7 +30,6 @@ class ExecutionPolicy:
                 "bytecode_version": self.bytecode_version,
                 "gas_schedule": self.gas_schedule,
                 "authority": self.authority,
-                "shadow_tracer_mode": self.shadow_tracer_mode,
             }
         }
 
@@ -43,16 +41,14 @@ def resolve_execution_policy(
     bytecode_version: str = "",
     gas_schedule: str = "",
     authority: str = "",
-    shadow_tracer_mode: str = "",
     allow_future: bool = False,
 ) -> ExecutionPolicy:
     selected = mode or tracer_mode or DEFAULT_EXECUTION_MODE
     if selected in SUPPORTED_TRACER_MODES:
-        if bytecode_version or gas_schedule or authority or shadow_tracer_mode:
+        if bytecode_version or gas_schedule or authority:
             raise ValueError(
-                "bytecode_version, gas_schedule, authority, and "
-                "shadow_tracer_mode are only valid for "
-                "future execution engines"
+                "bytecode_version, gas_schedule, and authority are only "
+                "valid for future execution engines"
             )
         return ExecutionPolicy(mode=selected)
 
@@ -72,18 +68,11 @@ def resolve_execution_policy(
         normalized_authority = (authority or "native").strip()
         if normalized_authority != "native":
             raise ValueError("xian_vm_v1 authority must be 'native'")
-        normalized_shadow_tracer_mode = shadow_tracer_mode.strip()
-        if normalized_shadow_tracer_mode:
-            raise ValueError(
-                "xian_vm_v1 no longer supports shadow_tracer_mode; "
-                "native execution is authoritative"
-            )
         return ExecutionPolicy(
             mode=selected,
             bytecode_version=bytecode_version,
             gas_schedule=gas_schedule,
             authority=normalized_authority,
-            shadow_tracer_mode=normalized_shadow_tracer_mode,
         )
 
     raise ValueError(
@@ -98,17 +87,24 @@ def load_execution_policy(
     allow_future: bool = False,
 ) -> ExecutionPolicy:
     payload = xian_config or {}
-    legacy_mode = (
+    configured_tracer_mode = (
         str(payload.get("tracer_mode", DEFAULT_EXECUTION_MODE)).strip()
         or DEFAULT_EXECUTION_MODE
     )
     engine_payload = payload.get("execution", {}).get("engine", {})
     configured_mode = str(engine_payload.get("mode", "")).strip()
+    removed_shadow_mode = str(
+        engine_payload.get("shadow_tracer_mode", "")
+    ).strip()
+    if removed_shadow_mode:
+        raise ValueError(
+            "xian.execution.engine.shadow_tracer_mode is no longer supported"
+        )
     if (
         configured_mode
-        and legacy_mode
+        and configured_tracer_mode
         and configured_mode in SUPPORTED_TRACER_MODES
-        and configured_mode != legacy_mode
+        and configured_mode != configured_tracer_mode
     ):
         raise ValueError(
             "xian.execution.engine.mode must match xian.tracer_mode when "
@@ -116,14 +112,11 @@ def load_execution_policy(
         )
     return resolve_execution_policy(
         mode=configured_mode or None,
-        tracer_mode=legacy_mode,
+        tracer_mode=configured_tracer_mode,
         bytecode_version=str(
             engine_payload.get("bytecode_version", "")
         ).strip(),
         gas_schedule=str(engine_payload.get("gas_schedule", "")).strip(),
         authority=str(engine_payload.get("authority", "")).strip(),
-        shadow_tracer_mode=str(
-            engine_payload.get("shadow_tracer_mode", "")
-        ).strip(),
         allow_future=allow_future,
     )

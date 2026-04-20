@@ -1,21 +1,23 @@
 {
-  "100000000": [
+  "version": 1,
+  "patch_id": "example-patch",
+  "activation_height": 100000000,
+  "chain_id": "xian-local",
+  "summary": "Example governed state patch bundle",
+  "uri": "ipfs://example-patch-bundle",
+  "changes": [
     {
       "key": "con_token.balances:some_address",
       "value": 1000000,
-      "comment": "Fixing incorrect account balance after transaction X"
+      "comment": "Fix incorrect account balance"
     },
     {
       "key": "con_dao.proposals:5",
-      "value": {"status": "completed", "votes": 120},
-      "comment": "Correcting proposal status that was incorrectly set"
-    }
-  ],
-  "150000000": [
-    {
-      "key": "con_exchange.trades:last_id",
-      "value": 10034,
-      "comment": "Resetting ID counter after overflow bug"
+      "value": {
+        "status": "completed",
+        "votes": 120
+      },
+      "comment": "Repair proposal state after governance review"
     }
   ]
-} 
+}

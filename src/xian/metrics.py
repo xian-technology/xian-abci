@@ -55,6 +55,27 @@ def _add_metric_if_present(
 
 
 class XianMetricsCollector:
+    PERF_STAT_FIELDS = (
+        "count",
+        "total_ms",
+        "avg_ms",
+        "min_ms",
+        "max_ms",
+        "p95_ms",
+        "recent_sample_count",
+    )
+    LATEST_BLOCK_METADATA_FIELDS = (
+        "parallel_enabled",
+        "parallel_worker_count",
+        "parallel_planned_stage_count",
+        "parallel_planned_parallelizable_transactions",
+        "parallel_speculative_wave_count",
+        "parallel_speculative_accepted",
+        "parallel_serial_prefiltered",
+        "parallel_serial_fallbacks",
+        "state_patch_applied",
+    )
+
     def __init__(self, service: MetricsService):
         self.service = service
 
@@ -65,6 +86,19 @@ class XianMetricsCollector:
         latest_block = recent_blocks[-1] if recent_blocks else None
         bds_status = self.service.last_bds_status
 
+        yield self._collect_node_info(app)
+        yield self._collect_current_height(app)
+        yield self._collect_perf_globals(perf_snapshot)
+        yield self._collect_latest_block(latest_block)
+        yield self._collect_latest_block_metrics(latest_block)
+        yield self._collect_latest_block_metadata(latest_block)
+        yield self._collect_exporter_health(perf_snapshot)
+        yield from self._collect_vm_shadow_metrics(app)
+        yield self._collect_bds_info(app, bds_status)
+        yield self._collect_bds_metrics(app, bds_status)
+        yield self._collect_bds_alerts(bds_status)
+
+    def _collect_node_info(self, app) -> InfoMetricFamily:
         node_info = InfoMetricFamily(
             "xian_node",
             "Static Xian node runtime information.",
@@ -94,8 +128,9 @@ class XianMetricsCollector:
                 "tx_fees_enabled": str(app.enable_tx_fee).lower(),
             },
         )
-        yield node_info
+        return node_info
 
+    def _collect_current_height(self, app) -> GaugeMetricFamily:
         height_family = GaugeMetricFamily(
             "xian_current_block_height",
             "Current finalized block height seen by the Xian app.",
@@ -104,8 +139,11 @@ class XianMetricsCollector:
         if isinstance(app.current_block_meta, dict):
             current_height = app.current_block_meta.get("height")
         _add_metric_if_present(height_family, [], current_height)
-        yield height_family
+        return height_family
 
+    def _collect_perf_globals(
+        self, perf_snapshot: dict[str, Any]
+    ) -> GaugeMetricFamily:
         perf_family = GaugeMetricFamily(
             "xian_perf_global_metric",
             "Global Xian performance metrics.",
@@ -114,45 +152,33 @@ class XianMetricsCollector:
         for metric_name, values in perf_snapshot.get(
             "global_metrics", {}
         ).items():
-            for stat_name in (
-                "count",
-                "total_ms",
-                "avg_ms",
-                "min_ms",
-                "max_ms",
-                "p95_ms",
-                "recent_sample_count",
-            ):
-                _add_metric_if_present(
-                    perf_family,
-                    [metric_name, stat_name],
-                    values.get(stat_name),
-                )
-        yield perf_family
+            self._add_named_stat_metrics(
+                perf_family,
+                metric_name,
+                values,
+            )
+        return perf_family
 
+    def _collect_latest_block(
+        self, latest_block: dict[str, Any] | None
+    ) -> GaugeMetricFamily:
         latest_block_family = GaugeMetricFamily(
             "xian_perf_latest_block",
             "Most recent completed block performance snapshot.",
             labels=["field"],
         )
         if latest_block is not None:
-            _add_metric_if_present(
-                latest_block_family,
-                ["height"],
-                latest_block.get("height"),
-            )
-            _add_metric_if_present(
-                latest_block_family,
-                ["tx_count"],
-                latest_block.get("tx_count"),
-            )
-            _add_metric_if_present(
-                latest_block_family,
-                ["duration_ms"],
-                latest_block.get("duration_ms"),
-            )
-        yield latest_block_family
+            for field in ("height", "tx_count", "duration_ms"):
+                _add_metric_if_present(
+                    latest_block_family,
+                    [field],
+                    latest_block.get(field),
+                )
+        return latest_block_family
 
+    def _collect_latest_block_metrics(
+        self, latest_block: dict[str, Any] | None
+    ) -> GaugeMetricFamily:
         latest_block_metrics_family = GaugeMetricFamily(
             "xian_perf_latest_block_metric",
             "Named performance metrics for the most recent completed block.",
@@ -160,22 +186,16 @@ class XianMetricsCollector:
         )
         if latest_block is not None:
             for metric_name, values in latest_block.get("metrics", {}).items():
-                for stat_name in (
-                    "count",
-                    "total_ms",
-                    "avg_ms",
-                    "min_ms",
-                    "max_ms",
-                    "p95_ms",
-                    "recent_sample_count",
-                ):
-                    _add_metric_if_present(
-                        latest_block_metrics_family,
-                        [metric_name, stat_name],
-                        values.get(stat_name),
-                    )
-        yield latest_block_metrics_family
+                self._add_named_stat_metrics(
+                    latest_block_metrics_family,
+                    metric_name,
+                    values,
+                )
+        return latest_block_metrics_family
 
+    def _collect_latest_block_metadata(
+        self, latest_block: dict[str, Any] | None
+    ) -> GaugeMetricFamily:
         latest_block_metadata_family = GaugeMetricFamily(
             "xian_perf_latest_block_metadata",
             "Recent block execution metadata exported as gauges.",
@@ -183,24 +203,17 @@ class XianMetricsCollector:
         )
         if latest_block is not None:
             metadata = latest_block.get("metadata", {})
-            for field in (
-                "parallel_enabled",
-                "parallel_worker_count",
-                "parallel_planned_stage_count",
-                "parallel_planned_parallelizable_transactions",
-                "parallel_speculative_wave_count",
-                "parallel_speculative_accepted",
-                "parallel_serial_prefiltered",
-                "parallel_serial_fallbacks",
-                "state_patch_applied",
-            ):
+            for field in self.LATEST_BLOCK_METADATA_FIELDS:
                 _add_metric_if_present(
                     latest_block_metadata_family,
                     [field],
                     metadata.get(field),
                 )
-        yield latest_block_metadata_family
+        return latest_block_metadata_family
 
+    def _collect_exporter_health(
+        self, perf_snapshot: dict[str, Any]
+    ) -> GaugeMetricFamily:
         exporter_health = GaugeMetricFamily(
             "xian_metrics_exporter",
             "Health and freshness of the Xian Prometheus exporter.",
@@ -228,8 +241,9 @@ class XianMetricsCollector:
                 else None
             ),
         )
-        yield exporter_health
+        return exporter_health
 
+    def _collect_vm_shadow_metrics(self, app):
         vm_shadow = getattr(app, "vm_shadow_observer", None)
         vm_shadow_snapshot = (
             vm_shadow.snapshot() if vm_shadow is not None else None
@@ -312,40 +326,42 @@ class XianMetricsCollector:
             if vm_shadow_snapshot is not None
             else None
         )
-        if latest_mismatch:
-            vm_shadow_last_mismatch.add_metric(
-                [],
-                {
-                    "stage": str(latest_mismatch.get("stage", "")),
-                    "contract": str(latest_mismatch.get("contract", "")),
-                    "function": str(latest_mismatch.get("function", "")),
-                    "sender": str(latest_mismatch.get("sender", "")),
-                    "nonce": str(latest_mismatch.get("nonce", "")),
-                    "tx_hash": str(latest_mismatch.get("tx_hash", "")),
-                    "block_height": str(
-                        latest_mismatch.get("block_height", "")
-                    ),
-                    "mismatch_fields": ",".join(
-                        latest_mismatch.get("mismatch_fields", [])
-                    ),
-                },
-            )
-        else:
-            vm_shadow_last_mismatch.add_metric(
-                [],
-                {
-                    "stage": "",
-                    "contract": "",
-                    "function": "",
-                    "sender": "",
-                    "nonce": "",
-                    "tx_hash": "",
-                    "block_height": "",
-                    "mismatch_fields": "",
-                },
-            )
+        vm_shadow_last_mismatch.add_metric(
+            [],
+            {
+                "stage": str(latest_mismatch.get("stage", ""))
+                if latest_mismatch
+                else "",
+                "contract": str(latest_mismatch.get("contract", ""))
+                if latest_mismatch
+                else "",
+                "function": str(latest_mismatch.get("function", ""))
+                if latest_mismatch
+                else "",
+                "sender": str(latest_mismatch.get("sender", ""))
+                if latest_mismatch
+                else "",
+                "nonce": str(latest_mismatch.get("nonce", ""))
+                if latest_mismatch
+                else "",
+                "tx_hash": str(latest_mismatch.get("tx_hash", ""))
+                if latest_mismatch
+                else "",
+                "block_height": str(latest_mismatch.get("block_height", ""))
+                if latest_mismatch
+                else "",
+                "mismatch_fields": ",".join(
+                    latest_mismatch.get("mismatch_fields", [])
+                )
+                if latest_mismatch
+                else "",
+            },
+        )
         yield vm_shadow_last_mismatch
 
+    def _collect_bds_info(
+        self, app, bds_status: dict[str, Any] | None
+    ) -> InfoMetricFamily:
         bds_info = InfoMetricFamily(
             "xian_bds",
             "Optional BDS runtime information.",
@@ -364,8 +380,11 @@ class XianMetricsCollector:
             bds_info.add_metric(
                 [], {"enabled": "false", "db_status": "disabled"}
             )
-        yield bds_info
+        return bds_info
 
+    def _collect_bds_metrics(
+        self, app, bds_status: dict[str, Any] | None
+    ) -> GaugeMetricFamily:
         bds_family = GaugeMetricFamily(
             "xian_bds_metric",
             "Optional BDS worker and storage health metrics.",
@@ -387,6 +406,7 @@ class XianMetricsCollector:
             )
         if bds_status:
             indexed = bds_status.get("indexed", {})
+            storage = bds_status.get("storage") or {}
             for field, value in (
                 ("catchup_running", bds_status.get("catchup_running")),
                 ("worker_running", bds_status.get("worker_running")),
@@ -395,9 +415,33 @@ class XianMetricsCollector:
                 ("queue_utilization", bds_status.get("queue_utilization")),
                 ("spool_pending_count", bds_status.get("spool_pending_count")),
                 ("spool_total_bytes", bds_status.get("spool_total_bytes")),
-                ("storage_total_bytes", bds_status.get("storage_total_bytes")),
-                ("storage_used_bytes", bds_status.get("storage_used_bytes")),
-                ("storage_free_bytes", bds_status.get("storage_free_bytes")),
+                (
+                    "storage_total_bytes",
+                    self._status_storage_value(
+                        storage,
+                        bds_status,
+                        "filesystem_total_bytes",
+                        "storage_total_bytes",
+                    ),
+                ),
+                (
+                    "storage_used_bytes",
+                    self._status_storage_value(
+                        storage,
+                        bds_status,
+                        "filesystem_used_bytes",
+                        "storage_used_bytes",
+                    ),
+                ),
+                (
+                    "storage_free_bytes",
+                    self._status_storage_value(
+                        storage,
+                        bds_status,
+                        "filesystem_free_bytes",
+                        "storage_free_bytes",
+                    ),
+                ),
                 (
                     "current_block_height",
                     bds_status.get("current_block_height"),
@@ -425,8 +469,11 @@ class XianMetricsCollector:
                 ("pool_utilization", pool.get("utilization")),
             ):
                 _add_metric_if_present(bds_family, [field], value)
-        yield bds_family
+        return bds_family
 
+    def _collect_bds_alerts(
+        self, bds_status: dict[str, Any] | None
+    ) -> GaugeMetricFamily:
         bds_alerts = GaugeMetricFamily(
             "xian_bds_alert",
             "BDS alerts reported by the node.",
@@ -439,7 +486,31 @@ class XianMetricsCollector:
                 )
                 kind = str(alert.get("kind") or alert.get("code") or "unknown")
                 bds_alerts.add_metric([severity, kind], 1.0)
-        yield bds_alerts
+        return bds_alerts
+
+    def _add_named_stat_metrics(
+        self,
+        family: GaugeMetricFamily,
+        metric_name: str,
+        values: dict[str, Any],
+    ) -> None:
+        for stat_name in self.PERF_STAT_FIELDS:
+            _add_metric_if_present(
+                family,
+                [metric_name, stat_name],
+                values.get(stat_name),
+            )
+
+    def _status_storage_value(
+        self,
+        storage: dict[str, Any],
+        bds_status: dict[str, Any],
+        nested_key: str,
+        legacy_key: str,
+    ) -> Any:
+        if nested_key in storage:
+            return storage.get(nested_key)
+        return bds_status.get(legacy_key)
 
 
 class MetricsService:

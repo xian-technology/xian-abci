@@ -1,114 +1,118 @@
 # State Patches
 
-This directory contains state patches that will be applied at specific block heights during blockchain execution.
+This directory contains documentation and example assets for the governed
+state-patch system.
 
 ## Purpose
 
-State patches allow administrators to correct blockchain state without requiring forks or resets of the network. This is useful for:
+State patches let the chain apply pre-reviewed state changes at a specific block
+height without requiring a fork or full reset. Typical uses include:
 
-- Fixing bugs that resulted in incorrect state
-- Correcting values after protocol upgrades
-- Implementing governance decisions that modify state
-- Providing emergency remediation for security issues
-- Deploying or updating smart contracts without transactions
+- correcting broken state after a bug
+- applying governance-approved remediation
+- deploying or updating contract source through a governed path
+- shipping emergency fixes with explicit validator coordination
 
-## File Format
+## Runtime Model
 
-State patches are stored in `state_patches.json` using the following format:
+The current implementation is bundle-based and governance-driven:
+
+- nodes load local patch bundle files from
+  `<COMETBFT_HOME>/config/state-patches/*.json`
+- governance schedules a patch by `patch_id`, `bundle_hash`, and
+  `activation_height`
+- at block finalization, the node applies only approved scheduled patches whose
+  local bundle matches the governed metadata
+- applied patch executions are hashed and included in the block fingerprint path
+- BDS persists the executed patch metadata and resulting state changes
+
+The repo path here is not the runtime load location. The files in this folder
+are examples and development fixtures only.
+
+## Bundle Format
+
+Each bundle file is a single JSON object:
 
 ```json
 {
-  "BLOCK_HEIGHT": [
+  "version": 1,
+  "patch_id": "patch-example",
+  "activation_height": 12345,
+  "chain_id": "xian-local",
+  "summary": "Repair incorrect contract state",
+  "uri": "ipfs://example",
+  "changes": [
     {
-      "key": "contract.path:identifier",
-      "value": <value>,
-      "comment": "Explanation of why this change is necessary"
-    },
-    ...more patches for this height...
-  ],
-  "ANOTHER_BLOCK_HEIGHT": [
-    ...patches for another block height...
+      "key": "con_example.value",
+      "value": "patched",
+      "comment": "Fix incorrect state value"
+    }
   ]
 }
 ```
 
-Where:
-- `BLOCK_HEIGHT`: The block height at which the patch will be applied (as a string)
-- `key`: The full state key path (contract.path:identifier)
-- `value`: The new value to set (can be a string, number, boolean or object)
-- `comment`: A description explaining the reason for the patch
+Supported top-level fields:
 
-## How It Works
+- `version`: currently `1`
+- `patch_id`: stable identifier used by governance and local inventory matching
+- `activation_height`: block height where the patch may execute
+- `governance_contract`: optional override; defaults to `governance`
+- `chain_id`: optional guard to restrict a bundle to one chain
+- `summary`: optional human-readable summary
+- `uri`: optional external reference such as an IPFS URI or proposal link
+- `changes`: non-empty list of state writes
 
-1. All patches are loaded into memory when the ABCI application starts
-2. During the `finalize_block` phase, the system checks if any patches exist for the current block height
-3. If patches exist, they are applied to the state and a hash of the patches is generated
-4. The patch hash is included in the block's fingerprint hashes, ensuring that all nodes apply the same patches
-5. The state changes are recorded in the blockchain's consensus state
+Each change includes:
+
+- `key`: full state key to write
+- `value`: JSON-serializable value to persist
+- `comment`: audit-oriented reason for the change
+
+## Contract Source Patches
+
+Bundle changes may target `contract.__source__`, but they may not patch
+`__code__` or `__xian_ir_v1__` directly.
+
+When a patch updates `contract.__source__`, the node derives and persists the
+additional artifacts automatically:
+
+- normalized `__source__`
+- `__code__` when the runtime mode includes stored runtime code
+- `__xian_ir_v1__` for the native VM path
 
 ## Database Integration
 
-State patches are fully integrated with the Blockchain Data Service (BDS):
+Applied state patches are persisted through BDS:
 
-1. **Dedicated State Patches Table**: All state patches are recorded in a dedicated `state_patches` table that tracks:
-   - Patch hash
-   - Block height, hash, and time
-   - Complete patch content including comments
+- the `state_patches` table stores execution metadata and canonical patch payloads
+- executed patches are exposed as pseudo-transactions with hashes such as
+  `STATE_PATCH_<height>`
+- the resulting writes are also persisted in normal state-change history
 
-2. **Transaction Records**: Each state patch generates a transaction record with a unique hash of format `STATE_PATCH_{block_height}` that:
-   - Links state changes to a specific patch
-   - Provides audit trail in transaction history
-   - Maintains database referential integrity
+## Query Surfaces
 
-3. **Special Contract Handling**: When a patch includes contract code (keys ending with `.__code__`):
-   - Both raw code and compiled versions are stored
-   - Existing contracts are updated if they already exist
-   - New contracts are properly registered in the contracts table
+Local inventory and governance scheduling can be inspected through ABCI queries:
 
-4. **Query Support**: The BDS provides methods to query state patches:
-   - `get_state_patches()` - List all state patches with pagination
-   - `get_state_patches_for_block(block_height)` - Get patches for a specific block
-   - `get_state_patch_by_hash(patch_hash)` - Get details about a specific patch
-   - `get_state_changes_for_patch(patch_hash)` - Get all state changes from a patch
+- `/state_patch_bundles`
+- `/scheduled_state_patches/<height>`
 
-## ABCI Query Endpoint
+BDS-backed historical execution queries are available through:
 
-State patches can be queried directly via the ABCI query interface using:
+- `/state_patches`
+- `/state_patches_for_block/<height>`
+- `/state_patch/<hash>`
+- `/state_changes_for_patch/<hash>`
 
-```
-http://localhost:26657/abci_query?path="/state_patches"
-```
+## Files In This Folder
 
-This endpoint returns the contents of the node's state patches file, allowing:
-- Network operators to verify which patches are loaded on specific validators
-- Monitoring tools to check for patch consistency across validator nodes
-- Dashboards to display the current state of patches in the network
-- Easy identification of validators with missing or incorrect patches
+- `state_patches_example.json`: minimal example of a valid bundle file
+- `README.md`: this overview
 
-The response is a JSON object containing all patches organized by block height, identical to the format in the state patches file.
+## Operational Notes
 
-## Adding New Patches
-
-To add a new state patch:
-
-1. Edit the `state_patches.json` file to include the new patch
-2. Ensure all patches are properly documented with comments
-3. Use appropriate future block heights that have not yet been processed
-4. Restart the node to load the updated patches
-
-## Security Considerations
-
-- Only network administrators should have access to modify state patches
-- All patches should be thoroughly tested in a staging environment before deployment
-- Patches should be reviewed by multiple people before being applied
-- The comment field should contain sufficient detail for audit purposes
-
-## Validator Consensus Requirements
-
-For state patches to be properly implemented, a quorum of validators must be running the same version of the state patches file. This represents explicit agreement among validators that these state changes should be applied.
-
-- A state patch is considered accepted when a majority (2/3+) of validators by voting power run nodes with the same patch file
-- Running a specific version of state patches serves as a signal that validators agree with the changes
-- If a majority of validators are not running the same state patches, this indicates a lack of agreement among validators about the implementation
-- In case of disagreement, validators should coordinate off-chain to reach consensus before implementing patches
-- Network operators should verify validator agreement before deploying critical state patches 
+- validators must distribute the same local bundle bytes for a governed patch to
+  execute successfully
+- bundle hashes, activation heights, governance contract names, and optional
+  `chain_id` values must match governance state
+- invalid or missing local bundles fail loudly instead of silently disabling the
+  patch path

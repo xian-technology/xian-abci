@@ -25,7 +25,6 @@ class ConfigureNodeCliTests(unittest.TestCase):
         self.assertEqual(args.execution_bytecode_version, "xvm-1")
         self.assertEqual(args.execution_gas_schedule, "xvm-gas-1")
         self.assertEqual(args.execution_authority, "native")
-        self.assertEqual(args.execution_shadow_tracer_mode, "")
 
     def test_parser_defaults_execution_mode_to_none(self):
         args = build_parser().parse_args(

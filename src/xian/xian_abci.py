@@ -4,7 +4,6 @@ import importlib
 import signal
 import sys
 from dataclasses import replace
-from urllib.parse import urlsplit, urlunsplit
 
 from contracting.client import ContractingClient
 from loguru import logger
@@ -52,6 +51,7 @@ from xian.utils.block import get_latest_block_height
 from xian.utils.cometbft import (
     load_genesis_data,
     load_tendermint_config,
+    resolve_local_rpc_url,
 )
 from xian.utils.state_patches import StatePatchManager, resolve_state_patch_dir
 from xian.validators import ValidatorHandler
@@ -62,22 +62,14 @@ get_logger("urllib3").setLevel(30)
 get_logger("asyncio").setLevel(30)
 
 
-def resolve_local_rpc_url(cometbft_config: dict) -> str:
-    laddr = str(
-        cometbft_config.get("rpc", {}).get("laddr", "tcp://127.0.0.1:26657")
-    )
-    normalized = laddr
-    if not normalized.startswith(("http://", "https://")):
-        normalized = normalized.replace("tcp://", "http://").replace(
-            "unix://", "http://"
+def resolve_abci_socket_path(proxy_app: str | None) -> str:
+    if proxy_app is None or proxy_app == "":
+        return "/tmp/abci.sock"
+    if not proxy_app.startswith("unix://"):
+        raise ValueError(
+            f"xian-abci only supports unix proxy_app values, got {proxy_app!r}"
         )
-    normalized = normalized.rstrip("/")
-    parts = urlsplit(normalized)
-    host = parts.hostname or "127.0.0.1"
-    if host in {"0.0.0.0", "::"}:
-        netloc = f"127.0.0.1:{parts.port or 26657}"
-        return urlunsplit((parts.scheme or "http", netloc, parts.path, "", ""))
-    return normalized
+    return proxy_app.removeprefix("unix://")
 
 
 def load_module(module_path, original_module_path):
@@ -215,7 +207,13 @@ class Xian:
         if self.bds_config.rpc_url is None:
             self.bds_config = replace(
                 self.bds_config,
-                rpc_url=resolve_local_rpc_url(self.cometbft_config),
+                rpc_url=resolve_local_rpc_url(
+                    str(
+                        self.cometbft_config.get("rpc", {}).get(
+                            "laddr", "tcp://127.0.0.1:26657"
+                        )
+                    )
+                ),
             )
 
         self.pruning_enabled = xian_config.get("pruning_enabled", False)
@@ -451,7 +449,12 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
 
     app = asyncio.run(Xian.create(constants=constants))
-    ABCIServer(app=app).run()
+    ABCIServer(
+        app=app,
+        socket_path=resolve_abci_socket_path(
+            str(app.cometbft_config.get("proxy_app", "unix:///tmp/abci.sock"))
+        ),
+    ).run()
 
 
 def signal_handler(signum, frame):

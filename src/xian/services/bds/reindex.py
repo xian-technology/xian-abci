@@ -5,19 +5,22 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
-from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
 from contracting.storage.driver import Driver
 from loguru import logger
 
 from xian.constants import Constants
-from xian.dashboard.app import normalize_rpc_url
 from xian.services.bds.bds import BDS
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.services.bds.runtime import resolve_bds_config
 from xian.services.bds.serializer import utc_datetime
-from xian.utils.cometbft import load_genesis_data, load_tendermint_config
+from xian.utils.cometbft import (
+    load_genesis_data,
+    load_tendermint_config,
+    normalize_rpc_url,
+    resolve_local_rpc_url,
+)
 from xian.utils.encoding import decode_transaction_bytes, hash_bytes
 from xian.utils.state_patches import StatePatchManager, resolve_state_patch_dir
 
@@ -68,13 +71,7 @@ def resolve_rpc_url(
 
     config = load_tendermint_config(constants)
     laddr = str(config.get("rpc", {}).get("laddr", "http://127.0.0.1:26657"))
-    normalized = normalize_rpc_url(laddr)
-    parts = urlsplit(normalized)
-    host = parts.hostname or "127.0.0.1"
-    if host in {"0.0.0.0", "::"}:
-        netloc = f"127.0.0.1:{parts.port or 26657}"
-        return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
-    return normalized
+    return resolve_local_rpc_url(laddr)
 
 
 class CometBftRpcClient:

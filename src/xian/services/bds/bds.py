@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -69,6 +70,20 @@ def _json_mapping(value: Any) -> dict[str, Any] | None:
             return None
         return decoded if isinstance(decoded, dict) else None
     return None
+
+
+@dataclass(frozen=True, slots=True)
+class SpoolFileInfo:
+    path: Path
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class SpoolStatusSnapshot:
+    files: tuple[SpoolFileInfo, ...]
+    total_bytes: int
+    oldest_pending: dict[str, Any] | None
+    newest_pending: dict[str, Any] | None
 
 
 class BDS:
@@ -238,6 +253,17 @@ class BDS:
     def _pending_spool_files(self) -> list[Path]:
         return sorted(self.spool_dir.glob("*.json"))
 
+    def _pending_spool_file_infos(self) -> list[SpoolFileInfo]:
+        pending: list[SpoolFileInfo] = []
+        for path in self._pending_spool_files():
+            try:
+                pending.append(
+                    SpoolFileInfo(path=path, size_bytes=path.stat().st_size)
+                )
+            except FileNotFoundError:
+                continue
+        return pending
+
     def clear_spool(self) -> None:
         self.spool_dir.mkdir(parents=True, exist_ok=True)
         for path in self.spool_dir.glob("*.json*"):
@@ -364,12 +390,14 @@ class BDS:
         }
 
     def _spool_entry_metadata(
-        self, spool_path: Path, payload: BdsBlockPayload | None = None
+        self,
+        spool_file: SpoolFileInfo,
+        payload: BdsBlockPayload | None = None,
     ) -> dict[str, Any]:
-        loaded_payload = payload or self._read_spool_file(spool_path)
+        loaded_payload = payload or self._read_spool_file(spool_file.path)
         return {
-            "file": spool_path.name,
-            "size_bytes": spool_path.stat().st_size,
+            "file": spool_file.path.name,
+            "size_bytes": spool_file.size_bytes,
             "block_height": int(loaded_payload.block_meta["height"]),
             "block_hash": str(loaded_payload.block_meta["hash"]),
             "block_time": utc_datetime(loaded_payload.block_time).isoformat(),
@@ -378,23 +406,23 @@ class BDS:
             "app_hash": loaded_payload.app_hash,
         }
 
+    def _spool_status_snapshot(self) -> SpoolStatusSnapshot:
+        files = tuple(self._pending_spool_file_infos())
+        return SpoolStatusSnapshot(
+            files=files,
+            total_bytes=sum(spool_file.size_bytes for spool_file in files),
+            oldest_pending=(
+                self._spool_entry_metadata(files[0]) if files else None
+            ),
+            newest_pending=(
+                self._spool_entry_metadata(files[-1]) if files else None
+            ),
+        )
+
     async def get_status(
         self, *, current_block_height: int | None = None
     ) -> dict[str, Any]:
-        pending_spool = self._pending_spool_files()
-        spool_total_bytes = sum(
-            spool_path.stat().st_size for spool_path in pending_spool
-        )
-        oldest_pending = (
-            self._spool_entry_metadata(pending_spool[0])
-            if pending_spool
-            else None
-        )
-        newest_pending = (
-            self._spool_entry_metadata(pending_spool[-1])
-            if pending_spool
-            else None
-        )
+        spool_snapshot = self._spool_status_snapshot()
 
         db_status = "ok"
         db_error = None
@@ -462,24 +490,24 @@ class BDS:
                     "message": "BDS database status is degraded",
                 }
             )
-        if len(pending_spool) >= self.config.spool_warn_entries:
+        if len(spool_snapshot.files) >= self.config.spool_warn_entries:
             alerts.append(
                 {
                     "level": "warning",
                     "code": "spool_entries_high",
                     "message": "BDS spool entry count exceeded warning threshold",
                     "threshold": self.config.spool_warn_entries,
-                    "value": len(pending_spool),
+                    "value": len(spool_snapshot.files),
                 }
             )
-        if spool_total_bytes >= self.config.spool_warn_bytes:
+        if spool_snapshot.total_bytes >= self.config.spool_warn_bytes:
             alerts.append(
                 {
                     "level": "warning",
                     "code": "spool_bytes_high",
                     "message": "BDS spool size exceeded warning threshold",
                     "threshold": self.config.spool_warn_bytes,
-                    "value": spool_total_bytes,
+                    "value": spool_snapshot.total_bytes,
                 }
             )
         if disk_usage.free <= self.config.disk_free_warn_bytes:
@@ -493,7 +521,7 @@ class BDS:
                 }
             )
 
-        has_spool_backlog = len(pending_spool) > 0
+        has_spool_backlog = len(spool_snapshot.files) > 0
         has_height_lag = isinstance(height_lag, int) and height_lag > 0
 
         return {
@@ -505,10 +533,10 @@ class BDS:
             "queue_capacity": queue_capacity,
             "queue_utilization": queue_depth / queue_capacity,
             "spool_dir": str(self.spool_dir),
-            "spool_pending_count": len(pending_spool),
-            "spool_total_bytes": spool_total_bytes,
-            "spool_oldest_pending": oldest_pending,
-            "spool_newest_pending": newest_pending,
+            "spool_pending_count": len(spool_snapshot.files),
+            "spool_total_bytes": spool_snapshot.total_bytes,
+            "spool_oldest_pending": spool_snapshot.oldest_pending,
+            "spool_newest_pending": spool_snapshot.newest_pending,
             "storage": {
                 "filesystem_total_bytes": disk_usage.total,
                 "filesystem_used_bytes": disk_usage.used,
@@ -603,25 +631,28 @@ class BDS:
     async def get_spool_entries(
         self, limit: int = 100, offset: int = 0
     ) -> list[dict[str, Any]]:
-        pending_spool = self._pending_spool_files()
+        pending_spool = self._pending_spool_file_infos()
         selected = pending_spool[offset : offset + limit]
         return [
-            self._spool_entry_metadata(spool_path) for spool_path in selected
+            self._spool_entry_metadata(spool_file) for spool_file in selected
         ]
 
     async def _prepare_schema(self) -> None:
         await self.db.execute(sql.create_meta())
         current_version = await self.db.fetchval(sql.select_schema_version())
-        if current_version != str(sql.SCHEMA_VERSION):
-            if (
-                current_version is not None
-                or await self._legacy_tables_present()
-            ):
-                logger.warning(
-                    "Resetting BDS schema to version {}",
-                    sql.SCHEMA_VERSION,
+        if current_version is None:
+            if await self._managed_tables_present():
+                raise RuntimeError(
+                    "BDS schema metadata is missing for existing tables; "
+                    "reset BDS storage before starting the current runtime"
                 )
-                await self.db.execute(sql.drop_all_tables())
+        elif current_version != str(sql.SCHEMA_VERSION):
+            logger.warning(
+                "Resetting BDS schema from version {} to {}",
+                current_version,
+                sql.SCHEMA_VERSION,
+            )
+            await self.db.execute(sql.drop_all_tables())
             await self.db.execute(sql.create_meta())
 
         for statement in (
@@ -642,7 +673,7 @@ class BDS:
             [str(sql.SCHEMA_VERSION), utc_datetime(datetime.now())],
         )
 
-    async def _legacy_tables_present(self) -> bool:
+    async def _managed_tables_present(self) -> bool:
         return bool(
             await self.db.fetchval(
                 """
@@ -651,6 +682,7 @@ class BDS:
                     FROM information_schema.tables
                     WHERE table_schema = 'public'
                       AND table_name IN (
+                        'blocks',
                         'transactions',
                         'state',
                         'state_changes',
@@ -658,7 +690,7 @@ class BDS:
                         'rewards',
                         'contracts',
                         'state_patches',
-                        'addresses'
+                        'shielded_output_tags'
                       )
                 );
                 """

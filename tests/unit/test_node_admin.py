@@ -9,11 +9,12 @@ from unittest.mock import patch
 
 from xian_accounts import Ed25519Account
 from xian.node_admin import (
+    ExistingHomeOptions,
     apply_snapshot_archive,
     configure_existing_home,
     resolve_seed_nodes,
 )
-from xian.node_setup import write_toml
+from xian.node_setup import BdsOptions, MetricsOptions, NodeConfigOptions, write_toml
 from xian.toml_utils import load as load_toml
 from xian.toml_utils import loads as load_toml_string
 
@@ -410,6 +411,74 @@ blocks_to_keep = 100000
             self.assertEqual(
                 result["config_path"],
                 str(home / "config" / "config.toml"),
+            )
+            self.assertEqual(result["seed_nodes"], ["seed-1@127.0.0.1:26656"])
+
+    def test_configure_existing_home_accepts_options_object(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            home = tmp_path / ".cometbft"
+            config_path = home / "config" / "config.toml"
+            config_path.parent.mkdir(parents=True)
+
+            existing_config = load_toml_string(
+                """
+version = "0.39.1"
+proxy_app = "unix:///tmp/abci.sock"
+moniker = "initial-node"
+db_backend = "goleveldb"
+db_dir = "data"
+log_level = "info"
+log_format = "plain"
+genesis_file = "config/genesis.json"
+priv_validator_key_file = "config/priv_validator_key.json"
+priv_validator_state_file = "data/priv_validator_state.json"
+node_key_file = "config/node_key.json"
+abci = "socket"
+filter_peers = false
+
+[rpc]
+laddr = "tcp://127.0.0.1:26657"
+cors_allowed_origins = ["*"]
+
+[p2p]
+laddr = "tcp://0.0.0.0:26656"
+seeds = ""
+""".strip()
+            )
+            write_toml(config_path, existing_config)
+
+            result = configure_existing_home(
+                options=ExistingHomeOptions(
+                    moniker="updated-node",
+                    validator_private_key_hex=(
+                        "0123456789abcdef0123456789abcdef0123456789abcdef"
+                        "0123456789abcdef"
+                    ),
+                    home=home,
+                    seed_node_address="seed-1@127.0.0.1",
+                    node_config=NodeConfigOptions(
+                        moniker="updated-node",
+                        allow_cors=False,
+                        metrics=MetricsOptions(port=9208),
+                        bds=BdsOptions(
+                            application_name="xian-bds-test",
+                        ),
+                    ),
+                )
+            )
+
+            rendered_config = load_toml(config_path)
+            self.assertEqual(rendered_config["moniker"], "updated-node")
+            self.assertEqual(
+                rendered_config["p2p"]["seeds"],
+                "seed-1@127.0.0.1:26656",
+            )
+            self.assertEqual(rendered_config["rpc"]["cors_allowed_origins"], [])
+            self.assertEqual(rendered_config["xian"]["metrics_port"], 9208)
+            self.assertEqual(
+                rendered_config["xian"]["bds"]["application_name"],
+                "xian-bds-test",
             )
             self.assertEqual(result["seed_nodes"], ["seed-1@127.0.0.1:26656"])
 

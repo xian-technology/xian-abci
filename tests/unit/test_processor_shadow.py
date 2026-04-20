@@ -7,6 +7,75 @@ from xian_runtime_types.time import Datetime
 
 
 class ProcessorShadowExecutionTests(unittest.TestCase):
+    def test_execute_tx_uses_fresh_environment_when_omitted(self):
+        driver = SimpleNamespace(
+            pending_writes={},
+            pending_reads={},
+            pending_deltas={},
+            transaction_reads={},
+            transaction_read_prefixes=set(),
+            transaction_writes={},
+            log_events=[],
+        )
+        driver.get_owner = lambda _contract: "alice"
+
+        processor = object.__new__(TxProcessor)
+        processor.client = SimpleNamespace(raw_driver=driver)
+        processor.execution_runtime = SimpleNamespace(
+            mode="python_line_v1",
+            shadow_execution=False,
+        )
+        processor.profiler = None
+        processor.trace_logging = False
+        observed_environments = []
+
+        def fake_execute(**kwargs):
+            observed_environments.append(dict(kwargs["environment"]))
+            kwargs["environment"]["touched"] = True
+            return {
+                "status_code": 0,
+                "result": "ok",
+                "writes": {},
+                "events": [],
+                "chi_used": 1,
+                "reads": {},
+                "prefix_reads": frozenset(),
+                "contract_costs": {},
+            }
+
+        processor.executor = SimpleNamespace(execute=fake_execute)
+
+        with mock.patch("xian.processor.prepare_contract_for_execution"):
+            first = processor.execute_tx(
+                transaction={
+                    "payload": {
+                        "sender": "alice",
+                        "contract": "currency",
+                        "function": "transfer",
+                        "kwargs": {"amount": 1, "to": "bob"},
+                        "chi_supplied": 1000,
+                    }
+                },
+                chi_cost=20,
+            )
+            second = processor.execute_tx(
+                transaction={
+                    "payload": {
+                        "sender": "alice",
+                        "contract": "currency",
+                        "function": "transfer",
+                        "kwargs": {"amount": 2, "to": "carol"},
+                        "chi_supplied": 1000,
+                    }
+                },
+                chi_cost=20,
+            )
+
+        self.assertEqual(first["status_code"], 0)
+        self.assertEqual(second["status_code"], 0)
+        self.assertEqual(observed_environments[0], {})
+        self.assertEqual(observed_environments[1], {})
+
     def test_get_environment_exposes_internal_execution_mode(self):
         processor = object.__new__(TxProcessor)
         processor.execution_runtime = SimpleNamespace(mode="xian_vm_v1")
