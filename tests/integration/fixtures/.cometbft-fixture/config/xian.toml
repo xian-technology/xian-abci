@@ -1,0 +1,44 @@
+block_service_mode = false
+pruning_enabled = false
+blocks_to_keep = 100000
+tracer_mode = "python_line_v1"
+metrics_enabled = true
+metrics_host = "127.0.0.1"
+metrics_port = 9108
+metrics_bds_refresh_seconds = 5.0
+transaction_trace_logging = false
+app_log_level = "INFO"
+app_log_json = false
+app_log_rotation_hours = 1
+app_log_retention_days = 7
+simulation_enabled = true
+simulation_max_concurrency = 2
+simulation_timeout_ms = 3000
+simulation_max_chi = 1000000
+parallel_execution_enabled = false
+parallel_execution_workers = 4
+parallel_execution_min_transactions = 8
+pending_nonce_reservation_ttl_seconds = 60.0
+max_pending_nonces_per_sender = 128
+
+[execution.engine]
+mode = "python_line_v1"
+bytecode_version = ""
+gas_schedule = ""
+authority = ""
+
+[bds]
+dsn = ""
+host = ""
+port = 5432
+database = "xian"
+user = ""
+password = ""
+pool_min_size = 1
+pool_max_size = 10
+statement_timeout_ms = 0
+application_name = "xian-bds"
+spool_dir = ""
+spool_warn_entries = 256
+spool_warn_bytes = 536870912
+disk_free_warn_bytes = 2147483648

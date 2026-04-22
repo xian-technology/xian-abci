@@ -51,6 +51,7 @@ from xian.utils.block import get_latest_block_height
 from xian.utils.cometbft import (
     load_genesis_data,
     load_tendermint_config,
+    load_xian_config,
     resolve_local_rpc_url,
 )
 from xian.utils.state_patches import StatePatchManager, resolve_state_patch_dir
@@ -97,12 +98,13 @@ class Xian:
         self.constants = constants
         try:
             self.cometbft_config = load_tendermint_config(constants)
+            self.xian_config = load_xian_config(constants)
             self.genesis = load_genesis_data(constants)
         except Exception as e:
             logger.error(e)
             raise SystemExit()
 
-        xian_config = self.cometbft_config.get("xian", {})
+        xian_config = self.xian_config
         self.execution_policy = load_execution_policy(
             xian_config,
             allow_future=True,

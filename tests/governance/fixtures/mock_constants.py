@@ -1,14 +1,16 @@
 from pathlib import Path
 from xian.constants import Constants
 
+
 class MockConstants(Constants):
-    COMETBFT_HOME = Path.home() / Path('/tmp/cometbft/')
+    COMETBFT_HOME = Path.home() / Path("/tmp/cometbft/")
     COMETBFT_CONFIG = COMETBFT_HOME / Path("config/config.toml")
+    XIAN_CONFIG = COMETBFT_HOME / Path("config/xian.toml")
     COMETBFT_GENESIS = COMETBFT_HOME / Path("config/genesis.json")
 
     # NONCE_FILENAME = '__n'
     # PENDING_NONCE_FILENAME = '__pn'
-    STORAGE_HOME = COMETBFT_HOME / Path('xian/')
+    STORAGE_HOME = COMETBFT_HOME / Path("xian/")
 
     # LATEST_BLOCK_HASH_KEY = "__latest_block.hash"
     # LATEST_BLOCK_HEIGHT_KEY = "__latest_block.height"

@@ -112,8 +112,3 @@ prometheus = true
 prometheus_listen_addr = ":26660"
 max_open_connections = 3
 namespace = "cometbft"
-
-[xian]
-block_service_mode = false
-pruning_enabled = false
-blocks_to_keep = 100000

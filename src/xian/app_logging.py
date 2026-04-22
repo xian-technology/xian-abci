@@ -10,7 +10,7 @@ from loguru import logger
 
 from xian.constants import Constants
 from xian.node_setup import resolve_app_logging_settings
-from xian.utils.cometbft import load_tendermint_config
+from xian.utils.cometbft import load_xian_config
 from xian.utils.tx import tx_hash_from_tx
 
 SUPPORTED_APP_LOG_LEVELS = (
@@ -159,11 +159,13 @@ def configure_logging(
 ) -> dict[str, Any]:
     if config is None:
         try:
-            config = load_tendermint_config(constants)
+            xian_config = load_xian_config(constants)
         except FileNotFoundError:
-            config = {}
-
-    xian_config = config.get("xian", {}) if isinstance(config, dict) else {}
+            xian_config = {}
+    else:
+        xian_config = (
+            config.get("xian", config) if isinstance(config, dict) else {}
+        )
     settings = resolve_app_logging_settings(
         level=xian_config.get("app_log_level", "INFO"),
         json_logging=xian_config.get("app_log_json", False),

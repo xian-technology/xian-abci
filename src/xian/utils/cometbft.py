@@ -41,6 +41,15 @@ def load_tendermint_config(config: Constants):
     return load_toml(config.COMETBFT_CONFIG)
 
 
+def load_xian_config(config: Constants):
+    if not (config.COMETBFT_HOME.exists() and config.COMETBFT_HOME.is_dir()):
+        raise FileNotFoundError("You must initialize CometBFT first")
+    if not (config.XIAN_CONFIG.exists() and config.XIAN_CONFIG.is_file()):
+        raise FileNotFoundError(f"File not found: {config.XIAN_CONFIG}")
+
+    return load_toml(config.XIAN_CONFIG)
+
+
 def load_genesis_data(config: Constants):
     if not (
         config.COMETBFT_GENESIS.exists() and config.COMETBFT_GENESIS.is_file()

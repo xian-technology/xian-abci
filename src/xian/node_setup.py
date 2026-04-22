@@ -18,7 +18,7 @@ from xian.execution_policy import (
     resolve_execution_policy,
 )
 
-DEFAULT_CONFIG_TOML = """
+DEFAULT_COMETBFT_CONFIG_TOML = """
 version = "0.39.1"
 proxy_app = "unix:///tmp/abci.sock"
 moniker = "xian-node"
@@ -133,8 +133,9 @@ prometheus = true
 prometheus_listen_addr = ":26660"
 max_open_connections = 3
 namespace = "cometbft"
+""".strip()
 
-[xian]
+DEFAULT_XIAN_CONFIG_TOML = """
 block_service_mode = false
 pruning_enabled = false
 blocks_to_keep = 100000
@@ -158,13 +159,13 @@ parallel_execution_min_transactions = 8
 pending_nonce_reservation_ttl_seconds = 60.0
 max_pending_nonces_per_sender = 128
 
-[xian.execution.engine]
+[execution.engine]
 mode = "python_line_v1"
 bytecode_version = ""
 gas_schedule = ""
 authority = ""
 
-[xian.bds]
+[bds]
 dsn = ""
 host = ""
 port = 5432
@@ -500,7 +501,7 @@ def build_priv_validator_state() -> dict[str, Any]:
     }
 
 
-def render_cometbft_config(
+def render_node_configs(
     *,
     options: NodeConfigOptions | None = None,
     moniker: str | None = None,
@@ -558,7 +559,7 @@ def render_cometbft_config(
     bds_disk_free_warn_bytes: int = 2_147_483_648,
     proxy_app: str = "unix:///tmp/abci.sock",
     prometheus: bool = True,
-) -> dict[str, Any]:
+) -> dict[str, dict[str, Any]]:
     if execution_shadow_tracer_mode:
         raise ValueError(
             "xian.execution.engine.shadow_tracer_mode is no longer supported"
@@ -638,7 +639,8 @@ def render_cometbft_config(
             prometheus=prometheus,
         )
 
-    config = toml_utils.loads(DEFAULT_CONFIG_TOML)
+    cometbft_config = toml_utils.loads(DEFAULT_COMETBFT_CONFIG_TOML)
+    xian_config = toml_utils.loads(DEFAULT_XIAN_CONFIG_TOML)
     create_empty_blocks, create_empty_blocks_interval = resolve_block_policy(
         mode=options.block_policy_mode,
         interval=options.block_policy_interval,
@@ -675,68 +677,97 @@ def render_cometbft_config(
         timeout_ms=options.simulation.timeout_ms,
         max_chi=options.simulation.max_chi,
     )
-    config["proxy_app"] = options.proxy_app
-    config["moniker"] = options.moniker
-    config["consensus"]["create_empty_blocks"] = create_empty_blocks
-    config["consensus"]["create_empty_blocks_interval"] = (
+    cometbft_config["proxy_app"] = options.proxy_app
+    cometbft_config["moniker"] = options.moniker
+    cometbft_config["consensus"]["create_empty_blocks"] = create_empty_blocks
+    cometbft_config["consensus"]["create_empty_blocks_interval"] = (
         create_empty_blocks_interval
     )
-    config["p2p"]["seeds"] = ",".join(options.seed_nodes)
-    config["rpc"]["cors_allowed_origins"] = ["*"] if options.allow_cors else []
-    config["instrumentation"]["prometheus"] = options.prometheus
-    config["statesync"]["enable"] = resolved_statesync["enable"]
-    config["statesync"]["rpc_servers"] = resolved_statesync["rpc_servers"]
-    config["statesync"]["trust_height"] = resolved_statesync["trust_height"]
-    config["statesync"]["trust_hash"] = resolved_statesync["trust_hash"]
-    config["statesync"]["trust_period"] = resolved_statesync["trust_period"]
-    config["xian"] = {
-        "block_service_mode": options.service_node,
-        "pruning_enabled": options.enable_pruning,
-        "blocks_to_keep": options.blocks_to_keep,
-        "tracer_mode": resolved_tracer_mode,
-        "execution": execution_policy.to_config_dict(),
-        "metrics_enabled": options.metrics.enabled,
-        "metrics_host": options.metrics.host,
-        "metrics_port": options.metrics.port,
-        "metrics_bds_refresh_seconds": options.metrics.bds_refresh_seconds,
-        "transaction_trace_logging": options.transaction_trace_logging,
-        "app_log_level": resolved_app_logging["level"],
-        "app_log_json": resolved_app_logging["json"],
-        "app_log_rotation_hours": resolved_app_logging["rotation_hours"],
-        "app_log_retention_days": resolved_app_logging["retention_days"],
-        "simulation_enabled": resolved_simulation["enabled"],
-        "simulation_max_concurrency": resolved_simulation["max_concurrency"],
-        "simulation_timeout_ms": resolved_simulation["timeout_ms"],
-        "simulation_max_chi": resolved_simulation["max_chi"],
-        "parallel_execution_enabled": options.parallel_execution.enabled,
-        "parallel_execution_workers": options.parallel_execution.workers,
-        "parallel_execution_min_transactions": (
-            options.parallel_execution.min_transactions
-        ),
-        "pending_nonce_reservation_ttl_seconds": (
-            options.pending_nonce_reservation_ttl_seconds
-        ),
-        "max_pending_nonces_per_sender": (
-            options.max_pending_nonces_per_sender
-        ),
-        "bds": {
-            "dsn": options.bds.dsn,
-            "host": options.bds.host,
-            "port": options.bds.port,
-            "database": options.bds.database,
-            "user": options.bds.user,
-            "password": options.bds.password,
-            "pool_min_size": options.bds.pool_min_size,
-            "pool_max_size": options.bds.pool_max_size,
-            "statement_timeout_ms": options.bds.statement_timeout_ms,
-            "application_name": options.bds.application_name,
-            "spool_dir": options.bds.spool_dir,
-            "spool_warn_entries": options.bds.spool_warn_entries,
-            "spool_warn_bytes": options.bds.spool_warn_bytes,
-            "disk_free_warn_bytes": options.bds.disk_free_warn_bytes,
-        },
+    cometbft_config["p2p"]["seeds"] = ",".join(options.seed_nodes)
+    cometbft_config["rpc"]["cors_allowed_origins"] = (
+        ["*"] if options.allow_cors else []
+    )
+    cometbft_config["instrumentation"]["prometheus"] = options.prometheus
+    cometbft_config["statesync"]["enable"] = resolved_statesync["enable"]
+    cometbft_config["statesync"]["rpc_servers"] = resolved_statesync[
+        "rpc_servers"
+    ]
+    cometbft_config["statesync"]["trust_height"] = resolved_statesync[
+        "trust_height"
+    ]
+    cometbft_config["statesync"]["trust_hash"] = resolved_statesync[
+        "trust_hash"
+    ]
+    cometbft_config["statesync"]["trust_period"] = resolved_statesync[
+        "trust_period"
+    ]
+
+    xian_config["block_service_mode"] = options.service_node
+    xian_config["pruning_enabled"] = options.enable_pruning
+    xian_config["blocks_to_keep"] = options.blocks_to_keep
+    xian_config["tracer_mode"] = resolved_tracer_mode
+    xian_config["execution"] = execution_policy.to_config_dict()
+    xian_config["metrics_enabled"] = options.metrics.enabled
+    xian_config["metrics_host"] = options.metrics.host
+    xian_config["metrics_port"] = options.metrics.port
+    xian_config["metrics_bds_refresh_seconds"] = (
+        options.metrics.bds_refresh_seconds
+    )
+    xian_config["transaction_trace_logging"] = options.transaction_trace_logging
+    xian_config["app_log_level"] = resolved_app_logging["level"]
+    xian_config["app_log_json"] = resolved_app_logging["json"]
+    xian_config["app_log_rotation_hours"] = resolved_app_logging[
+        "rotation_hours"
+    ]
+    xian_config["app_log_retention_days"] = resolved_app_logging[
+        "retention_days"
+    ]
+    xian_config["simulation_enabled"] = resolved_simulation["enabled"]
+    xian_config["simulation_max_concurrency"] = resolved_simulation[
+        "max_concurrency"
+    ]
+    xian_config["simulation_timeout_ms"] = resolved_simulation["timeout_ms"]
+    xian_config["simulation_max_chi"] = resolved_simulation["max_chi"]
+    xian_config["parallel_execution_enabled"] = (
+        options.parallel_execution.enabled
+    )
+    xian_config["parallel_execution_workers"] = (
+        options.parallel_execution.workers
+    )
+    xian_config["parallel_execution_min_transactions"] = (
+        options.parallel_execution.min_transactions
+    )
+    xian_config["pending_nonce_reservation_ttl_seconds"] = (
+        options.pending_nonce_reservation_ttl_seconds
+    )
+    xian_config["max_pending_nonces_per_sender"] = (
+        options.max_pending_nonces_per_sender
+    )
+    xian_config["bds"] = {
+        "dsn": options.bds.dsn,
+        "host": options.bds.host,
+        "port": options.bds.port,
+        "database": options.bds.database,
+        "user": options.bds.user,
+        "password": options.bds.password,
+        "pool_min_size": options.bds.pool_min_size,
+        "pool_max_size": options.bds.pool_max_size,
+        "statement_timeout_ms": options.bds.statement_timeout_ms,
+        "application_name": options.bds.application_name,
+        "spool_dir": options.bds.spool_dir,
+        "spool_warn_entries": options.bds.spool_warn_entries,
+        "spool_warn_bytes": options.bds.spool_warn_bytes,
+        "disk_free_warn_bytes": options.bds.disk_free_warn_bytes,
     }
-    return config
+    return {"cometbft": cometbft_config, "xian": xian_config}
+
+
+def render_cometbft_config(**kwargs: Any) -> dict[str, Any]:
+    return render_node_configs(**kwargs)["cometbft"]
+
+
+def render_xian_config(**kwargs: Any) -> dict[str, Any]:
+    return render_node_configs(**kwargs)["xian"]
 
 
 def load_genesis(path: Path) -> dict[str, Any]:
@@ -769,6 +800,7 @@ def materialize_cometbft_home(
     *,
     home: Path,
     config: dict[str, Any],
+    xian_config: dict[str, Any],
     genesis: dict[str, Any],
     priv_validator_key: dict[str, Any],
     node_key: dict[str, Any] | None = None,
@@ -783,12 +815,14 @@ def materialize_cometbft_home(
     storage_dir.mkdir(parents=True, exist_ok=True)
 
     config_path = config_dir / "config.toml"
+    xian_config_path = config_dir / "xian.toml"
     genesis_path = config_dir / "genesis.json"
     priv_validator_key_path = config_dir / "priv_validator_key.json"
     node_key_path = config_dir / "node_key.json"
     priv_validator_state_path = data_dir / "priv_validator_state.json"
 
     write_toml(config_path, config, overwrite=overwrite)
+    write_toml(xian_config_path, xian_config, overwrite=overwrite)
     write_json(genesis_path, genesis, overwrite=overwrite)
 
     validator_payload = {
@@ -820,6 +854,7 @@ def materialize_cometbft_home(
     return {
         "home": str(home),
         "config_path": str(config_path),
+        "xian_config_path": str(xian_config_path),
         "genesis_path": str(genesis_path),
         "priv_validator_key_path": str(priv_validator_key_path),
         "node_key_path": str(node_key_path),

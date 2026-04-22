@@ -4,6 +4,7 @@ from pathlib import Path
 class Constants:
     COMETBFT_HOME = Path.home() / Path(".cometbft/")
     COMETBFT_CONFIG = COMETBFT_HOME / Path("config/config.toml")
+    XIAN_CONFIG = COMETBFT_HOME / Path("config/xian.toml")
     COMETBFT_GENESIS = COMETBFT_HOME / Path("config/genesis.json")
     STORAGE_HOME = COMETBFT_HOME / Path("xian/")
 

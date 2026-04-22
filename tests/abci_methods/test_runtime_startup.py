@@ -62,16 +62,21 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
         fake_metrics.start.assert_awaited_once()
         self.assertTrue(self.app._bds_storage_initialized)
 
-    async def test_runtime_disables_debug_tx_traces_when_log_level_is_info(self):
+    async def test_runtime_disables_debug_tx_traces_when_log_level_is_info(
+        self,
+    ):
         with (
             patch(
                 "xian.xian_abci.load_tendermint_config",
                 return_value={
                     "moniker": "validator-1",
-                    "xian": {
-                        "transaction_trace_logging": True,
-                        "app_log_level": "INFO",
-                    },
+                },
+            ),
+            patch(
+                "xian.xian_abci.load_xian_config",
+                return_value={
+                    "transaction_trace_logging": True,
+                    "app_log_level": "INFO",
                 },
             ),
             patch(
@@ -96,10 +101,13 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
                 "xian.xian_abci.load_tendermint_config",
                 return_value={
                     "moniker": "validator-1",
-                    "xian": {
-                        "transaction_trace_logging": True,
-                        "app_log_level": "TRACE",
-                    },
+                },
+            ),
+            patch(
+                "xian.xian_abci.load_xian_config",
+                return_value={
+                    "transaction_trace_logging": True,
+                    "app_log_level": "TRACE",
                 },
             ),
             patch(

@@ -8,13 +8,19 @@ from pathlib import Path
 from unittest.mock import patch
 
 from xian_accounts import Ed25519Account
+
 from xian.node_admin import (
     ExistingHomeOptions,
     apply_snapshot_archive,
     configure_existing_home,
     resolve_seed_nodes,
 )
-from xian.node_setup import BdsOptions, MetricsOptions, NodeConfigOptions, write_toml
+from xian.node_setup import (
+    BdsOptions,
+    MetricsOptions,
+    NodeConfigOptions,
+    write_toml,
+)
 from xian.toml_utils import load as load_toml
 from xian.toml_utils import loads as load_toml_string
 
@@ -229,11 +235,6 @@ create_empty_blocks_interval = "0s"
 
 [instrumentation]
 prometheus = false
-
-[xian]
-block_service_mode = false
-pruning_enabled = false
-blocks_to_keep = 100000
 """.strip()
             )
             write_toml(config_path, existing_config)
@@ -304,6 +305,7 @@ blocks_to_keep = 100000
                 )
 
             rendered_config = load_toml(config_path)
+            rendered_xian_config = load_toml(home / "config" / "xian.toml")
             rendered_validator_key = json.loads(
                 (home / "config" / "priv_validator_key.json").read_text(
                     encoding="utf-8"
@@ -339,71 +341,60 @@ blocks_to_keep = 100000
             self.assertEqual(
                 rendered_config["statesync"]["trust_period"], "336h0m0s"
             )
-            self.assertTrue(rendered_config["xian"]["pruning_enabled"])
-            self.assertEqual(rendered_config["xian"]["blocks_to_keep"], 5000)
+            self.assertNotIn("xian", rendered_config)
+            self.assertTrue(rendered_xian_config["pruning_enabled"])
+            self.assertEqual(rendered_xian_config["blocks_to_keep"], 5000)
             self.assertEqual(
-                rendered_config["xian"]["tracer_mode"], "python_line_v1"
+                rendered_xian_config["tracer_mode"], "python_line_v1"
             )
-            self.assertTrue(rendered_config["xian"]["metrics_enabled"])
-            self.assertEqual(rendered_config["xian"]["metrics_host"], "0.0.0.0")
-            self.assertEqual(rendered_config["xian"]["metrics_port"], 9208)
+            self.assertTrue(rendered_xian_config["metrics_enabled"])
+            self.assertEqual(rendered_xian_config["metrics_host"], "0.0.0.0")
+            self.assertEqual(rendered_xian_config["metrics_port"], 9208)
             self.assertEqual(
-                rendered_config["xian"]["metrics_bds_refresh_seconds"], 7.5
+                rendered_xian_config["metrics_bds_refresh_seconds"], 7.5
             )
-            self.assertTrue(
-                rendered_config["xian"]["transaction_trace_logging"]
-            )
+            self.assertTrue(rendered_xian_config["transaction_trace_logging"])
+            self.assertEqual(rendered_xian_config["app_log_level"], "WARNING")
+            self.assertTrue(rendered_xian_config["app_log_json"])
+            self.assertEqual(rendered_xian_config["app_log_rotation_hours"], 4)
+            self.assertEqual(rendered_xian_config["app_log_retention_days"], 12)
+            self.assertFalse(rendered_xian_config["simulation_enabled"])
             self.assertEqual(
-                rendered_config["xian"]["app_log_level"], "WARNING"
-            )
-            self.assertTrue(rendered_config["xian"]["app_log_json"])
-            self.assertEqual(
-                rendered_config["xian"]["app_log_rotation_hours"], 4
-            )
-            self.assertEqual(
-                rendered_config["xian"]["app_log_retention_days"], 12
-            )
-            self.assertFalse(rendered_config["xian"]["simulation_enabled"])
-            self.assertEqual(
-                rendered_config["xian"]["simulation_max_concurrency"], 4
+                rendered_xian_config["simulation_max_concurrency"], 4
             )
             self.assertEqual(
-                rendered_config["xian"]["simulation_timeout_ms"], 4500
+                rendered_xian_config["simulation_timeout_ms"], 4500
+            )
+            self.assertEqual(rendered_xian_config["simulation_max_chi"], 750000)
+            self.assertEqual(rendered_xian_config["bds"]["host"], "postgres")
+            self.assertEqual(rendered_xian_config["bds"]["port"], 5544)
+            self.assertEqual(
+                rendered_xian_config["bds"]["database"], "xian_index"
+            )
+            self.assertEqual(rendered_xian_config["bds"]["user"], "indexer")
+            self.assertEqual(rendered_xian_config["bds"]["password"], "secret")
+            self.assertEqual(rendered_xian_config["bds"]["pool_min_size"], 2)
+            self.assertEqual(rendered_xian_config["bds"]["pool_max_size"], 6)
+            self.assertEqual(
+                rendered_xian_config["bds"]["statement_timeout_ms"], 5000
             )
             self.assertEqual(
-                rendered_config["xian"]["simulation_max_chi"], 750000
-            )
-            self.assertEqual(rendered_config["xian"]["bds"]["host"], "postgres")
-            self.assertEqual(rendered_config["xian"]["bds"]["port"], 5544)
-            self.assertEqual(
-                rendered_config["xian"]["bds"]["database"], "xian_index"
-            )
-            self.assertEqual(rendered_config["xian"]["bds"]["user"], "indexer")
-            self.assertEqual(
-                rendered_config["xian"]["bds"]["password"], "secret"
-            )
-            self.assertEqual(rendered_config["xian"]["bds"]["pool_min_size"], 2)
-            self.assertEqual(rendered_config["xian"]["bds"]["pool_max_size"], 6)
-            self.assertEqual(
-                rendered_config["xian"]["bds"]["statement_timeout_ms"], 5000
-            )
-            self.assertEqual(
-                rendered_config["xian"]["bds"]["application_name"],
+                rendered_xian_config["bds"]["application_name"],
                 "xian-bds-test",
             )
             self.assertEqual(
-                rendered_config["xian"]["bds"]["spool_dir"],
+                rendered_xian_config["bds"]["spool_dir"],
                 "/var/lib/xian/bds-spool",
             )
             self.assertEqual(
-                rendered_config["xian"]["bds"]["spool_warn_entries"], 512
+                rendered_xian_config["bds"]["spool_warn_entries"], 512
             )
             self.assertEqual(
-                rendered_config["xian"]["bds"]["spool_warn_bytes"],
+                rendered_xian_config["bds"]["spool_warn_bytes"],
                 1_073_741_824,
             )
             self.assertEqual(
-                rendered_config["xian"]["bds"]["disk_free_warn_bytes"],
+                rendered_xian_config["bds"]["disk_free_warn_bytes"],
                 4_294_967_296,
             )
             self.assertEqual(rendered_genesis["chain_id"], "xian-local-1")
@@ -411,6 +402,10 @@ blocks_to_keep = 100000
             self.assertEqual(
                 result["config_path"],
                 str(home / "config" / "config.toml"),
+            )
+            self.assertEqual(
+                result["xian_config_path"],
+                str(home / "config" / "xian.toml"),
             )
             self.assertEqual(result["seed_nodes"], ["seed-1@127.0.0.1:26656"])
 
@@ -469,15 +464,17 @@ seeds = ""
             )
 
             rendered_config = load_toml(config_path)
+            rendered_xian_config = load_toml(home / "config" / "xian.toml")
             self.assertEqual(rendered_config["moniker"], "updated-node")
             self.assertEqual(
                 rendered_config["p2p"]["seeds"],
                 "seed-1@127.0.0.1:26656",
             )
             self.assertEqual(rendered_config["rpc"]["cors_allowed_origins"], [])
-            self.assertEqual(rendered_config["xian"]["metrics_port"], 9208)
+            self.assertNotIn("xian", rendered_config)
+            self.assertEqual(rendered_xian_config["metrics_port"], 9208)
             self.assertEqual(
-                rendered_config["xian"]["bds"]["application_name"],
+                rendered_xian_config["bds"]["application_name"],
                 "xian-bds-test",
             )
             self.assertEqual(result["seed_nodes"], ["seed-1@127.0.0.1:26656"])
@@ -519,11 +516,6 @@ create_empty_blocks_interval = "0s"
 
 [instrumentation]
 prometheus = false
-
-[xian]
-block_service_mode = false
-pruning_enabled = false
-blocks_to_keep = 100000
 """.strip()
             )
             write_toml(config_path, existing_config)
@@ -598,11 +590,6 @@ create_empty_blocks_interval = "0s"
 
 [instrumentation]
 prometheus = false
-
-[xian]
-block_service_mode = false
-pruning_enabled = false
-blocks_to_keep = 100000
 """.strip()
             )
             write_toml(config_path, existing_config)

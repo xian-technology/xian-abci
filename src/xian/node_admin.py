@@ -30,7 +30,7 @@ from xian.node_setup import (
     SimulationOptions,
     StateSyncOptions,
     build_priv_validator_key,
-    render_cometbft_config,
+    render_node_configs,
     write_json,
     write_toml,
 )
@@ -512,7 +512,7 @@ def configure_existing_home(
         seed_node=request.seed_node,
         seed_node_address=request.seed_node_address,
     )
-    rendered_config = render_cometbft_config(
+    rendered_configs = render_node_configs(
         options=NodeConfigOptions(
             moniker=node_config.moniker,
             seed_nodes=tuple(seed_nodes),
@@ -540,6 +540,8 @@ def configure_existing_home(
             prometheus=node_config.prometheus,
         )
     )
+    rendered_config = rendered_configs["cometbft"]
+    xian_config = rendered_configs["xian"]
     config = preserve_runtime_config(rendered_config, existing_config)
 
     snapshot_archive_name: str | None = None
@@ -592,9 +594,12 @@ def configure_existing_home(
             overwrite=True,
         )
 
+    xian_config_path = request.home / "config" / "xian.toml"
     write_toml(config_path, config, overwrite=True)
+    write_toml(xian_config_path, xian_config, overwrite=True)
     return {
         "config_path": str(config_path),
+        "xian_config_path": str(xian_config_path),
         "genesis_path": (
             str(genesis_target_path) if genesis_target_path else None
         ),
