@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import unittest
 from datetime import UTC, datetime
 from io import BytesIO
@@ -317,6 +318,13 @@ async def deserialize(raw: bytes) -> Response:
 class TestQuery(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         setup_fixtures()
+        self._perf_env = patch.dict(
+            os.environ,
+            {
+                "XIAN_PERF_ENABLED": "false",
+            },
+        )
+        self._perf_env.start()
         self.app = await Xian.create(constants=MockConstants)
         self.app.current_block_meta = {
             "height": 0,
@@ -339,6 +347,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.handler = ProtocolHandler(self.app)
 
     async def asyncTearDown(self):
+        self._perf_env.stop()
         teardown_fixtures()
 
     async def process_request(self, req):

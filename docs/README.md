@@ -16,6 +16,8 @@ planning documents for `xian-abci`.
   assets and fixtures
 - [`Governance.md`](Governance.md): governance-specific runtime integration
   notes
+- [`SAFETY_INVARIANTS.md`](SAFETY_INVARIANTS.md): release-blocking execution
+  and replay properties
 - [`SNAPSHOTS_AND_PRUNING.md`](SNAPSHOTS_AND_PRUNING.md): snapshot, restore,
   BDS snapshot, and pruning behavior
 - [`TIME_SEMANTICS.md`](TIME_SEMANTICS.md): deterministic time and block-time

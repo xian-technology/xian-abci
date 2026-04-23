@@ -75,24 +75,24 @@ the native tracer and admission helpers.
 The preferred full validation entrypoint is:
 
 ```bash
-./scripts/validate-repo.sh
+./scripts/validate-release.sh
 ```
 
-That script:
+`./scripts/validate-release.sh` wraps the repo validation used for releases. It
+runs:
 
 - defaults to Python `3.14` unless `XIAN_ABCI_VALIDATE_PYTHON` is set
-- syncs the dev environment with `--extra vm`
-- regenerates protobuf stubs with `build_proto.py`
-- fails if generated `src/cometbft` or `src/gogoproto` output is stale
-- runs `ruff check .`
-- runs `ruff format --check .`
-- runs `pytest`
+- `./scripts/validate-repo.sh`
+- protobuf regeneration / stale-stub checks
+- the Python-vs-native processor fuzz parity coverage under
+  `tests/integration/test_vm_processor_fuzz.py`
 
 CI provisions Postgres for the BDS-backed paths. To mirror that locally, make
 Postgres available at `postgres://postgres:1234@localhost:5432/xian`.
 
 ## Scripts And Generators
 
+- `scripts/validate-release.sh`: release-grade validation wrapper
 - `scripts/validate-repo.sh`: full local and CI validation entrypoint
 - `scripts/benchmark_shielded_chi.py`: manual shielded-fee benchmark harness;
   it is intentionally not part of the default validation path and expects the
@@ -106,3 +106,4 @@ Postgres available at `postgres://postgres:1234@localhost:5432/xian`.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [docs/BACKLOG.md](docs/BACKLOG.md)
 - [docs/CHAIN_ASSETS.md](docs/CHAIN_ASSETS.md)
+- [docs/SAFETY_INVARIANTS.md](docs/SAFETY_INVARIANTS.md)

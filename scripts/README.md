@@ -7,6 +7,7 @@ importable runtime code.
 
 ## Contents
 
+- `validate-release.sh`: release-grade validation wrapper for the repo
 - `validate-repo.sh`: the preferred full validation entrypoint for local and CI
   use
 - `benchmark_shielded_chi.py`: manual shielded-fee benchmark harness for the
