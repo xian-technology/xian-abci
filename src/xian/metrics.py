@@ -417,30 +417,15 @@ class XianMetricsCollector:
                 ("spool_total_bytes", bds_status.get("spool_total_bytes")),
                 (
                     "storage_total_bytes",
-                    self._status_storage_value(
-                        storage,
-                        bds_status,
-                        "filesystem_total_bytes",
-                        "storage_total_bytes",
-                    ),
+                    storage.get("filesystem_total_bytes"),
                 ),
                 (
                     "storage_used_bytes",
-                    self._status_storage_value(
-                        storage,
-                        bds_status,
-                        "filesystem_used_bytes",
-                        "storage_used_bytes",
-                    ),
+                    storage.get("filesystem_used_bytes"),
                 ),
                 (
                     "storage_free_bytes",
-                    self._status_storage_value(
-                        storage,
-                        bds_status,
-                        "filesystem_free_bytes",
-                        "storage_free_bytes",
-                    ),
+                    storage.get("filesystem_free_bytes"),
                 ),
                 (
                     "current_block_height",
@@ -500,18 +485,6 @@ class XianMetricsCollector:
                 [metric_name, stat_name],
                 values.get(stat_name),
             )
-
-    def _status_storage_value(
-        self,
-        storage: dict[str, Any],
-        bds_status: dict[str, Any],
-        nested_key: str,
-        legacy_key: str,
-    ) -> Any:
-        if nested_key in storage:
-            return storage.get(nested_key)
-        return bds_status.get(legacy_key)
-
 
 class MetricsService:
     def __init__(self, app, config: MetricsConfig):
