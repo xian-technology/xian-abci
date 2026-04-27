@@ -11,10 +11,10 @@ license = "Apache-2.0"
 authors = [{ name = "Xian Core Team" }]
 requires-python = ">=3.12"
 dependencies = [
-    "aiohttp>=3.13.0,<4",
-    "asyncpg>=0.30.0,<0.32",
+    "aiohttp>=3.13.5,<4",
+    "asyncpg>=0.31.0,<0.32",
     "loguru>=0.7.3,<0.8",
-    "prometheus-client>=0.22.1,<0.25",
+    "prometheus-client>=0.25.0,<0.26",
     "protobuf==7.34.1",
     "pynacl>=1.6.2,<2",
     "xian-tech-accounts>=0.1.0,<0.2",
@@ -54,11 +54,11 @@ xian-bds-spool = "xian.cli.bds_spool:main"
 
 [dependency-groups]
 dev = [
-    "hypothesis>=6.147.0,<7",
+    "hypothesis>=6.152.3,<7",
     "parameterized>=0.9.0,<0.10",
-    "pytest>=9.0.2,<10",
-    "pytest-cov>=7.0.0,<8",
-    "ruff>=0.15.6,<0.16",
+    "pytest>=9.0.3,<10",
+    "pytest-cov>=7.1.0,<8",
+    "ruff>=0.15.12,<0.16",
 ]
 
 [tool.setuptools]
