@@ -9,7 +9,7 @@ description = "Python-based ABCI server for CometBFT"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [{ name = "Xian Core Team" }]
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "aiohttp>=3.13.5,<4",
     "asyncpg>=0.31.0,<0.32",
@@ -25,8 +25,6 @@ keywords = ["blockchain", "cometbft", "abci", "xian", "python"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
 
@@ -82,7 +80,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 80
-target-version = "py312"
+target-version = "py314"
 exclude = [
     "build_proto.py",
     "src/cometbft",

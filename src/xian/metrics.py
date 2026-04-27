@@ -42,7 +42,7 @@ def _coerce_float(value: Any) -> float | None:
         return 1.0 if value else 0.0
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
