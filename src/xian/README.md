@@ -25,6 +25,18 @@ subsystems around it.
 - `utils/` and `tools/`: shared helpers plus transition-area data such as state
   patches and genesis-upgrade assets
 
+```mermaid
+flowchart LR
+  ABCI["xian_abci.py"] --> Methods["methods"]
+  Methods --> Processor["processor and execution engine"]
+  Processor --> Policy["execution policy and planner"]
+  Processor --> Contracting["contracting runtime"]
+  Methods --> Services["services"]
+  Services --> BDS["BDS and state sync"]
+  ABCI --> Dashboard["dashboard"]
+  CLI["cli entrypoints"] --> ABCI
+```
+
 ## Notes
 
 - This is the main architectural boundary in the repo. Changes here often

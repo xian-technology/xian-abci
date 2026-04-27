@@ -20,6 +20,15 @@ When the vendored schemas change:
 3. commit both the schema changes and the regenerated `src/cometbft/` and
    `src/gogoproto/` output
 
+```mermaid
+flowchart LR
+  Upstream["CometBFT or gogoproto schema update"] --> Protos["Update protos"]
+  Protos --> Build["python build_proto.py"]
+  Build --> Generated["Regenerated Python stubs"]
+  Generated --> Validate["validate-repo stale check"]
+  Validate --> Commit["Commit schemas and stubs together"]
+```
+
 ## Notes
 
 - The vendored `cometbft/` tree intentionally uses the versioned

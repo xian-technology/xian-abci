@@ -26,6 +26,17 @@ The current implementation is bundle-based and governance-driven:
 - applied patch executions are hashed and included in the block fingerprint path
 - BDS persists the executed patch metadata and resulting state changes
 
+```mermaid
+flowchart LR
+  Bundle["Local patch bundle"] --> Hash["Bundle hash"]
+  Governance["Governance schedule"] --> Metadata["patch id, hash, activation height"]
+  Hash --> Node["Node finalization path"]
+  Metadata --> Node
+  Node --> Apply["Apply approved matching patch"]
+  Apply --> Fingerprint["Block fingerprint"]
+  Apply --> BDS["BDS patch and state-change records"]
+```
+
 The repo path here is not the runtime load location. The files in this folder
 are examples and development fixtures only.
 

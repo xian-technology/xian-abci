@@ -10,6 +10,21 @@ The published PyPI package is `xian-tech-abci`. Console entrypoints
 helpers) are installed by the package and used both directly and from the
 operator-facing `xian-cli`.
 
+## Runtime Shape
+
+```mermaid
+flowchart LR
+  CometBFT["CometBFT"] --> ABCI["ABCI handlers"]
+  ABCI --> Executor["Transaction processor"]
+  Executor --> Contracting["xian-contracting runtime"]
+  Executor --> State["Chain state"]
+  State --> BDS["BDS indexer"]
+  State --> Snapshots["Export and snapshot tools"]
+  ABCI --> Metrics["Metrics"]
+  ABCI --> Dashboard["Optional dashboard"]
+  CLI["xian-cli and xian-stack"] --> Entrypoints["xian-abci entrypoints"]
+```
+
 ## Quick Start
 
 Bootstrap the development environment with `uv`:
