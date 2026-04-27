@@ -962,6 +962,93 @@ class MyTestCase(unittest.TestCase):
         nodes = self.masternodes.nodes.get()
         self.assertIn("new_node", nodes)
 
+    def test_validator_governance_vote_records_and_events(self):
+        block_meta = create_block_meta(datetime.now())
+        proposal = self.tx_processor.process_tx(
+            tx={
+                "payload": {
+                    "sender": node_1,
+                    "contract": "masternodes",
+                    "function": "propose_vote",
+                    "kwargs": {
+                        "type_of_vote": "topic_vote",
+                        "arg": {"topic": "governance-ui-read-model"},
+                    },
+                    "chi_supplied": 1000,
+                },
+                "metadata": {"signature": "abc"},
+                "b_meta": block_meta,
+            }
+        )
+        self.assertEqual(
+            [
+                event["event"]
+                for event in proposal["tx_result"]["events"]
+                if event["event"].startswith("ValidatorProposal")
+            ],
+            ["ValidatorProposalSubmitted", "ValidatorProposalVoted"],
+        )
+        self.assertEqual(
+            self.masternodes.get_vote_record(proposal_id=1, voter=node_1),
+            {
+                "proposal_id": 1,
+                "voter": node_1,
+                "vote": "yes",
+                "weight": 10,
+            },
+        )
+        self.assertEqual(
+            self.masternodes.get_vote_voter_snapshot(proposal_id=1),
+            [node_1, node_2, node_3, node_4, node_5],
+        )
+
+        for voter in [node_2, node_3]:
+            self.tx_processor.process_tx(
+                tx={
+                    "payload": {
+                        "sender": voter,
+                        "contract": "masternodes",
+                        "function": "vote",
+                        "kwargs": {"proposal_id": 1, "vote": "yes"},
+                        "chi_supplied": 1000,
+                    },
+                    "metadata": {"signature": "abc"},
+                    "b_meta": block_meta,
+                }
+            )
+
+        approval = self.tx_processor.process_tx(
+            tx={
+                "payload": {
+                    "sender": node_4,
+                    "contract": "masternodes",
+                    "function": "vote",
+                    "kwargs": {"proposal_id": 1, "vote": "yes"},
+                    "chi_supplied": 1000,
+                },
+                "metadata": {"signature": "abc"},
+                "b_meta": block_meta,
+            }
+        )
+        self.assertEqual(self.masternodes.votes[1]["status"], "approved")
+        self.assertEqual(
+            [
+                event["event"]
+                for event in approval["tx_result"]["events"]
+                if event["event"].startswith("ValidatorProposal")
+            ],
+            ["ValidatorProposalVoted", "ValidatorProposalApproved"],
+        )
+        self.assertEqual(
+            self.masternodes.get_vote_records(proposal_id=1)[3],
+            {
+                "proposal_id": 1,
+                "voter": node_4,
+                "vote": "yes",
+                "weight": 10,
+            },
+        )
+
     def test_vote_out_node(self):
         self.register()
         self.vote_in()

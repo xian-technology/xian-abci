@@ -45,6 +45,8 @@ state:
 - `/masternodes_validator/<account>`
 - `/masternodes_pending_unbonds/<account>`
 - `/masternodes_open_votes/limit=<n>/offset=<n>`
+- `/masternodes_vote/<proposal-id>`
+- `/masternodes_vote_records/<proposal-id>`
 - `/state_patch_bundles`
 - `/scheduled_state_patches/<height>`
 

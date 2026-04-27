@@ -143,6 +143,54 @@ class TestMembersContract(unittest.TestCase):
         self.assertEqual(self.members.statuses["new_member"], "active")
         self.assertFalse(self.members.pending_registrations["new_member"])
 
+    def test_vote_records_snapshot_and_events(self):
+        self.members.propose_vote(
+            type_of_vote="topic_vote",
+            arg={"topic": "governance-ui-read-model"},
+            signer="node1",
+        )
+
+        self.assertEqual(
+            self.members.get_vote_voter_snapshot(proposal_id=1),
+            ["node1", "node2", "node3"],
+        )
+        self.assertEqual(
+            self.members.get_vote_record(proposal_id=1, voter="node1"),
+            {
+                "proposal_id": 1,
+                "voter": "node1",
+                "vote": "yes",
+                "weight": 10,
+            },
+        )
+
+        self.members.vote(proposal_id=1, vote="no", signer="node2")
+
+        self.assertEqual(self.members.votes[1]["status"], "rejected")
+        self.assertEqual(
+            self.members.get_vote_records(proposal_id=1),
+            [
+                {
+                    "proposal_id": 1,
+                    "voter": "node1",
+                    "vote": "yes",
+                    "weight": 10,
+                },
+                {
+                    "proposal_id": 1,
+                    "voter": "node2",
+                    "vote": "no",
+                    "weight": 10,
+                },
+                {
+                    "proposal_id": 1,
+                    "voter": "node3",
+                    "vote": None,
+                    "weight": 10,
+                },
+            ],
+        )
+
     def test_announce_and_leave(self):
         # GIVEN a node announcing leave
         current_time = Datetime(year=2024, month=1, day=1)

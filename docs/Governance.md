@@ -32,6 +32,8 @@ Validator and membership integration:
   - `/masternodes_validator/<account>`
   - `/masternodes_pending_unbonds/<account>`
   - `/masternodes_open_votes/limit=<n>/offset=<n>`
+  - `/masternodes_vote/<proposal-id>`
+  - `/masternodes_vote_records/<proposal-id>`
 
 Protocol-governance integration:
 

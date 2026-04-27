@@ -499,7 +499,24 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
                 "type": "update_policy",
                 "status": "pending",
                 "finalized": False,
+                "member_snapshot": ["alice", "bob"],
             },
+        )
+        self.app.client.raw_driver.set(
+            "masternodes.vote_records:1:alice",
+            "yes",
+        )
+        self.app.client.raw_driver.set(
+            "masternodes.vote_records:1:bob",
+            "no",
+        )
+        self.app.client.raw_driver.set(
+            "masternodes.vote_weights:1:alice",
+            10,
+        )
+        self.app.client.raw_driver.set(
+            "masternodes.vote_weights:1:bob",
+            20,
         )
         self.app.client.raw_driver.set(
             "masternodes.votes:2",
@@ -531,6 +548,12 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
                 )
             )
         )
+        vote_response = await self.process_request(
+            Request(query=RequestQuery(path="/masternodes_vote/1"))
+        )
+        vote_records_response = await self.process_request(
+            Request(query=RequestQuery(path="/masternodes_vote_records/1"))
+        )
 
         self.assertEqual(policy_response.query.info, "dict")
         self.assertEqual(
@@ -553,6 +576,26 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             4,
         )
         self.assertEqual(votes_response.query.info, "list")
+        self.assertEqual(vote_response.query.info, "dict")
+        self.assertEqual(json.loads(vote_response.query.value)["proposal_id"], 1)
+        self.assertEqual(vote_records_response.query.info, "list")
+        self.assertEqual(
+            json.loads(vote_records_response.query.value),
+            [
+                {
+                    "proposal_id": 1,
+                    "voter": "alice",
+                    "vote": "yes",
+                    "weight": 10,
+                },
+                {
+                    "proposal_id": 1,
+                    "voter": "bob",
+                    "vote": "no",
+                    "weight": 20,
+                },
+            ],
+        )
         self.assertEqual(
             json.loads(votes_response.query.value),
             [
@@ -561,6 +604,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
                     "type": "update_policy",
                     "status": "pending",
                     "finalized": False,
+                    "member_snapshot": ["alice", "bob"],
                 }
             ],
         )

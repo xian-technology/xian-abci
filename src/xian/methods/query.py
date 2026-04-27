@@ -219,6 +219,46 @@ def _pending_masternodes_votes(
     return items
 
 
+def _masternodes_vote(raw_driver, proposal_id: int) -> dict | None:
+    record = raw_driver.get(f"masternodes.votes:{proposal_id}")
+    if not isinstance(record, dict):
+        return None
+    entry = dict(record)
+    entry["proposal_id"] = proposal_id
+    return entry
+
+
+def _masternodes_vote_records(raw_driver, proposal_id: int) -> list[dict]:
+    record = _masternodes_vote(raw_driver, proposal_id)
+    if not isinstance(record, dict):
+        return []
+
+    snapshot = record.get("member_snapshot")
+    if not isinstance(snapshot, list):
+        snapshot = record.get("voters")
+    if not isinstance(snapshot, list):
+        snapshot = []
+
+    records: list[dict] = []
+    for voter in snapshot:
+        if not isinstance(voter, str):
+            continue
+        records.append(
+            {
+                "proposal_id": proposal_id,
+                "voter": voter,
+                "vote": raw_driver.get(
+                    f"masternodes.vote_records:{proposal_id}:{voter}"
+                ),
+                "weight": raw_driver.get(
+                    f"masternodes.vote_weights:{proposal_id}:{voter}"
+                )
+                or 0,
+            }
+        )
+    return records
+
+
 def _resolve_contract_info(
     ctx: QueryContext, contract_name: str
 ) -> dict[str, Any]:
@@ -452,6 +492,21 @@ async def _handle_masternodes_open_votes(ctx: QueryContext) -> QueryResult:
             ctx.raw_driver,
             limit=pagination.limit,
             offset=pagination.offset,
+        )
+    )
+
+
+async def _handle_masternodes_vote(ctx: QueryContext) -> QueryResult:
+    return QueryResult(
+        result=_masternodes_vote(ctx.raw_driver, int(ctx.path_parts[1]))
+    )
+
+
+async def _handle_masternodes_vote_records(ctx: QueryContext) -> QueryResult:
+    return QueryResult(
+        result=_masternodes_vote_records(
+            ctx.raw_driver,
+            int(ctx.path_parts[1]),
         )
     )
 
@@ -759,6 +814,8 @@ CORE_QUERY_HANDLERS = {
     "masternodes_validator": _handle_masternodes_validator,
     "masternodes_pending_unbonds": _handle_masternodes_pending_unbonds,
     "masternodes_open_votes": _handle_masternodes_open_votes,
+    "masternodes_vote": _handle_masternodes_vote,
+    "masternodes_vote_records": _handle_masternodes_vote_records,
 }
 
 
