@@ -2,49 +2,23 @@
 
 `xian-abci` is the CometBFT-facing Xian node runtime. It owns deterministic
 chain execution, ABCI request handling, state export and snapshot flows, and
-node-adjacent services such as BDS, metrics, and the optional dashboard.
+the node-adjacent services (BDS indexing, metrics, the optional dashboard) that
+run alongside a Xian validator or full node.
 
-The published PyPI package name is `xian-tech-abci`. The console entrypoints
-remain `xian-abci`, `xian-dashboard`, and the other `xian-*` commands exposed
-by this repo.
+The published PyPI package is `xian-tech-abci`. Console entrypoints
+(`xian-abci`, `xian-dashboard`, `xian-configure-node`, and the BDS / state
+helpers) are installed by the package and used both directly and from the
+operator-facing `xian-cli`.
 
-## Scope
+## Quick Start
 
-This repo owns:
-
-- the ABCI application and request handlers
-- transaction execution, rewards, validators, and query behavior
-- node setup, config rendering, genesis building, and state export/import
-- state snapshots, BDS indexing, and backend-oriented maintenance CLIs
-
-This repo does not own:
-
-- the operator-facing UX surface in `xian-cli`
-- Docker and local stack orchestration in `xian-stack`
-- remote host deployment in `xian-deploy`
-- committed network-specific chain assets in `xian-configs`
-
-## Workspace Assumptions
-
-Local `uv` development uses editable sibling checkouts.
-
-- required for normal development: `../xian-contracting`
-- used by full validation or manual tooling in this repo: `../xian-contracts`,
-  `../xian-configs`, and `../xian-stack`
-
-If you want a ready-made local runtime instead of wiring the node yourself, use
-`xian-stack`. This repo focuses on the runtime and backend tooling, not the
-full localnet UX.
-
-## Common Commands
-
-Bootstrap the development environment:
+Bootstrap the development environment with `uv`:
 
 ```bash
 UV_CACHE_DIR=/tmp/uv-cache uv sync --group dev
 ```
 
-Inspect the command surface:
+Inspect the available command surface:
 
 ```bash
 uv run xian-abci --help
@@ -57,53 +31,93 @@ uv run xian-bds-snapshot --help
 uv run xian-bds-spool --help
 ```
 
-The `vm` extra enables the `xian_vm_v1` bindings. The `native` extra enables
-the native tracer and admission helpers.
+Optional extras:
 
-## Repository Layout
+- `vm` — enables the `xian_vm_v1` bindings.
+- `native` — enables the native tracer and admission helpers.
 
-- `src/xian/`: repo-owned node runtime, services, utilities, and CLI entrypoints
-- `src/abci/`: lower-level ABCI server and protocol glue
-- `protos/`: vendored CometBFT schemas plus supporting protobuf dependencies
-- `build_proto.py`: regenerates checked-in protobuf Python stubs under `src/`
-- `scripts/`: repo-level validation and manual benchmark entrypoints
-- `tests/`: unit, ABCI-method, integration, governance, and system coverage
-- `docs/`: architecture notes, design docs, and backlog tracking
+For a ready-made local network instead of wiring the node yourself, use
+[`xian-stack`](../xian-stack). This repo focuses on the runtime and backend
+tooling, not the full localnet UX.
+
+## Principles
+
+- **Deterministic chain execution.** The ABCI handlers, transaction execution,
+  rewards, validators, and query behavior live here and must be deterministic
+  across nodes.
+- **Backend, not UX.** Operator-facing lifecycle commands belong in
+  [`xian-cli`](../xian-cli). This repo exposes importable helpers and
+  backend-oriented CLIs only.
+- **Universal node runtime.** No network-specific genesis files, seeds, or
+  snapshots. Committed chain assets live in
+  [`xian-configs`](../xian-configs).
+- **Contract semantics live elsewhere.** Changes to contract execution
+  semantics belong in [`xian-contracting`](../xian-contracting), not here.
+- **No Compose / orchestration.** Container lifecycle and local-stack
+  orchestration belong in [`xian-stack`](../xian-stack).
+
+Local `uv` development requires a sibling checkout of
+`../xian-contracting`. Full validation also uses sibling checkouts of
+`../xian-contracts`, `../xian-configs`, and `../xian-stack`.
+
+## Key Directories
+
+- `src/xian/` — repo-owned node runtime: ABCI handlers, services, utilities,
+  and CLI entrypoints.
+  - `methods/` — ABCI request handlers (CheckTx, DeliverTx, Commit, …).
+  - `services/` — background services such as the simulator and BDS support.
+  - `cli/` — backend and developer entrypoints (configure-node, export-state,
+    BDS helpers, …) wrapping importable helpers.
+  - `tools/` — one-off upgrade data and state-patch payloads. Treated as a
+    transition area; new code should live as importable helpers under
+    `src/xian/`.
+  - `dashboard/` — the optional operator dashboard.
+- `src/abci/` — lower-level ABCI server and protocol glue.
+- `protos/` — vendored CometBFT schemas plus supporting protobuf dependencies.
+- `build_proto.py` — regenerates checked-in protobuf Python stubs under `src/`.
+- `scripts/` — repo-level validation and manual benchmark entrypoints.
+- `tests/` — unit, ABCI-method, integration, governance, tools, and system
+  coverage.
+- `docs/` — architecture notes, API surface, safety invariants, snapshots /
+  pruning model, governance, and backlog.
 
 ## Validation
 
-The preferred full validation entrypoint is:
+Preferred full validation entrypoint, used for releases:
 
 ```bash
 ./scripts/validate-release.sh
 ```
 
-`./scripts/validate-release.sh` wraps the repo validation used for releases. It
+It defaults to Python `3.14` (override with `XIAN_ABCI_VALIDATE_PYTHON`) and
 runs:
 
-- defaults to Python `3.14` unless `XIAN_ABCI_VALIDATE_PYTHON` is set
 - `./scripts/validate-repo.sh`
 - protobuf regeneration / stale-stub checks
-- the Python-vs-native processor fuzz parity coverage under
-  `tests/integration/test_vm_processor_fuzz.py`
+- the Python-vs-native processor fuzz parity coverage
+  (`tests/integration/test_vm_processor_fuzz.py`)
 
-CI provisions Postgres for the BDS-backed paths. To mirror that locally, make
-Postgres available at `postgres://postgres:1234@localhost:5432/xian`.
+Faster local loops:
 
-## Scripts And Generators
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/unit/test_node_setup.py
+```
 
-- `scripts/validate-release.sh`: release-grade validation wrapper
-- `scripts/validate-repo.sh`: full local and CI validation entrypoint
-- `scripts/benchmark_shielded_chi.py`: manual shielded-fee benchmark harness;
-  it is intentionally not part of the default validation path and expects the
-  sibling `xian-contracting` and `xian-contracts` repos to be present
-- `build_proto.py`: protobuf stub generator used by validation
+CI provisions Postgres for the BDS-backed paths. To mirror that locally, expose
+Postgres at `postgres://postgres:1234@localhost:5432/xian`.
 
 ## Related Docs
 
-- [AGENTS.md](AGENTS.md)
-- [docs/README.md](docs/README.md)
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- [docs/BACKLOG.md](docs/BACKLOG.md)
-- [docs/CHAIN_ASSETS.md](docs/CHAIN_ASSETS.md)
-- [docs/SAFETY_INVARIANTS.md](docs/SAFETY_INVARIANTS.md)
+- [AGENTS.md](AGENTS.md) — repo-specific guidance for AI agents and contributors
+- [docs/README.md](docs/README.md) — index of internal design notes
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — major components and dependency direction
+- [docs/BACKLOG.md](docs/BACKLOG.md) — open work and follow-ups
+- [docs/API.md](docs/API.md) — ABCI and helper API surface
+- [docs/SAFETY_INVARIANTS.md](docs/SAFETY_INVARIANTS.md) — invariants the runtime must preserve
+- [docs/SNAPSHOTS_AND_PRUNING.md](docs/SNAPSHOTS_AND_PRUNING.md) — snapshot, pruning, and BDS retention model
+- [docs/CHAIN_ASSETS.md](docs/CHAIN_ASSETS.md) — split between this repo and `xian-configs`
+- [docs/TIME_SEMANTICS.md](docs/TIME_SEMANTICS.md) — block-time and timestamp rules
+- [docs/Governance.md](docs/Governance.md) — on-chain governance behavior
