@@ -486,6 +486,7 @@ class XianMetricsCollector:
                 values.get(stat_name),
             )
 
+
 class MetricsService:
     def __init__(self, app, config: MetricsConfig):
         self.app = app

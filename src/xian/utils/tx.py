@@ -1,4 +1,5 @@
 import hashlib
+import json
 from copy import deepcopy
 from typing import Callable
 
@@ -27,6 +28,14 @@ def verify(vk: str, msg: str, signature: str):
     return verify_message(vk, msg, signature)
 
 
+def canonical_json(value: dict) -> str:
+    return json.dumps(
+        format_dictionary(deepcopy(value)),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
 def unpack_transaction(tx):
     timestamp = tx["metadata"].get("timestamp", None)
     if timestamp:
@@ -46,7 +55,7 @@ def unpack_transaction(tx):
         "sender": tx["payload"]["sender"],
         "chi_supplied": tx["payload"]["chi_supplied"],
     }
-    tx_for_verification = encode(format_dictionary(tx_for_verification))
+    tx_for_verification = canonical_json(tx_for_verification)
     return sender, signature, tx_for_verification
 
 
@@ -75,7 +84,11 @@ def recurse_rules(d: dict, rule: dict | Callable):
     for key, subrule in rule.items():
         arg = d[key]
 
-        if isinstance(arg, dict):
+        if callable(subrule):
+            if not subrule(arg):
+                return False
+
+        elif isinstance(arg, dict):
             if not recurse_rules(arg, subrule):
                 return False
 
@@ -84,9 +97,8 @@ def recurse_rules(d: dict, rule: dict | Callable):
                 if not recurse_rules(a, subrule):
                     return False
 
-        elif callable(subrule):
-            if not subrule(arg):
-                return False
+        else:
+            return False
 
     return True
 

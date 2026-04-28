@@ -6,7 +6,6 @@ import nacl.encoding
 import nacl.signing
 from parameterized import parameterized
 from xian_runtime_types.decimal import ContractingDecimal
-from xian_runtime_types.encoding import decode, encode
 
 from xian.utils.encoding import (
     decode_transaction_bytes,
@@ -16,6 +15,7 @@ from xian.utils.encoding import (
     stringify_decimals,
 )
 from xian.utils.tx import (
+    canonical_json,
     canonical_transaction_size_bytes,
     format_dictionary,
     unpack_transaction,
@@ -23,13 +23,15 @@ from xian.utils.tx import (
 )
 
 SEED = bytes(range(32))
-SENDER = nacl.signing.SigningKey(SEED).verify_key.encode(
-    encoder=nacl.encoding.HexEncoder
-).decode("ascii")
+SENDER = (
+    nacl.signing.SigningKey(SEED)
+    .verify_key.encode(encoder=nacl.encoding.HexEncoder)
+    .decode("ascii")
+)
 
 
 def _canonical_json(value: dict) -> str:
-    return encode(decode(encode(format_dictionary(value))))
+    return canonical_json(value)
 
 
 def _signed_transaction_json(*, mutate_signature: bool = False) -> str:
@@ -37,7 +39,7 @@ def _signed_transaction_json(*, mutate_signature: bool = False) -> str:
         "chain_id": "xian-local",
         "contract": "currency",
         "function": "transfer",
-        "kwargs": {"amount": 0.00000252, "to": "JAVASCRIPT_TRANSACTION_TEST"},
+        "kwargs": {"memo": "snowman: \u2603", "to": "UNICODE_TEST"},
         "nonce": 40,
         "sender": SENDER,
         "chi_supplied": 10,
@@ -48,12 +50,14 @@ def _signed_transaction_json(*, mutate_signature: bool = False) -> str:
     ).signature.hex()
     if mutate_signature:
         signature = signature[:-1] + ("0" if signature[-1] != "0" else "1")
-    tx = {"metadata": {"signature": signature}, "payload": format_dictionary(payload)}
+    tx = {
+        "metadata": {"signature": signature},
+        "payload": format_dictionary(payload),
+    }
     return _canonical_json(tx)
 
 
 class TestPayloadStrExtraction(unittest.TestCase):
-
     @parameterized.expand(
         [
             (
@@ -169,9 +173,7 @@ class TestVerification(unittest.TestCase):
         self.assertEqual(
             verify(sender, payload_str, signature), expected_result
         )
-        self.assertEqual(
-            verify(sender, payload, signature), expected_result
-        )
+        self.assertEqual(verify(sender, payload, signature), expected_result)
 
 
 class TestEncoding(unittest.TestCase):
@@ -275,7 +277,9 @@ class TestTransactionSizing(unittest.TestCase):
             canonical_transaction_size_bytes(tx_b),
         )
 
-    def test_canonical_transaction_size_bytes_ignores_node_added_block_meta(self):
+    def test_canonical_transaction_size_bytes_ignores_node_added_block_meta(
+        self,
+    ):
         tx = {
             "payload": {
                 "sender": "abc",

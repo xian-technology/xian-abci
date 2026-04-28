@@ -68,13 +68,27 @@ jobs:
           ref: main
           path: xian-stack
 
+      - name: Check out xian-py
+        uses: actions/checkout@v6
+        with:
+          repository: xian-technology/xian-py
+          ref: main
+          path: xian-py
+
+      - name: Check out xian-js
+        uses: actions/checkout@v6
+        with:
+          repository: xian-technology/xian-js
+          ref: main
+          path: xian-js
+
       - name: Use matching dependency branches when available
         shell: bash
         env:
           REF_NAME: ${{ steps.branch-ref.outputs.ref }}
         run: |
           set -euo pipefail
-          for repo in xian-contracting xian-configs xian-contracts xian-stack; do
+          for repo in xian-contracting xian-configs xian-contracts xian-stack xian-py xian-js; do
             REMOTE="https://github.com/xian-technology/${repo}"
             if git ls-remote --exit-code --heads "$REMOTE" "$REF_NAME" >/dev/null 2>&1; then
               git -C "$repo" fetch --depth=1 origin "$REF_NAME"
@@ -86,6 +100,13 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: xian-js/package-lock.json
 
       - name: Install uv
         run: python -m pip install uv
@@ -99,6 +120,17 @@ jobs:
           XIAN_ABCI_COVERAGE: "1"
         run: |
           ./scripts/validate-repo.sh
+
+      - name: Validate native fastpath parity
+        working-directory: xian-abci
+        run: ./scripts/validate-native-fastpath.sh
+
+      - name: Validate SDK transaction parity
+        working-directory: xian-abci
+        env:
+          XIAN_PY_DIR: ${{ github.workspace }}/xian-py
+          XIAN_JS_DIR: ${{ github.workspace }}/xian-js
+        run: ./scripts/validate-sdk-transaction-parity.sh
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v6
