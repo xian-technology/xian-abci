@@ -1,7 +1,7 @@
 import hashlib
 import json
+from collections.abc import Callable
 from copy import deepcopy
-from typing import Callable
 
 from loguru import logger
 from xian_accounts import verify_message
@@ -355,18 +355,21 @@ def validate_consensus_transaction_after_static(
     nonce_tracker.validate_and_advance(tx)
 
 
-def dict_has_keys(d: dict, keys: set):
-    key_set = set(d.keys())
-    return len(keys ^ key_set) == 0
+def dict_has_keys(d: dict, keys: set) -> bool:
+    return set(d) == keys
 
 
 def format_dictionary(d: dict) -> dict:
-    for k, v in d.items():
-        assert isinstance(k, str), "Non-string key types not allowed."
-        if isinstance(v, list):
-            for i in range(len(v)):
-                if isinstance(v[i], dict):
-                    v[i] = format_dictionary(v[i])
-        elif isinstance(v, dict):
-            d[k] = format_dictionary(v)
-    return {k: v for k, v in sorted(d.items())}
+    return _format_value(d)
+
+
+def _format_value(value):
+    if isinstance(value, dict):
+        items = []
+        for key, item in value.items():
+            assert isinstance(key, str), "Non-string key types not allowed."
+            items.append((key, _format_value(item)))
+        return dict(sorted(items))
+    if isinstance(value, list):
+        return [_format_value(item) for item in value]
+    return value
