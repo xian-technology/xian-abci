@@ -503,142 +503,8 @@ def build_priv_validator_state() -> dict[str, Any]:
 
 def render_node_configs(
     *,
-    options: NodeConfigOptions | None = None,
-    moniker: str | None = None,
-    seed_nodes: Sequence[str] | None = None,
-    allow_cors: bool = True,
-    service_node: bool = False,
-    enable_pruning: bool = False,
-    blocks_to_keep: int = 100000,
-    block_policy_mode: str = "on_demand",
-    block_policy_interval: str = "0s",
-    statesync_enable: bool = False,
-    statesync_rpc_servers: Sequence[str] | None = None,
-    statesync_trust_height: int = 0,
-    statesync_trust_hash: str = "",
-    statesync_trust_period: str = "168h0m0s",
-    tracer_mode: str = "python_line_v1",
-    execution_mode: str | None = None,
-    execution_bytecode_version: str = "",
-    execution_gas_schedule: str = "",
-    execution_authority: str = "",
-    execution_shadow_tracer_mode: str = "",
-    metrics_enabled: bool = True,
-    metrics_host: str = "127.0.0.1",
-    metrics_port: int = 9108,
-    metrics_bds_refresh_seconds: float = 5.0,
-    transaction_trace_logging: bool = False,
-    app_log_level: str = "INFO",
-    app_log_json: bool = False,
-    app_log_rotation_hours: int = 1,
-    app_log_retention_days: int = 7,
-    simulation_enabled: bool = True,
-    simulation_max_concurrency: int = 2,
-    simulation_timeout_ms: int = 3000,
-    simulation_max_chi: int = 1_000_000,
-    parallel_execution_enabled: bool = DEFAULT_PARALLEL_EXECUTION_ENABLED,
-    parallel_execution_workers: int = DEFAULT_PARALLEL_EXECUTION_WORKERS,
-    parallel_execution_min_transactions: int = (
-        DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS
-    ),
-    pending_nonce_reservation_ttl_seconds: float = 60.0,
-    max_pending_nonces_per_sender: int = 128,
-    bds_dsn: str = "",
-    bds_host: str = "",
-    bds_port: int = 5432,
-    bds_database: str = "xian",
-    bds_user: str = "",
-    bds_password: str = "",
-    bds_pool_min_size: int = 1,
-    bds_pool_max_size: int = 10,
-    bds_statement_timeout_ms: int = 0,
-    bds_application_name: str = "xian-bds",
-    bds_spool_dir: str = "",
-    bds_spool_warn_entries: int = 256,
-    bds_spool_warn_bytes: int = 536_870_912,
-    bds_disk_free_warn_bytes: int = 2_147_483_648,
-    proxy_app: str = "unix:///tmp/abci.sock",
-    prometheus: bool = True,
+    options: NodeConfigOptions,
 ) -> dict[str, dict[str, Any]]:
-    if execution_shadow_tracer_mode:
-        raise ValueError(
-            "xian.execution.engine.shadow_tracer_mode is no longer supported"
-        )
-
-    if options is None:
-        if moniker is None:
-            raise TypeError("moniker is required when options is not provided")
-        options = NodeConfigOptions(
-            moniker=moniker,
-            seed_nodes=tuple(seed_nodes or ()),
-            allow_cors=allow_cors,
-            service_node=service_node,
-            enable_pruning=enable_pruning,
-            blocks_to_keep=blocks_to_keep,
-            transaction_trace_logging=transaction_trace_logging,
-            block_policy_mode=block_policy_mode,
-            block_policy_interval=block_policy_interval,
-            statesync=StateSyncOptions(
-                enable=statesync_enable,
-                rpc_servers=tuple(statesync_rpc_servers or ()),
-                trust_height=statesync_trust_height,
-                trust_hash=statesync_trust_hash,
-                trust_period=statesync_trust_period,
-            ),
-            execution=ExecutionOptions(
-                tracer_mode=tracer_mode,
-                mode=execution_mode,
-                bytecode_version=execution_bytecode_version,
-                gas_schedule=execution_gas_schedule,
-                authority=execution_authority,
-            ),
-            metrics=MetricsOptions(
-                enabled=metrics_enabled,
-                host=metrics_host,
-                port=metrics_port,
-                bds_refresh_seconds=metrics_bds_refresh_seconds,
-            ),
-            app_logging=AppLoggingOptions(
-                level=app_log_level,
-                json_logging=app_log_json,
-                rotation_hours=app_log_rotation_hours,
-                retention_days=app_log_retention_days,
-            ),
-            simulation=SimulationOptions(
-                enabled=simulation_enabled,
-                max_concurrency=simulation_max_concurrency,
-                timeout_ms=simulation_timeout_ms,
-                max_chi=simulation_max_chi,
-            ),
-            parallel_execution=ParallelExecutionOptions(
-                enabled=parallel_execution_enabled,
-                workers=parallel_execution_workers,
-                min_transactions=parallel_execution_min_transactions,
-            ),
-            pending_nonce_reservation_ttl_seconds=(
-                pending_nonce_reservation_ttl_seconds
-            ),
-            max_pending_nonces_per_sender=max_pending_nonces_per_sender,
-            bds=BdsOptions(
-                dsn=bds_dsn,
-                host=bds_host,
-                port=bds_port,
-                database=bds_database,
-                user=bds_user,
-                password=bds_password,
-                pool_min_size=bds_pool_min_size,
-                pool_max_size=bds_pool_max_size,
-                statement_timeout_ms=bds_statement_timeout_ms,
-                application_name=bds_application_name,
-                spool_dir=bds_spool_dir,
-                spool_warn_entries=bds_spool_warn_entries,
-                spool_warn_bytes=bds_spool_warn_bytes,
-                disk_free_warn_bytes=bds_disk_free_warn_bytes,
-            ),
-            proxy_app=proxy_app,
-            prometheus=prometheus,
-        )
-
     cometbft_config = toml_utils.loads(DEFAULT_COMETBFT_CONFIG_TOML)
     xian_config = toml_utils.loads(DEFAULT_XIAN_CONFIG_TOML)
     create_empty_blocks, create_empty_blocks_interval = resolve_block_policy(
@@ -762,12 +628,12 @@ def render_node_configs(
     return {"cometbft": cometbft_config, "xian": xian_config}
 
 
-def render_cometbft_config(**kwargs: Any) -> dict[str, Any]:
-    return render_node_configs(**kwargs)["cometbft"]
+def render_cometbft_config(*, options: NodeConfigOptions) -> dict[str, Any]:
+    return render_node_configs(options=options)["cometbft"]
 
 
-def render_xian_config(**kwargs: Any) -> dict[str, Any]:
-    return render_node_configs(**kwargs)["xian"]
+def render_xian_config(*, options: NodeConfigOptions) -> dict[str, Any]:
+    return render_node_configs(options=options)["xian"]
 
 
 def load_genesis(path: Path) -> dict[str, Any]:

@@ -26,6 +26,10 @@ from xian.node_setup import (
 from xian.toml_utils import load as load_toml
 
 
+def _node_options(moniker: str = "validator-1", **overrides):
+    return NodeConfigOptions(moniker=moniker, **overrides)
+
+
 class NodeSetupTests(unittest.TestCase):
     def test_render_config_accepts_node_config_options(self):
         configs = render_node_configs(
@@ -121,24 +125,34 @@ class NodeSetupTests(unittest.TestCase):
 
     def test_render_config_applies_xian_settings(self):
         configs = render_node_configs(
-            moniker="validator-1",
-            seed_nodes=["seed1@127.0.0.1:26656", "seed2@127.0.0.1:26656"],
-            service_node=True,
-            enable_pruning=True,
-            blocks_to_keep=5000,
-            simulation_enabled=True,
-            simulation_max_concurrency=3,
-            simulation_timeout_ms=2500,
-            simulation_max_chi=500000,
-            parallel_execution_enabled=True,
-            parallel_execution_workers=4,
-            parallel_execution_min_transactions=12,
-            transaction_trace_logging=True,
-            app_log_level="debug",
-            app_log_json=True,
-            app_log_rotation_hours=6,
-            app_log_retention_days=14,
-            allow_cors=False,
+            options=_node_options(
+                seed_nodes=(
+                    "seed1@127.0.0.1:26656",
+                    "seed2@127.0.0.1:26656",
+                ),
+                service_node=True,
+                enable_pruning=True,
+                blocks_to_keep=5000,
+                simulation=SimulationOptions(
+                    enabled=True,
+                    max_concurrency=3,
+                    timeout_ms=2500,
+                    max_chi=500000,
+                ),
+                parallel_execution=ParallelExecutionOptions(
+                    enabled=True,
+                    workers=4,
+                    min_transactions=12,
+                ),
+                transaction_trace_logging=True,
+                app_logging=AppLoggingOptions(
+                    level="debug",
+                    json_logging=True,
+                    rotation_hours=6,
+                    retention_days=14,
+                ),
+                allow_cors=False,
+            )
         )
         config = configs["cometbft"]
         xian_config = configs["xian"]
@@ -184,20 +198,23 @@ class NodeSetupTests(unittest.TestCase):
 
     def test_render_config_applies_bds_settings(self):
         xian_config = render_xian_config(
-            moniker="validator-1",
-            bds_host="postgres",
-            bds_port=5544,
-            bds_database="xian_index",
-            bds_user="indexer",
-            bds_password="secret",
-            bds_pool_min_size=2,
-            bds_pool_max_size=6,
-            bds_statement_timeout_ms=5000,
-            bds_application_name="xian-bds-test",
-            bds_spool_dir="/var/lib/xian/bds-spool",
-            bds_spool_warn_entries=512,
-            bds_spool_warn_bytes=1_073_741_824,
-            bds_disk_free_warn_bytes=4_294_967_296,
+            options=_node_options(
+                bds=BdsOptions(
+                    host="postgres",
+                    port=5544,
+                    database="xian_index",
+                    user="indexer",
+                    password="secret",
+                    pool_min_size=2,
+                    pool_max_size=6,
+                    statement_timeout_ms=5000,
+                    application_name="xian-bds-test",
+                    spool_dir="/var/lib/xian/bds-spool",
+                    spool_warn_entries=512,
+                    spool_warn_bytes=1_073_741_824,
+                    disk_free_warn_bytes=4_294_967_296,
+                )
+            )
         )
 
         self.assertEqual(xian_config["bds"]["host"], "postgres")
@@ -222,8 +239,11 @@ class NodeSetupTests(unittest.TestCase):
 
     def test_render_config_supports_native_tracer_mode(self):
         xian_config = render_xian_config(
-            moniker="validator-1",
-            tracer_mode="native_instruction_v1",
+            options=_node_options(
+                execution=ExecutionOptions(
+                    tracer_mode="native_instruction_v1"
+                )
+            )
         )
 
         self.assertEqual(xian_config["tracer_mode"], "native_instruction_v1")
@@ -234,10 +254,13 @@ class NodeSetupTests(unittest.TestCase):
 
     def test_render_config_supports_future_execution_policy_shape(self):
         xian_config = render_xian_config(
-            moniker="validator-1",
-            execution_mode="xian_vm_v1",
-            execution_bytecode_version="xvm-1",
-            execution_gas_schedule="xvm-gas-1",
+            options=_node_options(
+                execution=ExecutionOptions(
+                    mode="xian_vm_v1",
+                    bytecode_version="xvm-1",
+                    gas_schedule="xvm-gas-1",
+                )
+            )
         )
 
         self.assertEqual(xian_config["tracer_mode"], "python_line_v1")
@@ -260,11 +283,14 @@ class NodeSetupTests(unittest.TestCase):
 
     def test_render_config_supports_native_vm_authority_without_shadow(self):
         xian_config = render_xian_config(
-            moniker="validator-1",
-            execution_mode="xian_vm_v1",
-            execution_bytecode_version="xvm-1",
-            execution_gas_schedule="xvm-gas-1",
-            execution_authority="native",
+            options=_node_options(
+                execution=ExecutionOptions(
+                    mode="xian_vm_v1",
+                    bytecode_version="xvm-1",
+                    gas_schedule="xvm-gas-1",
+                    authority="native",
+                )
+            )
         )
 
         self.assertEqual(xian_config["tracer_mode"], "python_line_v1")
@@ -281,35 +307,24 @@ class NodeSetupTests(unittest.TestCase):
             xian_config["execution"]["engine"],
         )
 
-    def test_render_config_accepts_empty_legacy_shadow_kwarg(self):
-        xian_config = render_xian_config(
-            moniker="validator-1",
-            execution_shadow_tracer_mode="",
-        )
-
-        self.assertNotIn(
-            "shadow_tracer_mode",
-            xian_config["execution"]["engine"],
-        )
-
-    def test_render_config_rejects_legacy_shadow_kwarg(self):
-        with self.assertRaisesRegex(ValueError, "shadow_tracer_mode"):
-            render_cometbft_config(
-                moniker="validator-1",
-                execution_shadow_tracer_mode="python_line_v1",
-            )
+    def test_render_config_rejects_legacy_kwargs(self):
+        with self.assertRaises(TypeError):
+            render_node_configs(moniker="validator-1")
 
     def test_render_config_supports_state_sync(self):
         config = render_cometbft_config(
-            moniker="validator-1",
-            statesync_enable=True,
-            statesync_rpc_servers=[
-                "http://rpc-1.internal:26657",
-                "http://rpc-2.internal:26657",
-            ],
-            statesync_trust_height=120,
-            statesync_trust_hash="ab" * 32,
-            statesync_trust_period="336h0m0s",
+            options=_node_options(
+                statesync=StateSyncOptions(
+                    enable=True,
+                    rpc_servers=(
+                        "http://rpc-1.internal:26657",
+                        "http://rpc-2.internal:26657",
+                    ),
+                    trust_height=120,
+                    trust_hash="ab" * 32,
+                    trust_period="336h0m0s",
+                )
+            )
         )
 
         self.assertTrue(config["statesync"]["enable"])
@@ -375,9 +390,10 @@ class NodeSetupTests(unittest.TestCase):
 
     def test_render_config_supports_periodic_block_policy(self):
         config = render_cometbft_config(
-            moniker="validator-1",
-            block_policy_mode="periodic",
-            block_policy_interval="10s",
+            options=_node_options(
+                block_policy_mode="periodic",
+                block_policy_interval="10s",
+            )
         )
 
         self.assertTrue(config["consensus"]["create_empty_blocks"])
@@ -387,9 +403,10 @@ class NodeSetupTests(unittest.TestCase):
 
     def test_render_config_supports_idle_interval_block_policy(self):
         config = render_cometbft_config(
-            moniker="validator-1",
-            block_policy_mode="idle_interval",
-            block_policy_interval="10s",
+            options=_node_options(
+                block_policy_mode="idle_interval",
+                block_policy_interval="10s",
+            )
         )
 
         self.assertFalse(config["consensus"]["create_empty_blocks"])
@@ -400,16 +417,17 @@ class NodeSetupTests(unittest.TestCase):
     def test_render_config_rejects_zero_interval_for_periodic_modes(self):
         with self.assertRaisesRegex(ValueError, "non-zero"):
             render_cometbft_config(
-                moniker="validator-1",
-                block_policy_mode="periodic",
-                block_policy_interval="0s",
+                options=_node_options(
+                    block_policy_mode="periodic",
+                    block_policy_interval="0s",
+                )
             )
 
     def test_materialize_home_writes_expected_files(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             home = Path(tmp_dir) / ".cometbft"
-            config = render_cometbft_config(moniker="validator-1")
-            xian_config = render_xian_config(moniker="validator-1")
+            config = render_cometbft_config(options=_node_options())
+            xian_config = render_xian_config(options=_node_options())
             genesis = {
                 "chain_id": "xian-local-1",
                 "validators": [],
@@ -489,10 +507,14 @@ class NodeSetupTests(unittest.TestCase):
     def test_materialize_home_preserves_node_key_and_state_on_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             home = Path(tmp_dir) / ".cometbft"
-            initial_config = render_cometbft_config(moniker="validator-1")
-            updated_config = render_cometbft_config(moniker="validator-2")
-            initial_xian_config = render_xian_config(moniker="validator-1")
-            updated_xian_config = render_xian_config(moniker="validator-2")
+            initial_config = render_cometbft_config(options=_node_options())
+            updated_config = render_cometbft_config(
+                options=_node_options("validator-2")
+            )
+            initial_xian_config = render_xian_config(options=_node_options())
+            updated_xian_config = render_xian_config(
+                options=_node_options("validator-2")
+            )
             initial_genesis = {
                 "chain_id": "xian-local-1",
                 "validators": [],
