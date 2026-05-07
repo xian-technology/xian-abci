@@ -11,6 +11,24 @@ from xian.utils.tx import (
 )
 
 
+def _rejected_check_tx(
+    *,
+    error: Exception,
+    raw_tx: bytes,
+    tx: dict | None = None,
+) -> ResponseCheckTx:
+    log_fields = {"stage": "check_tx", "raw_tx": raw_tx}
+    if tx is not None:
+        log_fields["tx"] = tx
+    logger.bind(**build_log_fields(**log_fields)).warning(
+        "Rejected transaction during CheckTx: {}", error
+    )
+    return ResponseCheckTx(
+        code=c.ErrorCode,
+        log=f"{type(error).__name__}: {error}",
+    )
+
+
 async def check_tx(self, raw_tx) -> ResponseCheckTx:
     try:
         tx = decode_and_validate_transaction_static_bytes(
@@ -19,10 +37,7 @@ async def check_tx(self, raw_tx) -> ResponseCheckTx:
             max_raw_tx_bytes=self.max_tx_bytes,
         )
     except Exception as e:
-        logger.bind(
-            **build_log_fields(stage="check_tx", raw_tx=raw_tx)
-        ).warning("Rejected transaction during CheckTx: {}", e)
-        return ResponseCheckTx(code=c.ErrorCode, log=f"{type(e).__name__}: {e}")
+        return _rejected_check_tx(error=e, raw_tx=raw_tx)
 
     try:
         tx_hash = hashlib.sha256(raw_tx).hexdigest()
@@ -34,7 +49,4 @@ async def check_tx(self, raw_tx) -> ResponseCheckTx:
         )
         return ResponseCheckTx(code=c.OkCode)
     except Exception as e:
-        logger.bind(
-            **build_log_fields(stage="check_tx", tx=tx, raw_tx=raw_tx)
-        ).warning("Rejected transaction during CheckTx: {}", e)
-        return ResponseCheckTx(code=c.ErrorCode, log=f"{type(e).__name__}: {e}")
+        return _rejected_check_tx(error=e, raw_tx=raw_tx, tx=tx)

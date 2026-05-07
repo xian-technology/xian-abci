@@ -82,6 +82,8 @@ def recurse_rules(d: dict, rule: dict | Callable):
         return rule(d)
 
     for key, subrule in rule.items():
+        if key not in d:
+            return False
         arg = d[key]
 
         if callable(subrule):
@@ -140,33 +142,26 @@ def check_format(d: dict, rule: dict):
 def check_tx_keys(tx):
     metadata = tx.get("metadata")
 
-    if not metadata:
+    if not isinstance(metadata, dict) or not metadata:
         raise TransactionException("Metadata is missing")
     if len(metadata.keys()) != 1:
         raise TransactionException("Wrong number of metadata entries")
 
     payload = tx.get("payload")
 
-    if not payload:
+    if not isinstance(payload, dict) or not payload:
         raise TransactionException("Payload is missing")
-    if not payload["sender"]:
-        raise TransactionException("Payload key 'sender' is missing")
-    if not payload["contract"]:
-        raise TransactionException("Payload key 'contract' is missing")
-    if not payload["function"]:
-        raise TransactionException("Payload key 'function' is missing")
-    if not payload["chi_supplied"]:
-        raise TransactionException("Payload key 'chi_supplied' is missing")
 
-    keys = list(payload.keys())
-    keys_are_valid = list(
-        map(lambda key: key in keys, list(TRANSACTION_PAYLOAD_RULES.keys()))
-    )
-
-    if not all(keys_are_valid) and len(keys) == len(
-        list(TRANSACTION_PAYLOAD_RULES.keys())
-    ):
+    expected_payload_keys = set(TRANSACTION_PAYLOAD_RULES)
+    payload_keys = set(payload)
+    unexpected_payload_keys = payload_keys - expected_payload_keys
+    if unexpected_payload_keys:
         raise TransactionException("Payload keys are not valid")
+
+    required_payload_keys = ("sender", "contract", "function", "chi_supplied")
+    for key in required_payload_keys:
+        if key not in payload or payload[key] in (None, ""):
+            raise TransactionException(f"Payload key '{key}' is missing")
 
 
 def check_tx_formatting(tx: dict):
