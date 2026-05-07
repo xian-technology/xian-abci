@@ -207,7 +207,7 @@ class NodeAdminTests(unittest.TestCase):
 
             existing_config = load_toml_string(
                 """
-version = "0.39.1"
+version = "0.39.3"
 proxy_app = "unix:///tmp/abci.sock"
 moniker = "initial-node"
 db_backend = "rocksdb"
@@ -418,7 +418,7 @@ prometheus = false
 
             existing_config = load_toml_string(
                 """
-version = "0.39.1"
+version = "0.39.3"
 proxy_app = "unix:///tmp/abci.sock"
 moniker = "initial-node"
 db_backend = "goleveldb"
@@ -488,7 +488,7 @@ seeds = ""
 
             existing_config = load_toml_string(
                 """
-version = "0.39.1"
+version = "0.39.3"
 proxy_app = "unix:///tmp/abci.sock"
 moniker = "initial-node"
 db_backend = "goleveldb"
@@ -562,7 +562,7 @@ prometheus = false
 
             existing_config = load_toml_string(
                 """
-version = "0.39.1"
+version = "0.39.3"
 proxy_app = "unix:///tmp/abci.sock"
 moniker = "initial-node"
 db_backend = "goleveldb"
