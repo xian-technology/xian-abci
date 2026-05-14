@@ -7,16 +7,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
-from contracting.execution.tracer import SUPPORTED_TRACER_MODES
 from nacl.encoding import Base64Encoder, HexEncoder
 from nacl.signing import SigningKey
 from xian_runtime_types.encoding import encode
 
 from xian import toml_utils
-from xian.execution_policy import (
-    DEFAULT_EXECUTION_MODE,
-    resolve_execution_policy,
-)
 
 DEFAULT_COMETBFT_CONFIG_TOML = """
 version = "0.39.3"
@@ -139,7 +134,6 @@ DEFAULT_XIAN_CONFIG_TOML = """
 block_service_mode = false
 pruning_enabled = false
 blocks_to_keep = 100000
-tracer_mode = "python_line_v1"
 metrics_enabled = true
 metrics_host = "127.0.0.1"
 metrics_port = 9108
@@ -158,12 +152,6 @@ parallel_execution_workers = 4
 parallel_execution_min_transactions = 8
 pending_nonce_reservation_ttl_seconds = 60.0
 max_pending_nonces_per_sender = 128
-
-[execution.engine]
-mode = "python_line_v1"
-bytecode_version = ""
-gas_schedule = ""
-authority = ""
 
 [bds]
 dsn = ""
@@ -205,15 +193,6 @@ class StateSyncOptions:
     trust_height: int = 0
     trust_hash: str = ""
     trust_period: str = "168h0m0s"
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionOptions:
-    tracer_mode: str = "python_line_v1"
-    mode: str | None = None
-    bytecode_version: str = ""
-    gas_schedule: str = ""
-    authority: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,7 +256,6 @@ class NodeConfigOptions:
     block_policy_mode: str = "on_demand"
     block_policy_interval: str = "0s"
     statesync: StateSyncOptions = field(default_factory=StateSyncOptions)
-    execution: ExecutionOptions = field(default_factory=ExecutionOptions)
     metrics: MetricsOptions = field(default_factory=MetricsOptions)
     app_logging: AppLoggingOptions = field(default_factory=AppLoggingOptions)
     simulation: SimulationOptions = field(default_factory=SimulationOptions)
@@ -317,14 +295,6 @@ def resolve_block_policy(
         return False, interval
 
     return True, interval
-
-
-def resolve_tracer_mode(mode: str = "python_line_v1") -> str:
-    if mode not in SUPPORTED_TRACER_MODES:
-        raise ValueError(
-            f"tracer_mode must be one of {sorted(SUPPORTED_TRACER_MODES)}"
-        )
-    return mode
 
 
 def resolve_simulation_settings(
@@ -518,19 +488,6 @@ def render_node_configs(
         trust_hash=options.statesync.trust_hash,
         trust_period=options.statesync.trust_period,
     )
-    execution_policy = resolve_execution_policy(
-        mode=options.execution.mode,
-        tracer_mode=options.execution.tracer_mode,
-        bytecode_version=options.execution.bytecode_version,
-        gas_schedule=options.execution.gas_schedule,
-        authority=options.execution.authority,
-        allow_future=True,
-    )
-    resolved_tracer_mode = (
-        execution_policy.mode
-        if execution_policy.is_current_tracer_mode
-        else DEFAULT_EXECUTION_MODE
-    )
     resolved_app_logging = resolve_app_logging_settings(
         level=options.app_logging.level,
         json_logging=options.app_logging.json_logging,
@@ -571,8 +528,6 @@ def render_node_configs(
     xian_config["block_service_mode"] = options.service_node
     xian_config["pruning_enabled"] = options.enable_pruning
     xian_config["blocks_to_keep"] = options.blocks_to_keep
-    xian_config["tracer_mode"] = resolved_tracer_mode
-    xian_config["execution"] = execution_policy.to_config_dict()
     xian_config["metrics_enabled"] = options.metrics.enabled
     xian_config["metrics_host"] = options.metrics.host
     xian_config["metrics_port"] = options.metrics.port

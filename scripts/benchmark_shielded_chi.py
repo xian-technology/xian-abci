@@ -16,7 +16,7 @@ XIAN_ZK_PYTHON = (
 if str(XIAN_ZK_PYTHON) not in sys.path:
     sys.path.insert(0, str(XIAN_ZK_PYTHON))
 
-from contracting.client import ContractingClient
+from contracting.local import ContractingClient
 from xian_zk import (
     ShieldedDepositRequest,
     ShieldedKeyBundle,
@@ -95,7 +95,7 @@ def setup_contract(
             lint=False,
         )
     client.raw_driver.commit()
-    registry = client.get_contract("zk_registry")
+    registry = client.get_contract_proxy("zk_registry")
     registry.seed(owner="sys", signer="sys")
 
     for action in ("deposit", "transfer", "withdraw"):
@@ -127,7 +127,7 @@ def setup_contract(
             name="con_shielded_note_token",
             constructor_args={"root_window_size": 3},
         )
-    token = client.get_contract("con_shielded_note_token")
+    token = client.get_contract_proxy("con_shielded_note_token")
     token.configure_vk(
         action="deposit",
         vk_id=note_prover.bundle["deposit"]["vk_id"],
@@ -193,7 +193,7 @@ def benchmark() -> dict[str, int]:
         results: dict[str, int] = {}
 
         setup_contract(client, note_prover, relay_manifest)
-        token = client.get_contract("con_shielded_note_token")
+        token = client.get_contract_proxy("con_shielded_note_token")
         alice = "alice"
         bob = "bob"
         relayer = "relayer-1"
@@ -399,7 +399,7 @@ def benchmark() -> dict[str, int]:
 
         client.flush()
         setup_contract(client, note_prover, relay_manifest)
-        token = client.get_contract("con_shielded_note_token")
+        token = client.get_contract_proxy("con_shielded_note_token")
         client.raw_driver.set("currency.balances:alice", 1_000_000_000)
         client.raw_driver.set("currency.balances:relayer-1", 1_000_000_000)
         token.mint_public(amount=100, to=alice, signer="sys")

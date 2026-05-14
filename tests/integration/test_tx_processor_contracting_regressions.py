@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from contracting.client import ContractingClient
+from contracting.local import ContractingClient
 
 from xian.processor import TxProcessor
 

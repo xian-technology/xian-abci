@@ -574,7 +574,6 @@ dependencies = [
 [package.optional-dependencies]
 native = [
     { name = "xian-tech-fastpath-core" },
-    { name = "xian-tech-native-tracer" },
 ]
 vm = [
     { name = "xian-tech-vm-core" },
@@ -600,7 +599,6 @@ requires-dist = [
     { name = "xian-tech-accounts", editable = "../xian-contracting/packages/xian-accounts" },
     { name = "xian-tech-contracting", editable = "../xian-contracting" },
     { name = "xian-tech-fastpath-core", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-fastpath-core" },
-    { name = "xian-tech-native-tracer", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-native-tracer" },
     { name = "xian-tech-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
     { name = "xian-tech-vm-core", marker = "extra == 'vm'", editable = "../xian-contracting/packages/xian-vm-core" },
 ]
@@ -627,6 +625,11 @@ dependencies = [
 requires-dist = [{ name = "pynacl", specifier = ">=1.5.0,<2" }]
 
 [[package]]
+name = "xian-tech-compiler-core"
+version = "0.1.0"
+source = { directory = "../xian-contracting/packages/xian-compiler-core" }
+
+[[package]]
 name = "xian-tech-contracting"
 version = "1.0.6"
 source = { editable = "../xian-contracting" }
@@ -634,6 +637,7 @@ dependencies = [
     { name = "cachetools" },
     { name = "lmdb" },
     { name = "pynacl" },
+    { name = "xian-tech-compiler-core" },
     { name = "xian-tech-runtime-types" },
 ]
 
@@ -642,8 +646,8 @@ requires-dist = [
     { name = "cachetools", specifier = ">=7.0.6,<8" },
     { name = "lmdb", specifier = ">=2.2.0,<3" },
     { name = "pynacl", specifier = ">=1.5.0,<2" },
+    { name = "xian-tech-compiler-core", directory = "../xian-contracting/packages/xian-compiler-core" },
     { name = "xian-tech-fastpath-core", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-fastpath-core" },
-    { name = "xian-tech-native-tracer", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-native-tracer" },
     { name = "xian-tech-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
     { name = "xian-tech-zk", marker = "extra == 'zk'", editable = "../xian-contracting/packages/xian-zk" },
 ]
@@ -661,11 +665,6 @@ dev = [
 name = "xian-tech-fastpath-core"
 version = "0.1.0"
 source = { editable = "../xian-contracting/packages/xian-fastpath-core" }
-
-[[package]]
-name = "xian-tech-native-tracer"
-version = "0.1.2"
-source = { editable = "../xian-contracting/packages/xian-native-tracer" }
 
 [[package]]
 name = "xian-tech-runtime-types"

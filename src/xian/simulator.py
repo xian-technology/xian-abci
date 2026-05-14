@@ -7,25 +7,20 @@ import pickle
 import sys
 from pathlib import Path
 
-from contracting.client import ContractingClient
-from contracting.execution.executor import Executor
+from contracting.local import ContractingClient
 from loguru import logger
 from xian_runtime_types.encoding import convert_dict
 from xian_runtime_types.time import Datetime
 
 from xian.app_logging import build_log_fields
 from xian.execution_engine import (
-    ExecutionRuntime,
-    augment_execution_output_with_driver_state,
-    compare_execution_results,
-    execute_authoritative_native_contract,
-    execute_native_contract,
-    metering_write_keys,
-    prepare_contract_for_execution,
+    VmRuntime,
+    execute_vm_transaction,
+    prepare_vm_contract,
     restore_driver_state,
     snapshot_driver_state,
-    xian_vm_deployment_artifacts_error,
-    xian_vm_requires_deployment_artifacts,
+    vm_deployment_artifacts_error,
+    vm_requires_deployment_artifacts,
 )
 from xian.utils.block import (
     get_latest_block_nanos,
@@ -33,8 +28,6 @@ from xian.utils.block import (
 )
 from xian.utils.encoding import normalize_for_abci_json, stringify_decimals
 from xian.utils.tx import format_dictionary
-
-_SHADOW_COMPARISONS_KEY = "__xian_shadow_comparisons__"
 
 
 def _simulation_error_result(
@@ -57,23 +50,11 @@ class TransactionSimulator:
         *,
         client: ContractingClient,
         get_block_meta=None,
-        execution_runtime: ExecutionRuntime | None = None,
-        shadow_observer=None,
-        collect_shadow_comparisons: bool = False,
+        execution_runtime: VmRuntime | None = None,
     ):
         self.client = client
         self.get_block_meta = get_block_meta or (lambda: None)
-        self.execution_runtime = execution_runtime or ExecutionRuntime(
-            mode="python_line_v1",
-            tracer_mode="python_line_v1",
-        )
-        self.executor = Executor(
-            driver=self.client.raw_driver,
-            metering=False,
-            bypass_balance_amount=True,
-        )
-        self.shadow_observer = shadow_observer
-        self.collect_shadow_comparisons = collect_shadow_comparisons
+        self.execution_runtime = execution_runtime or VmRuntime()
 
     def simulate(
         self,
@@ -126,13 +107,9 @@ class TransactionSimulator:
         execution_runtime = getattr(
             self,
             "execution_runtime",
-            ExecutionRuntime(
-                mode="python_line_v1",
-                tracer_mode="python_line_v1",
-            ),
+            VmRuntime(),
         )
         state_snapshot = self._snapshot_driver_state()
-        shadow_comparisons = []
         try:
             chi_cost = int(
                 self.client.get_var(
@@ -145,83 +122,32 @@ class TransactionSimulator:
             chi_cost = 20
 
         try:
-            prepare_contract_for_execution(
+            prepare_vm_contract(
                 execution_runtime,
                 self.client.raw_driver,
                 payload["contract"],
             )
             converted_kwargs = convert_dict(payload.get("kwargs", {}))
-            if xian_vm_requires_deployment_artifacts(
-                execution_runtime,
+            if vm_requires_deployment_artifacts(
                 payload["contract"],
                 payload["function"],
                 converted_kwargs,
             ):
                 return _simulation_error_result(
                     payload=payload,
-                    message=xian_vm_deployment_artifacts_error(
+                    message=vm_deployment_artifacts_error(
                         payload["contract"],
                         payload["function"],
                     ),
                 )
             environment = self._make_environment(payload, block_meta=block_meta)
-            if getattr(execution_runtime, "native_authoritative", False):
-                return self._execute_native_authoritative_simulation(
-                    payload=payload,
-                    kwargs=converted_kwargs,
-                    environment=environment,
-                    max_chi=max_chi,
-                    chi_cost=chi_cost,
-                )
-            track_driver_output = getattr(
-                execution_runtime, "shadow_execution", False
-            ) or (
-                payload["contract"] == "submission"
-                and payload["function"] == "submit_contract"
-            )
-            output = self.executor.execute(
-                sender=payload["sender"],
-                contract_name=payload["contract"],
-                function_name=payload["function"],
-                chi=max(int(max_chi or 1_000_000), 1),
-                chi_cost=chi_cost,
+            return self._execute_vm_simulation(
+                payload=payload,
                 kwargs=converted_kwargs,
                 environment=environment,
-                auto_commit=False,
-                metering=True,
+                max_chi=max_chi,
+                chi_cost=chi_cost,
             )
-            if track_driver_output:
-                output = augment_execution_output_with_driver_state(
-                    output,
-                    before_state=state_snapshot,
-                    after_state=snapshot_driver_state(self.client.raw_driver),
-                )
-            if getattr(execution_runtime, "shadow_execution", False):
-                shadow_comparisons.append(
-                    self._run_native_shadow_execution(
-                        payload=payload,
-                        kwargs=converted_kwargs,
-                        output=output,
-                        environment=environment,
-                        base_driver_state=state_snapshot,
-                    )
-                )
-
-            writes = [
-                {"key": key, "value": value}
-                for key, value in output["writes"].items()
-            ]
-
-            result = {
-                "payload": payload,
-                "status": output["status_code"],
-                "state": writes,
-                "chi_used": output["chi_used"],
-                "result": normalize_for_abci_json(output["result"]),
-            }
-            if getattr(self, "collect_shadow_comparisons", False):
-                result[_SHADOW_COMPARISONS_KEY] = shadow_comparisons
-            return stringify_decimals(format_dictionary(result))
         finally:
             self._restore_driver_state(state_snapshot)
 
@@ -231,79 +157,7 @@ class TransactionSimulator:
     def _restore_driver_state(self, state_snapshot: dict) -> None:
         restore_driver_state(self.client.raw_driver, state_snapshot)
 
-    def _run_native_shadow_execution(
-        self,
-        *,
-        payload: dict,
-        kwargs: dict,
-        output: dict,
-        environment: dict,
-        base_driver_state: dict,
-    ) -> None:
-        restore_driver_state(self.client.raw_driver, base_driver_state)
-        native_output = execute_native_contract(
-            self.execution_runtime,
-            self.client.raw_driver,
-            sender=payload["sender"],
-            contract_name=payload["contract"],
-            function_name=payload["function"],
-            kwargs=kwargs,
-            environment=environment,
-            meter=True,
-            chi_budget=1_000_000,
-        )
-        output_for_compare = augment_execution_output_with_driver_state(
-            output,
-            before_state=base_driver_state,
-            after_state=snapshot_driver_state(self.client.raw_driver),
-        )
-        mismatches = compare_execution_results(
-            output_for_compare,
-            native_output,
-            ignore_write_keys=metering_write_keys(
-                self.client.raw_driver,
-                sender=payload["sender"],
-                currency_contract=getattr(
-                    self.executor, "currency_contract", "currency"
-                ),
-                balances_hash=getattr(
-                    self.executor, "balances_hash", "balances"
-                ),
-            ),
-        )
-        shadow_observer = getattr(self, "shadow_observer", None)
-        if shadow_observer is not None:
-            shadow_observer.record_comparison(
-                stage="simulate_tx_native_shadow",
-                contract=payload["contract"],
-                function=payload["function"],
-                sender=payload.get("sender"),
-                nonce=payload.get("nonce"),
-                block_height=environment.get("block_num"),
-                mismatches=mismatches,
-            )
-        if mismatches:
-            logger.bind(
-                **build_log_fields(
-                    stage="simulate_tx_native_shadow",
-                    payload=payload,
-                    extra={"mismatch_fields": sorted(mismatches)},
-                )
-            ).warning(
-                "Native VM simulation shadow mismatch: {}",
-                mismatches,
-            )
-        return {
-            "stage": "simulate_tx_native_shadow",
-            "contract": payload["contract"],
-            "function": payload["function"],
-            "sender": payload.get("sender"),
-            "nonce": payload.get("nonce"),
-            "block_height": environment.get("block_num"),
-            "mismatches": mismatches,
-        }
-
-    def _execute_native_authoritative_simulation(
+    def _execute_vm_simulation(
         self,
         *,
         payload: dict,
@@ -312,10 +166,9 @@ class TransactionSimulator:
         max_chi: int | None,
         chi_cost: int,
     ) -> dict:
-        outcome = execute_authoritative_native_contract(
+        outcome = execute_vm_transaction(
             self.execution_runtime,
             self.client.raw_driver,
-            executor=self.executor,
             sender=payload["sender"],
             contract_name=payload["contract"],
             function_name=payload["function"],
@@ -324,17 +177,7 @@ class TransactionSimulator:
             chi_budget=max(int(max_chi or 1_000_000), 1),
             chi_cost=chi_cost,
             meter=True,
-            mismatch_label="native authoritative simulation",
             apply_metering_on_success_only=False,
-            shadow_observer=getattr(self, "shadow_observer", None),
-            shadow_stage="simulate_tx_native_authoritative",
-            shadow_context={
-                "contract": payload["contract"],
-                "function": payload["function"],
-                "sender": payload.get("sender"),
-                "nonce": payload.get("nonce"),
-                "block_height": environment.get("block_num"),
-            },
         )
 
         writes = [
@@ -348,18 +191,6 @@ class TransactionSimulator:
             "chi_used": outcome.chi_used,
             "result": normalize_for_abci_json(outcome.output.result),
         }
-        if getattr(self, "collect_shadow_comparisons", False):
-            result[_SHADOW_COMPARISONS_KEY] = [
-                {
-                    "stage": "simulate_tx_native_authoritative",
-                    "contract": payload["contract"],
-                    "function": payload["function"],
-                    "sender": payload.get("sender"),
-                    "nonce": payload.get("nonce"),
-                    "block_height": environment.get("block_num"),
-                    "mismatches": outcome.shadow_mismatches,
-                }
-            ]
         return stringify_decimals(format_dictionary(result))
 
     @staticmethod
@@ -434,7 +265,7 @@ class TransactionSimulator:
             "block_num": block_meta.get("height", block_num),
             "__input_hash": input_hash,
             "__xian_execution_mode__": (
-                getattr(execution_runtime, "mode", None) or "python_line_v1"
+                getattr(execution_runtime, "mode", None) or "xian_vm_v1"
             ),
             "now": now,
             "chain_id": block_meta.get("chain_id"),
@@ -446,29 +277,22 @@ class QuerySimulationService:
         self,
         *,
         storage_home: str | Path,
-        tracer_mode: str,
-        execution_runtime: ExecutionRuntime | None = None,
+        execution_runtime: VmRuntime | None = None,
         get_block_meta=None,
         get_state_snapshot=None,
         enabled: bool = True,
         max_concurrency: int = 2,
         timeout_ms: int = 3000,
         max_chi: int = 1_000_000,
-        shadow_observer=None,
     ) -> None:
         self.storage_home = Path(storage_home)
-        self.tracer_mode = tracer_mode
-        self.execution_runtime = execution_runtime or ExecutionRuntime(
-            mode=tracer_mode,
-            tracer_mode=tracer_mode,
-        )
+        self.execution_runtime = execution_runtime or VmRuntime()
         self.get_block_meta = get_block_meta or (lambda: None)
         self.get_state_snapshot = get_state_snapshot or (lambda: None)
         self.enabled = enabled
         self.max_concurrency = max(int(max_concurrency), 1)
         self.timeout_ms = max(int(timeout_ms), 1)
         self.max_chi = max(int(max_chi), 1)
-        self.shadow_observer = shadow_observer
         self._active_requests = 0
         self._counter_lock = asyncio.Lock()
 
@@ -525,7 +349,6 @@ class QuerySimulationService:
         try:
             task = {
                 "storage_home": str(self.storage_home),
-                "tracer_mode": self.tracer_mode,
                 "execution_runtime": self.execution_runtime,
                 "payload": normalized_payload,
                 "block_meta": self.get_block_meta() or {},
@@ -533,7 +356,6 @@ class QuerySimulationService:
                 "driver_state": self.get_state_snapshot(),
             }
             result = await self._run_task(task, normalized_payload)
-            self._record_shadow_comparisons(result)
             return result
         finally:
             async with self._counter_lock:
@@ -619,19 +441,3 @@ class QuerySimulationService:
 
     def close(self) -> None:
         return None
-
-    def _record_shadow_comparisons(self, result: dict) -> None:
-        comparisons = result.pop(_SHADOW_COMPARISONS_KEY, None)
-        observer = getattr(self, "shadow_observer", None)
-        if observer is None or not comparisons:
-            return
-        for comparison in comparisons:
-            observer.record_comparison(
-                stage=comparison.get("stage", "simulate_tx"),
-                contract=comparison.get("contract"),
-                function=comparison.get("function"),
-                sender=comparison.get("sender"),
-                nonce=comparison.get("nonce"),
-                block_height=comparison.get("block_height"),
-                mismatches=comparison.get("mismatches") or {},
-            )

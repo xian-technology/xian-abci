@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from contracting.client import ContractingClient
+from contracting.local import ContractingClient
 from xian_runtime_types.time import Datetime
 
 MEMBERSHIP_CONTRACT = """
@@ -116,8 +116,8 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
                 "emergency_patch_delay_blocks": 1,
             },
         )
-        self.governance = self.client.get_contract("governance")
-        self.target = self.client.get_contract("con_target")
+        self.governance = self.client.get_contract_proxy("governance")
+        self.target = self.client.get_contract_proxy("con_target")
 
     def test_contract_call_proposal_executes_after_threshold(self):
         environment = {
@@ -208,9 +208,9 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
                 "emergency_patch_delay_blocks": 1,
             },
         )
-        governance = self.client.get_contract("governance")
-        target = self.client.get_contract("con_target")
-        membership = self.client.get_contract("masternodes")
+        governance = self.client.get_contract_proxy("governance")
+        target = self.client.get_contract_proxy("con_target")
+        membership = self.client.get_contract_proxy("masternodes")
         environment = {
             "now": Datetime(2026, 1, 1),
             "block_num": 10,
@@ -272,9 +272,9 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
                 "emergency_patch_delay_blocks": 1,
             },
         )
-        governance = self.client.get_contract("governance")
-        membership = self.client.get_contract("masternodes")
-        target = self.client.get_contract("con_target")
+        governance = self.client.get_contract_proxy("governance")
+        membership = self.client.get_contract_proxy("masternodes")
+        target = self.client.get_contract_proxy("con_target")
         environment = {
             "now": Datetime(2026, 1, 1),
             "block_num": 10,

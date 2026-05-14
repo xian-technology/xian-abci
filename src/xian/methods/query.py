@@ -1,15 +1,27 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
 from contracting.compilation import parser
 from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal
+from xian_runtime_types.time import Datetime
 
 from cometbft.abci.v1beta1.types_pb2 import ResponseQuery
 from xian.constants import Constants as c
-from xian.utils.block import get_latest_block_height
+from xian.execution_engine import (
+    execute_vm_contract,
+    prepare_vm_contract,
+    restore_driver_state,
+    snapshot_driver_state,
+)
+from xian.utils.block import (
+    get_latest_block_height,
+    get_latest_block_nanos,
+    nanoseconds_to_utc_datetime,
+)
 from xian.utils.encoding import encode_abci_json, encode_str
 
 DEFAULT_KEYS_QUERY_LIMIT = 100
@@ -87,7 +99,7 @@ def _bounded_int_param(
 ) -> int:
     try:
         value = int(params.get(key, default))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         value = default
     value = max(minimum, value)
     if maximum is not None:
@@ -125,7 +137,7 @@ def _bds_query_options(params: dict[str, str]) -> BdsQueryOptions:
     if after_id is not None:
         try:
             parsed_after_id = max(int(after_id), 0)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             parsed_after_id = None
 
     return BdsQueryOptions(
@@ -189,8 +201,86 @@ def _sort_contract_records(
     )
 
 
-def _masternodes_contract(app):
-    return app.client.get_contract("masternodes")
+def _make_vm_query_environment(ctx: QueryContext) -> dict[str, Any]:
+    block_meta = (
+        ctx.app.current_block_meta
+        if isinstance(ctx.app.current_block_meta, dict)
+        else {}
+    )
+    block_nanos = block_meta.get("nanos")
+    if block_nanos is None:
+        try:
+            block_nanos = get_latest_block_nanos(ctx.raw_driver.storage_home)
+        except Exception:
+            block_nanos = 0
+    block_height = block_meta.get("height") or 0
+    block_hash = block_meta.get("hash")
+    if block_hash is None:
+        block_hash = hashlib.sha3_256(
+            (
+                f"query:block:{getattr(ctx.app, 'chain_id', '')}:"
+                f"{block_height}:{int(block_nanos or 0)}"
+            ).encode("utf-8")
+        ).hexdigest()
+    now = Datetime._from_datetime(
+        nanoseconds_to_utc_datetime(int(block_nanos or 0))
+    )
+    return {
+        "block_hash": block_hash,
+        "block_num": block_height,
+        "__input_hash": hashlib.sha3_256(
+            f"query:{ctx.route}:{ctx.key}:{int(block_nanos or 0)}".encode(
+                "utf-8"
+            )
+        ).hexdigest(),
+        "__xian_execution_mode__": "xian_vm_v1",
+        "now": now,
+        "chain_id": getattr(ctx.app, "chain_id", None),
+    }
+
+
+def _call_contract_view(
+    ctx: QueryContext,
+    contract_name: str,
+    function_name: str,
+    *,
+    kwargs: dict[str, Any] | None = None,
+) -> Any:
+    runtime = ctx.app.execution_runtime
+    has_contract = getattr(ctx.raw_driver, "has_contract", None)
+    if has_contract is not None and not has_contract(contract_name):
+        return None
+    if has_contract is None:
+        get_contract_ir = getattr(ctx.raw_driver, "get_contract_ir", None)
+        contract_ir = get_contract_ir(contract_name) if get_contract_ir else None
+        if (
+            ctx.raw_driver.get_contract_source(contract_name) is None
+            and contract_ir is None
+        ):
+            return None
+
+    state = snapshot_driver_state(ctx.raw_driver)
+    try:
+        prepare_vm_contract(runtime, ctx.raw_driver, contract_name)
+        output = execute_vm_contract(
+            runtime,
+            ctx.raw_driver,
+            sender=ctx.key or "__query__",
+            contract_name=contract_name,
+            function_name=function_name,
+            kwargs=dict(kwargs or {}),
+            environment=_make_vm_query_environment(ctx),
+            meter=False,
+        )
+        if output.status_code != 0:
+            logger.error(
+                "VM query failed for "
+                f"{contract_name}.{function_name}: {output.result!r}"
+            )
+            return None
+        return output.result
+    finally:
+        restore_driver_state(ctx.raw_driver, state)
 
 
 def _pending_masternodes_votes(
@@ -333,14 +423,22 @@ def _resolve_perf_status(ctx: QueryContext) -> dict[str, Any]:
 
 
 def _resolve_pending_unbonds(ctx: QueryContext) -> list[dict] | None:
-    membership = _masternodes_contract(ctx.app)
-    if membership is None:
+    pending_ids = _call_contract_view(
+        ctx,
+        "masternodes",
+        "get_pending_unbond_ids",
+        kwargs={"owner": ctx.key},
+    )
+    if pending_ids is None:
         return None
-
-    pending_ids = membership.get_pending_unbond_ids(owner=ctx.key) or []
     result: list[dict] = []
-    for unbond_id in pending_ids:
-        unbond = membership.get_pending_unbond(unbond_id=unbond_id)
+    for unbond_id in pending_ids or []:
+        unbond = _call_contract_view(
+            ctx,
+            "masternodes",
+            "get_pending_unbond",
+            kwargs={"unbond_id": unbond_id},
+        )
         if isinstance(unbond, dict):
             entry = dict(unbond)
             entry["unbond_id"] = unbond_id
@@ -398,35 +496,31 @@ async def _handle_get_next_nonce(ctx: QueryContext) -> QueryResult:
     return QueryResult(result=ctx.app.nonce_storage.get_next_nonce(ctx.key))
 
 
-async def _handle_contract(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=ctx.raw_driver.get_contract_source(ctx.key)
-        or ctx.raw_driver.get_contract(ctx.key)
-    )
-
-
 async def _handle_contract_source(ctx: QueryContext) -> QueryResult:
     return QueryResult(result=ctx.raw_driver.get_contract_source(ctx.key))
 
 
-async def _handle_contract_code(ctx: QueryContext) -> QueryResult:
-    return QueryResult(result=ctx.raw_driver.get_contract(ctx.key))
+async def _handle_contract_ir(ctx: QueryContext) -> QueryResult:
+    get_contract_ir = getattr(ctx.raw_driver, "get_contract_ir", None)
+    if get_contract_ir is None:
+        return QueryResult(result=None)
+    return QueryResult(result=get_contract_ir(ctx.key))
 
 
 async def _handle_contract_methods(ctx: QueryContext) -> QueryResult:
-    contract_code = ctx.raw_driver.get_contract(ctx.key)
-    if contract_code is None:
+    contract_source = ctx.raw_driver.get_contract_source(ctx.key)
+    if contract_source is None:
         return QueryResult(result=None)
     return QueryResult(
-        result={"methods": parser.methods_for_contract(contract_code)}
+        result={"methods": parser.methods_for_contract(contract_source)}
     )
 
 
 async def _handle_contract_vars(ctx: QueryContext) -> QueryResult:
-    contract_code = ctx.raw_driver.get_contract(ctx.key)
-    if contract_code is None:
+    contract_source = ctx.raw_driver.get_contract_source(ctx.key)
+    if contract_source is None:
         return QueryResult(result=None)
-    return QueryResult(result=parser.variables_for_contract(contract_code))
+    return QueryResult(result=parser.variables_for_contract(contract_source))
 
 
 async def _handle_contract_info(ctx: QueryContext) -> QueryResult:
@@ -446,36 +540,43 @@ async def _handle_perf_status(ctx: QueryContext) -> QueryResult:
 
 
 async def _handle_masternodes_policy(ctx: QueryContext) -> QueryResult:
-    membership = _masternodes_contract(ctx.app)
     return QueryResult(
-        result=None if membership is None else membership.get_policy_config()
+        result=_call_contract_view(
+            ctx,
+            "masternodes",
+            "get_policy_config",
+        )
     )
 
 
 async def _handle_masternodes_active(ctx: QueryContext) -> QueryResult:
-    membership = _masternodes_contract(ctx.app)
     return QueryResult(
-        result=None
-        if membership is None
-        else membership.get_active_validators()
+        result=_call_contract_view(
+            ctx,
+            "masternodes",
+            "get_active_validators",
+        )
     )
 
 
 async def _handle_masternodes_candidates(ctx: QueryContext) -> QueryResult:
-    membership = _masternodes_contract(ctx.app)
     return QueryResult(
-        result=None
-        if membership is None
-        else membership.get_pending_candidates()
+        result=_call_contract_view(
+            ctx,
+            "masternodes",
+            "get_pending_candidates",
+        )
     )
 
 
 async def _handle_masternodes_validator(ctx: QueryContext) -> QueryResult:
-    membership = _masternodes_contract(ctx.app)
     return QueryResult(
-        result=None
-        if membership is None
-        else membership.get_validator(account=ctx.key)
+        result=_call_contract_view(
+            ctx,
+            "masternodes",
+            "get_validator",
+            kwargs={"account": ctx.key},
+        )
     )
 
 
@@ -795,9 +896,8 @@ CORE_QUERY_HANDLERS = {
     "get": _handle_get,
     "health": _handle_health,
     "get_next_nonce": _handle_get_next_nonce,
-    "contract": _handle_contract,
     "contract_source": _handle_contract_source,
-    "contract_code": _handle_contract_code,
+    "contract_ir": _handle_contract_ir,
     "contract_methods": _handle_contract_methods,
     "contract_vars": _handle_contract_vars,
     "contract_info": _handle_contract_info,

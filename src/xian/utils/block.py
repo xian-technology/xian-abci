@@ -5,8 +5,6 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from contracting.compilation.artifacts import build_contract_artifacts
-from contracting.storage.driver import XIAN_VM_V1_IR_KEY
 from xian_runtime_types.encoding import convert_dict
 
 from xian.constants import Constants as c
@@ -112,50 +110,12 @@ def apply_state_changes_from_block(client, nonce_storage, block):
 
     nanos = block.get("hlc_timestamp")
     nonces = block.get("nonces", [])
-    state_change_keys = {
-        item["key"]
-        for item in state_changes
-        if isinstance(item, dict) and isinstance(item.get("key"), str)
-    }
 
     for i, s in enumerate(state_changes):
         if type(s["value"]) is dict:
             s["value"] = convert_dict(s["value"])
 
         client.raw_driver.set(s["key"], s["value"])
-
-    # Genesis and other exported state intentionally treat __source__ as the
-    # canonical contract artifact. The current Python-backed runtime still
-    # imports contracts from __code__, so materialize the derived runtime code
-    # deterministically when it is absent from the imported state.
-    for state_change in state_changes:
-        key = state_change.get("key")
-        if not isinstance(key, str) or not key.endswith(".__source__"):
-            continue
-        source = state_change.get("value")
-        if not isinstance(source, str) or source == "":
-            continue
-
-        contract_name = key.rsplit(".", 1)[0]
-        code_key = f"{contract_name}.__code__"
-        ir_key = f"{contract_name}.{XIAN_VM_V1_IR_KEY}"
-        if code_key in state_change_keys and ir_key in state_change_keys:
-            continue
-
-        artifacts = build_contract_artifacts(
-            module_name=contract_name,
-            source=source,
-            lint=False,
-            vm_profile="xian_vm_v1",
-            compact=False,
-            include_runtime_code=True,
-        )
-        if code_key not in state_change_keys:
-            client.raw_driver.pending_writes[code_key] = artifacts[
-                "runtime_code"
-            ]
-        if ir_key not in state_change_keys:
-            client.raw_driver.pending_writes[ir_key] = artifacts["vm_ir_json"]
 
     for n in nonces:
         nonce_storage.set_nonce(n["key"], n["value"])

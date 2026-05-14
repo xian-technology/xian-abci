@@ -63,7 +63,7 @@ class ValidatorEpochRebalanceTests(unittest.IsolatedAsyncioTestCase):
                 "genesis_registration_fee": 1000,
             },
         )
-        self.membership = self.app.client.get_contract("masternodes")
+        self.membership = self.app.client.get_contract_proxy("masternodes")
 
     async def asyncTearDown(self):
         teardown_fixtures()

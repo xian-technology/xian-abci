@@ -6,15 +6,15 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from contracting.client import ContractingClient
 from contracting.execution.parallel import (
     ExecutionAccess,
     SpeculativeExecutionController,
 )
+from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
 from loguru import logger
 
-from xian.execution_engine import ExecutionRuntime
+from xian.execution_engine import VmRuntime
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
 
@@ -44,24 +44,13 @@ def _get_worker_runtime(
     *,
     storage_home: str,
     use_rewards_handler: bool,
-    execution_runtime: ExecutionRuntime | None = None,
-    tracer_mode: str | None = None,
+    execution_runtime: VmRuntime | None = None,
 ) -> _WorkerRuntime:
     if execution_runtime is None:
-        resolved_tracer_mode = tracer_mode or "python_line_v1"
-        execution_runtime = ExecutionRuntime(
-            mode=resolved_tracer_mode,
-            tracer_mode=resolved_tracer_mode,
-        )
+        execution_runtime = VmRuntime()
     key = (
         storage_home,
         use_rewards_handler,
-        execution_runtime.mode,
-        execution_runtime.tracer_mode or "",
-        execution_runtime.bytecode_version,
-        execution_runtime.gas_schedule,
-        execution_runtime.authority,
-        execution_runtime.native_authoritative,
     )
     runtime = _WORKER_RUNTIMES.get(key)
     if runtime is not None:
@@ -72,7 +61,6 @@ def _get_worker_runtime(
         storage_home=Path(storage_home),
         driver=driver,
         submission_filename=None,
-        tracer_mode=execution_runtime.tracer_mode,
     )
     runtime = _WorkerRuntime(
         client=client,
@@ -119,13 +107,10 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         enabled: bool = False,
         workers: int = 0,
         min_transactions: int = 8,
-        execution_runtime: ExecutionRuntime | None = None,
+        execution_runtime: VmRuntime | None = None,
     ) -> None:
         self.storage_home = Path(storage_home)
-        self.execution_runtime = execution_runtime or ExecutionRuntime(
-            mode="python_line_v1",
-            tracer_mode="python_line_v1",
-        )
+        self.execution_runtime = execution_runtime or VmRuntime()
         self._mp_context = multiprocessing.get_context("spawn")
         self._executor: ProcessPoolExecutor | None = None
         self._batch_tx_processor: TxProcessor | None = None

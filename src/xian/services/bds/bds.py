@@ -777,7 +777,7 @@ class BDS:
                 for contract_name, record in self._collect_contract_records(
                     genesis_state
                 ).items():
-                    display_source = record["source"] or record["code"]
+                    display_source = record["source"]
                     if display_source is None:
                         continue
                     submission_time = record[
@@ -1020,7 +1020,7 @@ class BDS:
             for contract_name, record in self._collect_contract_records(
                 tx_result.get("state", [])
             ).items():
-                display_source = record["source"] or record["code"]
+                display_source = record["source"]
                 if display_source is None:
                     continue
                 submission_time = record["submitted_at"] or block_time
@@ -1517,8 +1517,8 @@ class BDS:
         )
         return dict(row) if row is not None else None
 
-    def is_XSC0001(self, code: str) -> bool:
-        normalized = code.replace(" ", "")
+    def is_XSC0001(self, source: str) -> bool:
+        normalized = source.replace(" ", "")
         if "balances=Hash(" not in normalized:
             return False
         if "@export\ndeftransfer(amount:float,to:str):" not in normalized:
@@ -1591,18 +1591,15 @@ class BDS:
                 continue
 
             contract_name, variable = key.split(".", 1)
-            if variable not in {"__source__", "__code__", "__submitted__"}:
+            if variable not in {"__source__", "__submitted__"}:
                 continue
 
             record = contracts.setdefault(
-                contract_name,
-                {"source": None, "code": None, "submitted_at": None},
+                contract_name, {"source": None, "submitted_at": None}
             )
 
             if variable == "__source__":
                 record["source"] = state_change.get("value")
-            elif variable == "__code__":
-                record["code"] = state_change.get("value")
             else:
                 record["submitted_at"] = self._submission_time_from_state_value(
                     state_change.get("value")

@@ -3,11 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from xian.execution_policy import load_execution_policy
 from xian.node_setup import (
     AppLoggingOptions,
     BdsOptions,
-    ExecutionOptions,
     MetricsOptions,
     NodeConfigOptions,
     ParallelExecutionOptions,
@@ -52,13 +50,6 @@ class NodeSetupTests(unittest.TestCase):
                     trust_height=120,
                     trust_hash="ab" * 32,
                     trust_period="336h0m0s",
-                ),
-                execution=ExecutionOptions(
-                    tracer_mode="python_line_v1",
-                    mode="xian_vm_v1",
-                    bytecode_version="xvm-1",
-                    gas_schedule="xvm-gas-1",
-                    authority="native",
                 ),
                 metrics=MetricsOptions(
                     enabled=True,
@@ -115,10 +106,7 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(xian_config["block_service_mode"])
         self.assertTrue(xian_config["pruning_enabled"])
         self.assertEqual(xian_config["metrics_port"], 9208)
-        self.assertEqual(
-            xian_config["execution"]["engine"]["bytecode_version"],
-            "xvm-1",
-        )
+        self.assertNotIn("execution", xian_config)
         self.assertEqual(
             xian_config["bds"]["application_name"], "xian-bds-test"
         )
@@ -171,11 +159,8 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(xian_config["block_service_mode"])
         self.assertTrue(xian_config["pruning_enabled"])
         self.assertEqual(xian_config["blocks_to_keep"], 5000)
-        self.assertEqual(xian_config["tracer_mode"], "python_line_v1")
-        self.assertEqual(
-            xian_config["execution"]["engine"]["mode"],
-            "python_line_v1",
-        )
+        self.assertNotIn("tracer_mode", xian_config)
+        self.assertNotIn("execution", xian_config)
         self.assertTrue(xian_config["transaction_trace_logging"])
         self.assertEqual(xian_config["app_log_level"], "DEBUG")
         self.assertTrue(xian_config["app_log_json"])
@@ -237,77 +222,13 @@ class NodeSetupTests(unittest.TestCase):
             xian_config["bds"]["disk_free_warn_bytes"], 4_294_967_296
         )
 
-    def test_render_config_supports_native_tracer_mode(self):
-        xian_config = render_xian_config(
-            options=_node_options(
-                execution=ExecutionOptions(
-                    tracer_mode="native_instruction_v1"
-                )
-            )
-        )
+    def test_render_config_keeps_vm_execution_internal(self):
+        xian_config = render_xian_config(options=_node_options())
 
-        self.assertEqual(xian_config["tracer_mode"], "native_instruction_v1")
-        self.assertEqual(
-            load_execution_policy(xian_config).mode,
-            "native_instruction_v1",
-        )
+        self.assertNotIn("tracer_mode", xian_config)
+        self.assertNotIn("execution", xian_config)
 
-    def test_render_config_supports_future_execution_policy_shape(self):
-        xian_config = render_xian_config(
-            options=_node_options(
-                execution=ExecutionOptions(
-                    mode="xian_vm_v1",
-                    bytecode_version="xvm-1",
-                    gas_schedule="xvm-gas-1",
-                )
-            )
-        )
-
-        self.assertEqual(xian_config["tracer_mode"], "python_line_v1")
-        self.assertEqual(
-            xian_config["execution"]["engine"]["bytecode_version"],
-            "xvm-1",
-        )
-        self.assertEqual(
-            xian_config["execution"]["engine"]["gas_schedule"],
-            "xvm-gas-1",
-        )
-        self.assertEqual(
-            xian_config["execution"]["engine"]["authority"],
-            "native",
-        )
-        self.assertNotIn(
-            "shadow_tracer_mode",
-            xian_config["execution"]["engine"],
-        )
-
-    def test_render_config_supports_native_vm_authority_without_shadow(self):
-        xian_config = render_xian_config(
-            options=_node_options(
-                execution=ExecutionOptions(
-                    mode="xian_vm_v1",
-                    bytecode_version="xvm-1",
-                    gas_schedule="xvm-gas-1",
-                    authority="native",
-                )
-            )
-        )
-
-        self.assertEqual(xian_config["tracer_mode"], "python_line_v1")
-        self.assertEqual(
-            xian_config["execution"]["engine"]["mode"],
-            "xian_vm_v1",
-        )
-        self.assertEqual(
-            xian_config["execution"]["engine"]["authority"],
-            "native",
-        )
-        self.assertNotIn(
-            "shadow_tracer_mode",
-            xian_config["execution"]["engine"],
-        )
-
-    def test_render_config_rejects_legacy_kwargs(self):
+    def test_render_config_rejects_unknown_direct_kwargs(self):
         with self.assertRaises(TypeError):
             render_node_configs(moniker="validator-1")
 
@@ -465,9 +386,7 @@ class NodeSetupTests(unittest.TestCase):
             rendered_xian_config = load_toml(xian_config_path)
             self.assertEqual(rendered_config["moniker"], "validator-1")
             self.assertNotIn("xian", rendered_config)
-            self.assertEqual(
-                rendered_xian_config["tracer_mode"], "python_line_v1"
-            )
+            self.assertNotIn("tracer_mode", rendered_xian_config)
 
             rendered_genesis = json.loads(
                 genesis_path.read_text(encoding="utf-8")

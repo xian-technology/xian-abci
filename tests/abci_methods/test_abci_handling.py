@@ -1,47 +1,39 @@
-import os
-import asyncio
+import logging
 import unittest
 from io import BytesIO
-import logging
-
-from xian.xian_abci import Xian
-from abci.server import ProtocolHandler
-from abci.utils import read_messages
-
-from cometbft.abci.v1beta3.types_pb2 import (
-    Request,
-    Response,
-    RequestInitChain,
-    ResponseInitChain,
-    ResponseCheckTx,
-    ResponseFinalizeBlock,
-    RequestFinalizeBlock,
-    ResponseCommit,
-    RequestPrepareProposal,
-    RequestProcessProposal,
-)
-from cometbft.abci.v1beta1.types_pb2 import (
-    ResponseInfo,
-    RequestQuery,
-    ResponseQuery,
-    RequestFlush,
-    ResponseFlush,
-    RequestEcho,
-    ResponseEcho,
-    RequestCheckTx,
-    ValidatorUpdate,
-    RequestCommit,
-)
-from cometbft.abci.v1beta2.types_pb2 import (
-    ResponsePrepareProposal,
-    ResponseProcessProposal,
-    RequestInfo,
-)
-from cometbft.types.v1.params_pb2 import ConsensusParams
-from cometbft.crypto.v1.keys_pb2 import PublicKey
 
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
+
+from abci.server import ProtocolHandler
+from abci.utils import read_messages
+from cometbft.abci.v1beta1.types_pb2 import (
+    RequestCheckTx,
+    RequestCommit,
+    RequestFlush,
+    RequestQuery,
+    ResponseFlush,
+    ResponseInfo,
+    ResponseQuery,
+)
+from cometbft.abci.v1beta2.types_pb2 import (
+    RequestInfo,
+    ResponsePrepareProposal,
+    ResponseProcessProposal,
+)
+from cometbft.abci.v1beta3.types_pb2 import (
+    Request,
+    RequestFinalizeBlock,
+    RequestInitChain,
+    RequestPrepareProposal,
+    RequestProcessProposal,
+    Response,
+    ResponseCheckTx,
+    ResponseCommit,
+    ResponseFinalizeBlock,
+    ResponseInitChain,
+)
+from xian.xian_abci import Xian
 
 # Disable any kind of logging
 logging.disable(logging.CRITICAL)
@@ -93,7 +85,7 @@ class TestXianHandler(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(resp.check_tx, ResponseCheckTx)
 
     async def test_query(self):
-        req = Request(query=RequestQuery(path="/contract/currency"))
+        req = Request(query=RequestQuery(path="/contract_source/currency"))
         resp = await self.process_request("query", req)
         self.assertIsInstance(resp.query, ResponseQuery)
 

@@ -1202,7 +1202,7 @@ function renderExecutionHealth(monitoring){
   }
 
   $("execution-health").innerHTML =
-    '<div class="data-row"><span class="data-key">Tracer</span><span class="data-val">'+escHtml(snapshot.tracer_mode||"\u2014")+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Execution</span><span class="data-val">'+escHtml(snapshot.execution_mode||"\u2014")+'</span></div>'+
     '<div class="data-row"><span class="data-key">Perf Capture</span><span class="data-val">'+escHtml(perf.enabled ? "enabled" : perf.error ? "error" : "disabled")+'</span></div>'+
     '<div class="data-row"><span class="data-key">Mempool</span><span class="data-val">'+escHtml(String(unconfirmed.n_txs ?? "\u2014"))+' tx / '+fmtBytes(unconfirmed.total_bytes)+'</span></div>'+
     '<div class="data-row"><span class="data-key">Last Finalize</span><span class="data-val">'+fmtMs(latestBlock ? latestBlock.duration_ms : null)+'</span></div>'+
@@ -1447,7 +1447,7 @@ async function loadExplorerContracts(){
       '<td>'+escHtml(item.name)+'</td>'+
       '<td>'+escHtml(item.submitted_at ? fmtTime(item.submitted_at) : '\u2014')+'</td>'+
       '<td>'+(item.developer ? addressLink(item.developer,{left:10,right:8}) : '\u2014')+'</td>'+
-      '<td>'+escHtml(item.has_source ? 'original' : 'compiled only')+'</td>'+
+      '<td>'+escHtml(item.has_source ? 'source' : 'artifact only')+'</td>'+
     '</tr>';
   });
   html += '</tbody></table>';
@@ -1983,7 +1983,6 @@ async function viewContract(name){
   const metadata = data.metadata || {};
   const summary = data.summary || null;
   const source = data.source || null;
-  const runtimeCode = data.runtime_code || null;
   const creator = metadata.initiator || metadata.deployer || null;
 
   /* overview */
@@ -2052,15 +2051,6 @@ async function viewContract(name){
     html += `<div class="card">
       <div class="card-header">Source Code</div>
       <div class="card-body"><div class="code-block highlighted">${renderedSource.html}</div></div>
-    </div>`;
-  } else if(runtimeCode){
-    const renderedRuntime = renderPythonSource(runtimeCode);
-    html += `<div class="card">
-      <div class="card-header">Stored Runtime Code</div>
-      <div class="card-body">
-        <div class="summary-meta" style="margin-bottom:12px">Original source is not available on this node for this contract. The code below is the stored runtime form returned by the chain.</div>
-        <div class="code-block highlighted">${renderedRuntime.html}</div>
-      </div>
     </div>`;
   }
 

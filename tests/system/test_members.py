@@ -1,9 +1,8 @@
-import datetime
 import os
 import unittest
 
-from contracting.client import ContractingClient
-from xian_runtime_types.time import Datetime, Timedelta
+from contracting.local import ContractingClient
+from xian_runtime_types.time import Datetime
 
 from xian.config_paths import resolve_contracts_dir
 
@@ -48,8 +47,8 @@ class TestMembersContract(unittest.TestCase):
                 "genesis_registration_fee": 1000
             })
 
-        self.members = self.client.get_contract("members")
-        self.currency = self.client.get_contract("currency")
+        self.members = self.client.get_contract_proxy("members")
+        self.currency = self.client.get_contract_proxy("currency")
 
         # Add initial balance to deployer directly
         self.currency.balances[self.deployer_vk] = 100000

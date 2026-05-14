@@ -344,9 +344,7 @@ prometheus = false
             self.assertNotIn("xian", rendered_config)
             self.assertTrue(rendered_xian_config["pruning_enabled"])
             self.assertEqual(rendered_xian_config["blocks_to_keep"], 5000)
-            self.assertEqual(
-                rendered_xian_config["tracer_mode"], "python_line_v1"
-            )
+            self.assertNotIn("tracer_mode", rendered_xian_config)
             self.assertTrue(rendered_xian_config["metrics_enabled"])
             self.assertEqual(rendered_xian_config["metrics_host"], "0.0.0.0")
             self.assertEqual(rendered_xian_config["metrics_port"], 9208)

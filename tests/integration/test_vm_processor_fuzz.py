@@ -6,14 +6,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from contracting.local import ContractingClient
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from xian_runtime_types.time import Datetime
 
-from contracting.client import ContractingClient
-
-from xian.execution_engine import build_execution_runtime
-from xian.execution_policy import ExecutionPolicy
+from xian.execution_engine import build_vm_runtime
 from xian.processor import TxProcessor
 
 pytest.importorskip("xian_vm_core")
@@ -137,7 +135,6 @@ def _normalized_state_writes(entries: list[dict[str, Any]] | None) -> list[dict[
         for entry in entries
         if entry.get("key") != "submission.__submitted__"
         and entry.get("key") != IGNORED_BALANCE_KEY
-        and not str(entry.get("key", "")).endswith(".__code__")
     ]
 
 
@@ -145,9 +142,6 @@ def _normalized_contract_state(state: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(state)
     normalized.pop("submission.__submitted__", None)
     normalized.pop(IGNORED_BALANCE_KEY, None)
-    for key in list(normalized):
-        if key.endswith(".__code__"):
-            normalized.pop(key, None)
     return normalized
 
 
@@ -213,14 +207,7 @@ def test_python_and_native_processors_match_for_fuzzed_sequences(
         python_processor = TxProcessor(client=python_client)
         native_processor = TxProcessor(
             client=native_client,
-            execution_runtime=build_execution_runtime(
-                ExecutionPolicy(
-                    mode="xian_vm_v1",
-                    bytecode_version="xvm-1",
-                    gas_schedule="xvm-gas-1",
-                    authority="native",
-                )
-            ),
+            execution_runtime=build_vm_runtime(),
         )
 
         for offset_seconds, (function_name, kwargs) in enumerate(operations, start=1):
@@ -273,14 +260,7 @@ def test_processors_preserve_failure_rollback_invariant() -> None:
         python_processor = TxProcessor(client=python_client)
         native_processor = TxProcessor(
             client=native_client,
-            execution_runtime=build_execution_runtime(
-                ExecutionPolicy(
-                    mode="xian_vm_v1",
-                    bytecode_version="xvm-1",
-                    gas_schedule="xvm-gas-1",
-                    authority="native",
-                )
-            ),
+            execution_runtime=build_vm_runtime(),
         )
 
         before_state = _normalized_contract_state(

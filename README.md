@@ -49,7 +49,8 @@ uv run xian-bds-spool --help
 Optional extras:
 
 - `vm` — enables the `xian_vm_v1` bindings.
-- `native` — enables the native tracer and admission helpers.
+- `native` — enables native admission helpers for development and release
+  validation.
 
 For a ready-made local network instead of wiring the node yourself, use
 [`xian-stack`](../xian-stack). This repo focuses on the runtime and backend

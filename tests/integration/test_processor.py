@@ -4,7 +4,7 @@ import unittest
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-from contracting.client import ContractingClient
+from contracting.local import ContractingClient
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
 
@@ -39,14 +39,14 @@ class TestProcessor(unittest.TestCase):
             code = f.read()
             self.c.submit(code, name="currency_1")
 
-        self.currency_1 = self.c.get_contract("currency_1")
+        self.currency_1 = self.c.get_contract_proxy("currency_1")
 
         proxy_path = os.path.join(self.script_dir, "contracts", "proxy.py")
         with open(proxy_path) as f:
             code = f.read()
             self.c.submit(code, name="proxy")
 
-        self.proxy = self.c.get_contract("proxy")
+        self.proxy = self.c.get_contract_proxy("proxy")
 
     def tearDown(self):
         teardown_fixtures()

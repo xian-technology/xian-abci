@@ -225,7 +225,7 @@ def _request_int(request: web.Request, key: str, default: int) -> int:
         return default
     try:
         parsed_value = int(raw_value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
     return max(0, parsed_value)
 
@@ -1052,7 +1052,6 @@ async def handle_contract(request: web.Request) -> web.Response:
 
     try:
         source = await _abci_query(session, rpc, f"contract_source/{name}")
-        runtime_code = await _abci_query(session, rpc, f"contract/{name}")
         methods = await _abci_query(session, rpc, f"contract_methods/{name}")
         variables = await _abci_query(session, rpc, f"contract_vars/{name}")
         metadata = await _abci_query(session, rpc, f"contract_info/{name}")
@@ -1061,9 +1060,7 @@ async def handle_contract(request: web.Request) -> web.Response:
         return web.json_response(
             {
                 "name": name,
-                "code": source,
                 "source": source,
-                "runtime_code": runtime_code,
                 "has_original_source": source is not None,
                 "metadata": metadata or {},
                 "summary": summary,

@@ -5,7 +5,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from contracting.client import ContractingClient
+from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
 
 from xian.execution_engine import restore_driver_state
@@ -21,13 +21,11 @@ def main() -> int:
             storage_home=storage_home,
             driver=driver,
             submission_filename=None,
-            tracer_mode=task["tracer_mode"],
         )
         restore_driver_state(client.raw_driver, task.get("driver_state"))
         simulator = TransactionSimulator(
             client=client,
             execution_runtime=task.get("execution_runtime"),
-            collect_shadow_comparisons=True,
         )
         result = simulator.simulate(
             task["payload"],

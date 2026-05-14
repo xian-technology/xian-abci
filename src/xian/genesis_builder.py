@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from contracting.client import ContractingClient
+from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import encode
@@ -151,7 +151,7 @@ def _build_genesis_block(
                 constructor_args = {}
             constructor_args.update(override_args)
 
-        if contracting.get_contract(contract_name) is None:
+        if not contracting.raw_driver.has_contract(contract_name):
             contracting.submit(
                 code,
                 name=contract_name,
@@ -175,8 +175,6 @@ def _build_genesis_block(
 
     for key, value in contracting.raw_driver.pending_writes.items():
         if value is None:
-            continue
-        if key.endswith(".__code__"):
             continue
         genesis_block["genesis"].append({"key": key, "value": value})
 

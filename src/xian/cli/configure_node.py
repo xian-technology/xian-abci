@@ -3,9 +3,6 @@ from __future__ import annotations
 import json
 from argparse import ArgumentParser, BooleanOptionalAction
 
-from contracting.execution.tracer import SUPPORTED_TRACER_MODES
-
-from xian.execution_policy import SUPPORTED_EXECUTION_ENGINE_MODES
 from xian.genesis_builder import build_bundle_network_genesis
 from xian.node_admin import ExistingHomeOptions, configure_existing_home
 from xian.node_setup import (
@@ -13,7 +10,6 @@ from xian.node_setup import (
     SUPPORTED_BLOCK_POLICY_MODES,
     AppLoggingOptions,
     BdsOptions,
-    ExecutionOptions,
     MetricsOptions,
     NodeConfigOptions,
     ParallelExecutionOptions,
@@ -200,47 +196,6 @@ def build_parser() -> ArgumentParser:
         help="light-client trust period for CometBFT state sync",
         required=False,
         default="168h0m0s",
-    )
-    parser.add_argument(
-        "--tracer-mode",
-        choices=sorted(SUPPORTED_TRACER_MODES),
-        help="execution tracer backend for contract metering",
-        required=False,
-        default="python_line_v1",
-    )
-    parser.add_argument(
-        "--execution-mode",
-        choices=sorted(SUPPORTED_EXECUTION_ENGINE_MODES),
-        help=(
-            "explicit execution engine mode written into "
-            "xian.execution.engine.mode; defaults to --tracer-mode"
-        ),
-        required=False,
-        default=None,
-    )
-    parser.add_argument(
-        "--execution-bytecode-version",
-        type=str,
-        help="bytecode version for future execution engines such as xian_vm_v1",
-        required=False,
-        default="",
-    )
-    parser.add_argument(
-        "--execution-gas-schedule",
-        type=str,
-        help="gas schedule id for future execution engines such as xian_vm_v1",
-        required=False,
-        default="",
-    )
-    parser.add_argument(
-        "--execution-authority",
-        choices=["native"],
-        help=(
-            "authoritative executor for xian_vm_v1; only 'native' is "
-            "supported on the VM-native branch"
-        ),
-        required=False,
-        default="",
     )
     parser.add_argument(
         "--metrics-enabled",
@@ -519,13 +474,6 @@ def main(argv: list[str] | None = None) -> int:
                     trust_height=args.statesync_trust_height,
                     trust_hash=args.statesync_trust_hash,
                     trust_period=args.statesync_trust_period,
-                ),
-                execution=ExecutionOptions(
-                    tracer_mode=args.tracer_mode,
-                    mode=args.execution_mode,
-                    bytecode_version=args.execution_bytecode_version,
-                    gas_schedule=args.execution_gas_schedule,
-                    authority=args.execution_authority,
                 ),
                 metrics=MetricsOptions(
                     enabled=args.metrics_enabled,

@@ -123,7 +123,7 @@ class NoopPerfTracker:
             "enabled": False,
             "node_name": None,
             "chain_id": None,
-            "tracer_mode": None,
+            "execution_mode": None,
             "pid": os.getpid(),
             "updated_at_unix_ns": time.time_ns(),
             "global_metrics": {},
@@ -141,14 +141,14 @@ class PerfTracker:
         output_path: Path,
         node_name: str,
         chain_id: str,
-        tracer_mode: str,
+        execution_mode: str,
         recent_blocks: int = 32,
     ) -> None:
         self.enabled = True
         self.output_path = output_path
         self.node_name = node_name
         self.chain_id = chain_id
-        self.tracer_mode = tracer_mode
+        self.execution_mode = execution_mode
         self.recent_blocks = max(1, recent_blocks)
         self.global_metrics: dict[str, PerfStat] = {}
         self.blocks: deque[BlockPerfSnapshot] = deque(maxlen=self.recent_blocks)
@@ -162,7 +162,7 @@ class PerfTracker:
         cometbft_home: Path,
         node_name: str,
         chain_id: str,
-        tracer_mode: str,
+        execution_mode: str,
     ) -> PerfTracker | NoopPerfTracker:
         if os.environ.get("XIAN_PERF_ENABLED", "").strip().lower() not in {
             "1",
@@ -183,7 +183,7 @@ class PerfTracker:
             output_path=output_path,
             node_name=node_name or socket.gethostname(),
             chain_id=chain_id,
-            tracer_mode=tracer_mode,
+            execution_mode=execution_mode,
             recent_blocks=recent_blocks,
         )
 
@@ -262,7 +262,7 @@ class PerfTracker:
                 "enabled": True,
                 "node_name": self.node_name,
                 "chain_id": self.chain_id,
-                "tracer_mode": self.tracer_mode,
+                "execution_mode": self.execution_mode,
                 "pid": os.getpid(),
                 "updated_at_unix_ns": time.time_ns(),
                 "global_metrics": {

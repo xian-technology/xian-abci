@@ -8,10 +8,9 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from contracting.client import ContractingClient
+from contracting.local import ContractingClient
 
-from xian.execution_engine import build_execution_runtime
-from xian.execution_policy import ExecutionPolicy
+from xian.execution_engine import build_vm_runtime
 from xian.parallel_executor import (
     _WORKER_RUNTIMES,
     ParallelBlockExecutor,
@@ -527,14 +526,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             ),
         ]
 
-        runtime = build_execution_runtime(
-            ExecutionPolicy(
-                mode="xian_vm_v1",
-                bytecode_version="xvm-1",
-                gas_schedule="xvm-gas-1",
-                authority="native",
-            )
-        )
+        runtime = build_vm_runtime()
 
         with (
             tempfile.TemporaryDirectory() as serial_dir,
@@ -684,17 +676,14 @@ class TestParallelBlockExecutor(unittest.TestCase):
             first = _get_worker_runtime(
                 storage_home=storage_home,
                 use_rewards_handler=False,
-                tracer_mode="python_line_v1",
             )
             second = _get_worker_runtime(
                 storage_home=storage_home,
                 use_rewards_handler=False,
-                tracer_mode="python_line_v1",
             )
             third = _get_worker_runtime(
                 storage_home=storage_home,
                 use_rewards_handler=True,
-                tracer_mode="python_line_v1",
             )
 
             self.assertIs(first, second)

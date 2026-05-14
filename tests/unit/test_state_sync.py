@@ -5,9 +5,9 @@ from pathlib import Path
 from contracting import constants as contracting_constants
 from contracting.compilation.compiler import ContractingCompiler
 from contracting.storage.driver import Driver
-from cometbft.abci.v1beta1.types_pb2 import Snapshot
 from xian_runtime_types.decimal import ContractingDecimal
 
+from cometbft.abci.v1beta1.types_pb2 import Snapshot
 from xian.services.state_sync import StateSnapshotManager
 from xian.utils.block import (
     get_latest_block_hash,
@@ -32,9 +32,6 @@ def get():
 CANONICAL_CONTRACT_SOURCE = ContractingCompiler(
     module_name="demo"
 ).normalize_source(CONTRACT_SOURCE)
-CANONICAL_RUNTIME_CODE = ContractingCompiler(module_name="demo").parse_to_code(
-    CONTRACT_SOURCE
-)
 
 
 class StateSyncTests(unittest.TestCase):
@@ -70,10 +67,6 @@ class StateSyncTests(unittest.TestCase):
             self.assertEqual(
                 target_driver.get("demo.__source__"),
                 CANONICAL_CONTRACT_SOURCE,
-            )
-            self.assertEqual(
-                target_driver.get("demo.__code__"),
-                CANONICAL_RUNTIME_CODE,
             )
             self.assertIsNotNone(target_driver.get("demo.__xian_ir_v1__"))
             self.assertEqual(target_driver.get("demo.count"), 7)

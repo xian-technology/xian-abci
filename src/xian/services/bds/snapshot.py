@@ -202,7 +202,7 @@ TABLE_SPECS = (
             "last_tx_hash",
             "submitted_at_block",
             "submitted_at",
-            "code",
+            "source",
             "xsc0001",
         ),
         order_by="name ASC",

@@ -1,8 +1,10 @@
 import os
 import unittest
 
-from contracting.client import ContractingClient
+from contracting.local import ContractingClient
+
 from xian.config_paths import resolve_contracts_dir
+
 
 class TestVaultContract(unittest.TestCase):
     def setUp(self):
@@ -34,8 +36,8 @@ class TestVaultContract(unittest.TestCase):
                 "initial_required_signatures": 2,
             })
 
-        self.vault = self.client.get_contract("team_lock")
-        self.currency = self.client.get_contract("currency")
+        self.vault = self.client.get_contract_proxy("team_lock")
+        self.currency = self.client.get_contract_proxy("currency")
 
     def tearDown(self):
         self.client.flush()

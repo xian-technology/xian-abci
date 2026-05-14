@@ -90,7 +90,7 @@ class GovernedStatePatchTests(unittest.IsolatedAsyncioTestCase):
         )
         self.app.client.submit(TARGET_CONTRACT, name="con_patch_target")
 
-        self.governance = self.app.client.get_contract("governance")
+        self.governance = self.app.client.get_contract_proxy("governance")
 
     async def asyncTearDown(self):
         teardown_fixtures()
@@ -213,7 +213,7 @@ class GovernedStatePatchTests(unittest.IsolatedAsyncioTestCase):
         await self.approve_patch(patch_id="patch-source", activation_height=12)
 
         await self.finalize_block(12)
-        patched = self.app.client.get_contract("con_source_patch")
+        patched = self.app.client.get_contract_proxy("con_source_patch")
         patched.set_value(next_value="hello", signer="node1")
         self.assertEqual(patched.get_value(), "hello")
 

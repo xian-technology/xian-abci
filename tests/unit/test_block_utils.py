@@ -103,7 +103,7 @@ class LatestBlockUtilsTests(unittest.TestCase):
             finally:
                 repair_thread.join()
 
-    def test_apply_state_changes_materializes_runtime_code_from_source(self):
+    def test_apply_state_changes_does_not_materialize_runtime_artifacts(self):
         contract_source = """
 @export
 def ping():
@@ -142,9 +142,12 @@ def ping():
 
         apply_state_changes_from_block(client, nonce_storage, block)
 
-        self.assertEqual(raw_driver.pending_writes["con_test.__source__"], contract_source)
-        self.assertIn("con_test.__code__", raw_driver.pending_writes)
-        self.assertIn("con_test.__xian_ir_v1__", raw_driver.pending_writes)
+        self.assertEqual(
+            raw_driver.pending_writes["con_test.__source__"],
+            contract_source,
+        )
+        self.assertNotIn("con_test.__code__", raw_driver.pending_writes)
+        self.assertNotIn("con_test.__xian_ir_v1__", raw_driver.pending_writes)
         self.assertEqual(raw_driver.hard_apply_calls, [1234])
 
 

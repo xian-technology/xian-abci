@@ -1,26 +1,21 @@
-import os
+import logging
 import unittest
 from io import BytesIO
-import logging
-import asyncio
 
-from xian.xian_abci import Xian
+from fixtures.mock_constants import MockConstants
+from utils import setup_fixtures, teardown_fixtures
+
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
-from fixtures.mock_constants import MockConstants
-
+from cometbft.abci.v1beta1.types_pb2 import RequestCommit
+from cometbft.abci.v1beta2.types_pb2 import (
+    RequestInfo,
+)
 from cometbft.abci.v1beta3.types_pb2 import (
     Request,
     Response,
 )
-
-from cometbft.abci.v1beta2.types_pb2 import (
-    RequestInfo,
-)
-
-from cometbft.abci.v1beta1.types_pb2 import ResponseInfo, RequestCommit
-
-from utils import setup_fixtures, teardown_fixtures
+from xian.xian_abci import Xian
 
 # Disable any kind of logging
 logging.disable(logging.CRITICAL)

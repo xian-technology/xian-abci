@@ -1,5 +1,5 @@
-import logging
 import json
+import logging
 import unittest
 from io import BytesIO
 from unittest.mock import patch

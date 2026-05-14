@@ -82,13 +82,12 @@ Each change includes:
 ## Contract Source Patches
 
 Bundle changes may target `contract.__source__`, but they may not patch
-`__code__` or `__xian_ir_v1__` directly.
+derived VM artifacts directly.
 
 When a patch updates `contract.__source__`, the node derives and persists the
 additional artifacts automatically:
 
 - normalized `__source__`
-- `__code__` when the runtime mode includes stored runtime code
 - `__xian_ir_v1__` for the native VM path
 
 ## Database Integration

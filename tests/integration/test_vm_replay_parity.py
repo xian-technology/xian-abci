@@ -1,17 +1,14 @@
-import shutil
 import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from contracting.client import ContractingClient
-from contracting.compilation.artifacts import build_contract_artifacts
+from contracting.artifacts import build_contract_artifacts
+from contracting.local import ContractingClient
 
-from xian.execution_engine import build_execution_runtime
-from xian.execution_policy import ExecutionPolicy
+from xian.execution_engine import build_vm_runtime
 from xian.processor import TxProcessor
 from xian.state_export import fetch_filebased_state
-
 
 PARITY_PROBE_SOURCE = """
 counter = Variable()
@@ -113,7 +110,6 @@ class TestVmReplayParity(unittest.TestCase):
             entry
             for entry in entries
             if entry.get("key") != "submission.__submitted__"
-            and not str(entry.get("key", "")).endswith(".__code__")
         ]
 
     @staticmethod
@@ -122,9 +118,6 @@ class TestVmReplayParity(unittest.TestCase):
         # Each isolated storage home bootstraps the built-in submission contract
         # independently, so its installation timestamp is not part of replay parity.
         normalized.pop("submission.__submitted__", None)
-        for key in list(normalized):
-            if key.endswith(".__code__"):
-                normalized.pop(key, None)
         return normalized
 
     @staticmethod
@@ -157,14 +150,7 @@ class TestVmReplayParity(unittest.TestCase):
         self.python_processor = TxProcessor(client=self.python_client)
         self.native_processor = TxProcessor(
             client=self.native_client,
-            execution_runtime=build_execution_runtime(
-                ExecutionPolicy(
-                    mode="xian_vm_v1",
-                    bytecode_version="xvm-1",
-                    gas_schedule="xvm-gas-1",
-                    authority="native",
-                )
-            ),
+            execution_runtime=build_vm_runtime(),
         )
 
     def tearDown(self):

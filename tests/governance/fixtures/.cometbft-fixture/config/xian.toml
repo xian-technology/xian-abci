@@ -1,7 +1,6 @@
 block_service_mode = false
 pruning_enabled = false
 blocks_to_keep = 100000
-tracer_mode = "python_line_v1"
 metrics_enabled = true
 metrics_host = "127.0.0.1"
 metrics_port = 9108
@@ -20,12 +19,6 @@ parallel_execution_workers = 4
 parallel_execution_min_transactions = 8
 pending_nonce_reservation_ttl_seconds = 60.0
 max_pending_nonces_per_sender = 128
-
-[execution.engine]
-mode = "python_line_v1"
-bytecode_version = ""
-gas_schedule = ""
-authority = ""
 
 [bds]
 dsn = ""

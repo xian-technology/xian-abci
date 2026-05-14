@@ -1,12 +1,13 @@
-import unittest
 import datetime
-import os
+import unittest
 from pathlib import Path
+
 import utils
-from contracting.client import ContractingClient
+from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
-from xian.processor import TxProcessor
 from fixtures.mock_constants import MockConstants
+
+from xian.processor import TxProcessor
 
 
 def create_block_meta(dt: datetime.datetime = datetime.datetime.now()):
@@ -54,7 +55,7 @@ class TestStateRollback(unittest.TestCase):
         with open(f"{base_dir}/con_mutable_map.py") as f:
             code = f.read()
         self.client.submit(code, name="con_mutable_map")
-        self.contract = self.client.get_contract("con_mutable_map")
+        self.contract = self.client.get_contract_proxy("con_mutable_map")
         # Submit cross-contract mutator
         with open(f"{base_dir}/con_mutator.py") as f:
             code = f.read()

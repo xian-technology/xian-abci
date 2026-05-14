@@ -440,7 +440,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["result"], "123.45")
         self.assertEqual(
             result["state"],
-            [{"key": "currency.balances:alice", "value": "99.4"}],
+            [{"key": "currency.balances:alice", "value": "99.45"}],
         )
         self.assertEqual(
             self.app.client.raw_driver.get("currency.balances:alice"),
@@ -628,9 +628,9 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.query.code, Constants.OkCode)
         self.assertEqual(response.query.value, b"10")
 
-    async def test_contract_query(self):
+    async def test_contract_source_query(self):
         response = await self.process_request(
-            Request(query=RequestQuery(path="/contract/currency"))
+            Request(query=RequestQuery(path="/contract_source/currency"))
         )
         self.assertEqual(response.query.code, Constants.OkCode)
         self.assertEqual(response.query.info, "str")
@@ -651,14 +651,26 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(payload["has_source"])
         self.assertIn("submitted_at", payload)
 
-    async def test_contract_code_query(self):
+    async def test_contract_code_query_is_removed(self):
         response = await self.process_request(
             Request(query=RequestQuery(path="/contract_code/currency"))
         )
+        self.assertEqual(response.query.code, Constants.ErrorCode)
+
+    async def test_contract_query_alias_is_removed(self):
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/contract/currency"))
+        )
+        self.assertEqual(response.query.code, Constants.ErrorCode)
+
+    async def test_contract_ir_query(self):
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/contract_ir/currency"))
+        )
         self.assertEqual(response.query.code, Constants.OkCode)
         self.assertEqual(response.query.info, "str")
-        code = response.query.value.decode("utf-8")
-        self.assertIn("@__export('currency')", code)
+        vm_ir = json.loads(response.query.value.decode("utf-8"))
+        self.assertEqual(vm_ir["vm_profile"], "xian_vm_v1")
 
     async def test_contract_methods_query(self):
         response = await self.process_request(

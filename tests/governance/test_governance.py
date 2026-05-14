@@ -4,7 +4,8 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from contracting.client import ContractingClient
+from contracting.artifacts import build_contract_artifacts
+from contracting.local import ContractingClient
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
 
@@ -36,7 +37,12 @@ def submission_kwargs_for_file(f):
 
     return {
         "name": f"con_{contract_name}",
-        "code": contract_code,
+        "deployment_artifacts": build_contract_artifacts(
+            module_name=f"con_{contract_name}",
+            source=contract_code,
+            lint=True,
+            vm_profile="xian_vm_v1",
+        ),
     }
 
 
@@ -96,7 +102,7 @@ class MyTestCase(unittest.TestCase):
 
         with open(submission_contract_path) as f:
             contract = f.read()
-        self.d.set_contract(name="submission", code=contract)
+        self.d.set_contract(name="submission", source=contract)
 
         with open(currency_contract_path) as f:
             contract = f.read()
@@ -170,11 +176,11 @@ class MyTestCase(unittest.TestCase):
             },
         )
 
-        self.currency = self.c.get_contract("currency")
-        self.dao = self.c.get_contract("dao")
-        self.rewards = self.c.get_contract("rewards")
-        self.chi_cost = self.c.get_contract("chi_cost")
-        self.masternodes = self.c.get_contract("masternodes")
+        self.currency = self.c.get_contract_proxy("currency")
+        self.dao = self.c.get_contract_proxy("dao")
+        self.rewards = self.c.get_contract_proxy("rewards")
+        self.chi_cost = self.c.get_contract_proxy("chi_cost")
+        self.masternodes = self.c.get_contract_proxy("masternodes")
 
     def tearDown(self):
         teardown_fixtures()

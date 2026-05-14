@@ -5,7 +5,7 @@ import signal
 import sys
 from dataclasses import replace
 
-from contracting.client import ContractingClient
+from contracting.local import ContractingClient
 from loguru import logger
 
 from abci.server import ABCIServer
@@ -17,10 +17,10 @@ from xian.app_logging import (
 )
 from xian.constants import Constants
 from xian.execution_engine import (
-    build_execution_runtime,
+    build_vm_runtime,
     snapshot_driver_state,
 )
-from xian.execution_policy import load_execution_policy
+from xian.execution_policy import validate_vm_execution_config
 from xian.methods import (
     check_tx,
     commit,
@@ -56,7 +56,6 @@ from xian.utils.cometbft import (
 )
 from xian.utils.state_patches import StatePatchManager, resolve_state_patch_dir
 from xian.validators import ValidatorHandler
-from xian.vm_observability import VmShadowObserver
 
 get_logger("requests").setLevel(30)
 get_logger("urllib3").setLevel(30)
@@ -105,18 +104,11 @@ class Xian:
             raise SystemExit()
 
         xian_config = self.xian_config
-        self.execution_policy = load_execution_policy(
-            xian_config,
-            allow_future=True,
-        )
-        self.execution_runtime = build_execution_runtime(self.execution_policy)
+        validate_vm_execution_config(xian_config)
+        self.execution_runtime = build_vm_runtime()
         self.execution_mode = self.execution_runtime.mode
-        if not self.execution_runtime.supports_transaction_execution:
-            raise ValueError(self.execution_runtime.unavailable_reason)
-        self.tracer_mode = self.execution_runtime.tracer_mode
         self.client = ContractingClient(
             storage_home=constants.STORAGE_HOME,
-            tracer_mode=self.tracer_mode,
         )
         self.chain_id = self.genesis.get("chain_id", None)
         if self.chain_id is None:
@@ -125,7 +117,7 @@ class Xian:
             cometbft_home=constants.COMETBFT_HOME,
             node_name=self.cometbft_config.get("moniker", ""),
             chain_id=self.chain_id,
-            tracer_mode=self.tracer_mode,
+            execution_mode=self.execution_mode,
         )
         self.state_snapshot_manager = StateSnapshotManager(
             storage_home=constants.STORAGE_HOME,
@@ -150,7 +142,7 @@ class Xian:
                     4 * 1024 * 1024,
                 )
             )
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             configured_max_tx_bytes = 4 * 1024 * 1024
         self.max_tx_bytes = max(configured_max_tx_bytes, 1)
         self.app_log_level = str(
@@ -167,22 +159,14 @@ class Xian:
             self.transaction_trace_logging
             and log_level_includes(self.app_log_level, "TRACE")
         )
-        self.vm_shadow_observer = VmShadowObserver.for_runtime(
-            storage_home=constants.STORAGE_HOME,
-            mode=self.execution_runtime.mode,
-            authority=self.execution_runtime.authority or "python",
-            shadow_execution=self.execution_runtime.shadow_execution,
-        )
         self.tx_processor = TxProcessor(
             client=self.client,
             profiler=self.profiler,
             trace_logging=self.transaction_trace_debug_logging,
             execution_runtime=self.execution_runtime,
-            shadow_observer=self.vm_shadow_observer,
         )
         self.simulator = QuerySimulationService(
             storage_home=constants.STORAGE_HOME,
-            tracer_mode=self.tracer_mode,
             execution_runtime=self.execution_runtime,
             get_block_meta=lambda: self.current_block_meta,
             get_state_snapshot=lambda: snapshot_driver_state(
@@ -192,7 +176,6 @@ class Xian:
             max_concurrency=xian_config.get("simulation_max_concurrency", 2),
             timeout_ms=xian_config.get("simulation_timeout_ms", 3000),
             max_chi=xian_config.get("simulation_max_chi", 1_000_000),
-            shadow_observer=self.vm_shadow_observer,
         )
         self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None
@@ -256,7 +239,6 @@ class Xian:
         self.state_patch_manager = StatePatchManager(
             self.client.raw_driver,
             chain_id=self.chain_id,
-            include_runtime_code=self.execution_mode != "xian_vm_v1",
         )
         patch_dir_path = resolve_state_patch_dir(self.constants)
 
@@ -266,16 +248,6 @@ class Xian:
                 extra={
                     "chain_id": self.chain_id,
                     "execution_mode": self.execution_mode,
-                    "tracer_mode": self.tracer_mode,
-                    "shadow_execution": self.execution_runtime.shadow_execution,
-                    "vm_shadow_observer_enabled": (
-                        self.vm_shadow_observer.enabled
-                    ),
-                    "vm_shadow_mismatch_log_path": (
-                        None
-                        if self.vm_shadow_observer.mismatch_log_path is None
-                        else str(self.vm_shadow_observer.mismatch_log_path)
-                    ),
                     "service_node": self.block_service_mode,
                     "simulation_enabled": self.simulator.enabled,
                     "parallel_execution_enabled": (

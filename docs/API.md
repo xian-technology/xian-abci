@@ -22,9 +22,8 @@ These paths do not require BDS:
 - `/perf_status`
 - `/get/<state-key>`
 - `/get_next_nonce/<address>`
-- `/contract/<name>`
 - `/contract_source/<name>`
-- `/contract_code/<name>`
+- `/contract_ir/<name>`
 - `/contract_methods/<name>`
 - `/contract_vars/<name>`
 - `/contract_info/<name>`
@@ -32,7 +31,7 @@ These paths do not require BDS:
 - `/keys/<prefix>/limit=<n>/after=<cursor>`
 
 Use `/get` and `/keys` for current raw application state. Use the contract
-queries for deployed contract source, runtime code, and metadata.
+queries for deployed contract source, Xian VM IR, and metadata.
 
 ## Validator And Governance Queries
 

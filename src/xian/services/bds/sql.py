@@ -234,7 +234,7 @@ def create_contracts():
         last_tx_hash TEXT NOT NULL REFERENCES transactions(hash) ON DELETE CASCADE,
         submitted_at_block BIGINT NOT NULL REFERENCES blocks(height) ON DELETE CASCADE,
         submitted_at TIMESTAMPTZ NOT NULL,
-        code TEXT NOT NULL,
+        source TEXT NOT NULL,
         xsc0001 BOOLEAN NOT NULL DEFAULT FALSE
     );
     CREATE INDEX IF NOT EXISTS idx_contracts_submitted_at_block ON contracts(submitted_at_block DESC);
@@ -361,14 +361,14 @@ def insert_shielded_output_tag():
 def upsert_contract():
     return """
     INSERT INTO contracts(
-        name, last_tx_hash, submitted_at_block, submitted_at, code, xsc0001
+        name, last_tx_hash, submitted_at_block, submitted_at, source, xsc0001
     )
     VALUES ($1, $2, $3, $4, $5, $6)
     ON CONFLICT (name) DO UPDATE SET
         last_tx_hash = EXCLUDED.last_tx_hash,
         submitted_at_block = EXCLUDED.submitted_at_block,
         submitted_at = EXCLUDED.submitted_at,
-        code = EXCLUDED.code,
+        source = EXCLUDED.source,
         xsc0001 = EXCLUDED.xsc0001;
     """
 
@@ -390,7 +390,7 @@ def select_contracts():
         last_tx_hash,
         submitted_at_block,
         submitted_at,
-        code,
+        source,
         xsc0001
     FROM contracts
     ORDER BY submitted_at_block ASC, name ASC

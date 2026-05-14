@@ -1,7 +1,8 @@
-from pathlib import Path
-import shutil
 import os
-    
+import shutil
+from pathlib import Path
+
+
 def setup_cometbft_tmp():
     # Copy the contents of the fixture folder to the temporary directory.
     # ensure that the temporary directory, /tmp/cometbft/ is empty before copying.

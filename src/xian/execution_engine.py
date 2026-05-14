@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import decimal
 import hashlib
 import json
 from copy import deepcopy
@@ -7,26 +8,22 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
-from contracting.execution.executor import Executor
 from xian_runtime_types.decimal import ContractingDecimal
-from xian_runtime_types.encoding import safe_repr
 
-from xian.execution_policy import ExecutionPolicy
-from xian.utils.encoding import normalize_for_abci_json, stringify_decimals
+from xian.execution_policy import (
+    VM_BYTECODE_VERSION,
+    VM_EXECUTION_MODE,
+    VM_GAS_SCHEDULE,
+)
 
 
 @dataclass(frozen=True, slots=True)
-class ExecutionRuntime:
-    mode: str
-    tracer_mode: str | None
-    bytecode_version: str = ""
-    gas_schedule: str = ""
-    authority: str = ""
-    native_runtime_info: dict[str, Any] | None = None
-    supports_transaction_execution: bool = True
-    shadow_execution: bool = False
-    native_authoritative: bool = False
-    unavailable_reason: str = ""
+class VmRuntime:
+    runtime_info: dict[str, Any] | None = None
+
+    @property
+    def mode(self) -> str:
+        return VM_EXECUTION_MODE
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +34,7 @@ class VmPreparedContract:
 
 
 @dataclass(frozen=True, slots=True)
-class NativeExecutionResult:
+class VmExecutionResult:
     status_code: int
     result: Any
     writes: dict[str, Any]
@@ -47,23 +44,19 @@ class NativeExecutionResult:
 
 
 @dataclass(frozen=True, slots=True)
-class NativeAuthoritativeExecutionResult:
-    output: NativeExecutionResult
+class VmTransactionResult:
+    output: VmExecutionResult
     writes: dict[str, Any]
     chi_used: int
     contract_costs: dict[str, int]
     reads: dict[str, Any]
     prefix_reads: frozenset[str]
-    shadow_mismatches: dict[str, tuple[Any, Any]]
 
 
-_VM_PREPARED_CONTRACTS: dict[
-    tuple[str, str, str, str],
-    VmPreparedContract,
-] = {}
+_VM_PREPARED_CONTRACTS: dict[tuple[str, str], VmPreparedContract] = {}
 
 
-def native_execution_requires_deployment_artifacts(
+def vm_requires_deployment_artifacts(
     contract_name: str,
     function_name: str,
     kwargs: dict[str, Any],
@@ -75,23 +68,7 @@ def native_execution_requires_deployment_artifacts(
     )
 
 
-def xian_vm_requires_deployment_artifacts(
-    runtime: ExecutionRuntime,
-    contract_name: str,
-    function_name: str,
-    kwargs: dict[str, Any],
-) -> bool:
-    return (
-        runtime.mode == "xian_vm_v1"
-        and native_execution_requires_deployment_artifacts(
-            contract_name,
-            function_name,
-            kwargs,
-        )
-    )
-
-
-def xian_vm_deployment_artifacts_error(
+def vm_deployment_artifacts_error(
     contract_name: str,
     function_name: str,
 ) -> str:
@@ -115,7 +92,7 @@ def metering_write_keys(
     return {key}
 
 
-def native_metering_writes(
+def vm_metering_writes(
     driver,
     *,
     sender: str,
@@ -138,12 +115,24 @@ def native_metering_writes(
         )
     )
     if coerce_balance is None:
-        coerce_balance = Executor._coerce_balance_value
+        coerce_balance = _coerce_balance_value
     driver_get = getattr(driver, "get", lambda _key: None)
     balance = coerce_balance(driver_get(balances_key))
     to_deduct = ContractingDecimal(chi_used / chi_cost)
     balance = max(balance - to_deduct, 0)
     return {balances_key: balance}
+
+
+def _coerce_balance_value(balance):
+    if isinstance(balance, ContractingDecimal):
+        return balance
+    if isinstance(balance, dict):
+        return ContractingDecimal(balance.get("__fixed__"))
+    if balance is None:
+        return 0
+    if isinstance(balance, str | float | decimal.Decimal):
+        return ContractingDecimal(str(balance))
+    return balance
 
 
 def clear_prepared_contract_cache() -> None:
@@ -178,26 +167,6 @@ def restore_driver_state(driver, state_snapshot: dict | None) -> None:
     driver.log_events = deepcopy(state_snapshot["log_events"])
 
 
-def augment_execution_output_with_driver_state(
-    output: dict[str, Any],
-    *,
-    before_state: dict | None,
-    after_state: dict,
-) -> dict[str, Any]:
-    augmented = dict(output)
-    merged_writes = dict(augmented.get("writes", {}))
-    previous_pending = (
-        {} if before_state is None else before_state["pending_writes"]
-    )
-    for key, value in after_state["pending_writes"].items():
-        if key not in previous_pending or _normalize_shadow_value(
-            previous_pending[key]
-        ) != _normalize_shadow_value(value):
-            merged_writes[key] = value
-    augmented["writes"] = merged_writes
-    return augmented
-
-
 @lru_cache(maxsize=1)
 def _load_vm_runtime_bindings():
     try:
@@ -210,70 +179,41 @@ def _load_vm_runtime_bindings():
     return xian_vm_core
 
 
-def build_execution_runtime(policy: ExecutionPolicy) -> ExecutionRuntime:
-    if policy.is_current_tracer_mode:
-        return ExecutionRuntime(
-            mode=policy.mode,
-            tracer_mode=policy.mode,
-            authority="python",
-            supports_transaction_execution=True,
-        )
-
-    if policy.mode != "xian_vm_v1":
-        raise ValueError(f"unsupported execution engine mode {policy.mode!r}")
-
+def build_vm_runtime() -> VmRuntime:
     bindings = _load_vm_runtime_bindings()
     runtime_info = bindings.runtime_info()
-    if runtime_info.get("vm_profile") != policy.mode:
+    if runtime_info.get("vm_profile") != VM_EXECUTION_MODE:
         raise ValueError(
             "xian_vm_v1 native runtime reported an unexpected vm_profile: "
             f"{runtime_info.get('vm_profile')!r}"
         )
     if not bindings.supports_execution_policy(
-        policy.bytecode_version,
-        policy.gas_schedule,
+        VM_BYTECODE_VERSION,
+        VM_GAS_SCHEDULE,
     ):
         raise ValueError(
             "xian_vm_v1 native runtime does not support execution policy "
-            f"bytecode_version={policy.bytecode_version!r} "
-            f"gas_schedule={policy.gas_schedule!r}"
+            f"bytecode_version={VM_BYTECODE_VERSION!r} "
+            f"gas_schedule={VM_GAS_SCHEDULE!r}"
         )
-    if policy.authority and policy.authority != "native":
-        raise ValueError("xian_vm_v1 authority must be 'native'")
 
-    return ExecutionRuntime(
-        mode=policy.mode,
-        tracer_mode=None,
-        bytecode_version=policy.bytecode_version,
-        gas_schedule=policy.gas_schedule,
-        authority="native",
-        native_runtime_info=runtime_info,
-        supports_transaction_execution=True,
-        shadow_execution=False,
-        native_authoritative=True,
-        unavailable_reason="",
-    )
+    return VmRuntime(runtime_info=runtime_info)
 
 
-def prepare_contract_for_execution(
-    runtime: ExecutionRuntime,
+def prepare_vm_contract(
+    runtime: VmRuntime,
     driver,
     contract_name: str,
 ) -> VmPreparedContract | None:
-    if runtime.mode != "xian_vm_v1":
-        return None
-
     return _prepare_vm_contract_bundle(
         driver=driver,
         contract_name=contract_name,
-        bytecode_version=runtime.bytecode_version,
-        gas_schedule=runtime.gas_schedule,
         stack=(),
     )
 
 
-def execute_native_contract(
-    runtime: ExecutionRuntime,
+def execute_vm_contract(
+    runtime: VmRuntime,
     driver,
     *,
     sender: str,
@@ -284,10 +224,21 @@ def execute_native_contract(
     meter: bool = False,
     chi_budget: int = 0,
     transaction_size_bytes: int = 0,
-) -> NativeExecutionResult:
-    if runtime.mode != "xian_vm_v1":
-        raise ValueError(
-            "execute_native_contract() requires an xian_vm_v1 runtime"
+) -> VmExecutionResult:
+    if vm_requires_deployment_artifacts(
+        contract_name,
+        function_name,
+        kwargs,
+    ):
+        return VmExecutionResult(
+            status_code=1,
+            result=ValueError(
+                vm_deployment_artifacts_error(contract_name, function_name)
+            ),
+            writes={},
+            events=[],
+            chi_used=0,
+            contract_costs={},
         )
 
     bindings = _load_vm_runtime_bindings()
@@ -320,7 +271,7 @@ def execute_native_contract(
             transaction_size_bytes=max(int(transaction_size_bytes), 0),
         )
     except Exception as exc:
-        return NativeExecutionResult(
+        return VmExecutionResult(
             status_code=1,
             result=exc,
             writes={},
@@ -329,7 +280,7 @@ def execute_native_contract(
             contract_costs={},
         )
 
-    return NativeExecutionResult(
+    return VmExecutionResult(
         status_code=int(output.status_code),
         result=output.result,
         writes=dict(output.writes),
@@ -339,11 +290,10 @@ def execute_native_contract(
     )
 
 
-def execute_authoritative_native_contract(
-    runtime: ExecutionRuntime,
+def execute_vm_transaction(
+    runtime: VmRuntime,
     driver,
     *,
-    executor,
     sender: str,
     contract_name: str,
     function_name: str,
@@ -353,14 +303,12 @@ def execute_authoritative_native_contract(
     chi_cost: int,
     meter: bool,
     transaction_size_bytes: int = 0,
-    mismatch_label: str,
     apply_metering_on_success_only: bool = True,
-    shadow_observer=None,
-    shadow_stage: str = "",
-    shadow_context: dict[str, Any] | None = None,
-) -> NativeAuthoritativeExecutionResult:
+    currency_contract: str = "currency",
+    balances_hash: str = "balances",
+) -> VmTransactionResult:
     base_driver_state = snapshot_driver_state(driver)
-    native_output = execute_native_contract(
+    vm_output = execute_vm_contract(
         runtime,
         driver,
         sender=sender,
@@ -372,168 +320,43 @@ def execute_authoritative_native_contract(
         chi_budget=chi_budget,
         transaction_size_bytes=transaction_size_bytes,
     )
-    native_reads = deepcopy(driver.transaction_reads)
-    native_prefix_reads = frozenset(
+    vm_reads = deepcopy(driver.transaction_reads)
+    vm_prefix_reads = frozenset(
         deepcopy(getattr(driver, "transaction_read_prefixes", set()))
     )
 
-    chi_used = int(native_output.chi_used or 0)
-    contract_costs = dict(native_output.contract_costs or {})
-    merged_writes = dict(native_output.writes)
-    ignore_write_keys = metering_write_keys(
-        driver,
-        sender=sender,
-        currency_contract=getattr(executor, "currency_contract", "currency"),
-        balances_hash=getattr(executor, "balances_hash", "balances"),
-    )
-    shadow_mismatches: dict[str, tuple[Any, Any]] = {}
+    chi_used = int(vm_output.chi_used or 0)
+    contract_costs = dict(vm_output.contract_costs or {})
+    merged_writes = dict(vm_output.writes)
+    restore_driver_state(driver, base_driver_state)
 
-    if runtime.tracer_mode:
-        restore_driver_state(driver, base_driver_state)
-        python_output = executor.execute(
-            sender=sender,
-            contract_name=contract_name,
-            function_name=function_name,
-            chi=chi_budget,
-            chi_cost=chi_cost,
-            kwargs=kwargs,
-            environment=environment,
-            auto_commit=False,
-            metering=meter,
-            transaction_size_bytes=transaction_size_bytes,
-        )
-        python_output = augment_execution_output_with_driver_state(
-            python_output,
-            before_state=base_driver_state,
-            after_state=snapshot_driver_state(driver),
-        )
-        restore_driver_state(driver, base_driver_state)
-        mismatches = compare_execution_results(
-            python_output,
-            native_output,
-            ignore_write_keys=ignore_write_keys,
-        )
-        shadow_mismatches = mismatches
-        if shadow_observer is not None:
-            shadow_observer.record_comparison(
-                stage=shadow_stage or mismatch_label,
-                contract=str(
-                    (shadow_context or {}).get("contract", contract_name)
-                ),
-                function=str(
-                    (shadow_context or {}).get("function", function_name)
-                ),
-                sender=(shadow_context or {}).get("sender", sender),
-                nonce=(shadow_context or {}).get("nonce"),
-                tx_hash=(shadow_context or {}).get("tx_hash"),
-                block_height=(shadow_context or {}).get("block_height"),
-                mismatches=mismatches,
-            )
-        if mismatches:
-            raise ValueError(
-                f"{mismatch_label} mismatch in " + ", ".join(sorted(mismatches))
-            )
-    else:
-        restore_driver_state(driver, base_driver_state)
-
-    if native_output.status_code == 0 or not apply_metering_on_success_only:
+    if vm_output.status_code == 0 or not apply_metering_on_success_only:
         if meter and chi_used > 0:
             merged_writes.update(
-                native_metering_writes(
+                vm_metering_writes(
                     driver,
                     sender=sender,
                     chi_used=chi_used,
                     chi_cost=chi_cost,
-                    coerce_balance=getattr(
-                        executor,
-                        "_coerce_balance_value",
-                        Executor._coerce_balance_value,
-                    ),
-                    currency_contract=getattr(
-                        executor, "currency_contract", "currency"
-                    ),
-                    balances_hash=getattr(
-                        executor, "balances_hash", "balances"
-                    ),
+                    currency_contract=currency_contract,
+                    balances_hash=balances_hash,
                 )
             )
 
-    return NativeAuthoritativeExecutionResult(
-        output=native_output,
+    return VmTransactionResult(
+        output=vm_output,
         writes=merged_writes,
         chi_used=chi_used,
         contract_costs=contract_costs,
-        reads=native_reads,
-        prefix_reads=native_prefix_reads,
-        shadow_mismatches=shadow_mismatches,
+        reads=vm_reads,
+        prefix_reads=vm_prefix_reads,
     )
-
-
-def compare_execution_results(
-    authoritative_output: dict[str, Any],
-    native_output: NativeExecutionResult,
-    *,
-    ignore_write_keys: set[str] | None = None,
-) -> dict[str, tuple[Any, Any]]:
-    normalized_authoritative = _normalize_execution_output(
-        authoritative_output["status_code"],
-        authoritative_output["result"],
-        authoritative_output.get("writes", {}),
-        authoritative_output.get("events", []),
-        ignore_write_keys=ignore_write_keys,
-    )
-    normalized_native = _normalize_execution_output(
-        native_output.status_code,
-        native_output.result,
-        native_output.writes,
-        native_output.events,
-        ignore_write_keys=ignore_write_keys,
-    )
-
-    mismatches = {}
-    for field in ("status_code", "result", "writes", "events"):
-        if normalized_authoritative[field] != normalized_native[field]:
-            mismatches[field] = (
-                normalized_authoritative[field],
-                normalized_native[field],
-            )
-    return mismatches
-
-
-def _normalize_execution_output(
-    status_code: int,
-    result: Any,
-    writes: dict[str, Any],
-    events: list[dict[str, Any]],
-    *,
-    ignore_write_keys: set[str] | None = None,
-) -> dict[str, Any]:
-    ignored = ignore_write_keys or set()
-    normalized_writes = {
-        key: _normalize_shadow_value(value)
-        for key, value in sorted(writes.items())
-        if key not in ignored
-    }
-    return {
-        "status_code": status_code,
-        "result": _normalize_shadow_value(result),
-        "writes": normalized_writes,
-        "events": _normalize_shadow_value(events),
-    }
-
-
-def _normalize_shadow_value(value: Any) -> Any:
-    if isinstance(value, BaseException):
-        return safe_repr(value)
-    return stringify_decimals(normalize_for_abci_json(value))
 
 
 def _prepare_vm_contract_bundle(
     *,
     driver,
     contract_name: str,
-    bytecode_version: str,
-    gas_schedule: str,
     stack: tuple[str, ...],
 ) -> VmPreparedContract:
     if contract_name in stack:
@@ -545,12 +368,7 @@ def _prepare_vm_contract_bundle(
     artifact_hash, module_ir_json = _load_vm_module_ir_json(
         driver, contract_name
     )
-    cache_key = (
-        contract_name,
-        artifact_hash,
-        bytecode_version,
-        gas_schedule,
-    )
+    cache_key = (contract_name, artifact_hash)
     cached = _VM_PREPARED_CONTRACTS.get(cache_key)
     if cached is not None:
         return cached
@@ -580,8 +398,6 @@ def _prepare_vm_contract_bundle(
         _prepare_vm_contract_bundle(
             driver=driver,
             contract_name=imported_contract,
-            bytecode_version=bytecode_version,
-            gas_schedule=gas_schedule,
             stack=next_stack,
         )
 

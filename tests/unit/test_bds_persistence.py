@@ -389,12 +389,10 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
                 "result": {"ok": True},
                 "state": [
                     {"key": "con_child_a.__source__", "value": "source-a"},
-                    {"key": "con_child_a.__code__", "value": "code-a"},
                     {
                         "key": "con_child_a.__submitted__",
                         "value": {"__time__": [2026, 1, 1, 12, 30, 15]},
                     },
-                    {"key": "con_child_b.__code__", "value": "code-b"},
                 ],
                 "events": [],
                 "rewards": {},
@@ -414,21 +412,15 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
             for query, args in connection.execute_calls
             if query == sql.upsert_contract()
         ]
-        self.assertEqual(len(contract_upserts), 2)
+        self.assertEqual(len(contract_upserts), 1)
         self.assertEqual(contract_upserts[0][0], "con_child_a")
         self.assertEqual(contract_upserts[0][4], "source-a")
         self.assertEqual(
             contract_upserts[0][3],
             datetime(2026, 1, 1, 12, 30, 15, tzinfo=UTC),
         )
-        self.assertEqual(contract_upserts[1][0], "con_child_b")
-        self.assertEqual(contract_upserts[1][4], "code-b")
-        self.assertEqual(
-            contract_upserts[1][3],
-            datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
-        )
 
-    async def test_process_genesis_block_prefers_source_for_contract_indexing(self):
+    async def test_process_genesis_block_indexes_contract_source(self):
         bds = BDS(BdsConfig())
         connection = _FakeConnection()
         bds.db.pool = _FakePool(connection)
@@ -440,10 +432,6 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
                         {
                             "key": "con_token.__source__",
                             "value": "source-token",
-                        },
-                        {
-                            "key": "con_token.__code__",
-                            "value": "code-token",
                         },
                         {
                             "key": "con_token.__submitted__",

@@ -267,7 +267,7 @@ class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(web.HTTPServiceUnavailable):
             await handle_ws(request)
 
-    async def test_handle_contract_separates_source_from_runtime_code(
+    async def test_handle_contract_returns_source_only(
         self,
     ) -> None:
         request = SimpleNamespace(
@@ -279,7 +279,6 @@ class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
         async def fake_abci_query(_session, _rpc, path):
             responses = {
                 "contract_source/currency": "@export\ndef ping():\n    return 'pong'\n",
-                "contract/currency": "def __ping():\n    return 'pong'\n",
                 "contract_methods/currency": [{"name": "ping"}],
                 "contract_vars/currency": [],
                 "contract_info/currency": {"developer": "alice"},
@@ -298,12 +297,9 @@ class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
             payload["source"],
             "@export\ndef ping():\n    return 'pong'\n",
         )
-        self.assertEqual(
-            payload["runtime_code"],
-            "def __ping():\n    return 'pong'\n",
-        )
+        self.assertNotIn("runtime_code", payload)
+        self.assertNotIn("code", payload)
         self.assertTrue(payload["has_original_source"])
-        self.assertEqual(payload["code"], payload["source"])
 
     async def test_handle_addresses_requires_indexed_address_query(self) -> None:
         request = SimpleNamespace(

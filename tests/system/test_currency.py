@@ -2,11 +2,12 @@ import datetime
 import os
 import unittest
 
-from contracting.client import ContractingClient
+from contracting.local import ContractingClient
 from contracting.stdlib.bridge.hashing import sha3
 from xian_accounts import Ed25519Account
-from xian.config_paths import resolve_contracts_dir
 from xian_runtime_types.time import Datetime
+
+from xian.config_paths import resolve_contracts_dir
 
 
 class TestCurrencyContract(unittest.TestCase):
@@ -37,8 +38,8 @@ class TestCurrencyContract(unittest.TestCase):
             code = f.read()
             self.client.submit(code, name="currency", constructor_args={"vk": self.deployer_vk})
 
-        self.permit_authorizer = self.client.get_contract("permit_authorizer")
-        self.currency = self.client.get_contract("currency")
+        self.permit_authorizer = self.client.get_contract_proxy("permit_authorizer")
+        self.currency = self.client.get_contract_proxy("currency")
 
 
     def tearDown(self):
