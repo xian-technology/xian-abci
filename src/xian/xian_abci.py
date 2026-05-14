@@ -142,7 +142,7 @@ class Xian:
                     4 * 1024 * 1024,
                 )
             )
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             configured_max_tx_bytes = 4 * 1024 * 1024
         self.max_tx_bytes = max(configured_max_tx_bytes, 1)
         self.app_log_level = str(

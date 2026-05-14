@@ -99,7 +99,7 @@ def _bounded_int_param(
 ) -> int:
     try:
         value = int(params.get(key, default))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         value = default
     value = max(minimum, value)
     if maximum is not None:
@@ -137,7 +137,7 @@ def _bds_query_options(params: dict[str, str]) -> BdsQueryOptions:
     if after_id is not None:
         try:
             parsed_after_id = max(int(after_id), 0)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             parsed_after_id = None
 
     return BdsQueryOptions(
@@ -252,7 +252,9 @@ def _call_contract_view(
         return None
     if has_contract is None:
         get_contract_ir = getattr(ctx.raw_driver, "get_contract_ir", None)
-        contract_ir = get_contract_ir(contract_name) if get_contract_ir else None
+        contract_ir = (
+            get_contract_ir(contract_name) if get_contract_ir else None
+        )
         if (
             ctx.raw_driver.get_contract_source(contract_name) is None
             and contract_ir is None
