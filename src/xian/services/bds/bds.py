@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import shutil
@@ -29,6 +30,13 @@ from xian.services.bds.shielded import collect_shielded_output_tags
 GENESIS_BLOCK_HASH = "GENESIS"
 GENESIS_TX_HASH = "GENESIS"
 GENESIS_CREATED_AT = datetime(1970, 1, 1, tzinfo=timezone.utc)
+XSC0001_REQUIRED_EXPORTS = {
+    "change_metadata": ("key", "value"),
+    "transfer": ("amount", "to"),
+    "approve": ("amount", "to"),
+    "transfer_from": ("amount", "to", "main_account"),
+    "balance_of": ("address",),
+}
 
 
 def _jsonb_param(value: Any) -> str:
@@ -70,6 +78,71 @@ def _json_mapping(value: Any) -> dict[str, Any] | None:
             return None
         return decoded if isinstance(decoded, dict) else None
     return None
+
+
+def _is_name_call(node: ast.AST, name: str) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == name
+    )
+
+
+def _has_export_decorator(node: ast.FunctionDef) -> bool:
+    for decorator in node.decorator_list:
+        if isinstance(decorator, ast.Name) and decorator.id == "export":
+            return True
+        if _is_name_call(decorator, "export"):
+            return True
+    return False
+
+
+def _positional_arg_names(node: ast.FunctionDef) -> tuple[str, ...]:
+    return tuple(arg.arg for arg in node.args.posonlyargs + node.args.args)
+
+
+def _assigns_balances_hash(node: ast.AST) -> bool:
+    if isinstance(node, ast.Assign):
+        targets = node.targets
+        value = node.value
+    elif isinstance(node, ast.AnnAssign):
+        targets = [node.target]
+        value = node.value
+    else:
+        return False
+
+    return (
+        value is not None
+        and _is_name_call(value, "Hash")
+        and any(
+            isinstance(target, ast.Name) and target.id == "balances"
+            for target in targets
+        )
+    )
+
+
+def _source_has_xsc0001_surface(source: str) -> bool:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+
+    has_balances_hash = False
+    exported_functions: dict[str, tuple[str, ...]] = {}
+    for node in tree.body:
+        if _assigns_balances_hash(node):
+            has_balances_hash = True
+            continue
+        if isinstance(node, ast.FunctionDef) and _has_export_decorator(node):
+            exported_functions[node.name] = _positional_arg_names(node)
+
+    if not has_balances_hash:
+        return False
+
+    return all(
+        exported_functions.get(function_name) == required_args
+        for function_name, required_args in XSC0001_REQUIRED_EXPORTS.items()
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1518,19 +1591,7 @@ class BDS:
         return dict(row) if row is not None else None
 
     def is_XSC0001(self, source: str) -> bool:
-        normalized = source.replace(" ", "")
-        if "balances=Hash(" not in normalized:
-            return False
-        if "@export\ndeftransfer(amount:float,to:str):" not in normalized:
-            return False
-        if "@export\ndefapprove(amount:float,to:str):" not in normalized:
-            return False
-        if (
-            "@export\ndeftransfer_from(amount:float,to:str,main_account:str):"
-            not in normalized
-        ):
-            return False
-        return True
+        return _source_has_xsc0001_surface(source)
 
     def get_submission_time(
         self, genesis_state: list[dict[str, Any]], contract_name: str

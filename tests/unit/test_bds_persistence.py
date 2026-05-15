@@ -71,6 +71,122 @@ class _FakeCatchupReindexer:
 
 
 class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
+    def test_xsc0001_detection_accepts_formatted_standard_surface(self):
+        bds = BDS(BdsConfig())
+
+        source = """
+balances = Hash(
+    default_value=0,
+)
+approvals = Hash(default_value=0)
+
+
+@export
+def change_metadata(key: str, value: Any):
+    pass
+
+
+@export
+def transfer(
+    amount: float,
+    to: str,
+):
+    pass
+
+
+@export
+def approve(amount: float, to: str):
+    pass
+
+
+@export
+def transfer_from(amount: float, to: str, main_account: str):
+    pass
+
+
+@export
+def balance_of(address: str):
+    return balances[address]
+"""
+
+        self.assertTrue(bds.is_XSC0001(source))
+
+    def test_xsc0001_detection_rejects_string_only_lookalikes(self):
+        bds = BDS(BdsConfig())
+
+        source = '''
+source = """
+balances = Hash(default_value=0)
+@export
+def transfer(amount: float, to: str):
+    pass
+"""
+'''
+
+        self.assertFalse(bds.is_XSC0001(source))
+
+    def test_xsc0001_detection_requires_exported_public_surface(self):
+        bds = BDS(BdsConfig())
+
+        source = """
+balances = Hash(default_value=0)
+
+@export
+def change_metadata(key: str, value: Any):
+    pass
+
+def transfer(amount: float, to: str):
+    pass
+
+@export
+def approve(amount: float, to: str):
+    pass
+
+@export
+def transfer_from(amount: float, to: str, main_account: str):
+    pass
+
+@export
+def balance_of(address: str):
+    return balances[address]
+"""
+
+        self.assertFalse(bds.is_XSC0001(source))
+
+    def test_xsc0001_detection_rejects_wrong_argument_names(self):
+        bds = BDS(BdsConfig())
+
+        source = """
+balances = Hash(default_value=0)
+
+@export
+def change_metadata(key: str, value: Any):
+    pass
+
+@export
+def transfer(amount: float, to: str):
+    pass
+
+@export
+def approve(amount: float, to: str):
+    pass
+
+@export
+def transfer_from(amount: float, recipient: str, main_account: str):
+    pass
+
+@export
+def balance_of(address: str):
+    return balances[address]
+"""
+
+        self.assertFalse(bds.is_XSC0001(source))
+
+    def test_xsc0001_detection_rejects_invalid_source(self):
+        bds = BDS(BdsConfig())
+
+        self.assertFalse(bds.is_XSC0001("def broken(:"))
+
     async def test_ensure_catchup_runtime_loads_empty_patch_inventory(self):
         bds = BDS(BdsConfig())
 
@@ -194,7 +310,7 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
                             "commitments_blob": "0x" + "11" * 32,
                             "payload_hashes_blob": "0x" + "33" * 32,
                         },
-                    }
+                    },
                 ],
                 "rewards": {},
             },
@@ -248,9 +364,15 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(shielded_inserts), 2)
         self.assertEqual({insert[0] for insert in shielded_inserts}, {1})
         self.assertEqual({insert[1] for insert in shielded_inserts}, {"TX-1"})
-        self.assertEqual({insert[3] for insert in shielded_inserts}, {"currency"})
-        self.assertEqual({insert[5] for insert in shielded_inserts}, {"deposit"})
-        self.assertEqual({insert[8] for insert in shielded_inserts}, {"0x" + "11" * 32})
+        self.assertEqual(
+            {insert[3] for insert in shielded_inserts}, {"currency"}
+        )
+        self.assertEqual(
+            {insert[5] for insert in shielded_inserts}, {"deposit"}
+        )
+        self.assertEqual(
+            {insert[8] for insert in shielded_inserts}, {"0x" + "11" * 32}
+        )
         self.assertEqual(
             {(insert[11], insert[12]) for insert in shielded_inserts},
             {
@@ -296,11 +418,15 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         reward_queries = [
-            query for query, _ in connection.execute_calls if query == sql.insert_reward()
+            query
+            for query, _ in connection.execute_calls
+            if query == sql.insert_reward()
         ]
         self.assertEqual(reward_queries, [])
 
-    async def test_persist_transaction_uses_reward_records_source_contract(self):
+    async def test_persist_transaction_uses_reward_records_source_contract(
+        self,
+    ):
         bds = BDS(BdsConfig())
         connection = _FakeConnection()
 
@@ -324,9 +450,7 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
                 "result": {"ok": True},
                 "state": [],
                 "events": [],
-                "rewards": {
-                    "developer_reward": {"alice": "5"}
-                },
+                "rewards": {"developer_reward": {"alice": "5"}},
                 "reward_records": [
                     {
                         "type": "developer_reward",
@@ -365,7 +489,9 @@ class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reward_inserts[1][6], "con_child")
         self.assertEqual(str(reward_inserts[1][7]), "1.5")
 
-    async def test_persist_transaction_indexes_nested_contract_deployments(self):
+    async def test_persist_transaction_indexes_nested_contract_deployments(
+        self,
+    ):
         bds = BDS(BdsConfig())
         connection = _FakeConnection()
 

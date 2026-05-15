@@ -116,6 +116,73 @@ def _maybe_run_validator_epoch_rebalance(self, *, height: int):
     return tx_result, len(tx_result.get("state", [])) > 0
 
 
+def _state_change_event(tx_result):
+    state_changes = []
+    for state in tx_result["state"]:
+        state_key = state["key"].translate(STATE_CHANGE_TRANSLATION_TABLE)
+        state_value = str(state["value"])
+        state_changes.append(EventAttribute(key=state_key, value=state_value))
+    if not state_changes:
+        return None
+    return Event(type="StateChange", attributes=state_changes)
+
+
+def _contract_event_attributes(contract_event):
+    attrs = [
+        EventAttribute(
+            key="contract",
+            value=str(contract_event.get("contract", "")),
+            index=True,
+        ),
+        EventAttribute(
+            key="signer",
+            value=str(contract_event.get("signer", "")),
+            index=True,
+        ),
+        EventAttribute(
+            key="caller",
+            value=str(contract_event.get("caller", "")),
+            index=True,
+        ),
+    ]
+    for key, value in contract_event.get("data_indexed", {}).items():
+        attrs.append(
+            EventAttribute(
+                key=str(key),
+                value=str(stringify_decimals(value)),
+                index=True,
+            )
+        )
+    for key, value in contract_event.get("data", {}).items():
+        attrs.append(
+            EventAttribute(
+                key=str(key),
+                value=str(stringify_decimals(value)),
+                index=False,
+            )
+        )
+    return attrs
+
+
+def _build_tx_events(tx_result):
+    if tx_result["status"] != 0:
+        return []
+
+    tx_events = []
+    state_event = _state_change_event(tx_result)
+    if state_event is not None:
+        tx_events.append(state_event)
+
+    for contract_event in tx_result.get("events", []):
+        tx_events.append(
+            Event(
+                type=str(contract_event.get("event", "ContractEvent")),
+                attributes=_contract_event_attributes(contract_event),
+            )
+        )
+    return tx_events
+
+
 async def finalize_block(self, req) -> ResponseFinalizeBlock:
     nanos = get_nanotime_from_block_time(req.time)
     hash = convert_binary_to_hex(req.hash)
@@ -395,69 +462,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         )
                     ).trace(parsed_tx_result.decode())
 
-                tx_events = []
-
-                if tx_result["status"] == 0:
-                    state_changes = []
-                    for state in tx_result["state"]:
-                        state_key = state["key"].translate(
-                            STATE_CHANGE_TRANSLATION_TABLE
-                        )
-                        state_value = str(state["value"])
-                        state_changes.append(
-                            EventAttribute(key=state_key, value=state_value)
-                        )
-                    if state_changes:
-                        tx_events.append(
-                            Event(type="StateChange", attributes=state_changes)
-                        )
-
-                    for contract_event in tx_result.get("events", []):
-                        attrs = [
-                            EventAttribute(
-                                key="contract",
-                                value=str(contract_event.get("contract", "")),
-                                index=True,
-                            ),
-                            EventAttribute(
-                                key="signer",
-                                value=str(contract_event.get("signer", "")),
-                                index=True,
-                            ),
-                            EventAttribute(
-                                key="caller",
-                                value=str(contract_event.get("caller", "")),
-                                index=True,
-                            ),
-                        ]
-                        for key, value in contract_event.get(
-                            "data_indexed", {}
-                        ).items():
-                            attrs.append(
-                                EventAttribute(
-                                    key=str(key),
-                                    value=str(stringify_decimals(value)),
-                                    index=True,
-                                )
-                            )
-                        for key, value in contract_event.get(
-                            "data", {}
-                        ).items():
-                            attrs.append(
-                                EventAttribute(
-                                    key=str(key),
-                                    value=str(stringify_decimals(value)),
-                                    index=False,
-                                )
-                            )
-                        tx_events.append(
-                            Event(
-                                type=str(
-                                    contract_event.get("event", "ContractEvent")
-                                ),
-                                attributes=attrs,
-                            )
-                        )
+                tx_events = _build_tx_events(tx_result)
 
                 tx_results.append(
                     ExecTxResult(
