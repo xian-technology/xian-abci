@@ -135,8 +135,8 @@ class DashboardRateLimiter:
         self._rest_rate_limit_burst = _normalized_positive_int(
             rest_rate_limit_burst
         )
-        self._expensive_rest_rate_limit_per_second = (
-            _normalized_positive_float(expensive_rest_rate_limit_per_second)
+        self._expensive_rest_rate_limit_per_second = _normalized_positive_float(
+            expensive_rest_rate_limit_per_second
         )
         self._expensive_rest_rate_limit_burst = _normalized_positive_int(
             expensive_rest_rate_limit_burst
@@ -249,9 +249,7 @@ async def dashboard_security_middleware(
     request: web.Request,
     handler,
 ) -> web.StreamResponse:
-    rate_limiter: DashboardRateLimiter | None = request.app.get(
-        "rate_limiter"
-    )
+    rate_limiter: DashboardRateLimiter | None = request.app.get("rate_limiter")
     if rate_limiter is not None:
         limited_response = rate_limiter.check(request)
         if limited_response is not None:
