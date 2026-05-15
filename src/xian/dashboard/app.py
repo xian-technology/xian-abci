@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import re
+import time
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
@@ -19,20 +20,263 @@ from xian.utils.cometbft import normalize_rpc_url
 STATIC_DIR = Path(__file__).parent / "static"
 LOCALNET_PORT_STRIDE = 100
 DEFAULT_MAX_WS_CLIENTS = 100
+DEFAULT_MAX_WS_CLIENTS_PER_CLIENT = 8
 DEFAULT_MAX_STATE_SUBSCRIPTIONS_PER_CLIENT = 64
 DEFAULT_MAX_EVENT_SUBSCRIPTIONS_PER_CLIENT = 32
 DEFAULT_MAX_WS_MESSAGE_BYTES = 64 * 1024
 DEFAULT_MAX_WS_OUTBOUND_QUEUE = 128
+DEFAULT_REST_RATE_LIMIT_PER_SECOND = 30.0
+DEFAULT_REST_RATE_LIMIT_BURST = 60
+DEFAULT_EXPENSIVE_REST_RATE_LIMIT_PER_SECOND = 8.0
+DEFAULT_EXPENSIVE_REST_RATE_LIMIT_BURST = 16
+DEFAULT_MAX_REST_CONCURRENCY = 32
+DEFAULT_RATE_LIMIT_MAX_KEYS = 4096
+
+_EXPENSIVE_API_EXACT_PATHS = {
+    "/api/addresses",
+    "/api/blockchain",
+    "/api/consensus",
+    "/api/contracts",
+    "/api/monitoring",
+    "/api/net_info",
+    "/api/recent_events",
+    "/api/unconfirmed_txs",
+    "/api/validator_dashboard",
+    "/api/validators",
+}
+_EXPENSIVE_API_PREFIXES = (
+    "/api/abci_query/",
+    "/api/address/",
+    "/api/block/",
+    "/api/block_results/",
+    "/api/contract/",
+    "/api/tx/",
+)
 
 
 def _normalized_positive_int(value: int, *, minimum: int = 1) -> int:
     return max(int(value), minimum)
 
 
+def _normalized_positive_float(
+    value: float,
+    *,
+    minimum: float = 0.001,
+) -> float:
+    return max(float(value), minimum)
+
+
 @dataclass
 class _DashboardWsClientState:
     outbound_queue: asyncio.Queue[str]
     sender_task: asyncio.Task[None]
+    client_key: str
+
+
+def _dashboard_client_key(request: web.Request) -> str:
+    if request.remote:
+        return request.remote
+
+    transport = getattr(request, "transport", None)
+    if transport is not None:
+        peername = transport.get_extra_info("peername")
+        if isinstance(peername, tuple) and peername:
+            return str(peername[0])
+        if peername:
+            return str(peername)
+
+    return "unknown"
+
+
+@dataclass
+class _DashboardTokenBucket:
+    rate_per_second: float
+    capacity: float
+    tokens: float
+    updated_at: float
+
+    def consume(self, now: float, cost: float = 1.0) -> tuple[bool, float]:
+        if now > self.updated_at:
+            elapsed = now - self.updated_at
+            self.tokens = min(
+                self.capacity,
+                self.tokens + elapsed * self.rate_per_second,
+            )
+            self.updated_at = now
+
+        if self.tokens >= cost:
+            self.tokens -= cost
+            return True, 0.0
+
+        retry_after = (cost - self.tokens) / self.rate_per_second
+        return False, retry_after
+
+
+class DashboardRateLimiter:
+    """Small in-process token bucket limiter for the optional dashboard."""
+
+    def __init__(
+        self,
+        *,
+        rest_rate_limit_per_second: float = DEFAULT_REST_RATE_LIMIT_PER_SECOND,
+        rest_rate_limit_burst: int = DEFAULT_REST_RATE_LIMIT_BURST,
+        expensive_rest_rate_limit_per_second: float = (
+            DEFAULT_EXPENSIVE_REST_RATE_LIMIT_PER_SECOND
+        ),
+        expensive_rest_rate_limit_burst: int = (
+            DEFAULT_EXPENSIVE_REST_RATE_LIMIT_BURST
+        ),
+        max_keys: int = DEFAULT_RATE_LIMIT_MAX_KEYS,
+        clock=time.monotonic,
+    ) -> None:
+        self._rest_rate_limit_per_second = _normalized_positive_float(
+            rest_rate_limit_per_second
+        )
+        self._rest_rate_limit_burst = _normalized_positive_int(
+            rest_rate_limit_burst
+        )
+        self._expensive_rest_rate_limit_per_second = (
+            _normalized_positive_float(expensive_rest_rate_limit_per_second)
+        )
+        self._expensive_rest_rate_limit_burst = _normalized_positive_int(
+            expensive_rest_rate_limit_burst
+        )
+        self._max_keys = _normalized_positive_int(max_keys)
+        self._clock = clock
+        self._buckets: dict[tuple[str, str], _DashboardTokenBucket] = {}
+
+    @property
+    def bucket_count(self) -> int:
+        return len(self._buckets)
+
+    def check(self, request: web.Request) -> web.Response | None:
+        group = self._route_group(request.path)
+        if group is None:
+            return None
+
+        now = self._clock()
+        key = (_dashboard_client_key(request), group)
+        bucket = self._buckets.get(key)
+        if bucket is None:
+            if len(self._buckets) >= self._max_keys:
+                self._prune(now)
+            bucket = self._new_bucket(group, now)
+            self._buckets[key] = bucket
+
+        allowed, retry_after = bucket.consume(now)
+        if allowed:
+            return None
+
+        retry_header = str(max(1, int(retry_after + 0.999)))
+        return web.json_response(
+            {
+                "error": "dashboard rate limit exceeded",
+                "retry_after": retry_after,
+            },
+            status=429,
+            headers={"Retry-After": retry_header},
+        )
+
+    def _new_bucket(
+        self,
+        group: str,
+        now: float,
+    ) -> _DashboardTokenBucket:
+        rate, burst = self._policy(group)
+        return _DashboardTokenBucket(
+            rate_per_second=rate,
+            capacity=float(burst),
+            tokens=float(burst),
+            updated_at=now,
+        )
+
+    def _policy(self, group: str) -> tuple[float, int]:
+        if group == "expensive":
+            return (
+                self._expensive_rest_rate_limit_per_second,
+                self._expensive_rest_rate_limit_burst,
+            )
+        return self._rest_rate_limit_per_second, self._rest_rate_limit_burst
+
+    @staticmethod
+    def _route_group(path: str) -> str | None:
+        if path == "/ws":
+            return "websocket"
+        if not path.startswith("/api/"):
+            return None
+        if path in _EXPENSIVE_API_EXACT_PATHS:
+            return "expensive"
+        if any(path.startswith(prefix) for prefix in _EXPENSIVE_API_PREFIXES):
+            return "expensive"
+        return "api"
+
+    def _prune(self, now: float) -> None:
+        stale_before = now - 3600
+        stale_keys = [
+            key
+            for key, bucket in self._buckets.items()
+            if bucket.updated_at < stale_before
+        ]
+        for key in stale_keys:
+            self._buckets.pop(key, None)
+
+        while len(self._buckets) >= self._max_keys and self._buckets:
+            oldest_key = min(
+                self._buckets,
+                key=lambda key: self._buckets[key].updated_at,
+            )
+            self._buckets.pop(oldest_key, None)
+
+
+class DashboardConcurrencyLimiter:
+    def __init__(self, limit: int) -> None:
+        self.limit = _normalized_positive_int(limit)
+        self.active = 0
+
+    def try_acquire(self) -> bool:
+        if self.active >= self.limit:
+            return False
+        self.active += 1
+        return True
+
+    def release(self) -> None:
+        if self.active > 0:
+            self.active -= 1
+
+
+@web.middleware
+async def dashboard_security_middleware(
+    request: web.Request,
+    handler,
+) -> web.StreamResponse:
+    rate_limiter: DashboardRateLimiter | None = request.app.get(
+        "rate_limiter"
+    )
+    if rate_limiter is not None:
+        limited_response = rate_limiter.check(request)
+        if limited_response is not None:
+            return limited_response
+
+    if request.path == "/ws" or not request.path.startswith("/api/"):
+        return await handler(request)
+
+    concurrency: DashboardConcurrencyLimiter | None = request.app.get(
+        "rest_concurrency_limiter"
+    )
+    if concurrency is None:
+        return await handler(request)
+
+    if not concurrency.try_acquire():
+        return web.json_response(
+            {"error": "dashboard busy"},
+            status=503,
+            headers={"Retry-After": "1"},
+        )
+
+    try:
+        return await handler(request)
+    finally:
+        concurrency.release()
 
 
 def _build_ws_url(rpc_url: str) -> str:
@@ -675,6 +919,13 @@ async def _close_dashboard_ws_client(
     app.get("ws_clients", set()).discard(ws)
 
     if state is not None:
+        ws_client_counts = app.get("ws_client_counts", {})
+        client_count = ws_client_counts.get(state.client_key, 0)
+        if client_count <= 1:
+            ws_client_counts.pop(state.client_key, None)
+        else:
+            ws_client_counts[state.client_key] = client_count - 1
+
         sender_task = state.sender_task
         if sender_task is not asyncio.current_task() and not sender_task.done():
             sender_task.cancel()
@@ -759,6 +1010,13 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
             text="dashboard websocket client limit reached"
         )
 
+    client_key = _dashboard_client_key(request)
+    client_count = request.app["ws_client_counts"].get(client_key, 0)
+    if client_count >= request.app["max_ws_clients_per_client"]:
+        raise web.HTTPServiceUnavailable(
+            text="dashboard websocket client limit reached for client"
+        )
+
     ws = web.WebSocketResponse(
         heartbeat=25.0,
         max_msg_size=request.app["max_ws_message_bytes"],
@@ -768,11 +1026,13 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     subs: SubscriptionManager = request.app["subscriptions"]
     request.app["ws_clients"].add(ws)
     subs.add_client(ws)
+    request.app["ws_client_counts"][client_key] = client_count + 1
     state = _DashboardWsClientState(
         outbound_queue=asyncio.Queue(
             maxsize=request.app["max_ws_outbound_queue"]
         ),
         sender_task=None,
+        client_key=client_key,
     )
     state.sender_task = asyncio.create_task(
         _dashboard_ws_sender(request.app, ws, state.outbound_queue)
@@ -1330,6 +1590,7 @@ async def handle_monitoring(request: web.Request) -> web.Response:
 async def _on_startup(app: web.Application) -> None:
     app["session"] = aiohttp.ClientSession()
     app["ws_clients"] = set()
+    app["ws_client_counts"] = {}
     app["ws_client_states"] = {}
     app["subscriptions"] = SubscriptionManager(
         max_state_subscriptions_per_client=app[
@@ -1366,16 +1627,30 @@ def create_app(
     cometbft_rpc_url: str = "http://127.0.0.1:26657",
     *,
     max_ws_clients: int = DEFAULT_MAX_WS_CLIENTS,
+    max_ws_clients_per_client: int = DEFAULT_MAX_WS_CLIENTS_PER_CLIENT,
     max_state_subscriptions_per_client: int = DEFAULT_MAX_STATE_SUBSCRIPTIONS_PER_CLIENT,
     max_event_subscriptions_per_client: int = DEFAULT_MAX_EVENT_SUBSCRIPTIONS_PER_CLIENT,
     max_ws_message_bytes: int = DEFAULT_MAX_WS_MESSAGE_BYTES,
     max_ws_outbound_queue: int = DEFAULT_MAX_WS_OUTBOUND_QUEUE,
+    rest_rate_limit_per_second: float = DEFAULT_REST_RATE_LIMIT_PER_SECOND,
+    rest_rate_limit_burst: int = DEFAULT_REST_RATE_LIMIT_BURST,
+    expensive_rest_rate_limit_per_second: float = (
+        DEFAULT_EXPENSIVE_REST_RATE_LIMIT_PER_SECOND
+    ),
+    expensive_rest_rate_limit_burst: int = (
+        DEFAULT_EXPENSIVE_REST_RATE_LIMIT_BURST
+    ),
+    max_rest_concurrency: int = DEFAULT_MAX_REST_CONCURRENCY,
+    rate_limit_max_keys: int = DEFAULT_RATE_LIMIT_MAX_KEYS,
 ) -> web.Application:
     normalized_rpc_url = normalize_rpc_url(cometbft_rpc_url)
-    app = web.Application()
+    app = web.Application(middlewares=[dashboard_security_middleware])
     app["rpc_url"] = normalized_rpc_url
     app["ws_url"] = _build_ws_url(normalized_rpc_url)
     app["max_ws_clients"] = _normalized_positive_int(max_ws_clients)
+    app["max_ws_clients_per_client"] = _normalized_positive_int(
+        max_ws_clients_per_client
+    )
     app["max_state_subscriptions_per_client"] = _normalized_positive_int(
         max_state_subscriptions_per_client
     )
@@ -1388,6 +1663,18 @@ def create_app(
     )
     app["max_ws_outbound_queue"] = _normalized_positive_int(
         max_ws_outbound_queue
+    )
+    app["rate_limiter"] = DashboardRateLimiter(
+        rest_rate_limit_per_second=rest_rate_limit_per_second,
+        rest_rate_limit_burst=rest_rate_limit_burst,
+        expensive_rest_rate_limit_per_second=(
+            expensive_rest_rate_limit_per_second
+        ),
+        expensive_rest_rate_limit_burst=expensive_rest_rate_limit_burst,
+        max_keys=rate_limit_max_keys,
+    )
+    app["rest_concurrency_limiter"] = DashboardConcurrencyLimiter(
+        max_rest_concurrency
     )
 
     app.on_startup.append(_on_startup)
@@ -1425,18 +1712,38 @@ async def start_dashboard(
     cometbft_rpc_url: str = "http://127.0.0.1:26657",
     *,
     max_ws_clients: int = DEFAULT_MAX_WS_CLIENTS,
+    max_ws_clients_per_client: int = DEFAULT_MAX_WS_CLIENTS_PER_CLIENT,
     max_state_subscriptions_per_client: int = DEFAULT_MAX_STATE_SUBSCRIPTIONS_PER_CLIENT,
     max_event_subscriptions_per_client: int = DEFAULT_MAX_EVENT_SUBSCRIPTIONS_PER_CLIENT,
     max_ws_message_bytes: int = DEFAULT_MAX_WS_MESSAGE_BYTES,
     max_ws_outbound_queue: int = DEFAULT_MAX_WS_OUTBOUND_QUEUE,
+    rest_rate_limit_per_second: float = DEFAULT_REST_RATE_LIMIT_PER_SECOND,
+    rest_rate_limit_burst: int = DEFAULT_REST_RATE_LIMIT_BURST,
+    expensive_rest_rate_limit_per_second: float = (
+        DEFAULT_EXPENSIVE_REST_RATE_LIMIT_PER_SECOND
+    ),
+    expensive_rest_rate_limit_burst: int = (
+        DEFAULT_EXPENSIVE_REST_RATE_LIMIT_BURST
+    ),
+    max_rest_concurrency: int = DEFAULT_MAX_REST_CONCURRENCY,
+    rate_limit_max_keys: int = DEFAULT_RATE_LIMIT_MAX_KEYS,
 ) -> web.AppRunner:
     app = create_app(
         cometbft_rpc_url,
         max_ws_clients=max_ws_clients,
+        max_ws_clients_per_client=max_ws_clients_per_client,
         max_state_subscriptions_per_client=max_state_subscriptions_per_client,
         max_event_subscriptions_per_client=max_event_subscriptions_per_client,
         max_ws_message_bytes=max_ws_message_bytes,
         max_ws_outbound_queue=max_ws_outbound_queue,
+        rest_rate_limit_per_second=rest_rate_limit_per_second,
+        rest_rate_limit_burst=rest_rate_limit_burst,
+        expensive_rest_rate_limit_per_second=(
+            expensive_rest_rate_limit_per_second
+        ),
+        expensive_rest_rate_limit_burst=expensive_rest_rate_limit_burst,
+        max_rest_concurrency=max_rest_concurrency,
+        rate_limit_max_keys=rate_limit_max_keys,
     )
     runner = web.AppRunner(app)
     await runner.setup()

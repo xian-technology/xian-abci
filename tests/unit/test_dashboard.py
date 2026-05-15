@@ -9,17 +9,46 @@ from aiohttp import web
 
 from xian.dashboard import cli
 from xian.dashboard.app import (
+    DashboardConcurrencyLimiter,
+    DashboardRateLimiter,
     SubscriptionManager,
     _allowed_rpc_urls,
     _decode_block_tx_entry,
     _localnet_rpc_variants,
     _normalize_peer_rpc_url,
+    create_app,
+    dashboard_security_middleware,
     handle_addresses,
     handle_contract,
     handle_validator_dashboard,
     handle_ws,
     normalize_rpc_url,
 )
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def dashboard_request(
+    path: str,
+    *,
+    remote: str = "203.0.113.10",
+    app: dict | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        path=path,
+        remote=remote,
+        transport=None,
+        app=app if app is not None else {},
+    )
 
 
 class DashboardTests(unittest.TestCase):
@@ -126,6 +155,110 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(second_event["status"], "error")
         self.assertIn("limit reached", second_event["message"])
 
+    def test_dashboard_rate_limiter_limits_default_api_by_client(self) -> None:
+        clock = FakeClock()
+        limiter = DashboardRateLimiter(
+            rest_rate_limit_per_second=1,
+            rest_rate_limit_burst=1,
+            clock=clock,
+        )
+        request = dashboard_request("/api/status")
+
+        self.assertIsNone(limiter.check(request))
+        limited = limiter.check(request)
+
+        self.assertIsNotNone(limited)
+        self.assertEqual(limited.status, 429)
+        self.assertEqual(limited.headers["Retry-After"], "1")
+        self.assertEqual(
+            json.loads(limited.text)["error"],
+            "dashboard rate limit exceeded",
+        )
+        self.assertIsNone(
+            limiter.check(dashboard_request("/api/status", remote="203.0.113.11"))
+        )
+
+        clock.advance(1.0)
+        self.assertIsNone(limiter.check(request))
+
+    def test_dashboard_rate_limiter_shares_expensive_route_bucket(self) -> None:
+        clock = FakeClock()
+        limiter = DashboardRateLimiter(
+            rest_rate_limit_per_second=100,
+            rest_rate_limit_burst=100,
+            expensive_rest_rate_limit_per_second=1,
+            expensive_rest_rate_limit_burst=1,
+            clock=clock,
+        )
+
+        self.assertIsNone(limiter.check(dashboard_request("/api/contracts")))
+        limited = limiter.check(dashboard_request("/api/abci_query/foo"))
+
+        self.assertIsNotNone(limited)
+        self.assertEqual(limited.status, 429)
+        self.assertIsNone(limiter.check(dashboard_request("/api/config")))
+
+    def test_dashboard_rate_limiter_ignores_static_routes(self) -> None:
+        limiter = DashboardRateLimiter(
+            rest_rate_limit_per_second=1,
+            rest_rate_limit_burst=1,
+        )
+
+        self.assertIsNone(limiter.check(dashboard_request("/")))
+        self.assertEqual(limiter.bucket_count, 0)
+
+    def test_dashboard_rate_limiter_prunes_stale_keys(self) -> None:
+        clock = FakeClock()
+        limiter = DashboardRateLimiter(
+            rest_rate_limit_per_second=1,
+            rest_rate_limit_burst=1,
+            max_keys=2,
+            clock=clock,
+        )
+
+        self.assertIsNone(
+            limiter.check(dashboard_request("/api/status", remote="203.0.113.1"))
+        )
+        self.assertIsNone(
+            limiter.check(dashboard_request("/api/status", remote="203.0.113.2"))
+        )
+        self.assertEqual(limiter.bucket_count, 2)
+
+        clock.advance(3601)
+        self.assertIsNone(
+            limiter.check(dashboard_request("/api/status", remote="203.0.113.3"))
+        )
+        self.assertEqual(limiter.bucket_count, 1)
+
+    def test_dashboard_concurrency_limiter_rejects_above_limit(self) -> None:
+        limiter = DashboardConcurrencyLimiter(1)
+
+        self.assertTrue(limiter.try_acquire())
+        self.assertFalse(limiter.try_acquire())
+        limiter.release()
+        self.assertTrue(limiter.try_acquire())
+
+    def test_create_app_installs_security_controls(self) -> None:
+        app = create_app(
+            "http://127.0.0.1:26657",
+            max_ws_clients_per_client=6,
+            max_rest_concurrency=7,
+            rest_rate_limit_per_second=11,
+            rest_rate_limit_burst=12,
+            expensive_rest_rate_limit_per_second=3,
+            expensive_rest_rate_limit_burst=4,
+            rate_limit_max_keys=5,
+        )
+
+        self.assertIn(dashboard_security_middleware, app.middlewares)
+        self.assertEqual(app["max_ws_clients_per_client"], 6)
+        self.assertIsInstance(app["rate_limiter"], DashboardRateLimiter)
+        self.assertIsInstance(
+            app["rest_concurrency_limiter"],
+            DashboardConcurrencyLimiter,
+        )
+        self.assertEqual(app["rest_concurrency_limiter"].limit, 7)
+
     def test_decode_block_tx_entry_attaches_canonical_tx_hash(self) -> None:
         tx = {
             "payload": {
@@ -230,6 +363,8 @@ class DashboardTests(unittest.TestCase):
                     "18080",
                     "--max-ws-clients",
                     "24",
+                    "--max-ws-clients-per-client",
+                    "6",
                     "--max-state-subs-per-client",
                     "10",
                     "--max-event-subs-per-client",
@@ -238,6 +373,18 @@ class DashboardTests(unittest.TestCase):
                     "4096",
                     "--max-ws-outbound-queue",
                     "32",
+                    "--rest-rate-limit-per-second",
+                    "11.5",
+                    "--rest-rate-limit-burst",
+                    "12",
+                    "--expensive-rest-rate-limit-per-second",
+                    "3.5",
+                    "--expensive-rest-rate-limit-burst",
+                    "4",
+                    "--max-rest-concurrency",
+                    "5",
+                    "--rate-limit-max-keys",
+                    "6",
                 ]
             )
 
@@ -245,15 +392,118 @@ class DashboardTests(unittest.TestCase):
         create_app.assert_called_once_with(
             "http://127.0.0.1:26657",
             max_ws_clients=24,
+            max_ws_clients_per_client=6,
             max_state_subscriptions_per_client=10,
             max_event_subscriptions_per_client=8,
             max_ws_message_bytes=4096,
             max_ws_outbound_queue=32,
+            rest_rate_limit_per_second=11.5,
+            rest_rate_limit_burst=12,
+            expensive_rest_rate_limit_per_second=3.5,
+            expensive_rest_rate_limit_burst=4,
+            max_rest_concurrency=5,
+            rate_limit_max_keys=6,
         )
         run_app.assert_called_once()
 
 
 class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_security_middleware_rejects_rate_limited_request(
+        self,
+    ) -> None:
+        clock = FakeClock()
+        limiter = DashboardRateLimiter(
+            rest_rate_limit_per_second=1,
+            rest_rate_limit_burst=1,
+            clock=clock,
+        )
+        request = dashboard_request(
+            "/api/status",
+            app={"rate_limiter": limiter},
+        )
+        calls = 0
+
+        async def handler(_request):
+            nonlocal calls
+            calls += 1
+            return web.Response(text="ok")
+
+        allowed = await dashboard_security_middleware(request, handler)
+        limited = await dashboard_security_middleware(request, handler)
+
+        self.assertEqual(allowed.status, 200)
+        self.assertEqual(limited.status, 429)
+        self.assertEqual(calls, 1)
+
+    async def test_security_middleware_rejects_when_rest_concurrency_full(
+        self,
+    ) -> None:
+        concurrency = DashboardConcurrencyLimiter(1)
+        self.assertTrue(concurrency.try_acquire())
+        request = dashboard_request(
+            "/api/status",
+            app={
+                "rate_limiter": None,
+                "rest_concurrency_limiter": concurrency,
+            },
+        )
+        calls = 0
+
+        async def handler(_request):
+            nonlocal calls
+            calls += 1
+            return web.Response(text="ok")
+
+        response = await dashboard_security_middleware(request, handler)
+
+        self.assertEqual(response.status, 503)
+        self.assertEqual(response.headers["Retry-After"], "1")
+        self.assertEqual(calls, 0)
+        concurrency.release()
+
+    async def test_security_middleware_releases_rest_concurrency(
+        self,
+    ) -> None:
+        concurrency = DashboardConcurrencyLimiter(1)
+        request = dashboard_request(
+            "/api/status",
+            app={
+                "rate_limiter": None,
+                "rest_concurrency_limiter": concurrency,
+            },
+        )
+
+        async def handler(_request):
+            self.assertEqual(concurrency.active, 1)
+            return web.Response(text="ok")
+
+        response = await dashboard_security_middleware(request, handler)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(concurrency.active, 0)
+        self.assertTrue(concurrency.try_acquire())
+
+    async def test_security_middleware_does_not_gate_websocket_concurrency(
+        self,
+    ) -> None:
+        concurrency = DashboardConcurrencyLimiter(1)
+        self.assertTrue(concurrency.try_acquire())
+        request = dashboard_request(
+            "/ws",
+            app={
+                "rate_limiter": None,
+                "rest_concurrency_limiter": concurrency,
+            },
+        )
+
+        async def handler(_request):
+            return web.Response(text="ok")
+
+        response = await dashboard_security_middleware(request, handler)
+
+        self.assertEqual(response.status, 200)
+        concurrency.release()
+
     async def test_handle_ws_rejects_connections_when_client_limit_reached(
         self,
     ) -> None:
@@ -262,6 +512,22 @@ class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
                 "ws_clients": {object()},
                 "max_ws_clients": 1,
             }
+        )
+
+        with self.assertRaises(web.HTTPServiceUnavailable):
+            await handle_ws(request)
+
+    async def test_handle_ws_rejects_connections_when_per_client_limit_reached(
+        self,
+    ) -> None:
+        request = dashboard_request(
+            "/ws",
+            app={
+                "ws_clients": set(),
+                "ws_client_counts": {"203.0.113.10": 1},
+                "max_ws_clients": 10,
+                "max_ws_clients_per_client": 1,
+            },
         )
 
         with self.assertRaises(web.HTTPServiceUnavailable):
