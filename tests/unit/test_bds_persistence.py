@@ -71,7 +71,7 @@ class _FakeCatchupReindexer:
 
 
 class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
-    def test_xsc0001_detection_accepts_formatted_standard_surface(self):
+    def test_xsc001_detection_accepts_formatted_standard_surface(self):
         bds = BDS(BdsConfig())
 
         source = """
@@ -109,9 +109,9 @@ def balance_of(address: str):
     return balances[address]
 """
 
-        self.assertTrue(bds.is_XSC0001(source))
+        self.assertTrue(bds.is_XSC001(source))
 
-    def test_xsc0001_detection_rejects_string_only_lookalikes(self):
+    def test_xsc001_detection_rejects_string_only_lookalikes(self):
         bds = BDS(BdsConfig())
 
         source = '''
@@ -123,9 +123,9 @@ def transfer(amount: float, to: str):
 """
 '''
 
-        self.assertFalse(bds.is_XSC0001(source))
+        self.assertFalse(bds.is_XSC001(source))
 
-    def test_xsc0001_detection_requires_exported_public_surface(self):
+    def test_xsc001_detection_requires_exported_public_surface(self):
         bds = BDS(BdsConfig())
 
         source = """
@@ -151,9 +151,9 @@ def balance_of(address: str):
     return balances[address]
 """
 
-        self.assertFalse(bds.is_XSC0001(source))
+        self.assertFalse(bds.is_XSC001(source))
 
-    def test_xsc0001_detection_rejects_wrong_argument_names(self):
+    def test_xsc001_detection_rejects_wrong_argument_names(self):
         bds = BDS(BdsConfig())
 
         source = """
@@ -180,12 +180,12 @@ def balance_of(address: str):
     return balances[address]
 """
 
-        self.assertFalse(bds.is_XSC0001(source))
+        self.assertFalse(bds.is_XSC001(source))
 
-    def test_xsc0001_detection_rejects_invalid_source(self):
+    def test_xsc001_detection_rejects_invalid_source(self):
         bds = BDS(BdsConfig())
 
-        self.assertFalse(bds.is_XSC0001("def broken(:"))
+        self.assertFalse(bds.is_XSC001("def broken(:"))
 
     async def test_ensure_catchup_runtime_loads_empty_patch_inventory(self):
         bds = BDS(BdsConfig())

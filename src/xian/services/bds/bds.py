@@ -30,7 +30,7 @@ from xian.services.bds.shielded import collect_shielded_output_tags
 GENESIS_BLOCK_HASH = "GENESIS"
 GENESIS_TX_HASH = "GENESIS"
 GENESIS_CREATED_AT = datetime(1970, 1, 1, tzinfo=timezone.utc)
-XSC0001_REQUIRED_EXPORTS = {
+XSC001_REQUIRED_EXPORTS = {
     "change_metadata": ("key", "value"),
     "transfer": ("amount", "to"),
     "approve": ("amount", "to"),
@@ -121,7 +121,7 @@ def _assigns_balances_hash(node: ast.AST) -> bool:
     )
 
 
-def _source_has_xsc0001_surface(source: str) -> bool:
+def _source_has_xsc001_surface(source: str) -> bool:
     try:
         tree = ast.parse(source)
     except SyntaxError:
@@ -141,7 +141,7 @@ def _source_has_xsc0001_surface(source: str) -> bool:
 
     return all(
         exported_functions.get(function_name) == required_args
-        for function_name, required_args in XSC0001_REQUIRED_EXPORTS.items()
+        for function_name, required_args in XSC001_REQUIRED_EXPORTS.items()
     )
 
 
@@ -863,7 +863,7 @@ class BDS:
                         0,
                         submission_time,
                         display_source,
-                        self.is_XSC0001(display_source),
+                        self.is_XSC001(display_source),
                     )
 
         logger.debug(
@@ -1104,7 +1104,7 @@ class BDS:
                     block_meta["height"],
                     submission_time,
                     display_source,
-                    self.is_XSC0001(display_source),
+                    self.is_XSC001(display_source),
                 )
 
     async def _persist_state_patches(
@@ -1590,8 +1590,8 @@ class BDS:
         )
         return dict(row) if row is not None else None
 
-    def is_XSC0001(self, source: str) -> bool:
-        return _source_has_xsc0001_surface(source)
+    def is_XSC001(self, source: str) -> bool:
+        return _source_has_xsc001_surface(source)
 
     def get_submission_time(
         self, genesis_state: list[dict[str, Any]], contract_name: str

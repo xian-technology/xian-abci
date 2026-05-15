@@ -203,7 +203,7 @@ TABLE_SPECS = (
             "submitted_at_block",
             "submitted_at",
             "source",
-            "xsc0001",
+            "xsc001",
         ),
         order_by="name ASC",
         datetime_columns=frozenset({"submitted_at"}),

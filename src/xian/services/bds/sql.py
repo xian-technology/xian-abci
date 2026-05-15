@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def _numeric_projection(column: str) -> str:
@@ -235,7 +235,7 @@ def create_contracts():
         submitted_at_block BIGINT NOT NULL REFERENCES blocks(height) ON DELETE CASCADE,
         submitted_at TIMESTAMPTZ NOT NULL,
         source TEXT NOT NULL,
-        xsc0001 BOOLEAN NOT NULL DEFAULT FALSE
+        xsc001 BOOLEAN NOT NULL DEFAULT FALSE
     );
     CREATE INDEX IF NOT EXISTS idx_contracts_submitted_at_block ON contracts(submitted_at_block DESC);
     """
@@ -361,7 +361,7 @@ def insert_shielded_output_tag():
 def upsert_contract():
     return """
     INSERT INTO contracts(
-        name, last_tx_hash, submitted_at_block, submitted_at, source, xsc0001
+        name, last_tx_hash, submitted_at_block, submitted_at, source, xsc001
     )
     VALUES ($1, $2, $3, $4, $5, $6)
     ON CONFLICT (name) DO UPDATE SET
@@ -369,7 +369,7 @@ def upsert_contract():
         submitted_at_block = EXCLUDED.submitted_at_block,
         submitted_at = EXCLUDED.submitted_at,
         source = EXCLUDED.source,
-        xsc0001 = EXCLUDED.xsc0001;
+        xsc001 = EXCLUDED.xsc001;
     """
 
 
@@ -391,7 +391,7 @@ def select_contracts():
         submitted_at_block,
         submitted_at,
         source,
-        xsc0001
+        xsc001
     FROM contracts
     ORDER BY submitted_at_block ASC, name ASC
     LIMIT $1 OFFSET $2;
@@ -405,7 +405,7 @@ def select_contract_summary():
         c.last_tx_hash,
         c.submitted_at_block,
         c.submitted_at,
-        c.xsc0001,
+        c.xsc001,
         submitter.sender AS creator,
         COALESCE(tx_stats.tx_count, 0) AS tx_count,
         COALESCE(reward_stats.total_rewards, 0) AS total_rewards,
@@ -882,7 +882,7 @@ def select_token_balances():
             ON symbol_state.key = c.name || '.metadata:token_symbol'
         LEFT JOIN state AS logo_state
             ON logo_state.key = c.name || '.metadata:token_logo_url'
-        WHERE c.xsc0001 = TRUE
+        WHERE c.xsc001 = TRUE
           AND ($2 OR s.value_numeric IS DISTINCT FROM 0)
     )
     SELECT
