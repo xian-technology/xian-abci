@@ -100,9 +100,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_build_runtime_for_vm_requires_native_package(self):
         with mock.patch.dict(sys.modules, {"xian_vm_core": None}):
-            with self.assertRaisesRegex(
-                ValueError, "xian-tech-vm-core"
-            ):
+            with self.assertRaisesRegex(ValueError, "xian-tech-vm-core"):
                 build_vm_runtime()
 
     def test_build_runtime_for_vm_requires_supported_native_constants(self):
@@ -399,10 +397,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
         )
         self.assertTrue(
-            any(
-                event.get("event") == "TokenCreated"
-                for event in output.events
-            )
+            any(event.get("event") == "TokenCreated" for event in output.events)
         )
         self.assertIn("token_factory", output.contract_costs)
         self.assertIn("submission", output.contract_costs)
@@ -412,9 +407,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self,
     ):
         contracts_dir = (
-            Path(__file__).resolve().parents[3]
-            / "xian-configs"
-            / "contracts"
+            Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
         )
         client = ContractingClient(environment={"chain_id": "test-chain"})
         client.flush()
@@ -489,9 +482,30 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     1,
                     1,
                 ),
-                tx("node2", "members", "vote", {"proposal_id": 1, "vote": "yes"}, 1, 2),
-                tx("node4", "members", "vote", {"proposal_id": 1, "vote": "yes"}, 1, 3),
-                tx("node5", "members", "vote", {"proposal_id": 1, "vote": "yes"}, 1, 4),
+                tx(
+                    "node2",
+                    "members",
+                    "vote",
+                    {"proposal_id": 1, "vote": "yes"},
+                    1,
+                    2,
+                ),
+                tx(
+                    "node4",
+                    "members",
+                    "vote",
+                    {"proposal_id": 1, "vote": "yes"},
+                    1,
+                    3,
+                ),
+                tx(
+                    "node5",
+                    "members",
+                    "vote",
+                    {"proposal_id": 1, "vote": "yes"},
+                    1,
+                    4,
+                ),
             )
             for call in remove_flow:
                 result = processor.process_tx(call, enabled_fees=True)
@@ -540,9 +554,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_execute_native_permit_authorizer_matches_python_runtime(self):
         contracts_dir = (
-            Path(__file__).resolve().parents[3]
-            / "xian-configs"
-            / "contracts"
+            Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
         )
         client = ContractingClient(environment={"chain_id": "test-chain"})
         client.flush()
@@ -623,9 +635,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self,
     ):
         contracts_dir = (
-            Path(__file__).resolve().parents[3]
-            / "xian-configs"
-            / "contracts"
+            Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
         )
         client = ContractingClient(environment={"chain_id": "test-chain"})
         client.flush()
@@ -667,6 +677,11 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
 
             self.assertEqual(outcome.output.status_code, 0)
+            self.assertEqual(
+                outcome.writes["currency.balances:worker0"],
+                ContractingDecimal("4999")
+                - ContractingDecimal(outcome.chi_used / 20),
+            )
             self.assertEqual(
                 outcome.output.writes["currency.balances:worker1"],
                 ContractingDecimal("5001"),
@@ -745,11 +760,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_execute_native_submission_large_artifact_deployment_succeeds(self):
         root_dir = Path(__file__).resolve().parents[3]
         source = (
-            root_dir
-            / "xian-stack"
-            / "workloads"
-            / "dex_mixed"
-            / "con_pairs.py"
+            root_dir / "xian-stack" / "workloads" / "dex_mixed" / "con_pairs.py"
         ).read_text()
         contract_name = "con_pairs_probe"
         artifacts = build_contract_artifacts(
@@ -789,7 +800,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
 
             self.assertEqual(outcome.output.status_code, 0)
-            self.assertIn(f"{contract_name}.__xian_ir_v1__", outcome.output.writes)
+            self.assertIn(
+                f"{contract_name}.__xian_ir_v1__", outcome.output.writes
+            )
         finally:
             client.flush()
 
@@ -857,11 +870,11 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
 
             self.assertEqual(outcome.output.status_code, 0)
-            self.assertIn(f"{contract_name}.__xian_ir_v1__", outcome.output.writes)
+            self.assertIn(
+                f"{contract_name}.__xian_ir_v1__", outcome.output.writes
+            )
             self.assertEqual(
-                outcome.output.writes[
-                    f"{contract_name}.metadata:token_symbol"
-                ],
+                outcome.output.writes[f"{contract_name}.metadata:token_symbol"],
                 "lpUSD",
             )
             self.assertTrue(
@@ -953,9 +966,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             self.assertEqual(outcome.output.status_code, 0)
             self.assertEqual(outcome.output.result, "demo-note")
             self.assertEqual(
-                outcome.output.writes[
-                    f"{contract_name}.vk_ids:deposit"
-                ],
+                outcome.output.writes[f"{contract_name}.vk_ids:deposit"],
                 "demo-note",
             )
             self.assertTrue(
@@ -1020,17 +1031,19 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_execute_native_dex_add_liquidity_matches_python_runtime(self):
         root_dir = Path(__file__).resolve().parents[3]
-        workload_dir = (
-            root_dir / "xian-stack" / "workloads" / "dex_mixed"
-        )
+        workload_dir = root_dir / "xian-stack" / "workloads" / "dex_mixed"
         token_source = (workload_dir / "token_fixture.py").read_text()
         pairs_source = (workload_dir / "con_pairs.py").read_text()
         pairs_name = "con_pairs_probe"
         dex_name = "con_dex_probe"
-        dex_source = (workload_dir / "con_dex.py").read_text().replace(
-            'DEX_PAIRS = "con_pairs"',
-            f'DEX_PAIRS = "{pairs_name}"',
-            1,
+        dex_source = (
+            (workload_dir / "con_dex.py")
+            .read_text()
+            .replace(
+                'DEX_PAIRS = "con_pairs"',
+                f'DEX_PAIRS = "{pairs_name}"',
+                1,
+            )
         )
 
         client = ContractingClient(environment={"chain_id": "test-chain"})
@@ -1267,7 +1280,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self.assertEqual(driver.transaction_read_prefixes, {"currency."})
         self.assertEqual(driver.log_events, [{"event": "Transfer"}])
 
-    def test_augment_execution_output_with_driver_state_merges_hidden_writes(self):
+    def test_augment_execution_output_with_driver_state_merges_hidden_writes(
+        self,
+    ):
         before_state = {
             "pending_writes": {"currency.balances:alice": 1_000_000},
         }
@@ -1347,7 +1362,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 contract_costs={},
             )
 
-        fake_bindings = types.SimpleNamespace(execute_contract=fake_execute_contract)
+        fake_bindings = types.SimpleNamespace(
+            execute_contract=fake_execute_contract
+        )
 
         with mock.patch(
             "xian.execution_engine._load_vm_runtime_bindings",
@@ -1482,7 +1499,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         driver = Driver()
         driver.flush_full()
         ContractingClient(driver=driver)
-        driver.set(driver.make_key("currency", "balances", ["alice"]), 1_000_000)
+        driver.set(
+            driver.make_key("currency", "balances", ["alice"]), 1_000_000
+        )
 
         environment = {
             "now": Datetime(2026, 4, 12, 12, 0),
@@ -1558,7 +1577,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             for key, value in output["writes"].items():
                 driver.set(key, value)
             driver.commit()
-            driver.set(driver.make_key("currency", "balances", ["alice"]), 1_000_000)
+            driver.set(
+                driver.make_key("currency", "balances", ["alice"]), 1_000_000
+            )
             driver.commit()
 
         call_kwargs = {

@@ -99,6 +99,7 @@ def vm_metering_writes(
     chi_used: int,
     chi_cost: int,
     coerce_balance=None,
+    base_writes: dict[str, Any] | None = None,
     currency_contract: str = "currency",
     balances_hash: str = "balances",
 ) -> dict[str, object]:
@@ -116,8 +117,11 @@ def vm_metering_writes(
     )
     if coerce_balance is None:
         coerce_balance = _coerce_balance_value
-    driver_get = getattr(driver, "get", lambda _key: None)
-    balance = coerce_balance(driver_get(balances_key))
+    if base_writes is not None and balances_key in base_writes:
+        balance = coerce_balance(base_writes[balances_key])
+    else:
+        driver_get = getattr(driver, "get", lambda _key: None)
+        balance = coerce_balance(driver_get(balances_key))
     to_deduct = ContractingDecimal(chi_used / chi_cost)
     balance = max(balance - to_deduct, 0)
     return {balances_key: balance}
@@ -338,6 +342,7 @@ def execute_vm_transaction(
                     sender=sender,
                     chi_used=chi_used,
                     chi_cost=chi_cost,
+                    base_writes=merged_writes,
                     currency_contract=currency_contract,
                     balances_hash=balances_hash,
                 )
