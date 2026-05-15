@@ -34,8 +34,13 @@ from xian.methods import (
 )
 from xian.metrics import MetricsService
 from xian.node_setup import (
+    DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED,
     DEFAULT_PARALLEL_EXECUTION_ENABLED,
+    DEFAULT_PARALLEL_EXECUTION_LOW_ACCEPTANCE_MIN_WAVE_SIZE,
+    DEFAULT_PARALLEL_EXECUTION_MAX_SPECULATIVE_WAVES,
     DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
+    DEFAULT_PARALLEL_EXECUTION_MIN_WAVE_ACCEPTANCE_RATIO,
+    DEFAULT_PARALLEL_EXECUTION_WARM_WORKERS,
     DEFAULT_PARALLEL_EXECUTION_WORKERS,
 )
 from xian.nonce import NonceStorage
@@ -218,8 +223,29 @@ class Xian:
                 "parallel_execution_min_transactions",
                 DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
             ),
+            max_speculative_waves=xian_config.get(
+                "parallel_execution_max_speculative_waves",
+                DEFAULT_PARALLEL_EXECUTION_MAX_SPECULATIVE_WAVES,
+            ),
+            min_wave_acceptance_ratio=xian_config.get(
+                "parallel_execution_min_wave_acceptance_ratio",
+                DEFAULT_PARALLEL_EXECUTION_MIN_WAVE_ACCEPTANCE_RATIO,
+            ),
+            low_acceptance_min_wave_size=xian_config.get(
+                "parallel_execution_low_acceptance_min_wave_size",
+                DEFAULT_PARALLEL_EXECUTION_LOW_ACCEPTANCE_MIN_WAVE_SIZE,
+            ),
+            access_estimates_enabled=xian_config.get(
+                "parallel_execution_access_estimates_enabled",
+                DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED,
+            ),
             execution_runtime=self.execution_runtime,
         )
+        if xian_config.get(
+            "parallel_execution_warm_workers",
+            DEFAULT_PARALLEL_EXECUTION_WARM_WORKERS,
+        ):
+            self.parallel_block_executor.warm(use_rewards_handler=True)
         self.app_version = 1
         self.metrics_service = MetricsService.from_runtime_settings(
             self, xian_config

@@ -73,6 +73,11 @@ class NodeSetupTests(unittest.TestCase):
                     enabled=True,
                     workers=4,
                     min_transactions=12,
+                    max_speculative_waves=3,
+                    min_wave_acceptance_ratio=0.4,
+                    low_acceptance_min_wave_size=6,
+                    warm_workers=False,
+                    access_estimates_enabled=False,
                 ),
                 pending_nonce_reservation_ttl_seconds=90.0,
                 max_pending_nonces_per_sender=64,
@@ -107,6 +112,19 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(xian_config["pruning_enabled"])
         self.assertEqual(xian_config["metrics_port"], 9208)
         self.assertNotIn("execution", xian_config)
+        self.assertEqual(
+            xian_config["parallel_execution_max_speculative_waves"], 3
+        )
+        self.assertEqual(
+            xian_config["parallel_execution_min_wave_acceptance_ratio"], 0.4
+        )
+        self.assertEqual(
+            xian_config["parallel_execution_low_acceptance_min_wave_size"], 6
+        )
+        self.assertFalse(xian_config["parallel_execution_warm_workers"])
+        self.assertFalse(
+            xian_config["parallel_execution_access_estimates_enabled"]
+        )
         self.assertEqual(
             xian_config["bds"]["application_name"], "xian-bds-test"
         )
@@ -173,6 +191,19 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(xian_config["parallel_execution_enabled"])
         self.assertEqual(xian_config["parallel_execution_workers"], 4)
         self.assertEqual(xian_config["parallel_execution_min_transactions"], 12)
+        self.assertEqual(
+            xian_config["parallel_execution_max_speculative_waves"], 4
+        )
+        self.assertEqual(
+            xian_config["parallel_execution_min_wave_acceptance_ratio"], 0.25
+        )
+        self.assertEqual(
+            xian_config["parallel_execution_low_acceptance_min_wave_size"], 8
+        )
+        self.assertTrue(xian_config["parallel_execution_warm_workers"])
+        self.assertTrue(
+            xian_config["parallel_execution_access_estimates_enabled"]
+        )
         self.assertEqual(xian_config["bds"]["database"], "xian")
         self.assertEqual(xian_config["bds"]["application_name"], "xian-bds")
         self.assertEqual(xian_config["bds"]["spool_warn_entries"], 256)

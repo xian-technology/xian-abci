@@ -1187,9 +1187,22 @@ function renderExecutionHealth(monitoring){
     parallelSummary = 'activated';
     if(latestMeta.parallel_enabled){
       parallelSummary += ' · '+
+        `${latestMeta.parallel_estimated_known_transactions ?? 0} estimated / `+
         `${latestMeta.parallel_speculative_accepted ?? 0} accepted / `+
+        `${latestMeta.parallel_speculative_rejected ?? 0} rejected / `+
         `${latestMeta.parallel_serial_prefiltered ?? 0} prefiltered / `+
         `${latestMeta.parallel_serial_fallbacks ?? 0} fallback`;
+      if(latestMeta.parallel_guardrail_fallbacks){
+        parallelSummary += ` (${latestMeta.parallel_guardrail_fallbacks} guardrail)`;
+      }
+      const unknownShapes = latestMeta.parallel_estimated_unknown_shapes || [];
+      if(unknownShapes.length){
+        parallelSummary += ' · unknown ' + unknownShapes.slice(0, 3).map((shape) => {
+          const contract = shape.contract || '<invalid>';
+          const fn = shape.function || '<invalid>';
+          return `${contract}.${fn}:${shape.count ?? 0}`;
+        }).join(', ');
+      }
     } else if(parallelWorkers != null || parallelMinTransactions != null){
       const parts = [];
       if(parallelWorkers != null) parts.push(`${parallelWorkers} workers`);

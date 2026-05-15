@@ -20,6 +20,9 @@ def _driver():
     driver.get_owner = lambda _contract: "alice"
     driver.clear_transaction_reads = lambda: None
     driver.clear_transaction_writes = lambda: None
+    driver.make_key = lambda contract, variable, args: (
+        f"{contract}.{variable}:" + ":".join(str(arg) for arg in args)
+    )
     return driver
 
 
@@ -47,6 +50,60 @@ def _transaction(**payload_overrides):
 
 
 class ProcessorVmExecutionTests(unittest.TestCase):
+    def test_estimate_access_for_token_transfer(self):
+        processor = _processor(_driver())
+
+        access = processor.estimate_access(_transaction())
+
+        expected_keys = frozenset(
+            {
+                "currency.balances:alice",
+                "currency.balances:bob",
+            }
+        )
+        self.assertIsNotNone(access)
+        self.assertEqual(access.sender, "alice")
+        self.assertEqual(access.reads, expected_keys)
+        self.assertEqual(access.writes, expected_keys)
+        self.assertEqual(access.prefix_reads, frozenset())
+
+    def test_estimate_access_returns_none_for_unknown_function(self):
+        processor = _processor(_driver())
+
+        access = processor.estimate_access(
+            _transaction(function="custom", kwargs={})
+        )
+
+        self.assertIsNone(access)
+
+    def test_estimate_access_for_core_value_reader(self):
+        processor = _processor(_driver())
+
+        access = processor.estimate_access(
+            _transaction(
+                contract="chi_cost", function="current_value", kwargs={}
+            )
+        )
+
+        self.assertIsNotNone(access)
+        self.assertEqual(access.reads, frozenset({"chi_cost.S:value"}))
+        self.assertEqual(access.writes, frozenset())
+
+    def test_estimate_access_for_core_value_writer(self):
+        processor = _processor(_driver())
+
+        access = processor.estimate_access(
+            _transaction(
+                contract="rewards",
+                function="set_value",
+                kwargs={"new_value": [0.25, 0.25, 0.25, 0.25]},
+            )
+        )
+
+        self.assertIsNotNone(access)
+        self.assertEqual(access.reads, frozenset())
+        self.assertEqual(access.writes, frozenset({"rewards.S:value"}))
+
     def test_execute_tx_uses_fresh_environment_when_omitted(self):
         processor = _processor(_driver())
         observed_environments = []
@@ -109,9 +166,7 @@ class ProcessorVmExecutionTests(unittest.TestCase):
         processor = _processor(_driver())
 
         with (
-            mock.patch(
-                "xian.processor.prepare_vm_contract"
-            ) as prepare,
+            mock.patch("xian.processor.prepare_vm_contract") as prepare,
             mock.patch(
                 "xian.processor.execute_vm_transaction"
             ) as native_execute,
@@ -143,9 +198,7 @@ class ProcessorVmExecutionTests(unittest.TestCase):
         processor = _processor(_driver())
 
         with (
-            mock.patch(
-                "xian.processor.prepare_vm_contract"
-            ) as prepare,
+            mock.patch("xian.processor.prepare_vm_contract") as prepare,
             mock.patch(
                 "xian.processor.execute_vm_transaction",
                 return_value=SimpleNamespace(

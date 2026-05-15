@@ -6,6 +6,13 @@ from argparse import ArgumentParser, BooleanOptionalAction
 from xian.genesis_builder import build_bundle_network_genesis
 from xian.node_admin import ExistingHomeOptions, configure_existing_home
 from xian.node_setup import (
+    DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED,
+    DEFAULT_PARALLEL_EXECUTION_LOW_ACCEPTANCE_MIN_WAVE_SIZE,
+    DEFAULT_PARALLEL_EXECUTION_MAX_SPECULATIVE_WAVES,
+    DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
+    DEFAULT_PARALLEL_EXECUTION_MIN_WAVE_ACCEPTANCE_RATIO,
+    DEFAULT_PARALLEL_EXECUTION_WARM_WORKERS,
+    DEFAULT_PARALLEL_EXECUTION_WORKERS,
     SUPPORTED_APP_LOG_LEVELS,
     SUPPORTED_BLOCK_POLICY_MODES,
     AppLoggingOptions,
@@ -301,14 +308,49 @@ def build_parser() -> ArgumentParser:
         type=int,
         help="number of speculative execution workers",
         required=False,
-        default=0,
+        default=DEFAULT_PARALLEL_EXECUTION_WORKERS,
     )
     parser.add_argument(
         "--parallel-execution-min-transactions",
         type=int,
         help="minimum transactions in a block before parallel execution is used",
         required=False,
-        default=8,
+        default=DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
+    )
+    parser.add_argument(
+        "--parallel-execution-max-speculative-waves",
+        type=int,
+        help="maximum speculative waves before the block suffix runs serially",
+        required=False,
+        default=DEFAULT_PARALLEL_EXECUTION_MAX_SPECULATIVE_WAVES,
+    )
+    parser.add_argument(
+        "--parallel-execution-min-wave-acceptance-ratio",
+        type=float,
+        help="minimum accepted share for a speculative wave before fallback",
+        required=False,
+        default=DEFAULT_PARALLEL_EXECUTION_MIN_WAVE_ACCEPTANCE_RATIO,
+    )
+    parser.add_argument(
+        "--parallel-execution-low-acceptance-min-wave-size",
+        type=int,
+        help="minimum wave size before low acceptance triggers fallback",
+        required=False,
+        default=DEFAULT_PARALLEL_EXECUTION_LOW_ACCEPTANCE_MIN_WAVE_SIZE,
+    )
+    parser.add_argument(
+        "--parallel-execution-warm-workers",
+        action=BooleanOptionalAction,
+        help="warm speculative execution workers when the node starts",
+        required=False,
+        default=DEFAULT_PARALLEL_EXECUTION_WARM_WORKERS,
+    )
+    parser.add_argument(
+        "--parallel-execution-access-estimates-enabled",
+        action=BooleanOptionalAction,
+        help="use conservative access estimates to schedule speculative waves",
+        required=False,
+        default=DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED,
     )
     parser.add_argument(
         "--pending-nonce-reservation-ttl-seconds",
@@ -497,6 +539,19 @@ def main(argv: list[str] | None = None) -> int:
                     enabled=args.parallel_execution_enabled,
                     workers=args.parallel_execution_workers,
                     min_transactions=args.parallel_execution_min_transactions,
+                    max_speculative_waves=(
+                        args.parallel_execution_max_speculative_waves
+                    ),
+                    min_wave_acceptance_ratio=(
+                        args.parallel_execution_min_wave_acceptance_ratio
+                    ),
+                    low_acceptance_min_wave_size=(
+                        args.parallel_execution_low_acceptance_min_wave_size
+                    ),
+                    warm_workers=args.parallel_execution_warm_workers,
+                    access_estimates_enabled=(
+                        args.parallel_execution_access_estimates_enabled
+                    ),
                 ),
                 pending_nonce_reservation_ttl_seconds=(
                     args.pending_nonce_reservation_ttl_seconds

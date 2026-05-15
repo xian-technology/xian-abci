@@ -150,6 +150,11 @@ simulation_max_chi = 1000000
 parallel_execution_enabled = false
 parallel_execution_workers = 4
 parallel_execution_min_transactions = 8
+parallel_execution_max_speculative_waves = 4
+parallel_execution_min_wave_acceptance_ratio = 0.25
+parallel_execution_low_acceptance_min_wave_size = 8
+parallel_execution_warm_workers = true
+parallel_execution_access_estimates_enabled = true
 pending_nonce_reservation_ttl_seconds = 60.0
 max_pending_nonces_per_sender = 128
 
@@ -173,6 +178,11 @@ disk_free_warn_bytes = 2147483648
 DEFAULT_PARALLEL_EXECUTION_ENABLED = False
 DEFAULT_PARALLEL_EXECUTION_WORKERS = 4
 DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS = 8
+DEFAULT_PARALLEL_EXECUTION_MAX_SPECULATIVE_WAVES = 4
+DEFAULT_PARALLEL_EXECUTION_MIN_WAVE_ACCEPTANCE_RATIO = 0.25
+DEFAULT_PARALLEL_EXECUTION_LOW_ACCEPTANCE_MIN_WAVE_SIZE = 8
+DEFAULT_PARALLEL_EXECUTION_WARM_WORKERS = True
+DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED = True
 
 SUPPORTED_BLOCK_POLICY_MODES = {"on_demand", "idle_interval", "periodic"}
 SUPPORTED_APP_LOG_LEVELS = {
@@ -224,6 +234,19 @@ class ParallelExecutionOptions:
     enabled: bool = DEFAULT_PARALLEL_EXECUTION_ENABLED
     workers: int = DEFAULT_PARALLEL_EXECUTION_WORKERS
     min_transactions: int = DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS
+    max_speculative_waves: int = (
+        DEFAULT_PARALLEL_EXECUTION_MAX_SPECULATIVE_WAVES
+    )
+    min_wave_acceptance_ratio: float = (
+        DEFAULT_PARALLEL_EXECUTION_MIN_WAVE_ACCEPTANCE_RATIO
+    )
+    low_acceptance_min_wave_size: int = (
+        DEFAULT_PARALLEL_EXECUTION_LOW_ACCEPTANCE_MIN_WAVE_SIZE
+    )
+    warm_workers: bool = DEFAULT_PARALLEL_EXECUTION_WARM_WORKERS
+    access_estimates_enabled: bool = (
+        DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -557,6 +580,21 @@ def render_node_configs(
     )
     xian_config["parallel_execution_min_transactions"] = (
         options.parallel_execution.min_transactions
+    )
+    xian_config["parallel_execution_max_speculative_waves"] = (
+        options.parallel_execution.max_speculative_waves
+    )
+    xian_config["parallel_execution_min_wave_acceptance_ratio"] = (
+        options.parallel_execution.min_wave_acceptance_ratio
+    )
+    xian_config["parallel_execution_low_acceptance_min_wave_size"] = (
+        options.parallel_execution.low_acceptance_min_wave_size
+    )
+    xian_config["parallel_execution_warm_workers"] = (
+        options.parallel_execution.warm_workers
+    )
+    xian_config["parallel_execution_access_estimates_enabled"] = (
+        options.parallel_execution.access_estimates_enabled
     )
     xian_config["pending_nonce_reservation_ttl_seconds"] = (
         options.pending_nonce_reservation_ttl_seconds

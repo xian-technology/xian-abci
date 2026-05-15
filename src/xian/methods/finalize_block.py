@@ -305,6 +305,24 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         self.profiler.set_block_metadata(
             parallel_enabled=True,
             parallel_worker_count=parallel_stats.worker_count,
+            parallel_estimated_known_transactions=(
+                parallel_stats.estimated_known_transactions
+            ),
+            parallel_estimated_unknown_transactions=(
+                parallel_stats.estimated_unknown_transactions
+            ),
+            parallel_estimated_stage_count=(
+                parallel_stats.estimated_stage_count
+            ),
+            parallel_estimated_parallelizable_transactions=(
+                parallel_stats.estimated_parallelizable_transactions
+            ),
+            parallel_estimated_known_shapes=(
+                parallel_stats.estimated_known_shapes
+            ),
+            parallel_estimated_unknown_shapes=(
+                parallel_stats.estimated_unknown_shapes
+            ),
             parallel_planned_stage_count=parallel_stats.planned_stage_count,
             parallel_planned_parallelizable_transactions=(
                 parallel_stats.planned_parallelizable_transactions
@@ -313,8 +331,10 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 parallel_stats.speculative_wave_count
             ),
             parallel_speculative_accepted=parallel_stats.speculative_accepted,
+            parallel_speculative_rejected=parallel_stats.speculative_rejected,
             parallel_serial_prefiltered=parallel_stats.serial_prefiltered,
             parallel_serial_fallbacks=parallel_stats.serial_fallbacks,
+            parallel_guardrail_fallbacks=parallel_stats.guardrail_fallbacks,
         )
         logger.bind(
             **build_log_fields(
@@ -326,11 +346,24 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         parallel_stats.speculative_accepted
                     ),
                     "decoded_tx_count": len(decoded_txs),
+                    "estimated_known_transactions": (
+                        parallel_stats.estimated_known_transactions
+                    ),
+                    "estimated_unknown_transactions": (
+                        parallel_stats.estimated_unknown_transactions
+                    ),
+                    "estimated_unknown_shapes": (
+                        parallel_stats.estimated_unknown_shapes
+                    ),
                     "speculative_wave_count": (
                         parallel_stats.speculative_wave_count
                     ),
                     "serial_prefiltered": parallel_stats.serial_prefiltered,
                     "serial_fallbacks": parallel_stats.serial_fallbacks,
+                    "guardrail_fallbacks": (parallel_stats.guardrail_fallbacks),
+                    "speculative_rejected": (
+                        parallel_stats.speculative_rejected
+                    ),
                     "planned_stage_count": (parallel_stats.planned_stage_count),
                     "worker_count": parallel_stats.worker_count,
                 },

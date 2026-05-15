@@ -7,6 +7,80 @@ from xian.metrics import XianMetricsCollector
 
 
 class BdsMetricsCollectorTests(unittest.TestCase):
+    def test_metrics_collector_exports_parallel_guardrail_metadata(
+        self,
+    ) -> None:
+        app = SimpleNamespace(
+            chain_id="xian-local",
+            execution_mode="xian_vm_v1",
+            execution_runtime=SimpleNamespace(mode="xian_vm_v1"),
+            block_service_mode=False,
+            parallel_block_executor=SimpleNamespace(enabled=True),
+            enable_tx_fee=True,
+            current_block_meta={"height": 129},
+            profiler=SimpleNamespace(
+                snapshot=lambda: {
+                    "recent_blocks": [
+                        {
+                            "height": 129,
+                            "tx_count": 8,
+                            "duration_ms": 12.0,
+                            "metrics": {},
+                            "metadata": {
+                                "parallel_enabled": True,
+                                "parallel_worker_count": 4,
+                                "parallel_estimated_known_transactions": 8,
+                                "parallel_estimated_unknown_transactions": 0,
+                                "parallel_estimated_stage_count": 1,
+                                "parallel_estimated_parallelizable_transactions": 7,
+                                "parallel_planned_stage_count": 1,
+                                "parallel_planned_parallelizable_transactions": 7,
+                                "parallel_speculative_wave_count": 1,
+                                "parallel_speculative_accepted": 1,
+                                "parallel_speculative_rejected": 7,
+                                "parallel_serial_prefiltered": 0,
+                                "parallel_serial_fallbacks": 7,
+                                "parallel_guardrail_fallbacks": 7,
+                            },
+                        }
+                    ],
+                    "global_metrics": {},
+                    "updated_at_unix_ns": 0,
+                }
+            ),
+        )
+        service = SimpleNamespace(
+            app=app,
+            config=SimpleNamespace(enabled=True),
+            last_bds_status=None,
+            last_bds_refresh_success=False,
+            last_bds_refresh_age_seconds=None,
+        )
+
+        families = list(XianMetricsCollector(service).collect())
+        samples = [
+            sample
+            for family in families
+            for sample in getattr(family, "samples", [])
+        ]
+        latest_metadata = {
+            sample.labels["field"]: sample.value
+            for sample in samples
+            if sample.name == "xian_perf_latest_block_metadata"
+        }
+
+        self.assertEqual(latest_metadata["parallel_enabled"], 1.0)
+        self.assertEqual(
+            latest_metadata["parallel_estimated_known_transactions"], 8.0
+        )
+        self.assertEqual(
+            latest_metadata["parallel_estimated_parallelizable_transactions"],
+            7.0,
+        )
+        self.assertEqual(latest_metadata["parallel_speculative_rejected"], 7.0)
+        self.assertEqual(latest_metadata["parallel_guardrail_fallbacks"], 7.0)
+        self.assertEqual(latest_metadata["parallel_serial_fallbacks"], 7.0)
+
     def test_metrics_collector_exports_bds_recovery_fields(self) -> None:
         app = SimpleNamespace(
             chain_id="xian-local",

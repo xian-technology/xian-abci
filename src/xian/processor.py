@@ -497,6 +497,94 @@ class TxProcessor:
     def prune_tx_result(self, tx_result: dict):
         return tx_result
 
+    def estimate_access(self, tx: dict) -> TransactionAccess | None:
+        payload = tx.get("payload")
+        if not isinstance(payload, dict):
+            return None
+
+        sender = payload.get("sender")
+        contract = payload.get("contract")
+        function = payload.get("function")
+        kwargs = payload.get("kwargs") or {}
+        if (
+            not isinstance(sender, str)
+            or not isinstance(contract, str)
+            or not isinstance(function, str)
+            or not isinstance(kwargs, dict)
+        ):
+            return None
+
+        def make_key(variable: str, args: list[object]) -> str:
+            return self.client.raw_driver.make_key(contract, variable, args)
+
+        reads: set[str] = set()
+        writes: set[str] = set()
+
+        if function == "transfer":
+            to = kwargs.get("to")
+            if not isinstance(to, str):
+                return None
+            balance_keys = {
+                make_key(self.balances_hash, [sender]),
+                make_key(self.balances_hash, [to]),
+            }
+            reads.update(balance_keys)
+            writes.update(balance_keys)
+        elif function == "approve":
+            to = kwargs.get("to")
+            if not isinstance(to, str):
+                return None
+            writes.add(make_key("approvals", [sender, to]))
+        elif function == "approve_from_authorizer":
+            owner = kwargs.get("owner")
+            spender = kwargs.get("spender")
+            if not isinstance(owner, str) or not isinstance(spender, str):
+                return None
+            reads.add(make_key("metadata", ["permit_authorizer"]))
+            writes.add(make_key("approvals", [owner, spender]))
+        elif function == "transfer_from":
+            to = kwargs.get("to")
+            main_account = kwargs.get("main_account")
+            if not isinstance(to, str) or not isinstance(main_account, str):
+                return None
+            keys = {
+                make_key("approvals", [main_account, sender]),
+                make_key(self.balances_hash, [main_account]),
+                make_key(self.balances_hash, [to]),
+            }
+            reads.update(keys)
+            writes.update(keys)
+        elif function == "change_metadata":
+            key = kwargs.get("key")
+            if not isinstance(key, str):
+                return None
+            reads.add(make_key("metadata", ["operator"]))
+            writes.add(make_key("metadata", [key]))
+        elif function == "balance_of":
+            address = kwargs.get("address")
+            if not isinstance(address, str):
+                return None
+            reads.add(make_key(self.balances_hash, [address]))
+        elif (
+            contract in {"chi_cost", "rewards"} and function == "current_value"
+        ):
+            reads.add(make_key("S", ["value"]))
+        elif contract in {"chi_cost", "rewards"} and function == "set_value":
+            writes.add(make_key("S", ["value"]))
+        else:
+            return None
+
+        return TransactionAccess(
+            index=-1,
+            sender=sender,
+            nonce=payload.get("nonce", 0),
+            reads=frozenset(reads),
+            prefix_reads=frozenset(),
+            writes=frozenset(writes),
+            additive_writes=frozenset(),
+            status=0,
+        )
+
     def build_access_record(
         self,
         tx: dict,

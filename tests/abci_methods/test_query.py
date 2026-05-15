@@ -399,9 +399,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
         second_page = await self.process_request(
             Request(
-                query=RequestQuery(
-                    path=f"/keys/{prefix}/limit=2/after=bob"
-                )
+                query=RequestQuery(path=f"/keys/{prefix}/limit=2/after=bob")
             )
         )
 
@@ -490,6 +488,14 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(payload["parallel_execution_enabled"])
         self.assertEqual(payload["parallel_execution_workers"], 4)
         self.assertEqual(payload["parallel_execution_min_transactions"], 8)
+        self.assertEqual(payload["parallel_execution_max_speculative_waves"], 4)
+        self.assertEqual(
+            payload["parallel_execution_min_wave_acceptance_ratio"], 0.25
+        )
+        self.assertEqual(
+            payload["parallel_execution_low_acceptance_min_wave_size"], 8
+        )
+        self.assertTrue(payload["parallel_execution_access_estimates_enabled"])
 
     async def test_masternodes_dashboard_queries(self):
         self.app.client.raw_driver.set("masternodes.total_votes", 2)
@@ -577,7 +583,9 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(votes_response.query.info, "list")
         self.assertEqual(vote_response.query.info, "dict")
-        self.assertEqual(json.loads(vote_response.query.value)["proposal_id"], 1)
+        self.assertEqual(
+            json.loads(vote_response.query.value)["proposal_id"], 1
+        )
         self.assertEqual(vote_records_response.query.info, "list")
         self.assertEqual(
             json.loads(vote_records_response.query.value),

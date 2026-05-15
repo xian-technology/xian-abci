@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import multiprocessing
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, replace
@@ -32,12 +33,20 @@ _WORKER_RUNTIMES: dict[tuple[object, ...], _WorkerRuntime] = {}
 @dataclass(frozen=True)
 class ParallelExecutionStats:
     worker_count: int
+    estimated_known_transactions: int
+    estimated_unknown_transactions: int
+    estimated_stage_count: int
+    estimated_parallelizable_transactions: int
+    estimated_known_shapes: tuple[dict[str, object], ...]
+    estimated_unknown_shapes: tuple[dict[str, object], ...]
     planned_stage_count: int
     planned_parallelizable_transactions: int
     speculative_wave_count: int
     speculative_accepted: int
+    speculative_rejected: int
     serial_prefiltered: int
     serial_fallbacks: int
+    guardrail_fallbacks: int
 
 
 def _get_worker_runtime(
@@ -99,6 +108,15 @@ def _speculative_process_tx(task: dict) -> dict:
         runtime.client.raw_driver.flush_cache()
 
 
+def _warm_worker(task: dict) -> bool:
+    _get_worker_runtime(
+        storage_home=task["storage_home"],
+        use_rewards_handler=task["use_rewards_handler"],
+        execution_runtime=task["execution_runtime"],
+    )
+    return True
+
+
 class ParallelBlockExecutor(SpeculativeExecutionController):
     def __init__(
         self,
@@ -107,6 +125,10 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         enabled: bool = False,
         workers: int = 0,
         min_transactions: int = 8,
+        max_speculative_waves: int = 4,
+        min_wave_acceptance_ratio: float = 0.25,
+        low_acceptance_min_wave_size: int = 8,
+        access_estimates_enabled: bool = True,
         execution_runtime: VmRuntime | None = None,
     ) -> None:
         self.storage_home = Path(storage_home)
@@ -120,6 +142,10 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
             enabled=enabled,
             workers=workers,
             min_batch_size=min_transactions,
+            max_speculative_waves=max_speculative_waves,
+            min_wave_acceptance_ratio=min_wave_acceptance_ratio,
+            low_acceptance_min_wave_size=low_acceptance_min_wave_size,
+            use_access_estimates=access_estimates_enabled,
         )
 
     def execute(
@@ -137,23 +163,60 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         self._batch_enabled_fees = enabled_fees
         self._batch_rewards_handler = rewards_handler
         try:
+            known_shapes, unknown_shapes = self._estimate_shape_summaries(
+                txs=txs,
+                tx_processor=tx_processor,
+            )
             results = super().execute(requests=txs, auto_commit=False)
             final_results, stats = results
             return final_results, ParallelExecutionStats(
                 worker_count=stats.worker_count,
+                estimated_known_transactions=stats.estimated_known_requests,
+                estimated_unknown_transactions=(
+                    stats.estimated_unknown_requests
+                ),
+                estimated_stage_count=stats.estimated_stage_count,
+                estimated_parallelizable_transactions=(
+                    stats.estimated_parallelizable_requests
+                ),
+                estimated_known_shapes=known_shapes,
+                estimated_unknown_shapes=unknown_shapes,
                 planned_stage_count=stats.planned_stage_count,
                 planned_parallelizable_transactions=(
                     stats.planned_parallelizable_requests
                 ),
                 speculative_wave_count=stats.speculative_wave_count,
                 speculative_accepted=stats.speculative_accepted,
+                speculative_rejected=stats.speculative_rejected,
                 serial_prefiltered=stats.serial_prefiltered,
                 serial_fallbacks=stats.serial_fallbacks,
+                guardrail_fallbacks=stats.guardrail_fallbacks,
             )
         finally:
             self._batch_tx_processor = None
             self._batch_enabled_fees = False
             self._batch_rewards_handler = None
+
+    def warm(self, *, use_rewards_handler: bool) -> None:
+        if not self.enabled or self.workers <= 0:
+            return
+
+        tasks = [
+            {
+                "storage_home": str(self.storage_home),
+                "use_rewards_handler": use_rewards_handler,
+                "execution_runtime": self.execution_runtime,
+            }
+            for _ in range(self.workers)
+        ]
+        try:
+            if self.workers == 1:
+                _warm_worker(tasks[0])
+                return
+            list(self._get_executor().map(_warm_worker, tasks))
+        except Exception:
+            self.close()
+            logger.exception("Failed to warm parallel execution workers")
 
     def close(self) -> None:
         if self._executor is None:
@@ -236,6 +299,73 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         if isinstance(sender, str):
             return sender
         return None
+
+    def _estimate_shape_summaries(
+        self,
+        *,
+        txs: list[dict],
+        tx_processor: TxProcessor,
+        limit: int = 16,
+    ) -> tuple[tuple[dict[str, object], ...], tuple[dict[str, object], ...]]:
+        if not self.use_access_estimates:
+            return (), ()
+
+        known: Counter[tuple[str, str]] = Counter()
+        unknown: Counter[tuple[str, str]] = Counter()
+        for tx in txs:
+            shape = self._tx_shape(tx)
+            if tx_processor.estimate_access(tx) is None:
+                unknown[shape] += 1
+            else:
+                known[shape] += 1
+
+        return (
+            self._format_shape_summary(known, limit=limit),
+            self._format_shape_summary(unknown, limit=limit),
+        )
+
+    @staticmethod
+    def _tx_shape(tx: dict) -> tuple[str, str]:
+        payload = tx.get("payload")
+        if not isinstance(payload, dict):
+            return "<invalid>", "<invalid>"
+        contract = payload.get("contract")
+        function = payload.get("function")
+        return (
+            contract if isinstance(contract, str) else "<invalid>",
+            function if isinstance(function, str) else "<invalid>",
+        )
+
+    @staticmethod
+    def _format_shape_summary(
+        counter: Counter[tuple[str, str]],
+        *,
+        limit: int,
+    ) -> tuple[dict[str, object], ...]:
+        return tuple(
+            {
+                "contract": contract,
+                "function": function,
+                "count": count,
+            }
+            for (contract, function), count in sorted(
+                counter.items(),
+                key=lambda item: (-item[1], item[0][0], item[0][1]),
+            )[:limit]
+        )
+
+    def _estimate_access(
+        self,
+        *,
+        index: int,
+        request: object,
+    ) -> ExecutionAccess | None:
+        assert self._batch_tx_processor is not None
+        assert isinstance(request, dict)
+        access = self._batch_tx_processor.estimate_access(request)
+        if access is None:
+            return None
+        return replace(access, index=index)
 
     def _apply_speculative_output(self, output: dict) -> None:
         assert self._batch_tx_processor is not None

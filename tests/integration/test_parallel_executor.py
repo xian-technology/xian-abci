@@ -72,6 +72,24 @@ PARALLEL_HASH_PROBE_CONTRACT_CODE = textwrap.dedent(
     """
 )
 
+CORE_VALUE_CONTRACT_CODE = textwrap.dedent(
+    """
+    S = Hash()
+
+    @construct
+    def seed():
+        S['value'] = 1
+
+    @export
+    def current_value():
+        return S['value']
+
+    @export
+    def set_value(new_value: Any):
+        S['value'] = new_value
+    """
+)
+
 
 class TestParallelBlockExecutor(unittest.TestCase):
     def _build_processor(
@@ -206,6 +224,10 @@ class TestParallelBlockExecutor(unittest.TestCase):
             )
 
             self.assertEqual(stats.speculative_accepted, 2)
+            self.assertEqual(stats.estimated_known_transactions, 3)
+            self.assertEqual(stats.estimated_unknown_transactions, 0)
+            self.assertEqual(stats.estimated_stage_count, 2)
+            self.assertEqual(stats.estimated_parallelizable_transactions, 1)
             self.assertEqual(stats.serial_prefiltered, 1)
             self.assertEqual(stats.serial_fallbacks, 0)
 
@@ -295,6 +317,10 @@ class TestParallelBlockExecutor(unittest.TestCase):
             )
 
             self.assertEqual(stats.speculative_accepted, 3)
+            self.assertEqual(stats.estimated_known_transactions, 3)
+            self.assertEqual(stats.estimated_unknown_transactions, 0)
+            self.assertEqual(stats.estimated_stage_count, 1)
+            self.assertEqual(stats.estimated_parallelizable_transactions, 2)
             self.assertEqual(stats.serial_fallbacks, 0)
 
             serial_tx_results = [
@@ -323,6 +349,319 @@ class TestParallelBlockExecutor(unittest.TestCase):
                     serial_client.raw_driver.get(key),
                 )
                 self.assertEqual(parallel_client.raw_driver.get(key), expected)
+
+    def test_parallel_executor_estimates_hot_token_transfer_conflicts(self):
+        txs = [
+            self._tx(
+                sender=f"sender-{index}",
+                contract="con_token_a",
+                function="transfer",
+                kwargs={"amount": 1, "to": "sink"},
+                nonce=0,
+                signature=f"sig-transfer-{index}",
+            )
+            for index in range(4)
+        ]
+
+        with (
+            tempfile.TemporaryDirectory() as serial_dir,
+            tempfile.TemporaryDirectory() as parallel_dir,
+        ):
+            serial_client, serial_processor = self._build_processor(
+                Path(serial_dir) / "xian"
+            )
+            parallel_client, parallel_processor = self._build_processor(
+                Path(parallel_dir) / "xian"
+            )
+            for client in (serial_client, parallel_client):
+                client.raw_driver.set("con_token_a.balances:sink", 0)
+                for index in range(4):
+                    client.raw_driver.set(
+                        f"con_token_a.balances:sender-{index}",
+                        100,
+                    )
+                client.raw_driver.commit()
+
+            serial_results = [
+                serial_processor.process_tx(
+                    deepcopy(tx),
+                    enabled_fees=False,
+                    rewards_handler=None,
+                    track_access=True,
+                )
+                for tx in txs
+            ]
+
+            executor = ParallelBlockExecutor(
+                storage_home=Path(parallel_dir) / "xian",
+                enabled=True,
+                workers=1,
+                min_transactions=1,
+            )
+            parallel_results, stats = executor.execute(
+                txs=deepcopy(txs),
+                tx_processor=parallel_processor,
+                enabled_fees=False,
+                rewards_handler=None,
+            )
+
+            self.assertEqual(stats.estimated_known_transactions, 4)
+            self.assertEqual(stats.estimated_unknown_transactions, 0)
+            self.assertEqual(stats.estimated_stage_count, 4)
+            self.assertEqual(
+                stats.estimated_known_shapes,
+                (
+                    {
+                        "contract": "con_token_a",
+                        "function": "transfer",
+                        "count": 4,
+                    },
+                ),
+            )
+            self.assertEqual(stats.estimated_unknown_shapes, ())
+            self.assertEqual(stats.speculative_wave_count, 0)
+            self.assertEqual(stats.speculative_rejected, 0)
+            self.assertEqual(stats.serial_prefiltered, 4)
+
+            serial_tx_results = [
+                self._tx_result_without_state(result["tx_result"])
+                for result in serial_results
+            ]
+            parallel_tx_results = [
+                self._tx_result_without_state(result["tx_result"])
+                for result in parallel_results
+            ]
+            self.assertEqual(parallel_tx_results, serial_tx_results)
+            self.assertEqual(
+                parallel_client.raw_driver.get("con_token_a.balances:sink"),
+                serial_client.raw_driver.get("con_token_a.balances:sink"),
+            )
+
+    def test_parallel_executor_reports_unknown_estimate_shapes(self):
+        txs = [
+            self._tx(
+                sender="alice",
+                contract="con_rw",
+                function="set_value",
+                kwargs={"new_value": 7},
+                nonce=0,
+                signature="sig-unknown-1",
+            ),
+            self._tx(
+                sender="bob",
+                contract="con_rw",
+                function="get_value",
+                kwargs={},
+                nonce=0,
+                signature="sig-unknown-2",
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            client, processor = self._build_processor(Path(temp_dir) / "xian")
+            executor = ParallelBlockExecutor(
+                storage_home=Path(temp_dir) / "xian",
+                enabled=True,
+                workers=1,
+                min_transactions=1,
+            )
+
+            results, stats = executor.execute(
+                txs=deepcopy(txs),
+                tx_processor=processor,
+                enabled_fees=False,
+                rewards_handler=None,
+            )
+
+            self.assertEqual(
+                [item["tx_result"]["status"] for item in results], [0, 0]
+            )
+            self.assertEqual(stats.estimated_known_transactions, 0)
+            self.assertEqual(stats.estimated_unknown_transactions, 2)
+            self.assertEqual(stats.speculative_wave_count, 0)
+            self.assertEqual(stats.serial_prefiltered, 2)
+            self.assertEqual(
+                stats.estimated_unknown_shapes,
+                (
+                    {
+                        "contract": "con_rw",
+                        "function": "get_value",
+                        "count": 1,
+                    },
+                    {
+                        "contract": "con_rw",
+                        "function": "set_value",
+                        "count": 1,
+                    },
+                ),
+            )
+
+    def test_parallel_executor_estimates_core_singleton_contracts(self):
+        txs = [
+            self._tx(
+                sender="alice",
+                contract="chi_cost",
+                function="current_value",
+                kwargs={},
+                nonce=0,
+                signature="sig-core-1",
+            ),
+            self._tx(
+                sender="bob",
+                contract="rewards",
+                function="current_value",
+                kwargs={},
+                nonce=0,
+                signature="sig-core-2",
+            ),
+            self._tx(
+                sender="carol",
+                contract="chi_cost",
+                function="current_value",
+                kwargs={},
+                nonce=0,
+                signature="sig-core-3",
+            ),
+            self._tx(
+                sender="dave",
+                contract="rewards",
+                function="current_value",
+                kwargs={},
+                nonce=0,
+                signature="sig-core-4",
+            ),
+            self._tx(
+                sender="erin",
+                contract="chi_cost",
+                function="set_value",
+                kwargs={"new_value": 101},
+                nonce=0,
+                signature="sig-core-5",
+            ),
+            self._tx(
+                sender="frank",
+                contract="chi_cost",
+                function="set_value",
+                kwargs={"new_value": 102},
+                nonce=0,
+                signature="sig-core-6",
+            ),
+            self._tx(
+                sender="grace",
+                contract="rewards",
+                function="set_value",
+                kwargs={"new_value": [0.25, 0.25, 0.25, 0.25]},
+                nonce=0,
+                signature="sig-core-7",
+            ),
+            self._tx(
+                sender="heidi",
+                contract="rewards",
+                function="current_value",
+                kwargs={},
+                nonce=0,
+                signature="sig-core-8",
+            ),
+        ]
+
+        with (
+            tempfile.TemporaryDirectory() as serial_dir,
+            tempfile.TemporaryDirectory() as parallel_dir,
+        ):
+            serial_client = ContractingClient(
+                storage_home=Path(serial_dir) / "xian"
+            )
+            parallel_client = ContractingClient(
+                storage_home=Path(parallel_dir) / "xian"
+            )
+            for client in (serial_client, parallel_client):
+                client.submit(
+                    CORE_VALUE_CONTRACT_CODE,
+                    name="chi_cost",
+                    signer="sys",
+                )
+                client.submit(
+                    CORE_VALUE_CONTRACT_CODE,
+                    name="rewards",
+                    signer="sys",
+                )
+                client.raw_driver.commit()
+            serial_processor = TxProcessor(client=serial_client)
+            parallel_processor = TxProcessor(client=parallel_client)
+
+            serial_results = [
+                serial_processor.process_tx(
+                    deepcopy(tx),
+                    enabled_fees=False,
+                    rewards_handler=None,
+                    track_access=True,
+                )
+                for tx in txs
+            ]
+
+            executor = ParallelBlockExecutor(
+                storage_home=Path(parallel_dir) / "xian",
+                enabled=True,
+                workers=1,
+                min_transactions=1,
+            )
+            parallel_results, stats = executor.execute(
+                txs=deepcopy(txs),
+                tx_processor=parallel_processor,
+                enabled_fees=False,
+                rewards_handler=None,
+            )
+
+            self.assertEqual(stats.estimated_known_transactions, 8)
+            self.assertEqual(stats.estimated_unknown_transactions, 0)
+            self.assertEqual(stats.estimated_stage_count, 4)
+            self.assertEqual(stats.estimated_parallelizable_transactions, 4)
+            self.assertEqual(stats.speculative_wave_count, 2)
+            self.assertEqual(stats.speculative_accepted, 6)
+            self.assertEqual(stats.serial_prefiltered, 2)
+            self.assertEqual(
+                stats.estimated_known_shapes,
+                (
+                    {
+                        "contract": "rewards",
+                        "function": "current_value",
+                        "count": 3,
+                    },
+                    {
+                        "contract": "chi_cost",
+                        "function": "current_value",
+                        "count": 2,
+                    },
+                    {
+                        "contract": "chi_cost",
+                        "function": "set_value",
+                        "count": 2,
+                    },
+                    {
+                        "contract": "rewards",
+                        "function": "set_value",
+                        "count": 1,
+                    },
+                ),
+            )
+            self.assertEqual(stats.estimated_unknown_shapes, ())
+
+            serial_tx_results = [
+                self._tx_result_without_state(result["tx_result"])
+                for result in serial_results
+            ]
+            parallel_tx_results = [
+                self._tx_result_without_state(result["tx_result"])
+                for result in parallel_results
+            ]
+            self.assertEqual(parallel_tx_results, serial_tx_results)
+            self.assertEqual(
+                parallel_client.raw_driver.get("chi_cost.S:value"), 102
+            )
+            self.assertEqual(
+                parallel_client.raw_driver.get("rewards.S:value"),
+                serial_client.raw_driver.get("rewards.S:value"),
+            )
 
     def test_parallel_executor_falls_back_for_prefix_scan_reads(self):
         contract_code = textwrap.dedent(
@@ -398,6 +737,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
                 enabled=True,
                 workers=1,
                 min_transactions=1,
+                access_estimates_enabled=False,
             )
             parallel_results, stats = executor.execute(
                 txs=deepcopy(txs),
@@ -476,6 +816,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
                 enabled=True,
                 workers=1,
                 min_transactions=1,
+                access_estimates_enabled=False,
             )
             parallel_results, stats = executor.execute(
                 txs=deepcopy(txs),
@@ -502,6 +843,77 @@ class TestParallelBlockExecutor(unittest.TestCase):
             self.assertEqual(
                 parallel_client.raw_driver.get("con_token_c.metadata:gamma"),
                 serial_client.raw_driver.get("con_token_c.metadata:gamma"),
+            )
+
+    def test_parallel_executor_guardrail_serializes_hot_conflict_tail(self):
+        txs = [
+            self._tx(
+                sender=f"sender-{index}",
+                contract="con_rw",
+                function="set_value",
+                kwargs={"new_value": index},
+                nonce=0,
+                signature=f"sig-hot-{index}",
+            )
+            for index in range(8)
+        ]
+
+        with (
+            tempfile.TemporaryDirectory() as serial_dir,
+            tempfile.TemporaryDirectory() as parallel_dir,
+        ):
+            serial_client, serial_processor = self._build_processor(
+                Path(serial_dir) / "xian"
+            )
+            parallel_client, parallel_processor = self._build_processor(
+                Path(parallel_dir) / "xian"
+            )
+
+            serial_results = [
+                serial_processor.process_tx(
+                    deepcopy(tx),
+                    enabled_fees=False,
+                    rewards_handler=None,
+                    track_access=True,
+                )
+                for tx in txs
+            ]
+
+            executor = ParallelBlockExecutor(
+                storage_home=Path(parallel_dir) / "xian",
+                enabled=True,
+                workers=1,
+                min_transactions=1,
+                min_wave_acceptance_ratio=0.5,
+                low_acceptance_min_wave_size=4,
+                access_estimates_enabled=False,
+            )
+            parallel_results, stats = executor.execute(
+                txs=deepcopy(txs),
+                tx_processor=parallel_processor,
+                enabled_fees=False,
+                rewards_handler=None,
+            )
+
+            self.assertEqual(stats.speculative_wave_count, 1)
+            self.assertEqual(stats.speculative_accepted, 1)
+            self.assertEqual(stats.speculative_rejected, 7)
+            self.assertEqual(stats.serial_fallbacks, 7)
+            self.assertEqual(stats.guardrail_fallbacks, 7)
+
+            serial_tx_results = [
+                self._tx_result_without_state(result["tx_result"])
+                for result in serial_results
+            ]
+            parallel_tx_results = [
+                self._tx_result_without_state(result["tx_result"])
+                for result in parallel_results
+            ]
+            self.assertEqual(parallel_tx_results, serial_tx_results)
+            self.assertEqual(parallel_client.raw_driver.get("con_rw.value"), 7)
+            self.assertEqual(
+                parallel_client.raw_driver.get("con_rw.value"),
+                serial_client.raw_driver.get("con_rw.value"),
             )
 
     def test_parallel_executor_tracks_native_hash_read_after_write_conflicts(
@@ -576,6 +988,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
                 workers=1,
                 min_transactions=1,
                 execution_runtime=runtime,
+                access_estimates_enabled=False,
             )
             parallel_results, stats = executor.execute(
                 txs=deepcopy(txs),
@@ -597,11 +1010,17 @@ class TestParallelBlockExecutor(unittest.TestCase):
             ]
             self.assertEqual(parallel_tx_results, serial_tx_results)
             self.assertEqual(
-                parallel_client.raw_driver.get("con_parallel_probe.observations:obs-1"),
-                serial_client.raw_driver.get("con_parallel_probe.observations:obs-1"),
+                parallel_client.raw_driver.get(
+                    "con_parallel_probe.observations:obs-1"
+                ),
+                serial_client.raw_driver.get(
+                    "con_parallel_probe.observations:obs-1"
+                ),
             )
             self.assertEqual(
-                parallel_client.raw_driver.get("con_parallel_probe.observations:obs-1"),
+                parallel_client.raw_driver.get(
+                    "con_parallel_probe.observations:obs-1"
+                ),
                 7,
             )
 
@@ -667,6 +1086,34 @@ class TestParallelBlockExecutor(unittest.TestCase):
 
         executor.close()
         self.assertEqual(created_executors[0].shutdown_calls, 1)
+
+    def test_parallel_executor_warm_resets_failed_process_pool(self):
+        created_executors = []
+
+        class FakeExecutor:
+            def __init__(self, *args, **kwargs):
+                self.shutdown_calls = 0
+                created_executors.append(self)
+
+            def map(self, fn, tasks):
+                raise RuntimeError("warm failed")
+
+            def shutdown(self, wait=True, cancel_futures=False):
+                self.shutdown_calls += 1
+
+        executor = ParallelBlockExecutor(
+            storage_home=Path("/tmp/xian-test"),
+            enabled=True,
+            workers=2,
+            min_transactions=1,
+        )
+
+        with patch("xian.parallel_executor.ProcessPoolExecutor", FakeExecutor):
+            executor.warm(use_rewards_handler=False)
+
+        self.assertEqual(len(created_executors), 1)
+        self.assertEqual(created_executors[0].shutdown_calls, 1)
+        self.assertIsNone(executor._executor)
 
     def test_worker_runtime_reuses_client_and_processor(self):
         with tempfile.TemporaryDirectory() as temp_dir:
