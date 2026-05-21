@@ -63,12 +63,12 @@ class ExistingHomeOptions:
     moniker: str
     validator_private_key_hex: str | None = None
     home: Path = c.COMETBFT_HOME
-    seed_node: str | None = None
-    seed_node_address: str | None = None
+    discover_seeds: tuple[str, ...] = ()
+    p2p_seeds: tuple[str, ...] = ()
+    p2p_persistent_peers: tuple[str, ...] = ()
     snapshot_url: str | None = None
     snapshot_signing_public_keys: tuple[str, ...] = ()
     snapshot_expected_chain_id: str | None = None
-    copy_genesis: bool = False
     genesis_source: str | None = None
     genesis_payload: dict[str, Any] | None = None
     node_config: NodeConfigOptions | None = None
@@ -123,25 +123,22 @@ def fetch_seed_node_status(
     return None
 
 
-def resolve_seed_nodes(
+def resolve_p2p_seeds(
     *,
-    seed_node: str | None = None,
-    seed_node_address: str | None = None,
+    discover_seeds: tuple[str, ...] = (),
+    p2p_seeds: tuple[str, ...] = (),
 ) -> list[str]:
-    if seed_node is not None:
-        status = fetch_seed_node_status(seed_node)
+    resolved = list(p2p_seeds)
+    for seed in discover_seeds:
+        status = fetch_seed_node_status(seed)
         if status is None:
             raise RuntimeError(
-                f"failed to get node information from seed node {seed_node}"
+                f"failed to get node information from seed node {seed}"
             )
 
         node_id = status["result"]["node_info"]["id"]
-        return [f"{node_id}@{seed_node}:26656"]
-
-    if seed_node_address is not None:
-        return [f"{seed_node_address}:26656"]
-
-    return []
+        resolved.append(f"{node_id}@{seed}:26656")
+    return resolved
 
 
 def _safe_extract_tar_archive(archive_path: Path, target_path: Path) -> None:
@@ -359,16 +356,16 @@ def configure_existing_home(
     validator_private_key_hex: str | None = None,
     home: Path = c.COMETBFT_HOME,
     allow_cors: bool = True,
-    seed_node: str | None = None,
-    seed_node_address: str | None = None,
+    discover_seeds: list[str] | None = None,
+    p2p_seeds: list[str] | None = None,
+    p2p_persistent_peers: list[str] | None = None,
     snapshot_url: str | None = None,
     snapshot_signing_public_keys: list[str] | None = None,
     snapshot_expected_chain_id: str | None = None,
-    copy_genesis: bool = False,
     genesis_source: str | None = None,
     genesis_payload: dict[str, Any] | None = None,
     prometheus: bool = True,
-    service_node: bool = False,
+    bds_enabled: bool = False,
     enable_pruning: bool = False,
     blocks_to_keep: int = 100000,
     block_policy_mode: str = "on_demand",
@@ -422,7 +419,12 @@ def configure_existing_home(
     bds_pool_min_size: int = 1,
     bds_pool_max_size: int = 10,
     bds_statement_timeout_ms: int = 0,
+    bds_acquire_timeout_ms: int = 10_000,
     bds_application_name: str = "xian-bds",
+    bds_queue_max_size: int = 128,
+    bds_catchup_enabled: bool = True,
+    bds_catchup_poll_seconds: float = 1.0,
+    bds_rpc_url: str = "",
     bds_spool_dir: str = "",
     bds_spool_warn_entries: int = 256,
     bds_spool_warn_bytes: int = 536_870_912,
@@ -434,7 +436,7 @@ def configure_existing_home(
         node_config = NodeConfigOptions(
             moniker=moniker,
             allow_cors=allow_cors,
-            service_node=service_node,
+            bds_enabled=bds_enabled,
             enable_pruning=enable_pruning,
             blocks_to_keep=blocks_to_keep,
             transaction_trace_logging=transaction_trace_logging,
@@ -497,7 +499,12 @@ def configure_existing_home(
                 pool_min_size=bds_pool_min_size,
                 pool_max_size=bds_pool_max_size,
                 statement_timeout_ms=bds_statement_timeout_ms,
+                acquire_timeout_ms=bds_acquire_timeout_ms,
                 application_name=bds_application_name,
+                queue_max_size=bds_queue_max_size,
+                catchup_enabled=bds_catchup_enabled,
+                catchup_poll_seconds=bds_catchup_poll_seconds,
+                rpc_url=bds_rpc_url,
                 spool_dir=bds_spool_dir,
                 spool_warn_entries=bds_spool_warn_entries,
                 spool_warn_bytes=bds_spool_warn_bytes,
@@ -509,14 +516,14 @@ def configure_existing_home(
             moniker=moniker,
             validator_private_key_hex=validator_private_key_hex,
             home=home,
-            seed_node=seed_node,
-            seed_node_address=seed_node_address,
+            discover_seeds=tuple(discover_seeds or ()),
+            p2p_seeds=tuple(p2p_seeds or ()),
+            p2p_persistent_peers=tuple(p2p_persistent_peers or ()),
             snapshot_url=snapshot_url,
             snapshot_signing_public_keys=tuple(
                 snapshot_signing_public_keys or ()
             ),
             snapshot_expected_chain_id=snapshot_expected_chain_id,
-            copy_genesis=copy_genesis,
             genesis_source=genesis_source,
             genesis_payload=genesis_payload,
             node_config=node_config,
@@ -528,16 +535,17 @@ def configure_existing_home(
     )
     config_path = request.home / "config" / "config.toml"
     existing_config = load_existing_cometbft_config(config_path)
-    seed_nodes = resolve_seed_nodes(
-        seed_node=request.seed_node,
-        seed_node_address=request.seed_node_address,
+    p2p_seeds = resolve_p2p_seeds(
+        discover_seeds=request.discover_seeds,
+        p2p_seeds=request.p2p_seeds,
     )
     rendered_configs = render_node_configs(
         options=NodeConfigOptions(
             moniker=node_config.moniker,
-            seed_nodes=tuple(seed_nodes),
+            p2p_seeds=tuple(p2p_seeds),
+            p2p_persistent_peers=request.p2p_persistent_peers,
             allow_cors=node_config.allow_cors,
-            service_node=node_config.service_node,
+            bds_enabled=node_config.bds_enabled,
             enable_pruning=node_config.enable_pruning,
             blocks_to_keep=node_config.blocks_to_keep,
             transaction_trace_logging=node_config.transaction_trace_logging,
@@ -576,7 +584,7 @@ def configure_existing_home(
         )
 
     genesis_target_path: Path | None = None
-    if request.copy_genesis:
+    if request.genesis_payload is not None or request.genesis_source is not None:
         genesis_target_path = resolve_home_relative_path(
             request.home,
             config["genesis_file"],
@@ -591,11 +599,6 @@ def configure_existing_home(
         elif request.genesis_source is not None:
             genesis_source_path = resolve_genesis_source(request.genesis_source)
             shutil.copy2(genesis_source_path, genesis_target_path)
-        else:
-            raise ValueError(
-                "genesis_source or genesis_payload is required when "
-                "copy_genesis is enabled"
-            )
 
     priv_validator_key_path: Path | None = None
     if request.validator_private_key_hex is not None:
@@ -626,5 +629,6 @@ def configure_existing_home(
             str(priv_validator_key_path) if priv_validator_key_path else None
         ),
         "snapshot_archive_name": snapshot_archive_name,
-        "seed_nodes": list(seed_nodes),
+        "p2p_seeds": list(p2p_seeds),
+        "p2p_persistent_peers": list(request.p2p_persistent_peers),
     }

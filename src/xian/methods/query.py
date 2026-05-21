@@ -968,7 +968,7 @@ async def _execute_query(ctx: QueryContext) -> QueryResult:
     if handler is not None:
         return await handler(ctx)
 
-    if ctx.app.block_service_mode:
+    if ctx.app.bds_enabled:
         handler = BDS_QUERY_HANDLERS.get(ctx.route)
         if handler is not None:
             return await handler(ctx)

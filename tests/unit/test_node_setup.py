@@ -33,9 +33,9 @@ class NodeSetupTests(unittest.TestCase):
         configs = render_node_configs(
             options=NodeConfigOptions(
                 moniker="validator-1",
-                seed_nodes=("seed-1@127.0.0.1:26656",),
+                p2p_seeds=("seed-1@127.0.0.1:26656",),
                 allow_cors=False,
-                service_node=True,
+                bds_enabled=True,
                 enable_pruning=True,
                 blocks_to_keep=5000,
                 transaction_trace_logging=True,
@@ -108,7 +108,7 @@ class NodeSetupTests(unittest.TestCase):
         )
         self.assertFalse(config["rpc"]["cors_allowed_origins"])
         self.assertNotIn("xian", config)
-        self.assertTrue(xian_config["block_service_mode"])
+        self.assertTrue(xian_config["bds_enabled"])
         self.assertTrue(xian_config["pruning_enabled"])
         self.assertEqual(xian_config["metrics_port"], 9208)
         self.assertNotIn("execution", xian_config)
@@ -132,11 +132,11 @@ class NodeSetupTests(unittest.TestCase):
     def test_render_config_applies_xian_settings(self):
         configs = render_node_configs(
             options=_node_options(
-                seed_nodes=(
+                p2p_seeds=(
                     "seed1@127.0.0.1:26656",
                     "seed2@127.0.0.1:26656",
                 ),
-                service_node=True,
+                bds_enabled=True,
                 enable_pruning=True,
                 blocks_to_keep=5000,
                 simulation=SimulationOptions(
@@ -174,7 +174,7 @@ class NodeSetupTests(unittest.TestCase):
             config["consensus"]["create_empty_blocks_interval"], "0s"
         )
         self.assertNotIn("xian", config)
-        self.assertTrue(xian_config["block_service_mode"])
+        self.assertTrue(xian_config["bds_enabled"])
         self.assertTrue(xian_config["pruning_enabled"])
         self.assertEqual(xian_config["blocks_to_keep"], 5000)
         self.assertNotIn("tracer_mode", xian_config)
@@ -206,6 +206,11 @@ class NodeSetupTests(unittest.TestCase):
         )
         self.assertEqual(xian_config["bds"]["database"], "xian")
         self.assertEqual(xian_config["bds"]["application_name"], "xian-bds")
+        self.assertEqual(xian_config["bds"]["acquire_timeout_ms"], 10000)
+        self.assertEqual(xian_config["bds"]["queue_max_size"], 128)
+        self.assertTrue(xian_config["bds"]["catchup_enabled"])
+        self.assertEqual(xian_config["bds"]["catchup_poll_seconds"], 1.0)
+        self.assertEqual(xian_config["bds"]["rpc_url"], "")
         self.assertEqual(xian_config["bds"]["spool_warn_entries"], 256)
         self.assertEqual(xian_config["bds"]["spool_warn_bytes"], 536_870_912)
         self.assertEqual(
@@ -224,7 +229,12 @@ class NodeSetupTests(unittest.TestCase):
                     pool_min_size=2,
                     pool_max_size=6,
                     statement_timeout_ms=5000,
+                    acquire_timeout_ms=15000,
                     application_name="xian-bds-test",
+                    queue_max_size=321,
+                    catchup_enabled=False,
+                    catchup_poll_seconds=2.5,
+                    rpc_url="http://rpc.internal:26657",
                     spool_dir="/var/lib/xian/bds-spool",
                     spool_warn_entries=512,
                     spool_warn_bytes=1_073_741_824,
@@ -241,8 +251,15 @@ class NodeSetupTests(unittest.TestCase):
         self.assertEqual(xian_config["bds"]["pool_min_size"], 2)
         self.assertEqual(xian_config["bds"]["pool_max_size"], 6)
         self.assertEqual(xian_config["bds"]["statement_timeout_ms"], 5000)
+        self.assertEqual(xian_config["bds"]["acquire_timeout_ms"], 15000)
         self.assertEqual(
             xian_config["bds"]["application_name"], "xian-bds-test"
+        )
+        self.assertEqual(xian_config["bds"]["queue_max_size"], 321)
+        self.assertFalse(xian_config["bds"]["catchup_enabled"])
+        self.assertEqual(xian_config["bds"]["catchup_poll_seconds"], 2.5)
+        self.assertEqual(
+            xian_config["bds"]["rpc_url"], "http://rpc.internal:26657"
         )
         self.assertEqual(
             xian_config["bds"]["spool_dir"], "/var/lib/xian/bds-spool"
@@ -338,6 +355,21 @@ class NodeSetupTests(unittest.TestCase):
                 ],
                 trust_height=0,
                 trust_hash="ab" * 32,
+            )
+
+    def test_parallel_execution_requires_workers_when_enabled(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "parallel_execution_workers must be greater than zero when "
+            "parallel_execution_enabled is true",
+        ):
+            render_xian_config(
+                options=_node_options(
+                    parallel_execution=ParallelExecutionOptions(
+                        enabled=True,
+                        workers=0,
+                    )
+                )
             )
 
     def test_render_config_supports_periodic_block_policy(self):

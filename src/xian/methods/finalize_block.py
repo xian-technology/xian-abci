@@ -506,7 +506,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                     )
                 )
 
-                if self.block_service_mode:
+                if self.bds_enabled:
                     cometbft_hash = hash_bytes(tx_bytes).upper()
                     tx_result["hash"] = cometbft_hash
                     bds_transactions.append(
@@ -600,7 +600,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 else hash_list(self.fingerprint_hashes)
             )
 
-        if self.block_service_mode:
+        if self.bds_enabled:
             with self.profiler.scope("finalize_bds_enqueue", block_scoped=True):
                 try:
                     await self.bds.enqueue_block(

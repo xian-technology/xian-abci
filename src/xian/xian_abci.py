@@ -187,7 +187,7 @@ class Xian:
         self.fingerprint_hashes = []
         self.merkle_root_hash = None
 
-        self.block_service_mode = xian_config.get("block_service_mode", False)
+        self.bds_enabled = xian_config.get("bds_enabled", False)
         self.bds_config = BdsConfig.from_runtime_settings(xian_config)
         if self.bds_config.spool_dir is None:
             self.bds_config = replace(
@@ -274,7 +274,7 @@ class Xian:
                 extra={
                     "chain_id": self.chain_id,
                     "execution_mode": self.execution_mode,
-                    "service_node": self.block_service_mode,
+                    "bds_enabled": self.bds_enabled,
                     "simulation_enabled": self.simulator.enabled,
                     "parallel_execution_enabled": (
                         self.parallel_block_executor.enabled
@@ -312,13 +312,13 @@ class Xian:
     @classmethod
     async def create(cls, constants=Constants()):
         self = cls(constants=constants)
-        if self.block_service_mode:
+        if self.bds_enabled:
             self.bds = BDS(self.bds_config, raw_driver=self.client.raw_driver)
             self._bds_storage_initialized = False
         return self
 
     async def start_runtime(self):
-        if self.block_service_mode and hasattr(self, "bds"):
+        if self.bds_enabled and hasattr(self, "bds"):
             if not getattr(self, "_bds_storage_initialized", False):
                 await self.bds.initialize_storage(cometbft_genesis=self.genesis)
                 self._bds_storage_initialized = True
@@ -436,7 +436,7 @@ class Xian:
         self.parallel_block_executor.close()
         self.simulator.close()
         await self.metrics_service.close()
-        if self.block_service_mode and hasattr(self, "bds"):
+        if self.bds_enabled and hasattr(self, "bds"):
             await self.bds.close()
 
 

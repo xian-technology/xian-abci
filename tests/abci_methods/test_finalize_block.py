@@ -226,7 +226,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             "chi_used": 1,
             "result": "ok",
         }
-        self.app.block_service_mode = True
+        self.app.bds_enabled = True
         self.app.bds = type("FakeBDS", (), {"enqueue_block": AsyncMock()})()
 
         with (
@@ -271,7 +271,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             "chi_used": 1,
             "result": "ok",
         }
-        self.app.block_service_mode = True
+        self.app.bds_enabled = True
         self.app.bds = type(
             "FakeBDS",
             (),

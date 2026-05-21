@@ -48,7 +48,7 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
             },
         )()
 
-        self.app.block_service_mode = True
+        self.app.bds_enabled = True
         self.app.bds = fake_bds
         self.app.metrics_service = fake_metrics
         self.app._bds_storage_initialized = False
