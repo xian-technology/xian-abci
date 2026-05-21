@@ -10,8 +10,8 @@ It is not a full user-facing API manual.
 - Repo-owned application queries are implemented in
   `src/xian/methods/query.py` and are reached through:
   `/abci_query?path="/..."`
-- BDS-backed history and index queries are only available when BDS is enabled
-  in block-service mode.
+- BDS-backed history and index queries are only available when the Blockchain
+  Data Service (BDS) is enabled for the node runtime.
 
 ## Core Runtime Queries
 
