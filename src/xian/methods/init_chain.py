@@ -1,5 +1,4 @@
 from cometbft.abci.v1beta3.types_pb2 import ResponseInitChain
-from xian.state_root import compute_driver_state_root
 from xian.utils.block import set_latest_block, store_genesis_block
 
 
@@ -14,7 +13,9 @@ async def init_chain(self, req) -> ResponseInitChain:
     await store_genesis_block(
         self.client, self.nonce_storage, abci_genesis_state
     )
-    state_root = compute_driver_state_root(self.client.raw_driver)
+    state_root = self.state_root_cache.rebuild(
+        self.client.raw_driver.items().items()
+    )
     expected_hash = abci_genesis_state.get("hash")
     if expected_hash and bytes.fromhex(expected_hash) != state_root:
         raise ValueError("genesis state root does not match abci_genesis.hash")

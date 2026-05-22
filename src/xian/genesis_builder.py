@@ -18,7 +18,7 @@ from xian_runtime_types.encoding import encode
 from xian.config_paths import (
     resolve_contracts_dir as resolve_configs_contracts_dir,
 )
-from xian.state_root import merkle_root_from_items
+from xian.state_root import StateRootCache
 
 TEMPLATE_ARG_PATTERN = re.compile(r"%%(.*?)%%")
 DEFAULT_CONSENSUS_PARAMS = {
@@ -160,19 +160,17 @@ def _build_genesis_block(
         },
     }
 
-    for key, value in contracting.raw_driver.pending_writes.items():
-        if value is None:
-            continue
+    contracting.raw_driver.hard_apply("0")
+    contracting.raw_driver.flush_cache()
+    for key, value in contracting.raw_driver.items().items():
         genesis_block["genesis"].append({"key": key, "value": value})
-
     genesis_block["genesis"] = sorted(
         genesis_block["genesis"],
         key=lambda item: item["key"],
     )
-    genesis_block["hash"] = merkle_root_from_items(
-        (entry["key"], entry["value"])
-        for entry in genesis_block["genesis"]
-    ).hex()
+    genesis_block["hash"] = StateRootCache.from_driver(
+        contracting.raw_driver
+    ).root_hash.hex()
     genesis_block["origin"]["sender"] = wallet.public_key
     genesis_block["origin"]["signature"] = wallet.sign_msg(
         hash_state_changes(genesis_block["genesis"])

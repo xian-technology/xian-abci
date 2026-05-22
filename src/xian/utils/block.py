@@ -104,6 +104,14 @@ def get_nanotime_from_block_time(timeobj) -> int:
     return (seconds * 1_000_000_000) + nanos
 
 
+def _convert_runtime_value(value):
+    if type(value) is dict:
+        return convert_dict(value)
+    if isinstance(value, list):
+        return [_convert_runtime_value(item) for item in value]
+    return value
+
+
 def apply_state_changes_from_block(client, nonce_storage, block):
     state_changes = block.get("genesis", [])
     rewards = block.get("rewards", [])
@@ -112,18 +120,14 @@ def apply_state_changes_from_block(client, nonce_storage, block):
     nonces = block.get("nonces", [])
 
     for i, s in enumerate(state_changes):
-        if type(s["value"]) is dict:
-            s["value"] = convert_dict(s["value"])
-
+        s["value"] = _convert_runtime_value(s["value"])
         client.raw_driver.set(s["key"], s["value"])
 
     for n in nonces:
         nonce_storage.set_nonce(n["key"], n["value"])
 
     for s in rewards:
-        if type(s["value"]) is dict:
-            s["value"] = convert_dict(s["value"])
-
+        s["value"] = _convert_runtime_value(s["value"])
         client.raw_driver.set(s["key"], s["value"])
 
     client.raw_driver.hard_apply(nanos)

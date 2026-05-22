@@ -14,8 +14,7 @@ This file tracks follow-up work that still looks relevant on current `main`.
 
 ## Snapshot And Recovery Follow-Ups
 
-- benchmark whether the full-state root recomputation should be replaced with
-  an incremental cached Merkle tree on large production state
+- benchmark state-root cache rebuild cost on large production state snapshots
 - evaluate compact Merkle inclusion or range proofs if light-client state
   queries become a requirement
 - decide whether periodic snapshot export belongs in `xian-abci` or in

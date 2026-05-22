@@ -9,7 +9,12 @@ async def commit(self) -> ResponseCommit:
         nanos=self.current_block_meta["nanos"],
     )
 
-    self.client.raw_driver.hard_apply(str(self.current_block_meta["nanos"]))
+    try:
+        self.client.raw_driver.hard_apply(str(self.current_block_meta["nanos"]))
+    except Exception:
+        self.state_root_cache.rollback()
+        raise
+    self.state_root_cache.commit()
     self.nonce_storage.reconcile_pending()
 
     # unset current_block_meta & cleanup

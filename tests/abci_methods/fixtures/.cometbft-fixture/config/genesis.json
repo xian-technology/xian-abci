@@ -31,9 +31,9 @@
             "name": ""
         }
     ],
-    "app_hash": "0ad15b4006c51489c37d29c742f3fa9fdf10a952e94c745e7fb48eeae4c0f3af",
+    "app_hash": "bc519465e4cecb1f71a21422eed29ae048614c281d9415e5e4d20062a717ccf7",
     "abci_genesis": {
-        "hash": "0ad15b4006c51489c37d29c742f3fa9fdf10a952e94c745e7fb48eeae4c0f3af",
+        "hash": "bc519465e4cecb1f71a21422eed29ae048614c281d9415e5e4d20062a717ccf7",
         "number": "0",
         "genesis": [
             {

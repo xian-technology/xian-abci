@@ -10,7 +10,11 @@ from typing import Any
 
 from contracting.storage.driver import Driver
 
-from xian.state_root import compute_driver_state_root, merkle_root_from_items
+from xian.state_root import (
+    StateRootCache,
+    compute_driver_state_root,
+    merkle_root_from_items,
+)
 
 
 def build_items(size: int) -> list[tuple[str, Any]]:
@@ -51,6 +55,32 @@ def time_driver_root(items: Iterable[tuple[str, Any]], repeats: int) -> list[flo
     return durations
 
 
+def time_cached_updates(
+    items: Iterable[tuple[str, Any]],
+    *,
+    update_count: int,
+    repeats: int,
+) -> list[float]:
+    materialized_items = list(items)
+    cache = StateRootCache(materialized_items)
+    writes = {
+        key: {
+            "amount": index + 1_000_000,
+            "owner": f"updated-vk-{index}",
+        }
+        for index, (key, _value) in enumerate(
+            materialized_items[: max(update_count, 0)]
+        )
+    }
+    durations = []
+    for _ in range(repeats):
+        started = time.perf_counter()
+        cache.prepare(writes)
+        durations.append((time.perf_counter() - started) * 1000)
+        cache.rollback()
+    return durations
+
+
 def print_durations(source: str, size: int, durations: list[float]) -> None:
     print(
         "source={source} size={size} median_ms={median:.2f} "
@@ -86,6 +116,13 @@ def main() -> None:
         action="store_true",
         help="also benchmark root calculation through Driver.items()",
     )
+    parser.add_argument(
+        "--update-counts",
+        nargs="+",
+        type=int,
+        default=[1, 10, 100],
+        help="touched key counts to benchmark through the incremental cache",
+    )
     args = parser.parse_args()
 
     for size in args.sizes:
@@ -94,6 +131,16 @@ def main() -> None:
         print_durations("memory", size, time_root(items, repeats))
         if args.driver:
             print_durations("driver", size, time_driver_root(items, repeats))
+        for update_count in args.update_counts:
+            print_durations(
+                f"cache-update-{update_count}",
+                size,
+                time_cached_updates(
+                    items,
+                    update_count=update_count,
+                    repeats=repeats,
+                ),
+            )
 
 
 if __name__ == "__main__":

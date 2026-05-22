@@ -52,6 +52,7 @@ from xian.services.bds.bds import BDS
 from xian.services.bds.config import BdsConfig
 from xian.services.state_sync import StateSnapshotManager
 from xian.simulator import QuerySimulationService
+from xian.state_root import StateRootCache
 from xian.utils.block import get_latest_block_height
 from xian.utils.cometbft import (
     load_genesis_data,
@@ -114,6 +115,9 @@ class Xian:
         self.execution_mode = self.execution_runtime.mode
         self.client = ContractingClient(
             storage_home=constants.STORAGE_HOME,
+        )
+        self.state_root_cache = StateRootCache.from_driver(
+            self.client.raw_driver
         )
         self.chain_id = self.genesis.get("chain_id", None)
         if self.chain_id is None:
@@ -366,6 +370,7 @@ class Xian:
             self.profiler.end_block(app_hash=res.app_hash.hex())
             return res
         except Exception as exc:
+            self.state_root_cache.rollback()
             self.profiler.end_block(error=f"{type(exc).__name__}: {exc}")
             raise
 
@@ -421,6 +426,7 @@ class Xian:
         )
         if response.result == response.ACCEPT:
             self.nonce_storage.flush_pending()
+            self.state_root_cache.rebuild(self.client.raw_driver.items().items())
         return response
 
     async def query(self, req):
@@ -440,6 +446,20 @@ class Xian:
 
 
 def main():
+    # Refuse to boot under PYTHONOPTIMIZE / -O. The interpreter strips assert
+    # statements and __debug__-guarded blocks; many of those guard
+    # consensus-critical invariants (private-method gating, balance/stamp
+    # caps, hash-key delimiter and size limits, contract-size cap). A
+    # validator running with optimization on would silently diverge from the
+    # rest of the network.
+    if not __debug__:
+        sys.stderr.write(
+            "xian-abci refuses to run with PYTHONOPTIMIZE / python -O: "
+            "assert statements guard consensus-critical invariants and "
+            "stripping them produces divergent state. Re-run without -O.\n"
+        )
+        sys.exit(2)
+
     constants = Constants()
     configure_logging(constants)
 

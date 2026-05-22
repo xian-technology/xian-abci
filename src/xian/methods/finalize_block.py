@@ -9,7 +9,6 @@ from xian.constants import Constants as c
 from xian.methods._evidence import maybe_apply_evidence_penalties
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.shielded_preverify import warm_shielded_proof_cache
-from xian.state_root import compute_driver_state_root
 from xian.utils.block import (
     convert_cometbft_time_to_datetime,
     get_nanotime_from_block_time,
@@ -576,8 +575,8 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         )
                     ).info("Applied state patch before state-root calculation")
 
-            self.merkle_root_hash = compute_driver_state_root(
-                self.client.raw_driver
+            self.merkle_root_hash = self.state_root_cache.prepare(
+                self.client.raw_driver.pending_writes
             )
 
         if self.bds_enabled:
