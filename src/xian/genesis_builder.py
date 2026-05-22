@@ -18,6 +18,7 @@ from xian_runtime_types.encoding import encode
 from xian.config_paths import (
     resolve_contracts_dir as resolve_configs_contracts_dir,
 )
+from xian.state_root import StateRootCache
 
 TEMPLATE_ARG_PATTERN = re.compile(r"%%(.*?)%%")
 DEFAULT_CONSENSUS_PARAMS = {
@@ -39,16 +40,6 @@ DEFAULT_CONSENSUS_PARAMS = {
 DEFAULT_PRESET_GENESIS_PRIVATE_KEY = (
     "1111111111111111111111111111111111111111111111111111111111111111"
 )
-
-
-def hash_block_data(
-    hlc_timestamp: str, block_number: str, previous_block_hash: str
-) -> str:
-    digest = hashlib.sha3_256()
-    digest.update(
-        f"{hlc_timestamp}{block_number}{previous_block_hash}".encode()
-    )
-    return digest.hexdigest()
 
 
 def hash_state_changes(state_changes: list[dict[str, Any]]) -> str:
@@ -160,11 +151,7 @@ def _build_genesis_block(
             )
 
     genesis_block = {
-        "hash": hash_block_data(
-            "0000-00-00T00:00:00.000000000Z_0",
-            "0",
-            "0" * 64,
-        ),
+        "hash": "",
         "number": "0",
         "genesis": [],
         "origin": {
@@ -173,11 +160,17 @@ def _build_genesis_block(
         },
     }
 
-    for key, value in contracting.raw_driver.pending_writes.items():
-        if value is None:
-            continue
+    contracting.raw_driver.hard_apply("0")
+    contracting.raw_driver.flush_cache()
+    for key, value in contracting.raw_driver.items().items():
         genesis_block["genesis"].append({"key": key, "value": value})
-
+    genesis_block["genesis"] = sorted(
+        genesis_block["genesis"],
+        key=lambda item: item["key"],
+    )
+    genesis_block["hash"] = StateRootCache.from_driver(
+        contracting.raw_driver
+    ).root_hash.hex()
     genesis_block["origin"]["sender"] = wallet.public_key
     genesis_block["origin"]["signature"] = wallet.sign_msg(
         hash_state_changes(genesis_block["genesis"])
@@ -302,7 +295,7 @@ def build_cometbft_genesis(
         "initial_height": str(abci_genesis.get("number", "0")),
         "consensus_params": deepcopy(DEFAULT_CONSENSUS_PARAMS),
         "validators": validators or [],
-        "app_hash": "",
+        "app_hash": str(abci_genesis.get("hash", "")),
         "abci_genesis": abci_genesis,
     }
 
@@ -440,6 +433,7 @@ def update_cometbft_genesis(
 
     cometbft_genesis["abci_genesis"] = abci_genesis
     cometbft_genesis["initial_height"] = str(abci_genesis["number"])
+    cometbft_genesis["app_hash"] = str(abci_genesis.get("hash", ""))
 
     with open(genesis_path, "w", encoding="utf-8") as handle:
         handle.write(encode(cometbft_genesis))

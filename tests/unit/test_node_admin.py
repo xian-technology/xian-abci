@@ -13,7 +13,7 @@ from xian.node_admin import (
     ExistingHomeOptions,
     apply_snapshot_archive,
     configure_existing_home,
-    resolve_seed_nodes,
+    resolve_p2p_seeds,
 )
 from xian.node_setup import (
     BdsOptions,
@@ -48,19 +48,19 @@ def _signed_snapshot_manifest(
 
 
 class NodeAdminTests(unittest.TestCase):
-    def test_resolve_seed_nodes_uses_seed_node_address(self):
+    def test_resolve_p2p_seeds_uses_explicit_seed(self):
         self.assertEqual(
-            resolve_seed_nodes(seed_node_address="abc@127.0.0.1"),
+            resolve_p2p_seeds(p2p_seeds=("abc@127.0.0.1:26656",)),
             ["abc@127.0.0.1:26656"],
         )
 
-    def test_resolve_seed_nodes_queries_status_endpoint(self):
+    def test_resolve_p2p_seeds_queries_status_endpoint(self):
         with patch(
             "xian.node_admin.fetch_seed_node_status",
             return_value={"result": {"node_info": {"id": "node-123"}}},
         ):
             self.assertEqual(
-                resolve_seed_nodes(seed_node="127.0.0.1"),
+                resolve_p2p_seeds(discover_seeds=("127.0.0.1",)),
                 ["node-123@127.0.0.1:26656"],
             )
 
@@ -262,8 +262,8 @@ prometheus = false
                         "0123456789abcdef0123456789abcdef0123456789abcdef"
                         "0123456789abcdef"
                     ),
-                    seed_node_address="seed-1@127.0.0.1",
-                    copy_genesis=True,
+                    p2p_seeds=["seed-1@127.0.0.1:26656"],
+                    p2p_persistent_peers=["peer-1@127.0.0.1:26656"],
                     genesis_source="local",
                     enable_pruning=True,
                     blocks_to_keep=5000,
@@ -297,7 +297,12 @@ prometheus = false
                     bds_pool_min_size=2,
                     bds_pool_max_size=6,
                     bds_statement_timeout_ms=5000,
+                    bds_acquire_timeout_ms=15000,
                     bds_application_name="xian-bds-test",
+                    bds_queue_max_size=321,
+                    bds_catchup_enabled=False,
+                    bds_catchup_poll_seconds=2.5,
+                    bds_rpc_url="http://rpc.internal:26657",
                     bds_spool_dir="/var/lib/xian/bds-spool",
                     bds_spool_warn_entries=512,
                     bds_spool_warn_bytes=1_073_741_824,
@@ -319,6 +324,10 @@ prometheus = false
             self.assertEqual(
                 rendered_config["p2p"]["seeds"],
                 "seed-1@127.0.0.1:26656",
+            )
+            self.assertEqual(
+                rendered_config["p2p"]["persistent_peers"],
+                "peer-1@127.0.0.1:26656",
             )
             self.assertEqual(
                 rendered_config["rpc"]["laddr"], "tcp://0.0.0.0:30057"
@@ -377,8 +386,20 @@ prometheus = false
                 rendered_xian_config["bds"]["statement_timeout_ms"], 5000
             )
             self.assertEqual(
+                rendered_xian_config["bds"]["acquire_timeout_ms"], 15000
+            )
+            self.assertEqual(
                 rendered_xian_config["bds"]["application_name"],
                 "xian-bds-test",
+            )
+            self.assertEqual(rendered_xian_config["bds"]["queue_max_size"], 321)
+            self.assertFalse(rendered_xian_config["bds"]["catchup_enabled"])
+            self.assertEqual(
+                rendered_xian_config["bds"]["catchup_poll_seconds"], 2.5
+            )
+            self.assertEqual(
+                rendered_xian_config["bds"]["rpc_url"],
+                "http://rpc.internal:26657",
             )
             self.assertEqual(
                 rendered_xian_config["bds"]["spool_dir"],
@@ -405,7 +426,11 @@ prometheus = false
                 result["xian_config_path"],
                 str(home / "config" / "xian.toml"),
             )
-            self.assertEqual(result["seed_nodes"], ["seed-1@127.0.0.1:26656"])
+            self.assertEqual(result["p2p_seeds"], ["seed-1@127.0.0.1:26656"])
+            self.assertEqual(
+                result["p2p_persistent_peers"],
+                ["peer-1@127.0.0.1:26656"],
+            )
 
     def test_configure_existing_home_accepts_options_object(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -449,7 +474,7 @@ seeds = ""
                         "0123456789abcdef"
                     ),
                     home=home,
-                    seed_node_address="seed-1@127.0.0.1",
+                    p2p_seeds=["seed-1@127.0.0.1:26656"],
                     node_config=NodeConfigOptions(
                         moniker="updated-node",
                         allow_cors=False,
@@ -475,7 +500,7 @@ seeds = ""
                 rendered_xian_config["bds"]["application_name"],
                 "xian-bds-test",
             )
-            self.assertEqual(result["seed_nodes"], ["seed-1@127.0.0.1:26656"])
+            self.assertEqual(result["p2p_seeds"], ["seed-1@127.0.0.1:26656"])
 
     def test_configure_existing_home_accepts_network_first_genesis_source(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -538,7 +563,6 @@ prometheus = false
                     home=home,
                     moniker="updated-node",
                     validator_private_key_hex=None,
-                    copy_genesis=True,
                     genesis_source="mainnet",
                 )
 
@@ -617,7 +641,6 @@ prometheus = false
                 home=home,
                 moniker="updated-node",
                 validator_private_key_hex=None,
-                copy_genesis=True,
                 genesis_payload=genesis_payload,
             )
 

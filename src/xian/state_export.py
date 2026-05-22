@@ -10,6 +10,10 @@ from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import decode, encode
 
+from xian.state_root import (
+    compute_driver_state_root,
+    compute_exported_state_root,
+)
 from xian.utils.block import (
     get_latest_block_hash,
     get_latest_block_height,
@@ -55,7 +59,11 @@ def build_exported_state(
     latest_block_nanos: int | None = None,
     storage_home: Path | None = None,
 ) -> dict[str, Any]:
-    block_hash = latest_block_hash or get_latest_block_hash(storage_home)
+    latest_app_hash = (
+        latest_block_hash
+        if latest_block_hash is not None
+        else get_latest_block_hash(storage_home)
+    )
     block_height = (
         latest_block_height
         if latest_block_height is not None
@@ -68,7 +76,7 @@ def build_exported_state(
     )
 
     exported_state = {
-        "hash": block_hash.hex(),
+        "hash": "",
         "number": block_height,
         "nanos": block_nanos,
         "origin": {
@@ -94,6 +102,12 @@ def build_exported_state(
         key=lambda item: item["key"],
     )
     exported_state["nonces"] = nonces
+    state_root = compute_exported_state_root(exported_state)
+    if latest_app_hash and latest_app_hash != state_root:
+        raise ValueError(
+            "exported state root does not match latest block app hash"
+        )
+    exported_state["hash"] = state_root.hex()
 
     if founder_private_key:
         founder_wallet = Ed25519Account(founder_private_key)
@@ -136,6 +150,11 @@ def import_state(
     storage_home: Path | None = None,
 ) -> dict[str, Any]:
     resolved_storage_home = Path(storage_home) if storage_home else None
+    state_root = compute_exported_state_root(exported_state)
+    advertised_hash = bytes.fromhex(exported_state.get("hash", ""))
+    if advertised_hash != state_root:
+        raise ValueError("exported state root mismatch")
+
     driver = (
         Driver(storage_home=resolved_storage_home)
         if resolved_storage_home is not None
@@ -157,12 +176,13 @@ def import_state(
     if writes:
         driver._store.batch_set(writes)
     driver.flush_cache()
+    if compute_driver_state_root(driver) != state_root:
+        raise ValueError("imported state root mismatch")
 
-    latest_block_hash = bytes.fromhex(exported_state.get("hash", ""))
     latest_block_height = int(exported_state.get("number", 0))
     latest_block_nanos = int(exported_state.get("nanos", 0))
     set_latest_block(
-        block_hash=latest_block_hash,
+        block_hash=state_root,
         height=latest_block_height,
         nanos=latest_block_nanos,
         storage_home=resolved_storage_home,
@@ -170,7 +190,7 @@ def import_state(
 
     return {
         "height": latest_block_height,
-        "app_hash": latest_block_hash.hex(),
+        "app_hash": state_root.hex(),
         "nanos": latest_block_nanos,
         "keys_imported": len(writes),
     }

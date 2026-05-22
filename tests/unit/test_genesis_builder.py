@@ -1,9 +1,12 @@
+import asyncio
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from contracting.local import ContractingClient
 from xian_accounts import Ed25519Account
+from xian_runtime_types.encoding import encode
 
 from xian.genesis_builder import (
     build_bundle_network_genesis,
@@ -17,6 +20,9 @@ from xian.genesis_builder import (
     update_cometbft_genesis,
     write_genesis_block,
 )
+from xian.nonce import NonceStorage
+from xian.state_root import StateRootCache
+from xian.utils.block import store_genesis_block
 
 
 class GenesisBuilderTests(unittest.TestCase):
@@ -42,6 +48,42 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertIn("zk_registry.__source__", state_by_key)
         self.assertIn("zk_registry.__xian_ir_v1__", state_by_key)
         self.assertEqual(state_by_key["zk_registry.registry_owner"], "governance")
+
+    def test_genesis_hash_matches_serialized_import_state_root(self):
+        founder_private_key = (
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        )
+        contracts_dir = (
+            Path(__file__).resolve().parents[3]
+            / "xian-configs"
+            / "contracts"
+        )
+
+        async def build_imported_root(genesis_block):
+            loaded_genesis = json.loads(encode(genesis_block))
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                client = ContractingClient(storage_home=Path(tmp_dir))
+                nonce_storage = NonceStorage(client)
+                client.raw_driver.flush_full()
+                await store_genesis_block(
+                    client,
+                    nonce_storage,
+                    loaded_genesis,
+                )
+                return StateRootCache.from_driver(
+                    client.raw_driver
+                ).root_hash.hex()
+
+        genesis_block = build_genesis_block(
+            founder_private_key=founder_private_key,
+            network="local",
+            contracts_dir=contracts_dir,
+        )
+
+        self.assertEqual(
+            genesis_block["hash"],
+            asyncio.run(build_imported_root(genesis_block)),
+        )
 
     def test_build_genesis_block_uses_importable_contract_bundle(self):
         founder_private_key = (
@@ -135,6 +177,7 @@ class GenesisBuilderTests(unittest.TestCase):
 
         self.assertEqual(updated["abci_genesis"], abci_genesis)
         self.assertEqual(updated["initial_height"], "7")
+        self.assertEqual(updated["app_hash"], "abc")
 
     def test_build_genesis_block_applies_constructor_overrides(self):
         founder_private_key = (
@@ -237,6 +280,7 @@ class GenesisBuilderTests(unittest.TestCase):
 
         self.assertEqual(genesis["chain_id"], "xian-local-1")
         self.assertEqual(genesis["initial_height"], "3")
+        self.assertEqual(genesis["app_hash"], "abc")
         self.assertEqual(genesis["validators"][0]["power"], "15")
         self.assertEqual(genesis["validators"][0]["name"], "validator-1")
         self.assertEqual(genesis["abci_genesis"], abci_genesis)

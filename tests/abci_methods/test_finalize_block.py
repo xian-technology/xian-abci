@@ -157,6 +157,108 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         )
         set_nonce.assert_not_called()
 
+    async def test_finalize_block_missing_tx_hash_does_not_set_nonce(self):
+        tx_result = {
+            "status": 0,
+            "state": [],
+            "events": [],
+            "chi_used": 1,
+            "result": "ok",
+        }
+
+        with (
+            patch(
+                "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
+                return_value={
+                    "payload": {
+                        "sender": "alice",
+                        "nonce": 1,
+                        "contract": "currency",
+                        "function": "transfer",
+                    },
+                    "metadata": {"signature": "sig"},
+                },
+            ),
+            patch(
+                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
+            ),
+            patch.object(
+                self.app.tx_processor,
+                "process_tx",
+                return_value={"tx_result": tx_result},
+            ),
+            patch.object(
+                self.app.nonce_storage, "set_nonce_by_tx"
+            ) as set_nonce,
+        ):
+            response = await self.process_request(
+                Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
+            )
+
+        self.assertEqual(
+            response.finalize_block.tx_results[0].code, c.ErrorCode
+        )
+        set_nonce.assert_not_called()
+
+    async def test_finalize_block_app_hash_commits_state_writes(self):
+        base_result = {
+            "hash": "SAME_TX_HASH",
+            "status": 0,
+            "state": [{"key": "currency.balances:alice", "value": "99"}],
+            "events": [],
+            "chi_used": 1,
+            "result": "ok",
+        }
+        changed_result = {
+            **base_result,
+            "state": [{"key": "currency.balances:alice", "value": "98"}],
+        }
+
+        def process_result(tx_result):
+            for state_write in tx_result["state"]:
+                self.app.client.raw_driver.set(
+                    state_write["key"],
+                    state_write["value"],
+                )
+            return {"tx_result": tx_result}
+
+        async def finalize_with(tx_result):
+            with (
+                patch(
+                    "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
+                    return_value={
+                        "payload": {
+                            "sender": "alice",
+                            "nonce": 1,
+                            "contract": "currency",
+                            "function": "transfer",
+                        },
+                        "metadata": {"signature": "sig"},
+                    },
+                ),
+                patch(
+                    "xian.methods.finalize_block.validate_consensus_transaction_after_static"
+                ),
+                patch.object(
+                    self.app.tx_processor,
+                    "process_tx",
+                    side_effect=lambda *args, **kwargs: process_result(
+                        tx_result
+                    ),
+                ),
+                patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
+            ):
+                response = await self.process_request(
+                    Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
+                )
+            self.app.merkle_root_hash = None
+            return response.finalize_block.app_hash
+
+        first_hash = await finalize_with(base_result)
+        second_hash = await finalize_with(changed_result)
+
+        self.assertNotEqual(first_hash, second_hash)
+
     async def test_finalize_block_warms_shielded_proof_cache_on_serial_path(self):
         tx = {
             "payload": {
@@ -226,7 +328,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             "chi_used": 1,
             "result": "ok",
         }
-        self.app.block_service_mode = True
+        self.app.bds_enabled = True
         self.app.bds = type("FakeBDS", (), {"enqueue_block": AsyncMock()})()
 
         with (
@@ -271,7 +373,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             "chi_used": 1,
             "result": "ok",
         }
-        self.app.block_service_mode = True
+        self.app.bds_enabled = True
         self.app.bds = type(
             "FakeBDS",
             (),

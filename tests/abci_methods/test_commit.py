@@ -26,7 +26,6 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
         self.app.current_block_meta = {"height": 0, "nanos": 0}
         self.app.merkle_root_hash = b"abc123"
         self.app.chain_id = "xian-testnet-1"
-        self.app.fingerprint_hashes = []
         self.app.current_block_rewards = {}
         self.handler = ProtocolHandler(self.app)
 

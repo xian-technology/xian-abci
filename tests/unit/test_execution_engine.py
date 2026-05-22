@@ -23,6 +23,7 @@ from xian.execution_engine import (
     prepare_vm_contract,
     restore_driver_state,
     snapshot_driver_state,
+    vm_metering_writes,
 )
 from xian.processor import TxProcessor
 from xian.utils.encoding import normalize_for_abci_json, stringify_decimals
@@ -133,6 +134,23 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
         self.assertEqual(runtime.runtime_info["vm_profile"], "xian_vm_v1")
         self.assertEqual(runtime.mode, "xian_vm_v1")
+
+    def test_vm_metering_writes_uses_exact_decimal_division(self):
+        driver = mock.Mock()
+        driver.make_key.return_value = "currency.balances:alice"
+        driver.get.return_value = ContractingDecimal("10000")
+
+        writes = vm_metering_writes(
+            driver,
+            sender="alice",
+            chi_used=10000,
+            chi_cost=3,
+        )
+
+        self.assertEqual(
+            writes["currency.balances:alice"],
+            ContractingDecimal("6666.666666666666666666666666666667"),
+        )
 
     def test_prepare_vm_contract_recurses_static_imports(self):
         fake_bindings = types.SimpleNamespace(
@@ -680,7 +698,10 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             self.assertEqual(
                 outcome.writes["currency.balances:worker0"],
                 ContractingDecimal("4999")
-                - ContractingDecimal(outcome.chi_used / 20),
+                - (
+                    ContractingDecimal(outcome.chi_used)
+                    / ContractingDecimal(20)
+                ),
             )
             self.assertEqual(
                 outcome.output.writes["currency.balances:worker1"],

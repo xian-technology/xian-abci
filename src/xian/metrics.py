@@ -113,7 +113,7 @@ class XianMetricsCollector:
             {
                 "chain_id": str(app.chain_id),
                 "execution_mode": str(getattr(app, "execution_mode", "")),
-                "block_service_mode": str(app.block_service_mode).lower(),
+                "bds_enabled": str(app.bds_enabled).lower(),
                 "parallel_execution_enabled": str(
                     app.parallel_block_executor.enabled
                 ).lower(),
@@ -242,7 +242,7 @@ class XianMetricsCollector:
             "xian_bds",
             "Optional BDS runtime information.",
         )
-        if app.block_service_mode:
+        if app.bds_enabled:
             bds_info.add_metric(
                 [],
                 {
@@ -267,9 +267,9 @@ class XianMetricsCollector:
             labels=["field"],
         )
         _add_metric_if_present(
-            bds_family, ["enabled"], 1 if app.block_service_mode else 0
+            bds_family, ["enabled"], 1 if app.bds_enabled else 0
         )
-        if app.block_service_mode:
+        if app.bds_enabled:
             _add_metric_if_present(
                 bds_family,
                 ["refresh_success"],
@@ -409,7 +409,7 @@ class MetricsService:
         else:
             self._http_server = started
 
-        if self.app.block_service_mode and hasattr(self.app, "bds"):
+        if self.app.bds_enabled and hasattr(self.app, "bds"):
             self._bds_task = asyncio.create_task(
                 self._refresh_bds_status_loop(),
                 name="xian-metrics-bds-refresh",

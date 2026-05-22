@@ -1,9 +1,29 @@
+# ruff: noqa: E402
 import asyncio
 import gc
 import importlib
 import signal
 import sys
 from dataclasses import replace
+
+
+def _refuse_optimized_python() -> None:
+    # Refuse to boot under PYTHONOPTIMIZE / -O. The interpreter strips assert
+    # statements and __debug__-guarded blocks; many of those guard
+    # consensus-critical invariants (private-method gating, balance/stamp
+    # caps, hash-key delimiter and size limits, contract-size cap). A
+    # validator running with optimization on would silently diverge from the
+    # rest of the network.
+    if not __debug__:
+        sys.stderr.write(
+            "xian-abci refuses to run with PYTHONOPTIMIZE / python -O: "
+            "assert statements guard consensus-critical invariants and "
+            "stripping them produces divergent state. Re-run without -O.\n"
+        )
+        sys.exit(2)
+
+
+_refuse_optimized_python()
 
 from contracting.local import ContractingClient
 from loguru import logger
@@ -52,6 +72,7 @@ from xian.services.bds.bds import BDS
 from xian.services.bds.config import BdsConfig
 from xian.services.state_sync import StateSnapshotManager
 from xian.simulator import QuerySimulationService
+from xian.state_root import StateRootCache
 from xian.utils.block import get_latest_block_height
 from xian.utils.cometbft import (
     load_genesis_data,
@@ -114,6 +135,9 @@ class Xian:
         self.execution_mode = self.execution_runtime.mode
         self.client = ContractingClient(
             storage_home=constants.STORAGE_HOME,
+        )
+        self.state_root_cache = StateRootCache.from_driver(
+            self.client.raw_driver
         )
         self.chain_id = self.genesis.get("chain_id", None)
         if self.chain_id is None:
@@ -184,10 +208,9 @@ class Xian:
         )
         self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None
-        self.fingerprint_hashes = []
         self.merkle_root_hash = None
 
-        self.block_service_mode = xian_config.get("block_service_mode", False)
+        self.bds_enabled = xian_config.get("bds_enabled", False)
         self.bds_config = BdsConfig.from_runtime_settings(xian_config)
         if self.bds_config.spool_dir is None:
             self.bds_config = replace(
@@ -274,7 +297,7 @@ class Xian:
                 extra={
                     "chain_id": self.chain_id,
                     "execution_mode": self.execution_mode,
-                    "service_node": self.block_service_mode,
+                    "bds_enabled": self.bds_enabled,
                     "simulation_enabled": self.simulator.enabled,
                     "parallel_execution_enabled": (
                         self.parallel_block_executor.enabled
@@ -312,13 +335,13 @@ class Xian:
     @classmethod
     async def create(cls, constants=Constants()):
         self = cls(constants=constants)
-        if self.block_service_mode:
+        if self.bds_enabled:
             self.bds = BDS(self.bds_config, raw_driver=self.client.raw_driver)
             self._bds_storage_initialized = False
         return self
 
     async def start_runtime(self):
-        if self.block_service_mode and hasattr(self, "bds"):
+        if self.bds_enabled and hasattr(self, "bds"):
             if not getattr(self, "_bds_storage_initialized", False):
                 await self.bds.initialize_storage(cometbft_genesis=self.genesis)
                 self._bds_storage_initialized = True
@@ -367,6 +390,7 @@ class Xian:
             self.profiler.end_block(app_hash=res.app_hash.hex())
             return res
         except Exception as exc:
+            self.state_root_cache.rollback()
             self.profiler.end_block(error=f"{type(exc).__name__}: {exc}")
             raise
 
@@ -422,6 +446,9 @@ class Xian:
         )
         if response.result == response.ACCEPT:
             self.nonce_storage.flush_pending()
+            self.state_root_cache.rebuild(
+                self.client.raw_driver.items().items()
+            )
         return response
 
     async def query(self, req):
@@ -436,11 +463,12 @@ class Xian:
         self.parallel_block_executor.close()
         self.simulator.close()
         await self.metrics_service.close()
-        if self.block_service_mode and hasattr(self, "bds"):
+        if self.bds_enabled and hasattr(self, "bds"):
             await self.bds.close()
 
 
 def main():
+    _refuse_optimized_python()
     constants = Constants()
     configure_logging(constants)
 

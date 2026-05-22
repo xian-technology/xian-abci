@@ -30,20 +30,28 @@ def build_parser() -> ArgumentParser:
         description="Configure an initialized CometBFT home"
     )
     parser.add_argument(
-        "--seed-node",
-        type=str,
+        "--discover-seed",
+        action="append",
         help=(
             "seed node host or IP without port; queries node ID from the "
-            "remote status endpoint"
+            "remote status endpoint; may be repeated"
         ),
         required=False,
     )
     parser.add_argument(
-        "--seed-node-address",
-        type=str,
+        "--seed",
+        action="append",
         help=(
-            "seed node address in <node_id>@<host> form; used without a "
-            "remote lookup"
+            "CometBFT P2P seed in <node_id>@<host>:26656 form; may be repeated"
+        ),
+        required=False,
+    )
+    parser.add_argument(
+        "--persistent-peer",
+        action="append",
+        help=(
+            "CometBFT persistent peer in <node_id>@<host>:26656 form; "
+            "may be repeated"
         ),
         required=False,
     )
@@ -85,12 +93,6 @@ def build_parser() -> ArgumentParser:
         required=False,
     )
     parser.add_argument(
-        "--copy-genesis",
-        action=BooleanOptionalAction,
-        help="copy a genesis file into the configured CometBFT home",
-        required=True,
-    )
-    parser.add_argument(
         "--genesis-source",
         type=str,
         help=(
@@ -100,10 +102,10 @@ def build_parser() -> ArgumentParser:
         required=False,
     )
     parser.add_argument(
-        "--genesis-preset",
+        "--genesis-bundle",
         type=str,
         help=(
-            "canonical contract bundle preset used to build genesis instead "
+            "canonical contract bundle used to build genesis instead "
             "of copying a static genesis source"
         ),
         required=False,
@@ -111,13 +113,13 @@ def build_parser() -> ArgumentParser:
     parser.add_argument(
         "--chain-id",
         type=str,
-        help="chain ID used when building genesis from --genesis-preset",
+        help="chain ID used when building genesis from --genesis-bundle",
         required=False,
     )
     parser.add_argument(
         "--genesis-time",
         type=str,
-        help="fixed genesis time used when building genesis from --genesis-preset",
+        help="fixed genesis time used when building genesis from --genesis-bundle",
         required=False,
     )
     parser.add_argument(
@@ -135,9 +137,9 @@ def build_parser() -> ArgumentParser:
         default=True,
     )
     parser.add_argument(
-        "--service-node",
+        "--bds-enabled",
         action=BooleanOptionalAction,
-        help="enable service-node mode",
+        help="enable the node's Blockchain Data Service runtime",
         required=False,
         default=False,
     )
@@ -436,11 +438,46 @@ def build_parser() -> ArgumentParser:
         default=0,
     )
     parser.add_argument(
+        "--bds-acquire-timeout-ms",
+        type=int,
+        help="timeout when borrowing a BDS database connection in milliseconds",
+        required=False,
+        default=10_000,
+    )
+    parser.add_argument(
         "--bds-application-name",
         type=str,
         help="application_name reported by BDS database sessions",
         required=False,
         default="xian-bds",
+    )
+    parser.add_argument(
+        "--bds-queue-max-size",
+        type=int,
+        help="maximum in-memory BDS payload queue size",
+        required=False,
+        default=128,
+    )
+    parser.add_argument(
+        "--bds-catchup-enabled",
+        action=BooleanOptionalAction,
+        help="enable BDS catchup from CometBFT RPC",
+        required=False,
+        default=True,
+    )
+    parser.add_argument(
+        "--bds-catchup-poll-seconds",
+        type=float,
+        help="BDS catchup poll interval in seconds",
+        required=False,
+        default=1.0,
+    )
+    parser.add_argument(
+        "--bds-rpc-url",
+        type=str,
+        help="explicit CometBFT RPC URL for BDS catchup",
+        required=False,
+        default="",
     )
     parser.add_argument(
         "--bds-spool-dir",
@@ -476,35 +513,37 @@ def build_parser() -> ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.genesis_preset is not None and args.genesis_source is not None:
+    if args.genesis_bundle is not None and args.genesis_source is not None:
         raise ValueError(
-            "pass either --genesis-source or --genesis-preset, not both"
+            "pass either --genesis-source or --genesis-bundle, not both"
         )
+    if args.genesis_time is not None and args.genesis_bundle is None:
+        raise ValueError("--genesis-time requires --genesis-bundle")
     genesis_payload = None
-    if args.genesis_preset is not None:
+    if args.genesis_bundle is not None:
         if not args.chain_id:
-            raise ValueError("--chain-id is required with --genesis-preset")
+            raise ValueError("--chain-id is required with --genesis-bundle")
         genesis_payload = build_bundle_network_genesis(
             chain_id=args.chain_id,
-            network=args.genesis_preset,
+            network=args.genesis_bundle,
             genesis_time=args.genesis_time,
         )
     result = configure_existing_home(
         options=ExistingHomeOptions(
             moniker=args.moniker,
             validator_private_key_hex=args.validator_privkey,
-            seed_node=args.seed_node,
-            seed_node_address=args.seed_node_address,
+            discover_seeds=tuple(args.discover_seed or ()),
+            p2p_seeds=tuple(args.seed or ()),
+            p2p_persistent_peers=tuple(args.persistent_peer or ()),
             snapshot_url=args.snapshot_url,
             snapshot_signing_public_keys=tuple(args.snapshot_signing_key or ()),
             snapshot_expected_chain_id=args.snapshot_expected_chain_id,
-            copy_genesis=args.copy_genesis,
             genesis_source=args.genesis_source,
             genesis_payload=genesis_payload,
             node_config=NodeConfigOptions(
                 moniker=args.moniker,
                 allow_cors=args.allow_cors,
-                service_node=args.service_node,
+                bds_enabled=args.bds_enabled,
                 enable_pruning=args.enable_pruning,
                 blocks_to_keep=args.blocks_to_keep,
                 transaction_trace_logging=args.transaction_trace_logging,
@@ -569,7 +608,12 @@ def main(argv: list[str] | None = None) -> int:
                     pool_min_size=args.bds_pool_min_size,
                     pool_max_size=args.bds_pool_max_size,
                     statement_timeout_ms=args.bds_statement_timeout_ms,
+                    acquire_timeout_ms=args.bds_acquire_timeout_ms,
                     application_name=args.bds_application_name,
+                    queue_max_size=args.bds_queue_max_size,
+                    catchup_enabled=args.bds_catchup_enabled,
+                    catchup_poll_seconds=args.bds_catchup_poll_seconds,
+                    rpc_url=args.bds_rpc_url,
                     spool_dir=args.bds_spool_dir,
                     spool_warn_entries=args.bds_spool_warn_entries,
                     spool_warn_bytes=args.bds_spool_warn_bytes,

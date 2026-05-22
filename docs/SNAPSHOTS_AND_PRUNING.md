@@ -48,14 +48,29 @@ archive. It contains:
 
 - current application hash
 - current height
-- non-compiled contract state
+- contract key/value state
 - nonce state
+
+The current application hash is a raw 32-byte `state-root-v2` Merkle root over
+the canonical Xian consensus key/value state. The root includes contract state
+and committed nonce keys such as `__n.<sender>`, and excludes local runtime keys
+that are not part of consensus state.
+
+State-root leaves are domain-separated and hash the canonical ABCI JSON
+encoding of each value. They are organized in a deterministic Merkle treap keyed
+by state key with cryptographic priorities derived from those keys. During
+block finalization, Xian updates an in-memory root cache from the block's
+pending consensus writes instead of scanning the whole database. The cache is
+rebuilt from committed state on startup, genesis, and state-sync import.
 
 On import, Xian rebuilds:
 
 - LMDB state
 - nonce keys
 - latest block height/hash metadata
+
+Before import, Xian recomputes the state root from `exported_state.json` and
+rejects the snapshot if it does not match the advertised application hash.
 
 Imported or exported application snapshots can then be served back to peers
 through the CometBFT snapshot lifecycle.
@@ -80,6 +95,13 @@ from peers:
 - `--statesync-trust-hash`
 - `--statesync-trust-period`
 
+Peer state sync still depends on CometBFT's trusted height, trusted hash, and
+RPC trust-period model. Once that trusted header is accepted, Xian verifies that
+the downloaded snapshot contents recompute to the trusted CometBFT `app_hash`.
+Operator-distributed snapshots can still add signed manifests for provenance
+and transport integrity, but snapshot contents are no longer trusted solely
+because a provider served them.
+
 ## Current State-Sync Model
 
 The current implementation is intentionally conservative:
@@ -88,7 +110,10 @@ The current implementation is intentionally conservative:
 - manual snapshot export
 - chunked peer serving from locally exported or imported snapshots
 - strict full-state import
+- deterministic full-state Merkle-root verification
+- incremental per-block state-root updates
 - no automatic periodic snapshot generation yet
+- no compact Merkle inclusion proofs yet
 
 This keeps the application state-sync path explicit and auditable.
 

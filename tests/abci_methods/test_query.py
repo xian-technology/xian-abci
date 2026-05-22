@@ -695,7 +695,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.query.info, "dict")
 
     async def test_state_patches_query_uses_bds(self):
-        self.app.block_service_mode = True
+        self.app.bds_enabled = True
         self.app.bds = _FakeBDS()
         response = await self.process_request(
             Request(query=RequestQuery(path="/state_patches"))
@@ -710,7 +710,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result[0]["block_height"], 12)
 
     async def test_bds_status_and_spool_queries_use_bds(self):
-        self.app.block_service_mode = True
+        self.app.bds_enabled = True
         self.app.bds = _FakeBDS()
         self.app.current_block_meta = {"height": 12, "nanos": 0}
 
@@ -734,7 +734,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.query.code, Constants.OkCode)
 
     async def test_bds_status_falls_back_to_latest_committed_height(self):
-        self.app.block_service_mode = True
+        self.app.bds_enabled = True
         self.app.bds = _FakeBDS()
         self.app.current_block_meta = None
 
@@ -751,7 +751,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status["height_lag"], 4)
 
     async def test_block_and_transaction_queries_use_bds(self):
-        self.app.block_service_mode = True
+        self.app.bds_enabled = True
         self.app.bds = _FakeBDS()
 
         response = await self.process_request(
@@ -823,7 +823,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["items"][0]["balance"], "42")
 
     async def test_event_queries_use_bds(self):
-        self.app.block_service_mode = True
+        self.app.bds_enabled = True
         self.app.bds = _FakeBDS()
 
         response = await self.process_request(
@@ -915,7 +915,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["order"], "asc")
 
     async def test_state_patch_history_queries(self):
-        self.app.block_service_mode = True
+        self.app.bds_enabled = True
         self.app.bds = _FakeBDS()
 
         response = await self.process_request(
@@ -942,7 +942,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_developer_rewards_query_uses_bds(self):
-        self.app.block_service_mode = True
+        self.app.bds_enabled = True
         self.app.bds = _FakeBDS()
 
         response = await self.process_request(
@@ -956,7 +956,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["tx_count"], 4)
 
     async def test_contract_summary_query_uses_bds(self):
-        self.app.block_service_mode = True
+        self.app.bds_enabled = True
         self.app.bds = _FakeBDS()
 
         response = await self.process_request(

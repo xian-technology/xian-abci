@@ -131,7 +131,7 @@ namespace = "cometbft"
 """.strip()
 
 DEFAULT_XIAN_CONFIG_TOML = """
-block_service_mode = false
+bds_enabled = false
 pruning_enabled = false
 blocks_to_keep = 100000
 metrics_enabled = true
@@ -168,7 +168,12 @@ password = ""
 pool_min_size = 1
 pool_max_size = 10
 statement_timeout_ms = 0
+acquire_timeout_ms = 10000
 application_name = "xian-bds"
+queue_max_size = 128
+catchup_enabled = true
+catchup_poll_seconds = 1.0
+rpc_url = ""
 spool_dir = ""
 spool_warn_entries = 256
 spool_warn_bytes = 536870912
@@ -260,7 +265,12 @@ class BdsOptions:
     pool_min_size: int = 1
     pool_max_size: int = 10
     statement_timeout_ms: int = 0
+    acquire_timeout_ms: int = 10_000
     application_name: str = "xian-bds"
+    queue_max_size: int = 128
+    catchup_enabled: bool = True
+    catchup_poll_seconds: float = 1.0
+    rpc_url: str = ""
     spool_dir: str = ""
     spool_warn_entries: int = 256
     spool_warn_bytes: int = 536_870_912
@@ -270,9 +280,10 @@ class BdsOptions:
 @dataclass(frozen=True, slots=True)
 class NodeConfigOptions:
     moniker: str
-    seed_nodes: tuple[str, ...] = ()
+    p2p_seeds: tuple[str, ...] = ()
+    p2p_persistent_peers: tuple[str, ...] = ()
     allow_cors: bool = True
-    service_node: bool = False
+    bds_enabled: bool = False
     enable_pruning: bool = False
     blocks_to_keep: int = 100000
     transaction_trace_logging: bool = False
@@ -339,6 +350,75 @@ def resolve_simulation_settings(
         "timeout_ms": timeout_ms,
         "max_chi": max_chi,
     }
+
+
+def validate_node_runtime_settings(options: NodeConfigOptions) -> None:
+    if options.blocks_to_keep <= 0:
+        raise ValueError("blocks_to_keep must be greater than zero")
+    if options.metrics.port < 1 or options.metrics.port > 65535:
+        raise ValueError("metrics_port must be between 1 and 65535")
+    if options.metrics.bds_refresh_seconds <= 0:
+        raise ValueError(
+            "metrics_bds_refresh_seconds must be greater than zero"
+        )
+    if (
+        options.parallel_execution.enabled
+        and options.parallel_execution.workers <= 0
+    ):
+        raise ValueError(
+            "parallel_execution_workers must be greater than zero when "
+            "parallel_execution_enabled is true"
+        )
+    if options.parallel_execution.min_transactions < 1:
+        raise ValueError(
+            "parallel_execution_min_transactions must be greater than zero"
+        )
+    if options.parallel_execution.max_speculative_waves < 0:
+        raise ValueError(
+            "parallel_execution_max_speculative_waves must be non-negative"
+        )
+    if not (0.0 <= options.parallel_execution.min_wave_acceptance_ratio <= 1.0):
+        raise ValueError(
+            "parallel_execution_min_wave_acceptance_ratio must be between "
+            "0.0 and 1.0"
+        )
+    if options.parallel_execution.low_acceptance_min_wave_size < 1:
+        raise ValueError(
+            "parallel_execution_low_acceptance_min_wave_size must be greater "
+            "than zero"
+        )
+    if options.pending_nonce_reservation_ttl_seconds < 0:
+        raise ValueError(
+            "pending_nonce_reservation_ttl_seconds must be non-negative"
+        )
+    if options.max_pending_nonces_per_sender < 1:
+        raise ValueError(
+            "max_pending_nonces_per_sender must be greater than zero"
+        )
+    if options.bds.port < 1 or options.bds.port > 65535:
+        raise ValueError("bds_port must be between 1 and 65535")
+    if options.bds.pool_min_size < 0:
+        raise ValueError("bds_pool_min_size must be non-negative")
+    if options.bds.pool_max_size < 1:
+        raise ValueError("bds_pool_max_size must be greater than zero")
+    if options.bds.pool_min_size > options.bds.pool_max_size:
+        raise ValueError(
+            "bds_pool_min_size must be less than or equal to bds_pool_max_size"
+        )
+    if options.bds.statement_timeout_ms < 0:
+        raise ValueError("bds_statement_timeout_ms must be non-negative")
+    if options.bds.acquire_timeout_ms < 0:
+        raise ValueError("bds_acquire_timeout_ms must be non-negative")
+    if options.bds.queue_max_size < 1:
+        raise ValueError("bds_queue_max_size must be greater than zero")
+    if options.bds.catchup_poll_seconds <= 0:
+        raise ValueError("bds_catchup_poll_seconds must be greater than zero")
+    if options.bds.spool_warn_entries < 0:
+        raise ValueError("bds_spool_warn_entries must be non-negative")
+    if options.bds.spool_warn_bytes < 0:
+        raise ValueError("bds_spool_warn_bytes must be non-negative")
+    if options.bds.disk_free_warn_bytes < 0:
+        raise ValueError("bds_disk_free_warn_bytes must be non-negative")
 
 
 def resolve_app_logging_settings(
@@ -498,6 +578,7 @@ def render_node_configs(
     *,
     options: NodeConfigOptions,
 ) -> dict[str, dict[str, Any]]:
+    validate_node_runtime_settings(options)
     cometbft_config = toml_utils.loads(DEFAULT_COMETBFT_CONFIG_TOML)
     xian_config = toml_utils.loads(DEFAULT_XIAN_CONFIG_TOML)
     create_empty_blocks, create_empty_blocks_interval = resolve_block_policy(
@@ -529,7 +610,10 @@ def render_node_configs(
     cometbft_config["consensus"]["create_empty_blocks_interval"] = (
         create_empty_blocks_interval
     )
-    cometbft_config["p2p"]["seeds"] = ",".join(options.seed_nodes)
+    cometbft_config["p2p"]["seeds"] = ",".join(options.p2p_seeds)
+    cometbft_config["p2p"]["persistent_peers"] = ",".join(
+        options.p2p_persistent_peers
+    )
     cometbft_config["rpc"]["cors_allowed_origins"] = (
         ["*"] if options.allow_cors else []
     )
@@ -548,7 +632,7 @@ def render_node_configs(
         "trust_period"
     ]
 
-    xian_config["block_service_mode"] = options.service_node
+    xian_config["bds_enabled"] = options.bds_enabled
     xian_config["pruning_enabled"] = options.enable_pruning
     xian_config["blocks_to_keep"] = options.blocks_to_keep
     xian_config["metrics_enabled"] = options.metrics.enabled
@@ -612,7 +696,12 @@ def render_node_configs(
         "pool_min_size": options.bds.pool_min_size,
         "pool_max_size": options.bds.pool_max_size,
         "statement_timeout_ms": options.bds.statement_timeout_ms,
+        "acquire_timeout_ms": options.bds.acquire_timeout_ms,
         "application_name": options.bds.application_name,
+        "queue_max_size": options.bds.queue_max_size,
+        "catchup_enabled": options.bds.catchup_enabled,
+        "catchup_poll_seconds": options.bds.catchup_poll_seconds,
+        "rpc_url": options.bds.rpc_url,
         "spool_dir": options.bds.spool_dir,
         "spool_warn_entries": options.bds.spool_warn_entries,
         "spool_warn_bytes": options.bds.spool_warn_bytes,

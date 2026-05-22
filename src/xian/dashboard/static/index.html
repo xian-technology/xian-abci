@@ -333,7 +333,7 @@ tr.clickable{cursor:pointer}
             <input class="search-input" id="address-input" placeholder="Paste an address to inspect submitted transactions" />
             <button class="btn" id="address-btn">Open</button>
           </div>
-          <div class="summary-meta" style="margin-top:12px">Address drill-down uses indexed sender history on BDS-enabled service nodes. Address links from contracts, rewards, and transactions open this view directly.</div>
+          <div class="summary-meta" style="margin-top:12px">Address drill-down uses indexed sender history on nodes with BDS enabled. Address links from contracts, rewards, and transactions open this view directly.</div>
         </div>
         <div class="card-body" id="explorer-addresses" style="padding:0"><div class="empty"><span class="loading"></span> Loading...</div></div>
       </div>
@@ -1488,7 +1488,7 @@ async function loadExplorerEvents(){
     return;
   }
   if(payload.available === false){
-    $("explorer-events").innerHTML = '<div class="empty">Recent event history is available on service nodes with BDS enabled.</div>';
+    $("explorer-events").innerHTML = '<div class="empty">Recent event history is available on nodes with BDS enabled.</div>';
     return;
   }
   const items = payload.items || [];
@@ -1772,7 +1772,7 @@ async function viewAddress(address, opts){
   html += '</div></div>';
 
   if(data.available === false){
-    html += '<div class="card"><div class="card-body"><div class="empty">Address history is available on service nodes with BDS enabled.</div></div></div>';
+    html += '<div class="card"><div class="card-body"><div class="empty">Address history is available on nodes with BDS enabled.</div></div></div>';
     showDetail(html, opts);
     return;
   }

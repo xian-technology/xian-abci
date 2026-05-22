@@ -150,7 +150,7 @@ class StatePatchManagerTests(unittest.TestCase):
             ),
             "ABC123",
         )
-        self.assertEqual(self.driver.hard_apply_calls, [123456])
+        self.assertEqual(self.driver.hard_apply_calls, [])
 
     def test_build_applied_patches_for_source_patch_includes_vm_ir(self):
         self.write_bundle(

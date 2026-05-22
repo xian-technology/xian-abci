@@ -9,6 +9,7 @@ from xian.state_export import (
     export_state,
     hash_state_changes,
 )
+from xian.state_root import compute_exported_state_root
 
 
 class StateExportTests(unittest.TestCase):
@@ -37,11 +38,14 @@ class StateExportTests(unittest.TestCase):
             founder_private_key=founder_private_key,
             contract_state=contract_state,
             run_state=run_state,
-            latest_block_hash=bytes.fromhex("ab" * 32),
+            latest_block_hash=b"",
             latest_block_height=12,
         )
 
-        self.assertEqual(exported_state["hash"], "ab" * 32)
+        self.assertEqual(
+            exported_state["hash"],
+            compute_exported_state_root(exported_state).hex(),
+        )
         self.assertEqual(exported_state["number"], 12)
         self.assertEqual(
             [item["key"] for item in exported_state["genesis"]],
@@ -57,6 +61,11 @@ class StateExportTests(unittest.TestCase):
     def test_export_state_writes_encoded_payload(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             output_dir = Path(tmp_dir)
+            expected_state = {
+                "genesis": [{"key": "con_a.value", "value": 1}],
+                "nonces": [{"key": "alice", "value": 7}],
+            }
+            expected_hash = compute_exported_state_root(expected_state)
             with patch(
                 "xian.state_export.fetch_filebased_state",
                 return_value=(
@@ -66,7 +75,7 @@ class StateExportTests(unittest.TestCase):
             ):
                 with patch(
                     "xian.state_export.get_latest_block_hash",
-                    return_value=bytes.fromhex("cd" * 32),
+                    return_value=expected_hash,
                 ):
                     with patch(
                         "xian.state_export.get_latest_block_height",
@@ -76,7 +85,7 @@ class StateExportTests(unittest.TestCase):
 
             payload = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(output_path, output_dir / "exported_state.json")
-            self.assertEqual(payload["hash"], "cd" * 32)
+            self.assertEqual(payload["hash"], expected_hash.hex())
             self.assertEqual(payload["number"], 9)
             self.assertEqual(
                 payload["genesis"],
