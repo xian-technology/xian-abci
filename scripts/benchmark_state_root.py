@@ -41,7 +41,9 @@ def time_root(items: Iterable[tuple[str, Any]], repeats: int) -> list[float]:
     return durations
 
 
-def time_driver_root(items: Iterable[tuple[str, Any]], repeats: int) -> list[float]:
+def time_driver_root(
+    items: Iterable[tuple[str, Any]], repeats: int
+) -> list[float]:
     materialized_items = dict(items)
     durations = []
     with tempfile.TemporaryDirectory() as tmp_dir:

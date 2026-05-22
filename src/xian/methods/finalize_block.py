@@ -41,7 +41,7 @@ def _error_tx_result(message: str, **log_context) -> ExecTxResult:
 def _safe_positive_int(value, default: int) -> int:
     try:
         normalized = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
     if normalized <= 0:
         return default

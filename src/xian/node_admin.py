@@ -584,7 +584,10 @@ def configure_existing_home(
         )
 
     genesis_target_path: Path | None = None
-    if request.genesis_payload is not None or request.genesis_source is not None:
+    if (
+        request.genesis_payload is not None
+        or request.genesis_source is not None
+    ):
         genesis_target_path = resolve_home_relative_path(
             request.home,
             config["genesis_file"],

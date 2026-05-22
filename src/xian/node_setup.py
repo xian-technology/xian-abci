@@ -377,9 +377,7 @@ def validate_node_runtime_settings(options: NodeConfigOptions) -> None:
         raise ValueError(
             "parallel_execution_max_speculative_waves must be non-negative"
         )
-    if not (
-        0.0 <= options.parallel_execution.min_wave_acceptance_ratio <= 1.0
-    ):
+    if not (0.0 <= options.parallel_execution.min_wave_acceptance_ratio <= 1.0):
         raise ValueError(
             "parallel_execution_min_wave_acceptance_ratio must be between "
             "0.0 and 1.0"
@@ -405,8 +403,7 @@ def validate_node_runtime_settings(options: NodeConfigOptions) -> None:
         raise ValueError("bds_pool_max_size must be greater than zero")
     if options.bds.pool_min_size > options.bds.pool_max_size:
         raise ValueError(
-            "bds_pool_min_size must be less than or equal to "
-            "bds_pool_max_size"
+            "bds_pool_min_size must be less than or equal to bds_pool_max_size"
         )
     if options.bds.statement_timeout_ms < 0:
         raise ValueError("bds_statement_timeout_ms must be non-negative")

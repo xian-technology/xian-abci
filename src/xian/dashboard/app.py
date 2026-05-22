@@ -467,7 +467,7 @@ def _request_int(request: web.Request, key: str, default: int) -> int:
         return default
     try:
         parsed_value = int(raw_value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
     return max(0, parsed_value)
 

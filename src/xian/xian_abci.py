@@ -171,7 +171,7 @@ class Xian:
                     4 * 1024 * 1024,
                 )
             )
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             configured_max_tx_bytes = 4 * 1024 * 1024
         self.max_tx_bytes = max(configured_max_tx_bytes, 1)
         self.app_log_level = str(
@@ -446,7 +446,9 @@ class Xian:
         )
         if response.result == response.ACCEPT:
             self.nonce_storage.flush_pending()
-            self.state_root_cache.rebuild(self.client.raw_driver.items().items())
+            self.state_root_cache.rebuild(
+                self.client.raw_driver.items().items()
+            )
         return response
 
     async def query(self, req):
