@@ -1,9 +1,29 @@
+# ruff: noqa: E402
 import asyncio
 import gc
 import importlib
 import signal
 import sys
 from dataclasses import replace
+
+
+def _refuse_optimized_python() -> None:
+    # Refuse to boot under PYTHONOPTIMIZE / -O. The interpreter strips assert
+    # statements and __debug__-guarded blocks; many of those guard
+    # consensus-critical invariants (private-method gating, balance/stamp
+    # caps, hash-key delimiter and size limits, contract-size cap). A
+    # validator running with optimization on would silently diverge from the
+    # rest of the network.
+    if not __debug__:
+        sys.stderr.write(
+            "xian-abci refuses to run with PYTHONOPTIMIZE / python -O: "
+            "assert statements guard consensus-critical invariants and "
+            "stripping them produces divergent state. Re-run without -O.\n"
+        )
+        sys.exit(2)
+
+
+_refuse_optimized_python()
 
 from contracting.local import ContractingClient
 from loguru import logger
@@ -446,20 +466,7 @@ class Xian:
 
 
 def main():
-    # Refuse to boot under PYTHONOPTIMIZE / -O. The interpreter strips assert
-    # statements and __debug__-guarded blocks; many of those guard
-    # consensus-critical invariants (private-method gating, balance/stamp
-    # caps, hash-key delimiter and size limits, contract-size cap). A
-    # validator running with optimization on would silently diverge from the
-    # rest of the network.
-    if not __debug__:
-        sys.stderr.write(
-            "xian-abci refuses to run with PYTHONOPTIMIZE / python -O: "
-            "assert statements guard consensus-critical invariants and "
-            "stripping them produces divergent state. Re-run without -O.\n"
-        )
-        sys.exit(2)
-
+    _refuse_optimized_python()
     constants = Constants()
     configure_logging(constants)
 
