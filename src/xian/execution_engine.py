@@ -122,7 +122,7 @@ def vm_metering_writes(
     else:
         driver_get = getattr(driver, "get", lambda _key: None)
         balance = coerce_balance(driver_get(balances_key))
-    to_deduct = ContractingDecimal(chi_used / chi_cost)
+    to_deduct = ContractingDecimal(chi_used) / ContractingDecimal(chi_cost)
     balance = max(balance - to_deduct, 0)
     return {balances_key: balance}
 

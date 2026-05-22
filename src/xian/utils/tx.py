@@ -5,8 +5,7 @@ from copy import deepcopy
 
 from loguru import logger
 from xian_accounts import verify_message
-from xian_runtime_types.decimal import ContractingDecimal
-from xian_runtime_types.encoding import encode
+from xian_runtime_types.encoding import convert_dict, encode
 
 from xian.exceptions import TransactionException
 from xian.formatting import (
@@ -202,9 +201,6 @@ def validate_transaction_after_static(
     *,
     tx_hash: str,
 ):
-    # Reserve the local mempool nonce only after static validation passes.
-    nonce_storage.check_nonce(tx, tx_hash=tx_hash)
-
     # Get the senders balance and the current chi rate
     try:
         balance = client.get_var(
@@ -241,8 +237,8 @@ def validate_transaction_after_static(
     amount = tx["payload"]["kwargs"].get("amount")
     amount = 0 if amount is None else amount
 
-    if isinstance(amount, dict) and "__fixed__" in amount:
-        amount = ContractingDecimal(amount["__fixed__"])
+    if isinstance(amount, dict):
+        amount = convert_dict(amount)
 
     # Check if they have enough chi for the operation
     check_enough_chi(
@@ -253,6 +249,9 @@ def validate_transaction_after_static(
         function=func,
         amount=amount,
     )
+
+    # Reserve the local mempool nonce only after all admission checks pass.
+    nonce_storage.check_nonce(tx, tx_hash=tx_hash)
 
 
 def decode_and_validate_transaction_static_bytes(

@@ -253,6 +253,42 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
             VALID_NONCE,
         )
 
+    async def test_check_tx_insufficient_chi_does_not_reserve_nonce(self):
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+        self.app.client.raw_driver.set(f"currency.balances:{SENDER}", 0)
+
+        response = await self.process_request(self.make_request())
+
+        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertIn("too few chi", response.check_tx.log)
+        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+
+    async def test_check_tx_accepts_runtime_big_int_transfer_amount(self):
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+        self.app.client.raw_driver.set(
+            f"currency.balances:{SENDER}",
+            2**65,
+        )
+        tx_bytes = make_signed_tx_bytes_for_payload(
+            {
+                "chain_id": "xian-testnet-1",
+                "contract": "currency",
+                "function": "transfer",
+                "kwargs": {"amount": {"__big_int__": str(2**64)}, "to": SENDER},
+                "nonce": VALID_NONCE,
+                "sender": SENDER,
+                "chi_supplied": 100,
+            }
+        )
+
+        response = await self.process_request(self.make_request(tx_bytes))
+
+        self.assertEqual(response.check_tx.code, c.OkCode)
+        self.assertEqual(
+            self.app.nonce_storage.get_pending_nonce(SENDER),
+            VALID_NONCE,
+        )
+
     async def test_check_tx_rejects_duplicate_payload_wire_format(self):
         self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
         malicious_tx = (

@@ -630,8 +630,6 @@ class StatePatchManager:
                 block_hash=block_hash,
             )
 
-        self.raw_driver.hard_apply(nanos)
-
         aggregate_hash = _hash_text(
             _canonical_json(
                 [execution.execution_hash for execution in executions]

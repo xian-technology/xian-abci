@@ -14,6 +14,9 @@ This file tracks follow-up work that still looks relevant on current `main`.
 
 ## Snapshot And Recovery Follow-Ups
 
+- replace the current app-hash transition fingerprint with a Merkleized
+  key/value state root so CometBFT state sync can verify exported snapshots
+  against trusted headers
 - decide whether periodic snapshot export belongs in `xian-abci` or in
   higher-level tooling such as `xian-cli` or `xian-stack`
 - document retention and cleanup policy for application snapshots and BDS

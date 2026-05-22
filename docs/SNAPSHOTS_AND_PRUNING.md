@@ -51,6 +51,12 @@ archive. It contains:
 - non-compiled contract state
 - nonce state
 
+The current application hash is a deterministic block-transition fingerprint,
+not a full database Merkle root. It commits to the previous application hash
+and the finalized block outputs, including transaction results and governed
+state-patch hashes, but it cannot be recomputed directly from an arbitrary
+exported key/value state snapshot.
+
 On import, Xian rebuilds:
 
 - LMDB state
@@ -80,6 +86,13 @@ from peers:
 - `--statesync-trust-hash`
 - `--statesync-trust-period`
 
+Only use peer state sync with RPC servers and snapshot providers you trust. The
+snapshot archive is checked against the trusted CometBFT `app_hash` carried in
+snapshot metadata, but until Xian exposes a full state root this check is not a
+trustless proof that the exported key/value database equals that app hash.
+Operator-distributed snapshots should use signed manifests or another trusted
+distribution channel.
+
 ## Current State-Sync Model
 
 The current implementation is intentionally conservative:
@@ -89,6 +102,7 @@ The current implementation is intentionally conservative:
 - chunked peer serving from locally exported or imported snapshots
 - strict full-state import
 - no automatic periodic snapshot generation yet
+- trusted snapshot providers rather than trustless state proofs
 
 This keeps the application state-sync path explicit and auditable.
 

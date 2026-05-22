@@ -445,7 +445,6 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 tx_bytes = entry["tx_bytes"]
                 tx_result = entry["tx_result"]
 
-                self.nonce_storage.set_nonce_by_tx(tx)
                 tx_hash = tx_result.get("hash")
                 if not tx_hash:
                     tx_results.append(
@@ -460,8 +459,9 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         )
                     )
                     continue
-                self.fingerprint_hashes.append(tx_hash)
+                self.nonce_storage.set_nonce_by_tx(tx)
                 parsed_tx_result = encode_abci_json(tx_result)
+                self.fingerprint_hashes.append(hash_bytes(parsed_tx_result))
                 if self.transaction_trace_debug_logging:
                     logger.bind(
                         **build_log_fields(
