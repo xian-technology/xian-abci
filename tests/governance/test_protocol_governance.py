@@ -318,3 +318,90 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
         self.assertEqual(proposal["status"], "executed")
         self.assertEqual(proposal["yes_weight"], 70)
         self.assertEqual(target.get_value(), "weighted")
+
+    def test_weighted_membership_low_weight_no_votes_do_not_reject_by_count(self):
+        self.client.flush()
+        self.client.submit(
+            WEIGHTED_MEMBERSHIP_CONTRACT,
+            name="masternodes",
+            constructor_args={
+                "initial_members": [
+                    "node1",
+                    "node2",
+                    "node3",
+                    "node4",
+                    "node5",
+                ],
+                "initial_weights": {
+                    "node1": 100,
+                    "node2": 10,
+                    "node3": 10,
+                    "node4": 10,
+                    "node5": 10,
+                },
+            },
+        )
+        self.client.submit(TARGET_CONTRACT, name="con_target")
+        self.client.submit(
+            governance_contract_source(),
+            name="governance",
+            constructor_args={
+                "membership_contract_name": "masternodes",
+                "approval_threshold_numerator": 4,
+                "approval_threshold_denominator": 5,
+                "min_patch_delay_blocks": 2,
+                "emergency_patch_delay_blocks": 1,
+            },
+        )
+        governance = self.client.get_contract_proxy("governance")
+        target = self.client.get_contract_proxy("con_target")
+        environment = {
+            "now": Datetime(2026, 1, 1),
+            "block_num": 10,
+            "chain_id": "test-chain",
+        }
+
+        proposal = governance.propose_contract_call(
+            target_contract="con_target",
+            target_function="set_value",
+            kwargs={"next_value": "weighted-count-regression"},
+            summary="weighted no count regression",
+            signer="node1",
+            environment=environment,
+        )
+        self.assertEqual(proposal["yes_weight"], 100)
+        self.assertEqual(proposal["required_yes_weight"], 112)
+        self.assertEqual(proposal["status"], "pending")
+
+        proposal = governance.vote(
+            proposal_id=1,
+            support=False,
+            signer="node2",
+            environment=environment,
+        )
+        self.assertEqual(proposal["status"], "pending")
+        proposal = governance.vote(
+            proposal_id=1,
+            support=False,
+            signer="node3",
+            environment=environment,
+        )
+        self.assertEqual(proposal["no_votes"], 2)
+        self.assertEqual(proposal["no_weight"], 20)
+        self.assertEqual(proposal["status"], "pending")
+
+        proposal = governance.vote(
+            proposal_id=1,
+            support=True,
+            signer="node4",
+            environment=environment,
+        )
+        self.assertEqual(proposal["status"], "pending")
+        proposal = governance.vote(
+            proposal_id=1,
+            support=True,
+            signer="node5",
+            environment=environment,
+        )
+        self.assertEqual(proposal["status"], "executed")
+        self.assertEqual(target.get_value(), "weighted-count-regression")

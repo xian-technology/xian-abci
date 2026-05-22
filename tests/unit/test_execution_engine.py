@@ -1,3 +1,4 @@
+import hashlib
 import sys
 import types
 import unittest
@@ -588,6 +589,27 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
             client.get_contract_proxy("currency").balances["sys"] = 100_000
 
+            owner = (
+                "ddd326fddb5d1677595311f298b744a4e9f415b577ac179a6afbf38483dc0791"
+            )
+            deadline = str(Datetime(2026, 4, 12, 12, 1))
+            permit_msg = "\n".join(
+                [
+                    "xian-permit-v2",
+                    "chain_id:test-chain",
+                    "authorizer:permit_authorizer",
+                    "token_contract:currency",
+                    f"owner:{owner}",
+                    "spender:some_spender",
+                    "amount:100",
+                    f"deadline:{deadline}",
+                    "nonce:0",
+                ]
+            )
+            permit_hash = hashlib.sha3_256(
+                permit_msg.encode("utf-8")
+            ).hexdigest()
+
             runtime = build_vm_runtime()
             outcome = execute_vm_transaction(
                 runtime,
@@ -597,20 +619,14 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 function_name="permit",
                 kwargs={
                     "token_contract": "currency",
-                    "owner": (
-                        "ddd326fddb5d1677595311f298b744a4e9f415b577ac179a6afbf38483dc0791"
-                    ),
+                    "owner": owner,
                     "spender": "some_spender",
                     "value": 100,
-                    "deadline": str(Datetime(2026, 4, 12, 12, 1)),
+                    "deadline": deadline,
+                    "nonce": 0,
                     "signature": Ed25519Account(
                         "ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8"
-                    ).sign_msg(
-                        "currency:"
-                        "ddd326fddb5d1677595311f298b744a4e9f415b577ac179a6afbf38483dc0791:"
-                        "some_spender:100:2026-04-12 12:01:00:"
-                        "permit_authorizer:test-chain"
-                    ),
+                    ).sign_msg(permit_msg),
                 },
                 environment={
                     "now": Datetime(2026, 4, 12, 12, 0),
@@ -634,10 +650,14 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 100,
             )
             self.assertTrue(
+                outcome.output.writes[f"permit_authorizer.permits:{permit_hash}"]
+            )
+            self.assertEqual(
                 outcome.output.writes[
-                    "permit_authorizer.permits:"
-                    "0d42947f26b9b51b479cdc464bce07bd171842ba718f43f4e8d9d2a7ffceff22"
-                ]
+                    "permit_authorizer.nonces:"
+                    "ddd326fddb5d1677595311f298b744a4e9f415b577ac179a6afbf38483dc0791"
+                ],
+                1,
             )
             self.assertTrue(
                 any(

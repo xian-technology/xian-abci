@@ -560,6 +560,10 @@ class TxProcessor:
                 return None
             reads.add(make_key("metadata", ["operator"]))
             writes.add(make_key("metadata", [key]))
+        elif function == "set_operator":
+            writes.add(make_key("metadata", ["operator"]))
+        elif function == "set_permit_authorizer":
+            writes.add(make_key("metadata", ["permit_authorizer"]))
         elif function == "balance_of":
             address = kwargs.get("address")
             if not isinstance(address, str):

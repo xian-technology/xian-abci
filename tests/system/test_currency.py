@@ -1,9 +1,10 @@
 import datetime
+import hashlib
 import os
 import unittest
+from decimal import Decimal
 
 from contracting.local import ContractingClient
-from contracting.stdlib.bridge.hashing import sha3
 from xian_accounts import Ed25519Account
 from xian_runtime_types.time import Datetime
 
@@ -95,6 +96,50 @@ class TestCurrencyContract(unittest.TestCase):
         # THEN the metadata should be updated correctly
         self.assertEqual(new_name, "NEW TOKEN")
 
+    def test_change_metadata_cannot_replace_sensitive_authority_keys(self):
+        for key in ("operator", "permit_authorizer", "total_supply"):
+            with self.subTest(key=key):
+                original = self.currency.metadata[key]
+                with self.assertRaises(Exception):
+                    self.currency.change_metadata(
+                        key=key,
+                        value="attacker",
+                        signer="team_lock",
+                    )
+                self.assertEqual(self.currency.metadata[key], original)
+
+    def test_governance_controls_sensitive_currency_settings(self):
+        self.client.submit(
+            """
+@export
+def approve_from_authorizer(owner: str, spender: str, amount: float):
+    return True
+""",
+            name="new_permit_authorizer",
+        )
+
+        with self.assertRaises(Exception):
+            self.currency.set_operator(
+                new_operator="ops", signer="team_lock"
+            )
+        with self.assertRaises(Exception):
+            self.currency.set_permit_authorizer(
+                new_authorizer="new_permit_authorizer",
+                signer="team_lock",
+            )
+
+        self.currency.set_operator(new_operator="ops", signer="governance")
+        self.currency.set_permit_authorizer(
+            new_authorizer="new_permit_authorizer",
+            signer="governance",
+        )
+
+        self.assertEqual(self.currency.metadata["operator"], "ops")
+        self.assertEqual(
+            self.currency.metadata["permit_authorizer"],
+            "new_permit_authorizer",
+        )
+
     def test_approve_and_allowance(self):
         # GIVEN an approval setup
         self.currency.approve(amount=500, to="eve", signer="sys")
@@ -139,13 +184,30 @@ class TestCurrencyContract(unittest.TestCase):
         token_contract: str,
         owner: str,
         spender: str,
-        value: float,
-        deadline: dict,
+        value,
+        deadline,
+        nonce: int,
     ):
-        return (
-            f"{token_contract}:{owner}:{spender}:{value}:{deadline}:"
-            f"permit_authorizer:{self.chain_id}"
+        amount = Decimal(str(value))
+        amount_text = format(amount.normalize(), "f")
+        if "." in amount_text:
+            amount_text = amount_text.rstrip("0").rstrip(".")
+        return "\n".join(
+            [
+                "xian-permit-v2",
+                f"chain_id:{self.chain_id}",
+                "authorizer:permit_authorizer",
+                f"token_contract:{token_contract}",
+                f"owner:{owner}",
+                f"spender:{spender}",
+                f"amount:{amount_text}",
+                f"deadline:{deadline}",
+                f"nonce:{nonce}",
+            ]
         )
+
+    def permit_hash(self, msg: str):
+        return hashlib.sha3_256(msg.encode("utf-8")).hexdigest()
 
     def create_deadline(self, minutes=1):
         d = datetime.datetime.now() + datetime.timedelta(minutes=minutes)
@@ -161,8 +223,10 @@ class TestCurrencyContract(unittest.TestCase):
         deadline = str(self.create_deadline())
         spender = "some_spender"
         value = 100
-        msg = self.construct_permit_msg("currency", public_key, spender, value, deadline)
-        msg_hash = sha3(msg)
+        msg = self.construct_permit_msg(
+            "currency", public_key, spender, value, deadline, nonce=0
+        )
+        msg_hash = self.permit_hash(msg)
         signature = wallet.sign_msg(msg)
         # WHEN the permit is granted
         response = self.permit_authorizer.permit(
@@ -171,6 +235,7 @@ class TestCurrencyContract(unittest.TestCase):
             spender=spender,
             value=value,
             deadline=deadline,
+            nonce=0,
             signature=signature,
             return_full_output=True,
         )
@@ -179,6 +244,31 @@ class TestCurrencyContract(unittest.TestCase):
         expected_event = [{'contract': 'currency', 'event': 'Approve', 'signer': 'sys', 'caller': 'permit_authorizer', 'data_indexed': {'from': 'ddd326fddb5d1677595311f298b744a4e9f415b577ac179a6afbf38483dc0791', 'to': 'some_spender'}, 'data': {'amount': 100}}]
         self.assertEqual(response['events'], expected_event)
         self.assertEqual(permit, True)
+        self.assertEqual(self.permit_authorizer.nonces[public_key], 1)
+
+    def test_permit_canonicalizes_equivalent_amounts(self):
+        private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
+        wallet = Ed25519Account(private_key)
+        public_key = wallet.public_key
+        deadline = str(self.create_deadline())
+        spender = "some_spender"
+        msg = self.construct_permit_msg(
+            "currency", public_key, spender, 100, deadline, nonce=0
+        )
+        signature = wallet.sign_msg(msg)
+
+        self.permit_authorizer.permit(
+            token_contract="currency",
+            owner=public_key,
+            spender=spender,
+            value=100.0,
+            deadline=deadline,
+            nonce=0,
+            signature=signature,
+        )
+
+        self.assertEqual(self.currency.approvals[public_key, spender], 100)
+        self.assertEqual(self.permit_authorizer.nonces[public_key], 1)
 
     def test_permit_expired(self):
         # GIVEN a permit setup with an expired deadline
@@ -188,7 +278,9 @@ class TestCurrencyContract(unittest.TestCase):
         deadline = self.create_deadline(minutes=-1)  # Past deadline
         spender = "some_spender"
         value = 100
-        msg = self.construct_permit_msg("currency", public_key, spender, value, deadline)
+        msg = self.construct_permit_msg(
+            "currency", public_key, spender, value, deadline, nonce=0
+        )
         signature = wallet.sign_msg(msg)
         # WHEN the permit is attempted
         # THEN it should fail due to expiration
@@ -199,6 +291,7 @@ class TestCurrencyContract(unittest.TestCase):
                 spender=spender,
                 value=value,
                 deadline=str(deadline),
+                nonce=0,
                 signature=signature,
             )
         self.assertIn('Permit has expired', str(context.exception))
@@ -211,7 +304,9 @@ class TestCurrencyContract(unittest.TestCase):
         deadline = self.create_deadline()
         spender = "some_spender"
         value = 100
-        msg = self.construct_permit_msg("currency", public_key, spender, value, deadline)
+        msg = self.construct_permit_msg(
+            "currency", public_key, spender, value, deadline, nonce=0
+        )
         signature = wallet.sign_msg(msg + "tampered")
         # WHEN the permit is attempted
         # THEN it should fail due to invalid signature
@@ -222,6 +317,7 @@ class TestCurrencyContract(unittest.TestCase):
                 spender=spender,
                 value=value,
                 deadline=str(deadline),
+                nonce=0,
                 signature=signature,
             )
         self.assertIn('Invalid signature', str(context.exception))
@@ -234,7 +330,9 @@ class TestCurrencyContract(unittest.TestCase):
         deadline = self.create_deadline()
         spender = "some_spender"
         value = 100
-        msg = self.construct_permit_msg("currency", public_key, spender, value, deadline)
+        msg = self.construct_permit_msg(
+            "currency", public_key, spender, value, deadline, nonce=0
+        )
         signature = wallet.sign_msg(msg)
         self.permit_authorizer.permit(
             token_contract="currency",
@@ -242,6 +340,7 @@ class TestCurrencyContract(unittest.TestCase):
             spender=spender,
             value=value,
             deadline=str(deadline),
+            nonce=0,
             signature=signature,
         )
         # WHEN the permit is used again
@@ -253,9 +352,10 @@ class TestCurrencyContract(unittest.TestCase):
                 spender=spender,
                 value=value,
                 deadline=str(deadline),
+                nonce=0,
                 signature=signature,
             )
-        self.assertIn('Permit can only be used once', str(context.exception))
+        self.assertIn('Invalid permit nonce', str(context.exception))
 
     def test_permit_overwrites_previous_allowance(self):
         # GIVEN an initial allowance setup
@@ -269,7 +369,7 @@ class TestCurrencyContract(unittest.TestCase):
         
         # Set initial allowance via permit
         msg = self.construct_permit_msg(
-            "currency", public_key, spender, initial_value, deadline
+            "currency", public_key, spender, initial_value, deadline, nonce=0
         )
         signature = wallet.sign_msg(msg)
         self.permit_authorizer.permit(
@@ -278,6 +378,7 @@ class TestCurrencyContract(unittest.TestCase):
             spender=spender,
             value=initial_value,
             deadline=deadline,
+            nonce=0,
             signature=signature,
         )
         
@@ -287,7 +388,7 @@ class TestCurrencyContract(unittest.TestCase):
         
         # WHEN a new permit is granted
         msg = self.construct_permit_msg(
-            "currency", public_key, spender, new_value, deadline
+            "currency", public_key, spender, new_value, deadline, nonce=1
         )
         signature = wallet.sign_msg(msg)
         self.permit_authorizer.permit(
@@ -296,12 +397,14 @@ class TestCurrencyContract(unittest.TestCase):
             spender=spender,
             value=new_value,
             deadline=deadline,
+            nonce=1,
             signature=signature,
         )
         
         # THEN the new allowance should overwrite the old one
         new_allowance = self.currency.approvals[public_key, spender]
         self.assertEqual(new_allowance, new_value)
+        self.assertEqual(self.permit_authorizer.nonces[public_key], 2)
 
     def test_approve_overwrites_previous_allowance(self):
         # GIVEN an initial approval setup
