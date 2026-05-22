@@ -12,7 +12,6 @@ import hashlib
 from loguru import logger
 
 from xian.app_logging import build_log_fields
-from xian.utils.encoding import encode_abci_json, hash_bytes
 
 SYSTEM_EVIDENCE_SENDER = "__evidence_penalty_driver__"
 MISBEHAVIOR_TYPE_NAMES = {
@@ -68,8 +67,7 @@ def _misbehavior_evidence_id(misbehavior, validator_key: str) -> str:
 def maybe_apply_evidence_penalties(self, req, *, height: int) -> bool:
     """
     Apply slashing penalties for any validator misbehavior recorded in the
-    ABCI FinalizeBlock request. Returns True if any penalty was applied so
-    the caller can mix the evidence writes into the block's fingerprint.
+    ABCI FinalizeBlock request. Returns True if any penalty wrote state.
     """
     misbehavior_entries = list(getattr(req, "misbehavior", []) or [])
     if len(misbehavior_entries) == 0:
@@ -154,9 +152,6 @@ def maybe_apply_evidence_penalties(self, req, *, height: int) -> bool:
 
         state_write_count = len(tx_result.get("state", []))
         if state_write_count > 0:
-            self.fingerprint_hashes.append(
-                hash_bytes(encode_abci_json(tx_result))
-            )
             any_applied = True
             logger.bind(
                 **build_log_fields(

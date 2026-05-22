@@ -147,7 +147,7 @@ class Xian:
                     4 * 1024 * 1024,
                 )
             )
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             configured_max_tx_bytes = 4 * 1024 * 1024
         self.max_tx_bytes = max(configured_max_tx_bytes, 1)
         self.app_log_level = str(
@@ -184,7 +184,6 @@ class Xian:
         )
         self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None
-        self.fingerprint_hashes = []
         self.merkle_root_hash = None
 
         self.bds_enabled = xian_config.get("bds_enabled", False)

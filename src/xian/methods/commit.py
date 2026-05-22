@@ -13,7 +13,6 @@ async def commit(self) -> ResponseCommit:
     self.nonce_storage.reconcile_pending()
 
     # unset current_block_meta & cleanup
-    self.fingerprint_hashes = []
     self.merkle_root_hash = None
     self.current_block_rewards = {}
 

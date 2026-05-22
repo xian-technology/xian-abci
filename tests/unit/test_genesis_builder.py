@@ -135,6 +135,7 @@ class GenesisBuilderTests(unittest.TestCase):
 
         self.assertEqual(updated["abci_genesis"], abci_genesis)
         self.assertEqual(updated["initial_height"], "7")
+        self.assertEqual(updated["app_hash"], "abc")
 
     def test_build_genesis_block_applies_constructor_overrides(self):
         founder_private_key = (
@@ -237,6 +238,7 @@ class GenesisBuilderTests(unittest.TestCase):
 
         self.assertEqual(genesis["chain_id"], "xian-local-1")
         self.assertEqual(genesis["initial_height"], "3")
+        self.assertEqual(genesis["app_hash"], "abc")
         self.assertEqual(genesis["validators"][0]["power"], "15")
         self.assertEqual(genesis["validators"][0]["name"], "validator-1")
         self.assertEqual(genesis["abci_genesis"], abci_genesis)

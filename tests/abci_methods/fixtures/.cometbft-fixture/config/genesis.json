@@ -31,9 +31,9 @@
             "name": ""
         }
     ],
-    "app_hash": "",
+    "app_hash": "0ad15b4006c51489c37d29c742f3fa9fdf10a952e94c745e7fb48eeae4c0f3af",
     "abci_genesis": {
-        "hash": "2bb4e112aca11805538842bd993470f18f337797ec3f2f6ab02c47385caf088e",
+        "hash": "0ad15b4006c51489c37d29c742f3fa9fdf10a952e94c745e7fb48eeae4c0f3af",
         "number": "0",
         "genesis": [
             {

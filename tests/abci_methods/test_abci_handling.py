@@ -77,6 +77,10 @@ class TestXianHandler(unittest.IsolatedAsyncioTestCase):
         req = Request(init_chain=RequestInitChain())
         resp = await self.process_request("init_chain", req)
         self.assertIsInstance(resp.init_chain, ResponseInitChain)
+        self.assertEqual(
+            resp.init_chain.app_hash.hex(),
+            self.app.genesis["abci_genesis"]["hash"],
+        )
 
     async def test_check_tx(self):
         tx_data = b"test_tx_data"

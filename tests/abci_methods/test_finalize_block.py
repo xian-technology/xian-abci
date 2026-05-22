@@ -200,7 +200,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         )
         set_nonce.assert_not_called()
 
-    async def test_finalize_block_app_hash_commits_transaction_result(self):
+    async def test_finalize_block_app_hash_commits_state_writes(self):
         base_result = {
             "hash": "SAME_TX_HASH",
             "status": 0,
@@ -213,6 +213,14 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             **base_result,
             "state": [{"key": "currency.balances:alice", "value": "98"}],
         }
+
+        def process_result(tx_result):
+            for state_write in tx_result["state"]:
+                self.app.client.raw_driver.set(
+                    state_write["key"],
+                    state_write["value"],
+                )
+            return {"tx_result": tx_result}
 
         async def finalize_with(tx_result):
             with (
@@ -234,14 +242,15 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                 patch.object(
                     self.app.tx_processor,
                     "process_tx",
-                    return_value={"tx_result": tx_result},
+                    side_effect=lambda *args, **kwargs: process_result(
+                        tx_result
+                    ),
                 ),
                 patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
             ):
                 response = await self.process_request(
                     Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
                 )
-            self.app.fingerprint_hashes = []
             self.app.merkle_root_hash = None
             return response.finalize_block.app_hash
 

@@ -48,20 +48,29 @@ archive. It contains:
 
 - current application hash
 - current height
-- non-compiled contract state
+- contract key/value state
 - nonce state
 
-The current application hash is a deterministic block-transition fingerprint,
-not a full database Merkle root. It commits to the previous application hash
-and the finalized block outputs, including transaction results and governed
-state-patch hashes, but it cannot be recomputed directly from an arbitrary
-exported key/value state snapshot.
+The current application hash is a raw 32-byte `state-root-v1` Merkle root over
+the canonical Xian consensus key/value state. The root includes contract state
+and committed nonce keys such as `__n.<sender>`, and excludes local runtime keys
+that are not part of consensus state.
+
+State-root leaves are sorted by key, domain-separated, and hash the canonical
+ABCI JSON encoding of each value. Parent nodes are also domain-separated. If a
+Merkle level has an odd number of nodes, the final node is paired with itself.
+This root is recomputed during block finalization after all transaction,
+reward, evidence, validator-rebalance, and governed state-patch writes have
+been applied to pending state.
 
 On import, Xian rebuilds:
 
 - LMDB state
 - nonce keys
 - latest block height/hash metadata
+
+Before import, Xian recomputes the state root from `exported_state.json` and
+rejects the snapshot if it does not match the advertised application hash.
 
 Imported or exported application snapshots can then be served back to peers
 through the CometBFT snapshot lifecycle.
@@ -86,12 +95,12 @@ from peers:
 - `--statesync-trust-hash`
 - `--statesync-trust-period`
 
-Only use peer state sync with RPC servers and snapshot providers you trust. The
-snapshot archive is checked against the trusted CometBFT `app_hash` carried in
-snapshot metadata, but until Xian exposes a full state root this check is not a
-trustless proof that the exported key/value database equals that app hash.
-Operator-distributed snapshots should use signed manifests or another trusted
-distribution channel.
+Peer state sync still depends on CometBFT's trusted height, trusted hash, and
+RPC trust-period model. Once that trusted header is accepted, Xian verifies that
+the downloaded snapshot contents recompute to the trusted CometBFT `app_hash`.
+Operator-distributed snapshots can still add signed manifests for provenance
+and transport integrity, but snapshot contents are no longer trusted solely
+because a provider served them.
 
 ## Current State-Sync Model
 
@@ -101,8 +110,9 @@ The current implementation is intentionally conservative:
 - manual snapshot export
 - chunked peer serving from locally exported or imported snapshots
 - strict full-state import
+- deterministic full-state Merkle-root verification
 - no automatic periodic snapshot generation yet
-- trusted snapshot providers rather than trustless state proofs
+- no compact Merkle inclusion proofs yet
 
 This keeps the application state-sync path explicit and auditable.
 

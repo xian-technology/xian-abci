@@ -25,6 +25,7 @@ from xian.state_export import (
     import_state,
     load_exported_state,
 )
+from xian.state_root import compute_exported_state_root
 
 SNAPSHOT_FORMAT_VERSION = 1
 DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024
@@ -390,6 +391,9 @@ class StateSnapshotManager:
                 raise ValueError("snapshot height metadata mismatch")
             if str(metadata["app_hash"]) != str(exported_state["hash"]):
                 raise ValueError("snapshot app hash metadata mismatch")
+            state_root_hex = compute_exported_state_root(exported_state).hex()
+            if state_root_hex != str(exported_state["hash"]):
+                raise ValueError("snapshot state root mismatch")
             result = import_state(
                 exported_state=exported_state,
                 storage_home=self.storage_home,

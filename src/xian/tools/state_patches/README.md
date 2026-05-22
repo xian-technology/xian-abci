@@ -23,7 +23,7 @@ The current implementation is bundle-based and governance-driven:
   `activation_height`
 - at block finalization, the node applies only approved scheduled patches whose
   local bundle matches the governed metadata
-- applied patch executions are hashed and included in the block fingerprint path
+- applied patch writes are included in the block's final state root
 - BDS persists the executed patch metadata and resulting state changes
 
 ```mermaid
@@ -33,7 +33,7 @@ flowchart LR
   Hash --> Node["Node finalization path"]
   Metadata --> Node
   Node --> Apply["Apply approved matching patch"]
-  Apply --> Fingerprint["Block fingerprint"]
+  Apply --> Root["Block state root"]
   Apply --> BDS["BDS patch and state-change records"]
 ```
 

@@ -9,9 +9,9 @@ from xian.constants import Constants as c
 from xian.methods._evidence import maybe_apply_evidence_penalties
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.shielded_preverify import warm_shielded_proof_cache
+from xian.state_root import compute_driver_state_root
 from xian.utils.block import (
     convert_cometbft_time_to_datetime,
-    get_latest_block_hash,
     get_nanotime_from_block_time,
 )
 from xian.utils.encoding import (
@@ -20,7 +20,6 @@ from xian.utils.encoding import (
     hash_bytes,
     stringify_decimals,
 )
-from xian.utils.hash import hash_from_rewards, hash_list
 from xian.utils.tx import (
     SequentialNonceTracker,
     decode_and_validate_transaction_static_bytes,
@@ -43,7 +42,7 @@ def _error_tx_result(message: str, **log_context) -> ExecTxResult:
 def _safe_positive_int(value, default: int) -> int:
     try:
         normalized = int(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
     if normalized <= 0:
         return default
@@ -102,7 +101,6 @@ def _maybe_run_validator_epoch_rebalance(self, *, height: int):
         ).warning("Automatic epoch rebalance did not apply")
         return tx_result, False
 
-    self.fingerprint_hashes.append(hash_bytes(encode_abci_json(tx_result)))
     logger.bind(
         **build_log_fields(
             stage="finalize_epoch_rebalance",
@@ -191,8 +189,6 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
     tx_results = []
     reward_writes = []
     bds_transactions = []
-    latest_block_hash = get_latest_block_hash()
-    self.fingerprint_hashes.append(latest_block_hash.hex())
 
     self.current_block_meta = {
         "nanos": nanos,
@@ -461,7 +457,6 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                     continue
                 self.nonce_storage.set_nonce_by_tx(tx)
                 parsed_tx_result = encode_abci_json(tx_result)
-                self.fingerprint_hashes.append(hash_bytes(parsed_tx_result))
                 if self.transaction_trace_debug_logging:
                     logger.bind(
                         **build_log_fields(
@@ -522,17 +517,15 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                         )
                     )
 
-    evidence_penalty_applied = False
     with self.profiler.scope("finalize_evidence", block_scoped=True):
-        evidence_penalty_applied = maybe_apply_evidence_penalties(
+        maybe_apply_evidence_penalties(
             self,
             req,
             height=height,
         )
 
-    automatic_rebalance_applied = False
     with self.profiler.scope("finalize_epoch_rebalance", block_scoped=True):
-        _, automatic_rebalance_applied = _maybe_run_validator_epoch_rebalance(
+        _maybe_run_validator_epoch_rebalance(
             self,
             height=height,
         )
@@ -556,16 +549,12 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                     )
                 ).exception("Static reward distribution failed for block")
 
-    with self.profiler.scope("finalize_fingerprint", block_scoped=True):
+    with self.profiler.scope("finalize_state_root", block_scoped=True):
         with self.profiler.scope("finalize_commit_prepare", block_scoped=True):
-            reward_hash = hash_from_rewards(reward_writes)
             validator_updates = self.validator_handler.build_validator_updates(
                 height
             )
 
-            self.fingerprint_hashes.append(reward_hash)
-
-            state_patch_applied = False
             patch_hash = None
             applied_patches = []
             if hasattr(self, "state_patch_manager"):
@@ -578,26 +567,17 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
                 )
 
                 if patch_hash:
-                    self.fingerprint_hashes.append(patch_hash)
-                    state_patch_applied = True
                     logger.bind(
                         **build_log_fields(
-                            stage="finalize_fingerprint",
+                            stage="finalize_state_root",
                             block_height=height,
                             block_hash=hash,
                             extra={"patch_hash": patch_hash},
                         )
-                    ).info("Added state patch hash to block fingerprint")
+                    ).info("Applied state patch before state-root calculation")
 
-            self.merkle_root_hash = (
-                latest_block_hash
-                if (
-                    len(req.txs) == 0
-                    and not state_patch_applied
-                    and not evidence_penalty_applied
-                    and not automatic_rebalance_applied
-                )
-                else hash_list(self.fingerprint_hashes)
+            self.merkle_root_hash = compute_driver_state_root(
+                self.client.raw_driver
             )
 
         if self.bds_enabled:

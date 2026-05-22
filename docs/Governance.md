@@ -44,7 +44,8 @@ Protocol-governance integration:
 - `src/xian/methods/query.py` exposes:
   - `/state_patch_bundles`
   - `/scheduled_state_patches/<height>`
-- executed patches are fingerprinted into block execution and persisted to BDS
+- executed patch writes are committed through the normal state-root path and
+  persisted to BDS
 
 ## Source Of Truth
 
