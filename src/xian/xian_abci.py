@@ -201,6 +201,7 @@ class Xian:
             get_state_snapshot=lambda: snapshot_driver_state(
                 self.client.raw_driver
             ),
+            chain_id=self.chain_id,
             enabled=xian_config.get("simulation_enabled", True),
             max_concurrency=xian_config.get("simulation_max_concurrency", 2),
             timeout_ms=xian_config.get("simulation_timeout_ms", 3000),

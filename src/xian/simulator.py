@@ -51,10 +51,12 @@ class TransactionSimulator:
         client: ContractingClient,
         get_block_meta=None,
         execution_runtime: VmRuntime | None = None,
+        chain_id: str | None = None,
     ):
         self.client = client
         self.get_block_meta = get_block_meta or (lambda: None)
         self.execution_runtime = execution_runtime or VmRuntime()
+        self.chain_id = chain_id
 
     def simulate(
         self,
@@ -245,11 +247,12 @@ class TransactionSimulator:
                 self.client.raw_driver.storage_home
             )
         payload_hash = self._payload_hash(payload or {})
+        chain_id = block_meta.get("chain_id") or self.chain_id
         block_hash = block_meta.get("hash")
         if block_hash is None:
             block_hash = hashlib.sha3_256(
                 (
-                    f"simulate:block:{block_meta.get('chain_id') or ''}:"
+                    f"simulate:block:{chain_id or ''}:"
                     f"{block_meta.get('height', block_num)}:{int(block_nanos or 0)}"
                 ).encode("utf-8")
             ).hexdigest()
@@ -268,7 +271,7 @@ class TransactionSimulator:
                 getattr(execution_runtime, "mode", None) or "xian_vm_v1"
             ),
             "now": now,
-            "chain_id": block_meta.get("chain_id"),
+            "chain_id": chain_id,
         }
 
 
@@ -280,6 +283,7 @@ class QuerySimulationService:
         execution_runtime: VmRuntime | None = None,
         get_block_meta=None,
         get_state_snapshot=None,
+        chain_id: str | None = None,
         enabled: bool = True,
         max_concurrency: int = 2,
         timeout_ms: int = 3000,
@@ -289,6 +293,7 @@ class QuerySimulationService:
         self.execution_runtime = execution_runtime or VmRuntime()
         self.get_block_meta = get_block_meta or (lambda: None)
         self.get_state_snapshot = get_state_snapshot or (lambda: None)
+        self.chain_id = chain_id
         self.enabled = enabled
         self.max_concurrency = max(int(max_concurrency), 1)
         self.timeout_ms = max(int(timeout_ms), 1)
@@ -352,6 +357,7 @@ class QuerySimulationService:
                 "execution_runtime": self.execution_runtime,
                 "payload": normalized_payload,
                 "block_meta": self.get_block_meta() or {},
+                "chain_id": self.chain_id,
                 "max_chi": self.max_chi,
                 "driver_state": self.get_state_snapshot(),
             }

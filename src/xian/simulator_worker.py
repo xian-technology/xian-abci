@@ -26,6 +26,7 @@ def main() -> int:
         simulator = TransactionSimulator(
             client=client,
             execution_runtime=task.get("execution_runtime"),
+            chain_id=task.get("chain_id"),
         )
         result = simulator.simulate(
             task["payload"],

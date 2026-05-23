@@ -25,7 +25,7 @@ def _driver(storage_home: Path | None = None):
     return driver
 
 
-def _simulator(driver=None):
+def _simulator(driver=None, *, chain_id: str | None = None):
     simulator = object.__new__(TransactionSimulator)
     simulator.client = SimpleNamespace(
         raw_driver=driver or _driver(),
@@ -33,6 +33,7 @@ def _simulator(driver=None):
     )
     simulator.execution_runtime = SimpleNamespace(mode="xian_vm_v1")
     simulator.get_block_meta = lambda: None
+    simulator.chain_id = chain_id
     return simulator
 
 
@@ -72,6 +73,17 @@ class SimulatorTests(unittest.TestCase):
             self.assertEqual(environment["now"].year, 1970)
             self.assertEqual(environment["now"].month, 1)
             self.assertEqual(environment["now"].day, 1)
+
+    def test_make_environment_uses_configured_chain_id_when_idle(self):
+        with TemporaryDirectory() as tmpdir:
+            simulator = _simulator(
+                _driver(Path(tmpdir)),
+                chain_id="xian-local",
+            )
+
+            environment = simulator._make_environment()
+
+            self.assertEqual(environment["chain_id"], "xian-local")
 
     def test_make_environment_is_deterministic_for_same_payload(self):
         simulator = _simulator()
