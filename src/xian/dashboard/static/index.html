@@ -217,7 +217,7 @@ tr.clickable{cursor:pointer}
 
 <div class="header">
   <div class="header-left">
-    <div class="logo" onclick="navigateTo('home')"><span>X</span>ian</div>
+    <div class="logo" data-action="navigate" data-nav-view="home"><span>X</span>ian</div>
     <div class="chain-badge" id="chain-id">&mdash;</div>
   </div>
   <div class="header-right">
@@ -453,11 +453,49 @@ function fmtBps(value){
   return n.toLocaleString()+" bps ("+percent.toLocaleString(undefined,{maximumFractionDigits:2})+"%)";
 }
 function escHtml(s){
-  if(!s) return "";
-  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  if(s === null || s === undefined) return "";
+  return String(s)
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;")
+    .replace(/'/g,"&#39;");
 }
 function encodeDataAttr(value){
   return encodeURIComponent(value === null || value === undefined ? "" : String(value));
+}
+function dataAttrValue(value){
+  return escHtml(encodeDataAttr(value));
+}
+function decodeDataAttr(value){
+  if(value === null || value === undefined) return "";
+  try{
+    return decodeURIComponent(String(value));
+  }catch(_err){
+    return String(value);
+  }
+}
+function navAttrs(view, id){
+  let attrs = ' data-action="navigate" data-nav-view="'+dataAttrValue(view)+'"';
+  if(id !== undefined && id !== null) attrs += ' data-nav-id="'+dataAttrValue(id)+'"';
+  return attrs;
+}
+function explorerViewAttrs(view){
+  return ' data-action="explorer-view" data-explorer-target="'+dataAttrValue(view)+'"';
+}
+function openRpcAttrs(rpcUrl){
+  return ' data-action="open-rpc" data-rpc-url="'+dataAttrValue(rpcUrl)+'"';
+}
+function pageAttrs(page, dir){
+  return ' data-action="page" data-page="'+dataAttrValue(page)+'" data-dir="'+dataAttrValue(dir)+'"';
+}
+function scrollFunctionAttrs(name){
+  return ' data-action="scroll-function" data-function-name="'+dataAttrValue(name)+'"';
+}
+function setNavDataset(el, view, id){
+  el.dataset.action = "navigate";
+  el.dataset.navView = encodeDataAttr(view);
+  if(id !== undefined && id !== null) el.dataset.navId = encodeDataAttr(id);
 }
 function normalizeHex(value){
   return String(value || "").replace(/^0x/i,"").toUpperCase();
@@ -488,18 +526,18 @@ function addressLink(address, opts){
   const left = opts && opts.left ? opts.left : 12;
   const right = opts && opts.right ? opts.right : 10;
   const label = opts && opts.label ? opts.label : truncateMiddle(address, left, right);
-  return '<span class="link mono" title="'+escHtml(address)+'" onclick="event.stopPropagation();navigateTo(\'address\',\''+escHtml(address)+'\')">'+escHtml(label)+'</span>';
+  return '<span class="link mono" title="'+escHtml(address)+'"'+navAttrs('address', address)+'>'+escHtml(label)+'</span>';
 }
 function txLink(hash, opts){
   if(!hash) return "\u2014";
   const left = opts && opts.left ? opts.left : 10;
   const right = opts && opts.right ? opts.right : 8;
   const label = opts && opts.label ? opts.label : truncateMiddle(hash, left, right);
-  return '<span class="link mono" title="'+escHtml(hash)+'" onclick="event.stopPropagation();navigateTo(\'tx\',\''+escHtml(hash)+'\')">'+escHtml(label)+'</span>';
+  return '<span class="link mono" title="'+escHtml(hash)+'"'+navAttrs('tx', hash)+'>'+escHtml(label)+'</span>';
 }
 function contractLink(name){
   if(!name) return "\u2014";
-  return '<span class="link mono" onclick="event.stopPropagation();navigateTo(\'contract\',\''+escHtml(name)+'\')">'+escHtml(name)+'</span>';
+  return '<span class="link mono"'+navAttrs('contract', name)+'>'+escHtml(name)+'</span>';
 }
 function compactText(value, maxLen){
   if(value === null || value === undefined) return "\u2014";
@@ -759,10 +797,11 @@ function showDetail(html, opts){
 }
 
 function breadcrumb(items){
-  let html = '<div class="breadcrumb"><a onclick="navigateTo(\'list\')">Explorer</a>';
+  let html = '<div class="breadcrumb"><a'+navAttrs('list')+'>Explorer</a>';
   items.forEach(item=>{
     html += '<span class="sep">/</span>';
-    if(item.link) html += `<a onclick="${escHtml(item.link)}">${escHtml(item.label)}</a>`;
+    if(item.view) html += `<a${navAttrs(item.view,item.id)}>${escHtml(item.label)}</a>`;
+    else if(item.explorerView) html += `<a${explorerViewAttrs(item.explorerView)}>${escHtml(item.label)}</a>`;
     else html += `<span>${escHtml(item.label)}</span>`;
   });
   return html + '</div>';
@@ -966,6 +1005,47 @@ function openDashboardForRpc(rpcUrl){
 }
 window.openDashboardForRpc = openDashboardForRpc;
 
+function runPageAction(page, dir){
+  if(page === "blocks") explorerBlocksPage(dir);
+  else if(page === "addresses") addressesPage(dir);
+  else if(page === "contracts") contractsPage(dir);
+  else if(page === "events") eventsPage(dir);
+  else if(page === "address") addressPage(dir);
+}
+
+document.addEventListener("click", event=>{
+  const target = event.target instanceof Element
+    ? event.target.closest("[data-action]")
+    : null;
+  if(!target) return;
+  if(target instanceof HTMLButtonElement && target.disabled) return;
+
+  const action = target.dataset.action;
+  if(action === "navigate"){
+    event.preventDefault();
+    const view = decodeDataAttr(target.dataset.navView);
+    const id = target.dataset.navId === undefined
+      ? undefined
+      : decodeDataAttr(target.dataset.navId);
+    navigateTo(view, id);
+  } else if(action === "explorer-view"){
+    event.preventDefault();
+    setExplorerView(decodeDataAttr(target.dataset.explorerTarget));
+  } else if(action === "open-rpc"){
+    event.preventDefault();
+    openDashboardForRpc(decodeDataAttr(target.dataset.rpcUrl));
+  } else if(action === "page"){
+    event.preventDefault();
+    runPageAction(
+      decodeDataAttr(target.dataset.page),
+      decodeDataAttr(target.dataset.dir),
+    );
+  } else if(action === "scroll-function"){
+    event.preventDefault();
+    scrollToContractFunction(decodeDataAttr(target.dataset.functionName));
+  }
+});
+
 /* ── tabs ── */
 document.querySelectorAll(".tab").forEach(t=>{
   t.addEventListener("click",()=>{
@@ -1060,7 +1140,7 @@ function handleNewBlock(msg){
     explorerMaxHeight = msg.height;
     const tr2 = document.createElement("tr");
     tr2.className = "clickable";
-    tr2.setAttribute("onclick", "navigateTo('block','"+msg.height+"')");
+    setNavDataset(tr2, "block", msg.height);
     tr2.innerHTML =
       '<td>'+msg.height.toLocaleString()+'</td>'+
       '<td><span class="hash">'+truncHash(msg.hash,8)+'</span></td>'+
@@ -1154,7 +1234,7 @@ async function refreshDashboard(){
       const rpc = peerRpcUrl(p);
       const label = (ni2.moniker||"peer")+' \u2014 '+(p.remote_ip||"?");
       if(rpc){
-        html += `<div class="peer clickable" title="Open dashboard for ${escHtml(label)}" onclick="openDashboardForRpc('${escHtml(rpc)}')">${escHtml(label)}</div>`;
+        html += `<div class="peer clickable" title="Open dashboard for ${escHtml(label)}"${openRpcAttrs(rpc)}>${escHtml(label)}</div>`;
       } else {
         html += `<div class="peer" title="${ni2.id||""}">${escHtml(label)}</div>`;
       }
@@ -1287,7 +1367,7 @@ function renderValidatorSet(){
       const isSelf = normalizeHex(validator.address) === selfAddress;
       const rpcTarget = validatorRpcTargets[normalizeHex(validator.address)];
       const rowClass = rpcTarget ? ' class="clickable"' : '';
-      const clickAttr = rpcTarget ? ' onclick="openDashboardForRpc(\''+escHtml(rpcTarget)+'\')"' : '';
+      const clickAttr = rpcTarget ? openRpcAttrs(rpcTarget) : '';
       const identity = '<span class="validator-identity">'+
         '<span>'+escHtml(truncHash(validator.address || "\u2014", 6))+'</span>'+
         (isSelf ? ' <span class="validator-role active">self</span>' : '')+
@@ -1371,7 +1451,7 @@ async function loadExplorerBlocks(maxH){
   let html = '<table><thead><tr><th>Height</th><th>Hash</th><th>Proposer</th><th>Time</th><th>Txs</th></tr></thead><tbody>';
   metas.forEach(m=>{
     const h = m.header;
-    html += `<tr class="clickable" onclick="navigateTo('block','${h.height}')">
+    html += `<tr class="clickable"${navAttrs('block', h.height)}>
       <td>${parseInt(h.height).toLocaleString()}</td>
       <td><span class="hash">${truncHash(m.block_id.hash,8)}</span></td>
       <td>${truncHash(h.proposer_address,6)}</td>
@@ -1384,18 +1464,18 @@ async function loadExplorerBlocks(maxH){
   const canPrev = min > 1;
   const canNext = maxH < latestHeight;
   html += `<div class="pagination">
-    <button class="btn btn-ghost" ${canPrev?"onclick=\"window._explorerPage('prev')\"":"disabled"}>\u2190 Older</button>
+    <button class="btn btn-ghost" ${canPrev?pageAttrs('blocks','prev'):"disabled"}>\u2190 Older</button>
     <span class="page-info">${min.toLocaleString()} \u2013 ${maxH.toLocaleString()}</span>
-    <button class="btn btn-ghost" ${canNext?"onclick=\"window._explorerPage('next')\"":"disabled"}>Newer \u2192</button>
+    <button class="btn btn-ghost" ${canNext?pageAttrs('blocks','next'):"disabled"}>Newer \u2192</button>
   </div>`;
 
   $("explorer-blocks").innerHTML = html;
 }
 
-window._explorerPage = function(dir){
+function explorerBlocksPage(dir){
   if(dir==="prev") loadExplorerBlocks(Math.max(1, explorerMaxHeight - BLOCKS_PER_PAGE));
   else loadExplorerBlocks(Math.min(latestHeight, explorerMaxHeight + BLOCKS_PER_PAGE));
-};
+}
 
 async function loadExplorerAddresses(){
   const payload = await api(
@@ -1420,7 +1500,7 @@ async function loadExplorerAddresses(){
 
   let html = '<table><thead><tr><th>Address</th><th>Txs</th><th>Last Block</th><th>Last Contract</th><th>Last Function</th></tr></thead><tbody>';
   items.forEach(item=>{
-    html += '<tr class="clickable" onclick="navigateTo(\'address\',\''+escHtml(item.address)+'\')">'+
+    html += '<tr class="clickable"'+navAttrs('address', item.address)+'>'+
       '<td>'+addressLink(item.address,{left:12,right:10})+'</td>'+
       '<td>'+escHtml(String(item.tx_count ?? "\u2014"))+'</td>'+
       '<td>'+escHtml(String(item.last_block_height ?? "\u2014"))+'</td>'+
@@ -1430,18 +1510,18 @@ async function loadExplorerAddresses(){
   });
   html += '</tbody></table>';
   html += '<div class="pagination">'+
-    '<button class="btn btn-ghost" '+(payload.has_more ? 'onclick="window._addressesPage(\'older\')"' : 'disabled')+'>\u2190 Older</button>'+
+    '<button class="btn btn-ghost" '+(payload.has_more ? pageAttrs('addresses','older') : 'disabled')+'>\u2190 Older</button>'+
     '<span class="page-info">'+(explorerAddressesOffset + 1).toLocaleString()+' \u2013 '+(explorerAddressesOffset + items.length).toLocaleString()+'</span>'+
-    '<button class="btn btn-ghost" '+(explorerAddressesOffset > 0 ? 'onclick="window._addressesPage(\'newer\')"' : 'disabled')+'>Newer \u2192</button>'+
+    '<button class="btn btn-ghost" '+(explorerAddressesOffset > 0 ? pageAttrs('addresses','newer') : 'disabled')+'>Newer \u2192</button>'+
   '</div>';
   $("explorer-addresses").innerHTML = html;
 }
 
-window._addressesPage = function(dir){
+function addressesPage(dir){
   if(dir === "newer") explorerAddressesOffset = Math.max(0, explorerAddressesOffset - ADDRESSES_PER_PAGE);
   else explorerAddressesOffset += ADDRESSES_PER_PAGE;
   loadExplorerAddresses();
-};
+}
 
 async function loadExplorerContracts(){
   const payload = await api("contracts?limit="+CONTRACTS_PER_PAGE+"&offset="+explorerContractsOffset+"&sort="+encodeURIComponent(explorerContractSort)+"&order="+encodeURIComponent(explorerContractOrder));
@@ -1456,7 +1536,7 @@ async function loadExplorerContracts(){
   }
   let html = '<table><thead><tr><th>Name</th><th>Created</th><th>Developer</th><th>Source</th></tr></thead><tbody>';
   items.forEach(item=>{
-    html += '<tr class="clickable" onclick="navigateTo(\'contract\',\''+escHtml(item.name)+'\')">'+
+    html += '<tr class="clickable"'+navAttrs('contract', item.name)+'>'+
       '<td>'+escHtml(item.name)+'</td>'+
       '<td>'+escHtml(item.submitted_at ? fmtTime(item.submitted_at) : '\u2014')+'</td>'+
       '<td>'+(item.developer ? addressLink(item.developer,{left:10,right:8}) : '\u2014')+'</td>'+
@@ -1468,18 +1548,18 @@ async function loadExplorerContracts(){
   const start = total === 0 ? 0 : explorerContractsOffset + 1;
   const end = Math.min(total, explorerContractsOffset + items.length);
   html += '<div class="pagination">'+
-    '<button class="btn btn-ghost" '+(end < total ? 'onclick="window._contractsPage(\'older\')"' : 'disabled')+'>\u2190 Older</button>'+
+    '<button class="btn btn-ghost" '+(end < total ? pageAttrs('contracts','older') : 'disabled')+'>\u2190 Older</button>'+
     '<span class="page-info">'+start.toLocaleString()+' \u2013 '+end.toLocaleString()+' of '+total.toLocaleString()+'</span>'+
-    '<button class="btn btn-ghost" '+(explorerContractsOffset > 0 ? 'onclick="window._contractsPage(\'newer\')"' : 'disabled')+'>Newer \u2192</button>'+
+    '<button class="btn btn-ghost" '+(explorerContractsOffset > 0 ? pageAttrs('contracts','newer') : 'disabled')+'>Newer \u2192</button>'+
   '</div>';
   $("explorer-contracts").innerHTML = html;
 }
 
-window._contractsPage = function(dir){
+function contractsPage(dir){
   if(dir === "newer") explorerContractsOffset = Math.max(0, explorerContractsOffset - CONTRACTS_PER_PAGE);
   else explorerContractsOffset += CONTRACTS_PER_PAGE;
   loadExplorerContracts();
-};
+}
 
 async function loadExplorerEvents(){
   const payload = await api("recent_events?limit="+EVENTS_PER_PAGE+"&offset="+explorerEventsOffset);
@@ -1498,7 +1578,7 @@ async function loadExplorerEvents(){
   }
   let html = '<table><thead><tr><th>Time</th><th>Contract</th><th>Event</th><th>Signer</th><th>Tx</th></tr></thead><tbody>';
   items.forEach(item=>{
-    html += '<tr class="clickable" onclick="navigateTo(\'tx\',\''+escHtml(item.tx_hash)+'\')">'+
+    html += '<tr class="clickable"'+navAttrs('tx', item.tx_hash)+'>'+
       '<td>'+escHtml(item.created_at ? fmtTime(item.created_at) : '\u2014')+'</td>'+
       '<td>'+(item.contract ? contractLink(item.contract) : '\u2014')+'</td>'+
       '<td>'+escHtml(item.event || '\u2014')+'</td>'+
@@ -1509,18 +1589,18 @@ async function loadExplorerEvents(){
   html += '</tbody></table>';
   const count = items.length;
   html += '<div class="pagination">'+
-    '<button class="btn btn-ghost" '+(count === EVENTS_PER_PAGE ? 'onclick="window._eventsPage(\'older\')"' : 'disabled')+'>\u2190 Older</button>'+
+    '<button class="btn btn-ghost" '+(count === EVENTS_PER_PAGE ? pageAttrs('events','older') : 'disabled')+'>\u2190 Older</button>'+
     '<span class="page-info">'+(explorerEventsOffset + 1).toLocaleString()+' \u2013 '+(explorerEventsOffset + count).toLocaleString()+'</span>'+
-    '<button class="btn btn-ghost" '+(explorerEventsOffset > 0 ? 'onclick="window._eventsPage(\'newer\')"' : 'disabled')+'>Newer \u2192</button>'+
+    '<button class="btn btn-ghost" '+(explorerEventsOffset > 0 ? pageAttrs('events','newer') : 'disabled')+'>Newer \u2192</button>'+
   '</div>';
   $("explorer-events").innerHTML = html;
 }
 
-window._eventsPage = function(dir){
+function eventsPage(dir){
   if(dir === "newer") explorerEventsOffset = Math.max(0, explorerEventsOffset - EVENTS_PER_PAGE);
   else explorerEventsOffset += EVENTS_PER_PAGE;
   loadExplorerEvents();
-};
+}
 
 /* ── block detail view ── */
 async function viewBlock(height){
@@ -1577,11 +1657,11 @@ async function viewBlock(height){
 
       /* tx hash computed by backend (SHA-256 of raw tx bytes) */
       const txHash = tx&&tx.tx_hash ? tx.tx_hash : null;
-      const clickAttr = txHash ? `onclick="navigateTo('tx','${escHtml(txHash)}')"` : "";
+      const clickAttr = txHash ? navAttrs('tx', txHash) : "";
 
       html += `<tr class="${txHash?"clickable":""}" ${clickAttr}>
         <td>${i+1}</td>
-        <td><span class="link" onclick="event.stopPropagation();navigateTo('contract','${escHtml(contract)}')">${escHtml(contract)}</span></td>
+        <td><span class="link"${navAttrs('contract', contract)}>${escHtml(contract)}</span></td>
         <td>${escHtml(fn)}</td>
         <td>${sender}</td>
         <td>${statusBadge}</td>
@@ -1593,14 +1673,13 @@ async function viewBlock(height){
   /* block navigation */
   const h = parseInt(hdr.height);
   html += '<div style="display:flex;justify-content:space-between;margin-top:8px">';
-  if(h > 1) html += `<button class="btn btn-ghost" onclick="navigateTo('block','${h-1}')">\u2190 Block ${(h-1).toLocaleString()}</button>`;
+  if(h > 1) html += `<button class="btn btn-ghost"${navAttrs('block', h-1)}>\u2190 Block ${(h-1).toLocaleString()}</button>`;
   else html += '<span></span>';
-  html += `<button class="btn btn-ghost" onclick="navigateTo('block','${h+1}')">Block ${(h+1).toLocaleString()} \u2192</button>`;
+  html += `<button class="btn btn-ghost"${navAttrs('block', h+1)}>Block ${(h+1).toLocaleString()} \u2192</button>`;
   html += '</div>';
 
   showDetail(html);
 }
-window._viewBlock = function(h){ navigateTo("block", h); };
 
 /* ── tx detail view ── */
 async function viewTx(hash){
@@ -1622,7 +1701,7 @@ async function viewTx(hash){
   const dataDecoded = txResult.data_decoded||null;
 
   let html = breadcrumb([
-    {label:"Block #"+height, link:"navigateTo('block','"+height+"')"},
+    {label:"Block #"+height, view:"block", id:height},
     {label:"Tx "+truncHash(txHash,8)}
   ]);
 
@@ -1631,7 +1710,7 @@ async function viewTx(hash){
     <div class="card-header">Transaction Overview</div>
     <div class="card-body">
       <div class="data-row"><span class="data-key">Hash</span><span class="data-val">${escHtml(txHash)}</span></div>
-      <div class="data-row"><span class="data-key">Block Height</span><span class="data-val"><span class="link" onclick="navigateTo('block','${height}')">${height}</span></span></div>
+      <div class="data-row"><span class="data-key">Block Height</span><span class="data-val"><span class="link"${navAttrs('block', height)}>${height}</span></span></div>
       <div class="data-row"><span class="data-key">Index</span><span class="data-val">${tx.index!==undefined?tx.index:"\u2014"}</span></div>`;
 
   if(txResult.code !== undefined){
@@ -1750,7 +1829,7 @@ async function viewAddress(address, opts){
   }
 
   let html = breadcrumb([
-    {label:"Addresses", link:"setExplorerView('addresses')"},
+    {label:"Addresses", explorerView:"addresses"},
     {label:truncateMiddle(address, 14, 12)}
   ]);
 
@@ -1788,7 +1867,7 @@ async function viewAddress(address, opts){
   html += '<table><thead><tr><th>Time</th><th>Hash</th><th>Contract</th><th>Function</th><th>Block</th><th>Status</th></tr></thead><tbody>';
   transactions.forEach(item=>{
     const success = item.success === true || item.status_code === 0;
-    html += '<tr class="clickable" onclick="navigateTo(\'tx\',\''+escHtml(item.hash)+'\')">'+
+    html += '<tr class="clickable"'+navAttrs('tx', item.hash)+'>'+
       '<td>'+escHtml(item.created_at ? fmtTime(item.created_at) : "\u2014")+'</td>'+
       '<td>'+txLink(item.hash,{left:10,right:8})+'</td>'+
       '<td>'+(item.contract ? contractLink(item.contract) : "\u2014")+'</td>'+
@@ -1799,20 +1878,20 @@ async function viewAddress(address, opts){
   });
   html += '</tbody></table>';
   html += '<div class="pagination">'+
-    '<button class="btn btn-ghost" '+(data.has_more ? 'onclick="window._addressPage(\'older\')"' : 'disabled')+'>\u2190 Older</button>'+
+    '<button class="btn btn-ghost" '+(data.has_more ? pageAttrs('address','older') : 'disabled')+'>\u2190 Older</button>'+
     '<span class="page-info">'+(explorerAddressOffset + 1).toLocaleString()+' \u2013 '+(explorerAddressOffset + transactions.length).toLocaleString()+'</span>'+
-    '<button class="btn btn-ghost" '+(explorerAddressOffset > 0 ? 'onclick="window._addressPage(\'newer\')"' : 'disabled')+'>Newer \u2192</button>'+
+    '<button class="btn btn-ghost" '+(explorerAddressOffset > 0 ? pageAttrs('address','newer') : 'disabled')+'>Newer \u2192</button>'+
   '</div>';
   html += '</div></div>';
 
   showDetail(html, opts);
 }
-window._addressPage = function(dir){
+function addressPage(dir){
   if(!currentAddress) return;
   if(dir === "newer") explorerAddressOffset = Math.max(0, explorerAddressOffset - ADDRESS_TXS_PER_PAGE);
   else explorerAddressOffset += ADDRESS_TXS_PER_PAGE;
   viewAddress(currentAddress, {scroll:false});
-};
+}
 
 const PY_KEYWORDS = new Set([
   "and","as","assert","async","await","break","class","continue","def","del",
@@ -2012,7 +2091,7 @@ async function viewContract(name){
   if(summary){
     html +=
       '<div class="data-row"><span class="data-key">Creation Tx</span><span class="data-val">'+(summary.last_tx_hash ? txLink(summary.last_tx_hash,{left:14,right:10}) : "\u2014")+'</span></div>'+
-      '<div class="data-row"><span class="data-key">Created At Block</span><span class="data-val">'+(summary.submitted_at_block ? '<span class="link mono" onclick="navigateTo(\'block\',\''+escHtml(String(summary.submitted_at_block))+'\')">'+escHtml(String(summary.submitted_at_block))+'</span>' : "\u2014")+'</span></div>'+
+      '<div class="data-row"><span class="data-key">Created At Block</span><span class="data-val">'+(summary.submitted_at_block ? '<span class="link mono"'+navAttrs('block', String(summary.submitted_at_block))+'>'+escHtml(String(summary.submitted_at_block))+'</span>' : "\u2014")+'</span></div>'+
       '<div class="data-row"><span class="data-key">Generated Rewards</span><span class="data-val">'+escHtml(String(summary.total_rewards ?? "\u2014"))+'</span></div>'+
       '<div class="data-row"><span class="data-key">Reward Records</span><span class="data-val">'+escHtml(String(summary.reward_count ?? "\u2014"))+'</span></div>'+
       '<div class="data-row"><span class="data-key">Indexed Txs</span><span class="data-val">'+escHtml(String(summary.tx_count ?? "\u2014"))+'</span></div>';
@@ -2033,7 +2112,7 @@ async function viewContract(name){
           sig += m.arguments.map(a => typeof a === "object" ? (a.name||a) : a).join(", ");
         }
         sig += ")";
-        html += `<button class="function-tag" onclick="scrollToContractFunction('${escHtml(m.name)}')">${escHtml(sig)}</button>`;
+        html += `<button class="function-tag"${scrollFunctionAttrs(m.name)}>${escHtml(sig)}</button>`;
       } else {
         html += `<span class="tag">${escHtml(String(m))}</span>`;
       }
@@ -2240,7 +2319,7 @@ async function refreshSlowData(){
       const rpc = peerRpcUrl(p);
       const label = (ni2.moniker||"peer")+' \u2014 '+(p.remote_ip||"?");
       if(rpc){
-        html += '<div class="peer clickable" title="Open dashboard for '+escHtml(label)+'" onclick="openDashboardForRpc(\''+escHtml(rpc)+'\')">'+escHtml(label)+'</div>';
+        html += '<div class="peer clickable" title="Open dashboard for '+escHtml(label)+'"'+openRpcAttrs(rpc)+'>'+escHtml(label)+'</div>';
       } else {
         html += '<div class="peer" title="'+(ni2.id||"")+'">'+escHtml(label)+'</div>';
       }
