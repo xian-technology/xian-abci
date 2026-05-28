@@ -16,10 +16,12 @@ from xian.dashboard.app import (
     _decode_block_tx_entry,
     _localnet_rpc_variants,
     _normalize_peer_rpc_url,
+    _resolved_rpc_url_variants,
     create_app,
     dashboard_security_middleware,
     handle_addresses,
     handle_contract,
+    handle_index,
     handle_validator_dashboard,
     handle_ws,
     normalize_rpc_url,
@@ -311,6 +313,15 @@ class DashboardTests(unittest.TestCase):
             },
         )
 
+    def test_resolved_rpc_url_variants_include_dns_aliases(self) -> None:
+        with patch(
+            "xian.dashboard.app.socket.getaddrinfo",
+            return_value=[(0, 0, 0, "", ("172.20.0.7", 26657))],
+        ):
+            variants = _resolved_rpc_url_variants("http://node-0:26657")
+
+        self.assertEqual(variants, {"http://172.20.0.7:26657"})
+
     def test_allowed_rpc_urls_include_localnet_host_variants(self) -> None:
         async def run_test() -> None:
             async def fake_raw_rpc(_session, _rpc_url, path, params=None):
@@ -341,6 +352,34 @@ class DashboardTests(unittest.TestCase):
 
             self.assertIn("http://127.0.0.1:26757", allowed)
             self.assertIn("http://localhost:26757", allowed)
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_allowed_rpc_urls_include_default_dns_aliases(self) -> None:
+        async def run_test() -> None:
+            async def fake_raw_rpc(_session, _rpc_url, path, params=None):
+                del params
+                if path == "status":
+                    return {"node_info": {"moniker": "node-0"}}
+                if path == "net_info":
+                    return {"peers": []}
+                raise AssertionError(f"unexpected path: {path}")
+
+            with (
+                patch("xian.dashboard.app._raw_rpc", side_effect=fake_raw_rpc),
+                patch(
+                    "xian.dashboard.app.socket.getaddrinfo",
+                    return_value=[(0, 0, 0, "", ("172.20.0.7", 26657))],
+                ),
+            ):
+                allowed = await _allowed_rpc_urls(
+                    object(),
+                    "http://node-0:26657",
+                )
+
+            self.assertIn("http://172.20.0.7:26657", allowed)
 
         import asyncio
 
@@ -408,6 +447,13 @@ class DashboardTests(unittest.TestCase):
 
 
 class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_handle_index_disables_browser_cache(self) -> None:
+        response = await handle_index(dashboard_request("/"))
+
+        self.assertEqual(response.headers["Cache-Control"], "no-store, max-age=0")
+        self.assertEqual(response.headers["Pragma"], "no-cache")
+        self.assertEqual(response.headers["Expires"], "0")
+
     async def test_security_middleware_rejects_rate_limited_request(
         self,
     ) -> None:

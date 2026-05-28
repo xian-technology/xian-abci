@@ -960,21 +960,21 @@ function renderValidatorVotes(){
 
 function knownDashboardTargets(){
   const targets = [];
+  const pushTarget = (label, rpcUrl) => {
+    const rpc = normalizeRpcUrl(rpcUrl);
+    if(!rpc) return;
+    if(targets.some(target=>target.rpc === rpc)) return;
+    targets.push({label, rpc});
+  };
   const currentNode = latestStatusSnapshot && latestStatusSnapshot.node_info ? latestStatusSnapshot.node_info : {};
-  targets.push({
-    label: currentNode.moniker || "Current node",
-    rpc: currentBaseRpc() || "",
-  });
+  pushTarget(currentNode.moniker || "Current node", currentBaseRpc());
+  pushTarget("Default node", defaultRpcUrl);
   const peers = latestNetInfoSnapshot && Array.isArray(latestNetInfoSnapshot.peers) ? latestNetInfoSnapshot.peers : [];
   peers.forEach(peer=>{
     const rpc = peerRpcUrl(peer);
     if(!rpc) return;
-    if(targets.some(target=>target.rpc === rpc)) return;
     const nodeInfo = peer.node_info || {};
-    targets.push({
-      label: (nodeInfo.moniker || "Peer") + " · " + (peer.remote_ip || rpc),
-      rpc,
-    });
+    pushTarget((nodeInfo.moniker || "Peer") + " · " + (peer.remote_ip || rpc), rpc);
   });
   return targets;
 }
@@ -982,13 +982,16 @@ function knownDashboardTargets(){
 async function refreshValidatorTargets(){
   const targets = knownDashboardTargets();
   const nextTargets = {};
-  await Promise.all(targets.map(async target=>{
+  const resolvedTargets = await Promise.all(targets.map(async target=>{
     const rpc = normalizeRpcUrl(target.rpc);
-    if(!rpc) return;
+    if(!rpc) return null;
     const status = await apiForRpc("status", rpc);
     const address = normalizeHex(status && status.validator_info ? status.validator_info.address : null);
-    if(address) nextTargets[address] = rpc;
+    return address ? {address, rpc} : null;
   }));
+  resolvedTargets.forEach(target=>{
+    if(target && !nextTargets[target.address]) nextTargets[target.address] = target.rpc;
+  });
   validatorRpcTargets = nextTargets;
 }
 
@@ -1366,7 +1369,6 @@ function renderValidatorSet(){
     .map(validator=>{
       const isSelf = normalizeHex(validator.address) === selfAddress;
       const rpcTarget = validatorRpcTargets[normalizeHex(validator.address)];
-      const rowClass = rpcTarget ? ' class="clickable"' : '';
       const clickAttr = rpcTarget ? openRpcAttrs(rpcTarget) : '';
       const identity = '<span class="validator-identity">'+
         '<span>'+escHtml(truncHash(validator.address || "\u2014", 6))+'</span>'+

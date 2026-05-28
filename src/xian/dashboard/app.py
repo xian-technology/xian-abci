@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import re
+import socket
 import time
 from dataclasses import dataclass
 from fnmatch import fnmatch
@@ -406,11 +407,53 @@ def _localnet_rpc_variants(
     }
 
 
+def _netloc_for_host_port(host: str, port: int) -> str:
+    if ":" in host and not host.startswith("["):
+        return f"[{host}]:{port}"
+    return f"{host}:{port}"
+
+
+def _resolved_rpc_url_variants(rpc_url: str) -> set[str]:
+    parsed = urlsplit(rpc_url)
+    host = parsed.hostname
+    port = parsed.port
+    if not host or port is None:
+        return set()
+
+    try:
+        addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError:
+        return set()
+
+    scheme = parsed.scheme or "http"
+    variants = set()
+    for address in addresses:
+        sockaddr = address[4]
+        if not sockaddr:
+            continue
+        resolved_host = sockaddr[0]
+        if not resolved_host or resolved_host == host:
+            continue
+        variants.add(
+            urlunsplit(
+                (
+                    scheme,
+                    _netloc_for_host_port(resolved_host, port),
+                    "",
+                    "",
+                    "",
+                )
+            )
+        )
+    return variants
+
+
 async def _allowed_rpc_urls(
     session: aiohttp.ClientSession,
     rpc_url: str,
 ) -> set[str]:
     allowed = {rpc_url}
+    allowed.update(_resolved_rpc_url_variants(rpc_url))
     current_moniker = None
     try:
         status = await _raw_rpc(session, rpc_url, "status")
@@ -1082,7 +1125,14 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
 
 
 async def handle_index(request: web.Request) -> web.Response:
-    return web.FileResponse(STATIC_DIR / "index.html")
+    return web.FileResponse(
+        STATIC_DIR / "index.html",
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 async def handle_status(request: web.Request) -> web.Response:
