@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import unittest
 from io import BytesIO
@@ -9,6 +10,7 @@ from xian_runtime_types.decimal import ContractingDecimal
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
+from cometbft.abci.v1beta1.types_pb2 import RequestCommit, RequestQuery
 from cometbft.abci.v1beta3.types_pb2 import (
     Request,
     RequestFinalizeBlock,
@@ -258,6 +260,67 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         second_hash = await finalize_with(changed_result)
 
         self.assertNotEqual(first_hash, second_hash)
+
+    async def test_query_waits_for_commit_after_finalize_block(self):
+        tx_result = {
+            "hash": "ABC123",
+            "status": 0,
+            "state": [{"key": "currency.balances:alice", "value": "99"}],
+            "events": [],
+            "chi_used": 1,
+            "result": "ok",
+        }
+
+        def process_result():
+            for state_write in tx_result["state"]:
+                self.app.client.raw_driver.set(
+                    state_write["key"],
+                    state_write["value"],
+                )
+            return {"tx_result": tx_result}
+
+        with (
+            patch(
+                "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
+                return_value={
+                    "payload": {
+                        "sender": "alice",
+                        "nonce": 1,
+                        "contract": "currency",
+                        "function": "transfer",
+                    },
+                    "metadata": {"signature": "sig"},
+                },
+            ),
+            patch(
+                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
+            ),
+            patch.object(
+                self.app.tx_processor,
+                "process_tx",
+                side_effect=lambda *args, **kwargs: process_result(),
+            ),
+            patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
+        ):
+            await self.process_request(
+                Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
+            )
+
+        query_task = asyncio.create_task(
+            self.handler.process(
+                "query",
+                Request(
+                    query=RequestQuery(path="/get/currency.balances:alice")
+                ),
+            )
+        )
+        await asyncio.sleep(0.01)
+        self.assertFalse(query_task.done())
+
+        await self.handler.process("commit", Request(commit=RequestCommit()))
+        query_response = await deserialize(await query_task)
+
+        self.assertEqual(query_response.query.value, b"99")
 
     async def test_finalize_block_warms_shielded_proof_cache_on_serial_path(self):
         tx = {

@@ -210,6 +210,10 @@ class Xian:
         self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None
         self.merkle_root_hash = None
+        # FinalizeBlock leaves consensus writes pending until Commit. Keep
+        # ABCI reads and mempool admission off that working state.
+        self._state_transition_lock = asyncio.Lock()
+        self._state_transition_lock_held_for_commit = False
 
         self.bds_enabled = xian_config.get("bds_enabled", False)
         self.bds_config = BdsConfig.from_runtime_settings(xian_config)
@@ -349,6 +353,11 @@ class Xian:
             await self.bds.start()
         await self.metrics_service.start()
 
+    def _release_state_transition_lock(self):
+        if self._state_transition_lock.locked():
+            self._state_transition_lock.release()
+        self._state_transition_lock_held_for_commit = False
+
     async def echo(self, req):
         """
         Echo a string to test an ABCI client/server implementation
@@ -375,8 +384,9 @@ class Xian:
         Guardian of the mempool: every node runs CheckTx before letting a transaction into its local mempool.
         The transaction may come from an external user or another node
         """
-        with self.profiler.scope("check_tx"):
-            res = await check_tx.check_tx(self, raw_tx)
+        async with self._state_transition_lock:
+            with self.profiler.scope("check_tx"):
+                res = await check_tx.check_tx(self, raw_tx)
         return res
 
     async def finalize_block(self, req):
@@ -384,6 +394,11 @@ class Xian:
         Contains the fields of the newly decided block.
         This method is equivalent to the call sequence BeginBlock, [DeliverTx], and EndBlock in the previous version of ABCI.
         """
+        acquired_for_finalize = False
+        if not self._state_transition_lock_held_for_commit:
+            await self._state_transition_lock.acquire()
+            self._state_transition_lock_held_for_commit = True
+            acquired_for_finalize = True
         self.profiler.start_block(req.height, len(req.txs))
         try:
             with self.profiler.scope("finalize_block", block_scoped=True):
@@ -393,29 +408,41 @@ class Xian:
         except Exception as exc:
             self.state_root_cache.rollback()
             self.profiler.end_block(error=f"{type(exc).__name__}: {exc}")
+            if acquired_for_finalize:
+                self._release_state_transition_lock()
             raise
 
     async def commit(self):
         """
         Signal the Application to persist the application state. Application is expected to persist its state at the end of this call, before calling ResponseCommit.
         """
-        res = await commit.commit(self)
-        return res
+        acquired_here = False
+        if not self._state_transition_lock_held_for_commit:
+            await self._state_transition_lock.acquire()
+            acquired_here = True
+        try:
+            res = await commit.commit(self)
+            return res
+        finally:
+            if acquired_here or self._state_transition_lock_held_for_commit:
+                self._release_state_transition_lock()
 
     async def process_proposal(self, req):
         """
         Contains all information on the proposed block needed to fully execute it.
         """
-        with self.profiler.scope("process_proposal"):
-            res = await process_proposal.process_proposal(self, req)
+        async with self._state_transition_lock:
+            with self.profiler.scope("process_proposal"):
+                res = await process_proposal.process_proposal(self, req)
         return res
 
     async def prepare_proposal(self, req):
         """
         RequestPrepareProposal contains a preliminary set of transactions txs that CometBFT retrieved from the mempool, called raw proposal. The Application can modify this set and return a modified set of transactions via ResponsePrepareProposal.txs .
         """
-        with self.profiler.scope("block_packing"):
-            res = await prepare_proposal.prepare_proposal(self, req)
+        async with self._state_transition_lock:
+            with self.profiler.scope("block_packing"):
+                res = await prepare_proposal.prepare_proposal(self, req)
         return res
 
     async def list_snapshots(self, req):
@@ -457,7 +484,8 @@ class Xian:
         Query the application state
         Request Ex. http://localhost:26657/abci_query?path="path"
         """
-        res = await query.query(self, req)
+        async with self._state_transition_lock:
+            res = await query.query(self, req)
         return res
 
     async def close(self):
