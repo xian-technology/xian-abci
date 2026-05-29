@@ -19,7 +19,7 @@ def _shape_from_record(record: Any) -> tuple[Shape, int] | None:
         return None
     try:
         normalized_count = int(count)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if normalized_count <= 0:
         return None
