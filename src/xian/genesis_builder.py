@@ -85,10 +85,7 @@ def render_template_values(value: Any, substitutions: dict[str, str]) -> Any:
         return [render_template_values(item, substitutions) for item in value]
 
     if isinstance(value, dict):
-        return {
-            key: render_template_values(item, substitutions)
-            for key, item in value.items()
-        }
+        return {key: render_template_values(item, substitutions) for key, item in value.items()}
 
     return value
 
@@ -128,12 +125,9 @@ def _build_genesis_block(
         )
         code = contract_path.read_text(encoding="utf-8")
         owner = render_template_values(contract.get("owner"), substitutions)
-        constructor_args = render_template_values(
-            contract.get("constructor_args"), substitutions
-        )
+        constructor_args = render_template_values(contract.get("constructor_args"), substitutions)
         override_args = (
-            constructor_overrides.get(contract_name)
-            or constructor_overrides.get(contract["name"])
+            constructor_overrides.get(contract_name) or constructor_overrides.get(contract["name"])
             if constructor_overrides is not None
             else None
         )
@@ -168,9 +162,7 @@ def _build_genesis_block(
         genesis_block["genesis"],
         key=lambda item: item["key"],
     )
-    genesis_block["hash"] = StateRootCache.from_driver(
-        contracting.raw_driver
-    ).root_hash.hex()
+    genesis_block["hash"] = StateRootCache.from_driver(contracting.raw_driver).root_hash.hex()
     genesis_block["origin"]["sender"] = wallet.public_key
     genesis_block["origin"]["signature"] = wallet.sign_msg(
         hash_state_changes(genesis_block["genesis"])
@@ -254,9 +246,7 @@ def derive_genesis_validators_from_bundle(
     constructor_args = members_contract.get("constructor_args") or {}
     genesis_nodes = constructor_args.get("genesis_nodes")
     if not isinstance(genesis_nodes, list) or not genesis_nodes:
-        raise ValueError(
-            "contract bundle masternodes seed data must define genesis_nodes"
-        )
+        raise ValueError("contract bundle masternodes seed data must define genesis_nodes")
 
     configured_powers = constructor_args.get("genesis_powers") or {}
     default_node_power = constructor_args.get("default_node_power", 10)
@@ -284,9 +274,7 @@ def build_cometbft_genesis(
     resolved_genesis_time = genesis_time
     if resolved_genesis_time is None:
         resolved_genesis_time = (
-            datetime.now(timezone.utc)
-            .isoformat(timespec="microseconds")
-            .replace("+00:00", "Z")
+            datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
         )
 
     return {
@@ -348,12 +336,9 @@ def build_local_network_genesis(
     members_contract = _find_members_contract(contract_config)
     seeded_member_args = members_contract.get("constructor_args") or {}
     founder_wallet = Ed25519Account(founder_private_key)
-    genesis_nodes = [
-        validator["account_public_key"] for validator in validators
-    ]
+    genesis_nodes = [validator["account_public_key"] for validator in validators]
     genesis_powers = {
-        validator["account_public_key"]: validator.get("power", 10)
-        for validator in validators
+        validator["account_public_key"]: validator.get("power", 10) for validator in validators
     }
     genesis_reward_keys = {
         validator["account_public_key"]: (
@@ -425,9 +410,7 @@ def write_genesis_block(path: Path, genesis_block: dict[str, Any]) -> None:
         handle.write(encode(genesis_block))
 
 
-def update_cometbft_genesis(
-    genesis_path: Path, *, abci_genesis: dict[str, Any]
-) -> None:
+def update_cometbft_genesis(genesis_path: Path, *, abci_genesis: dict[str, Any]) -> None:
     with open(genesis_path, "r", encoding="utf-8") as handle:
         cometbft_genesis = json.load(handle)
 

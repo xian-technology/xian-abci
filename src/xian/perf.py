@@ -37,11 +37,7 @@ class PerfStat:
         self.count += 1
         self.total_ns += duration_ns
         self.max_ns = max(self.max_ns, duration_ns)
-        self.min_ns = (
-            duration_ns
-            if self.min_ns is None
-            else min(self.min_ns, duration_ns)
-        )
+        self.min_ns = duration_ns if self.min_ns is None else min(self.min_ns, duration_ns)
         self.samples_ns.append(duration_ns)
 
     def to_dict(self) -> dict[str, Any]:
@@ -71,10 +67,7 @@ class BlockPerfSnapshot:
             "height": self.height,
             "tx_count": self.tx_count,
             "duration_ms": _ms(self.duration_ns),
-            "metrics": {
-                name: stat.to_dict()
-                for name, stat in sorted(self.metrics.items())
-            },
+            "metrics": {name: stat.to_dict() for name, stat in sorted(self.metrics.items())},
             "metadata": self.metadata,
         }
 
@@ -266,8 +259,7 @@ class PerfTracker:
                 "pid": os.getpid(),
                 "updated_at_unix_ns": time.time_ns(),
                 "global_metrics": {
-                    name: stat.to_dict()
-                    for name, stat in sorted(self.global_metrics.items())
+                    name: stat.to_dict() for name, stat in sorted(self.global_metrics.items())
                 },
                 "recent_blocks": [block.to_dict() for block in self.blocks],
             }
@@ -275,9 +267,7 @@ class PerfTracker:
     def flush(self) -> None:
         payload = self.snapshot()
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = self.output_path.with_suffix(
-            self.output_path.suffix + ".tmp"
-        )
+        temp_path = self.output_path.with_suffix(self.output_path.suffix + ".tmp")
         temp_path.write_text(
             json.dumps(payload, indent=2, sort_keys=True),
             encoding="utf-8",

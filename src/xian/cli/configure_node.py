@@ -26,9 +26,7 @@ from xian.node_setup import (
 
 
 def build_parser() -> ArgumentParser:
-    parser = ArgumentParser(
-        description="Configure an initialized CometBFT home"
-    )
+    parser = ArgumentParser(description="Configure an initialized CometBFT home")
     parser.add_argument(
         "--discover-seed",
         action="append",
@@ -41,18 +39,13 @@ def build_parser() -> ArgumentParser:
     parser.add_argument(
         "--seed",
         action="append",
-        help=(
-            "CometBFT P2P seed in <node_id>@<host>:26656 form; may be repeated"
-        ),
+        help=("CometBFT P2P seed in <node_id>@<host>:26656 form; may be repeated"),
         required=False,
     )
     parser.add_argument(
         "--persistent-peer",
         action="append",
-        help=(
-            "CometBFT persistent peer in <node_id>@<host>:26656 form; "
-            "may be repeated"
-        ),
+        help=("CometBFT persistent peer in <node_id>@<host>:26656 form; may be repeated"),
         required=False,
     )
     parser.add_argument(
@@ -77,10 +70,7 @@ def build_parser() -> ArgumentParser:
     parser.add_argument(
         "--snapshot-signing-key",
         action="append",
-        help=(
-            "trusted Ed25519 public key for signed snapshot manifests; "
-            "may be repeated"
-        ),
+        help=("trusted Ed25519 public key for signed snapshot manifests; may be repeated"),
         required=False,
     )
     parser.add_argument(
@@ -514,9 +504,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.genesis_bundle is not None and args.genesis_source is not None:
-        raise ValueError(
-            "pass either --genesis-source or --genesis-bundle, not both"
-        )
+        raise ValueError("pass either --genesis-source or --genesis-bundle, not both")
     if args.genesis_time is not None and args.genesis_bundle is None:
         raise ValueError("--genesis-time requires --genesis-bundle")
     genesis_payload = None
@@ -578,26 +566,16 @@ def main(argv: list[str] | None = None) -> int:
                     enabled=args.parallel_execution_enabled,
                     workers=args.parallel_execution_workers,
                     min_transactions=args.parallel_execution_min_transactions,
-                    max_speculative_waves=(
-                        args.parallel_execution_max_speculative_waves
-                    ),
-                    min_wave_acceptance_ratio=(
-                        args.parallel_execution_min_wave_acceptance_ratio
-                    ),
+                    max_speculative_waves=(args.parallel_execution_max_speculative_waves),
+                    min_wave_acceptance_ratio=(args.parallel_execution_min_wave_acceptance_ratio),
                     low_acceptance_min_wave_size=(
                         args.parallel_execution_low_acceptance_min_wave_size
                     ),
                     warm_workers=args.parallel_execution_warm_workers,
-                    access_estimates_enabled=(
-                        args.parallel_execution_access_estimates_enabled
-                    ),
+                    access_estimates_enabled=(args.parallel_execution_access_estimates_enabled),
                 ),
-                pending_nonce_reservation_ttl_seconds=(
-                    args.pending_nonce_reservation_ttl_seconds
-                ),
-                max_pending_nonces_per_sender=(
-                    args.max_pending_nonces_per_sender
-                ),
+                pending_nonce_reservation_ttl_seconds=(args.pending_nonce_reservation_ttl_seconds),
+                max_pending_nonces_per_sender=(args.max_pending_nonces_per_sender),
                 bds=BdsOptions(
                     dsn=args.bds_dsn,
                     host=args.bds_host,

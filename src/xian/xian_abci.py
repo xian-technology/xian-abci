@@ -92,9 +92,7 @@ def resolve_abci_socket_path(proxy_app: str | None) -> str:
     if proxy_app is None or proxy_app == "":
         return "/tmp/abci.sock"
     if not proxy_app.startswith("unix://"):
-        raise ValueError(
-            f"xian-abci only supports unix proxy_app values, got {proxy_app!r}"
-        )
+        raise ValueError(f"xian-abci only supports unix proxy_app values, got {proxy_app!r}")
     return proxy_app.removeprefix("unix://")
 
 
@@ -136,9 +134,7 @@ class Xian:
         self.client = ContractingClient(
             storage_home=constants.STORAGE_HOME,
         )
-        self.state_root_cache = StateRootCache.from_driver(
-            self.client.raw_driver
-        )
+        self.state_root_cache = StateRootCache.from_driver(self.client.raw_driver)
         self.chain_id = self.genesis.get("chain_id", None)
         if self.chain_id is None:
             raise ValueError("No value set for 'chain_id' in genesis block")
@@ -171,22 +167,16 @@ class Xian:
                     4 * 1024 * 1024,
                 )
             )
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             configured_max_tx_bytes = 4 * 1024 * 1024
         self.max_tx_bytes = max(configured_max_tx_bytes, 1)
-        self.app_log_level = str(
-            xian_config.get("app_log_level", "INFO")
-        ).upper()
-        self.transaction_trace_logging = xian_config.get(
-            "transaction_trace_logging", False
-        )
+        self.app_log_level = str(xian_config.get("app_log_level", "INFO")).upper()
+        self.transaction_trace_logging = xian_config.get("transaction_trace_logging", False)
         self.transaction_trace_debug_logging = (
-            self.transaction_trace_logging
-            and log_level_includes(self.app_log_level, "DEBUG")
+            self.transaction_trace_logging and log_level_includes(self.app_log_level, "DEBUG")
         )
-        self.transaction_trace_full_logging = (
-            self.transaction_trace_logging
-            and log_level_includes(self.app_log_level, "TRACE")
+        self.transaction_trace_full_logging = self.transaction_trace_logging and log_level_includes(
+            self.app_log_level, "TRACE"
         )
         self.tx_processor = TxProcessor(
             client=self.client,
@@ -198,9 +188,7 @@ class Xian:
             storage_home=constants.STORAGE_HOME,
             execution_runtime=self.execution_runtime,
             get_block_meta=lambda: self.current_block_meta,
-            get_state_snapshot=lambda: snapshot_driver_state(
-                self.client.raw_driver
-            ),
+            get_state_snapshot=lambda: snapshot_driver_state(self.client.raw_driver),
             chain_id=self.chain_id,
             enabled=xian_config.get("simulation_enabled", True),
             max_concurrency=xian_config.get("simulation_max_concurrency", 2),
@@ -226,11 +214,7 @@ class Xian:
             self.bds_config = replace(
                 self.bds_config,
                 rpc_url=resolve_local_rpc_url(
-                    str(
-                        self.cometbft_config.get("rpc", {}).get(
-                            "laddr", "tcp://127.0.0.1:26657"
-                        )
-                    )
+                    str(self.cometbft_config.get("rpc", {}).get("laddr", "tcp://127.0.0.1:26657"))
                 ),
             )
 
@@ -275,14 +259,10 @@ class Xian:
         ):
             self.parallel_block_executor.warm(use_rewards_handler=True)
         self.app_version = 1
-        self.metrics_service = MetricsService.from_runtime_settings(
-            self, xian_config
-        )
+        self.metrics_service = MetricsService.from_runtime_settings(self, xian_config)
 
         if self.genesis.get("abci_genesis", None) is None:
-            raise ValueError(
-                "No value set for 'abci_genesis' in Tendermint genesis.json"
-            )
+            raise ValueError("No value set for 'abci_genesis' in Tendermint genesis.json")
 
         self.enable_tx_fee = True
         self.static_rewards = False
@@ -304,18 +284,10 @@ class Xian:
                     "execution_mode": self.execution_mode,
                     "bds_enabled": self.bds_enabled,
                     "simulation_enabled": self.simulator.enabled,
-                    "parallel_execution_enabled": (
-                        self.parallel_block_executor.enabled
-                    ),
-                    "transaction_trace_logging": (
-                        self.transaction_trace_logging
-                    ),
-                    "transaction_trace_debug_logging": (
-                        self.transaction_trace_debug_logging
-                    ),
-                    "transaction_trace_full_logging": (
-                        self.transaction_trace_full_logging
-                    ),
+                    "parallel_execution_enabled": (self.parallel_block_executor.enabled),
+                    "transaction_trace_logging": (self.transaction_trace_logging),
+                    "transaction_trace_debug_logging": (self.transaction_trace_debug_logging),
+                    "transaction_trace_full_logging": (self.transaction_trace_full_logging),
                 },
             )
         ).info("Initialized Xian runtime")
@@ -450,9 +422,7 @@ class Xian:
         return self.state_snapshot_manager.list_snapshots_response()
 
     async def offer_snapshot(self, req):
-        current_height = get_latest_block_height(
-            self.client.raw_driver.storage_home
-        )
+        current_height = get_latest_block_height(self.client.raw_driver.storage_home)
         return self.state_snapshot_manager.offer_snapshot_response(
             req.snapshot,
             app_hash=req.app_hash,
@@ -474,9 +444,7 @@ class Xian:
         )
         if response.result == response.ACCEPT:
             self.nonce_storage.flush_pending()
-            self.state_root_cache.rebuild(
-                self.client.raw_driver.items().items()
-            )
+            self.state_root_cache.rebuild(self.client.raw_driver.items().items())
         return response
 
     async def query(self, req):

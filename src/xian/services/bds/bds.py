@@ -81,11 +81,7 @@ def _json_mapping(value: Any) -> dict[str, Any] | None:
 
 
 def _is_name_call(node: ast.AST, name: str) -> bool:
-    return (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == name
-    )
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
 
 
 def _has_export_decorator(node: ast.FunctionDef) -> bool:
@@ -114,10 +110,7 @@ def _assigns_balances_hash(node: ast.AST) -> bool:
     return (
         value is not None
         and _is_name_call(value, "Hash")
-        and any(
-            isinstance(target, ast.Name) and target.id == "balances"
-            for target in targets
-        )
+        and any(isinstance(target, ast.Name) and target.id == "balances" for target in targets)
     )
 
 
@@ -221,9 +214,7 @@ class BDS:
         if self._worker_task is not None:
             return
 
-        self._worker_task = asyncio.create_task(
-            self._run_worker(), name="xian-bds-worker"
-        )
+        self._worker_task = asyncio.create_task(self._run_worker(), name="xian-bds-worker")
 
     async def _run_worker(self) -> None:
         while True:
@@ -236,18 +227,14 @@ class BDS:
                 while True:
                     try:
                         if await self.persist_block(payload):
-                            self._indexed_height = int(
-                                payload.block_meta["height"]
-                            )
+                            self._indexed_height = int(payload.block_meta["height"])
                             self._prune_stale_pending_payloads()
                             break
                         await asyncio.sleep(self.WORKER_RETRY_DELAY_SECONDS)
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
-                        logger.exception(
-                            f"BDS worker failed to persist block: {exc}"
-                        )
+                        logger.exception(f"BDS worker failed to persist block: {exc}")
                         await asyncio.sleep(self.WORKER_RETRY_DELAY_SECONDS)
             except asyncio.CancelledError:
                 raise
@@ -279,9 +266,7 @@ class BDS:
     async def close(self) -> None:
         if self._worker_task is not None:
             try:
-                await asyncio.wait_for(
-                    self.flush(), timeout=self.CLOSE_FLUSH_TIMEOUT_SECONDS
-                )
+                await asyncio.wait_for(self.flush(), timeout=self.CLOSE_FLUSH_TIMEOUT_SECONDS)
             except asyncio.TimeoutError:
                 logger.warning(
                     "Timed out waiting for BDS queue flush; pending blocks remain in {}",
@@ -319,9 +304,7 @@ class BDS:
         return spool_path
 
     def _read_spool_file(self, spool_path: Path) -> BdsBlockPayload:
-        return BdsBlockPayload.from_spool_dict(
-            json.loads(spool_path.read_text(encoding="utf-8"))
-        )
+        return BdsBlockPayload.from_spool_dict(json.loads(spool_path.read_text(encoding="utf-8")))
 
     def _pending_spool_files(self) -> list[Path]:
         return sorted(self.spool_dir.glob("*.json"))
@@ -330,9 +313,7 @@ class BDS:
         pending: list[SpoolFileInfo] = []
         for path in self._pending_spool_files():
             try:
-                pending.append(
-                    SpoolFileInfo(path=path, size_bytes=path.stat().st_size)
-                )
+                pending.append(SpoolFileInfo(path=path, size_bytes=path.stat().st_size))
             except FileNotFoundError:
                 continue
         return pending
@@ -369,9 +350,7 @@ class BDS:
         if self._indexed_height is None or not self._pending_payloads:
             return
         stale_heights = [
-            height
-            for height in self._pending_payloads
-            if height <= self._indexed_height
+            height for height in self._pending_payloads if height <= self._indexed_height
         ]
         for height in stale_heights:
             self._pending_payloads.pop(height, None)
@@ -393,17 +372,13 @@ class BDS:
             return int(prefix)
         except ValueError:
             try:
-                return int(
-                    self._read_spool_file(spool_path).block_meta["height"]
-                )
+                return int(self._read_spool_file(spool_path).block_meta["height"])
             except Exception:
                 return None
 
     async def compact_spool(self) -> dict[str, Any]:
         self.spool_dir.mkdir(parents=True, exist_ok=True)
-        indexed_height = await self.db.fetchval(
-            "SELECT MAX(height) FROM blocks"
-        )
+        indexed_height = await self.db.fetchval("SELECT MAX(height) FROM blocks")
         removed_files = 0
         removed_bytes = 0
         removed_temp_files = 0
@@ -437,9 +412,7 @@ class BDS:
             "kept_files": len(self._pending_spool_files()),
         }
 
-    async def drain_spool(
-        self, *, timeout_seconds: float = 60.0
-    ) -> dict[str, Any]:
+    async def drain_spool(self, *, timeout_seconds: float = 60.0) -> dict[str, Any]:
         worker_started = False
         if self._worker_task is None:
             self._start_worker()
@@ -484,17 +457,11 @@ class BDS:
         return SpoolStatusSnapshot(
             files=files,
             total_bytes=sum(spool_file.size_bytes for spool_file in files),
-            oldest_pending=(
-                self._spool_entry_metadata(files[0]) if files else None
-            ),
-            newest_pending=(
-                self._spool_entry_metadata(files[-1]) if files else None
-            ),
+            oldest_pending=(self._spool_entry_metadata(files[0]) if files else None),
+            newest_pending=(self._spool_entry_metadata(files[-1]) if files else None),
         )
 
-    async def get_status(
-        self, *, current_block_height: int | None = None
-    ) -> dict[str, Any]:
+    async def get_status(self, *, current_block_height: int | None = None) -> dict[str, Any]:
         spool_snapshot = self._spool_status_snapshot()
 
         db_status = "ok"
@@ -518,16 +485,11 @@ class BDS:
 
         indexed_height = indexed["indexed_height"]
         if isinstance(indexed_height, int):
-            if (
-                self._indexed_height is None
-                or indexed_height > self._indexed_height
-            ):
+            if self._indexed_height is None or indexed_height > self._indexed_height:
                 self._indexed_height = indexed_height
         self._prune_stale_pending_payloads()
         height_lag = None
-        if isinstance(current_block_height, int) and isinstance(
-            indexed_height, int
-        ):
+        if isinstance(current_block_height, int) and isinstance(indexed_height, int):
             height_lag = max(current_block_height - indexed_height, 0)
 
         queue_depth = len(self._pending_payloads)
@@ -598,10 +560,8 @@ class BDS:
         has_height_lag = isinstance(height_lag, int) and height_lag > 0
 
         return {
-            "worker_running": self._worker_task is not None
-            and not self._worker_task.done(),
-            "catchup_running": self._catchup_task is not None
-            and not self._catchup_task.done(),
+            "worker_running": self._worker_task is not None and not self._worker_task.done(),
+            "catchup_running": self._catchup_task is not None and not self._catchup_task.done(),
             "queue_depth": queue_depth,
             "queue_capacity": queue_capacity,
             "queue_utilization": queue_depth / queue_capacity,
@@ -627,12 +587,8 @@ class BDS:
         }
 
     async def _refresh_indexed_height(self) -> int | None:
-        indexed_height = await self.db.fetchval(
-            "SELECT MAX(height) FROM blocks"
-        )
-        self._indexed_height = (
-            int(indexed_height) if indexed_height is not None else None
-        )
+        indexed_height = await self.db.fetchval("SELECT MAX(height) FROM blocks")
+        self._indexed_height = int(indexed_height) if indexed_height is not None else None
         self._prune_stale_pending_payloads()
         return self._indexed_height
 
@@ -642,9 +598,7 @@ class BDS:
         if not self.config.rpc_url:
             return
         await self._ensure_catchup_runtime()
-        self._catchup_task = asyncio.create_task(
-            self._run_catchup(), name="xian-bds-catchup"
-        )
+        self._catchup_task = asyncio.create_task(self._run_catchup(), name="xian-bds-catchup")
 
     async def _ensure_catchup_runtime(self) -> None:
         if self._block_source is not None and self._reindexer is not None:
@@ -681,17 +635,13 @@ class BDS:
             return
         await self._ensure_catchup_runtime()
         latest_height = await self._block_source.latest_height()
-        indexed_height = (
-            self._indexed_height if self._indexed_height is not None else 0
-        )
+        indexed_height = self._indexed_height if self._indexed_height is not None else 0
         highest_pending = max(self._pending_payloads, default=indexed_height)
         target_height = max(int(latest_height), int(highest_pending))
         next_height = indexed_height + 1
 
         while next_height <= target_height:
-            if len(self._pending_payloads) >= max(
-                self.config.queue_max_size, 1
-            ):
+            if len(self._pending_payloads) >= max(self.config.queue_max_size, 1):
                 return
             if next_height in self._pending_payloads:
                 next_height += 1
@@ -701,14 +651,10 @@ class BDS:
                 return
             next_height += 1
 
-    async def get_spool_entries(
-        self, limit: int = 100, offset: int = 0
-    ) -> list[dict[str, Any]]:
+    async def get_spool_entries(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         pending_spool = self._pending_spool_file_infos()
         selected = pending_spool[offset : offset + limit]
-        return [
-            self._spool_entry_metadata(spool_file) for spool_file in selected
-        ]
+        return [self._spool_entry_metadata(spool_file) for spool_file in selected]
 
     async def _prepare_schema(self) -> None:
         await self.db.execute(sql.create_meta())
@@ -801,9 +747,7 @@ class BDS:
                     True,
                     0,
                     0,
-                    _jsonb_param(
-                        {"status": "ok", "genesis_entries": len(genesis_state)}
-                    ),
+                    _jsonb_param({"status": "ok", "genesis_entries": len(genesis_state)}),
                     _jsonb_param({"kind": "genesis"}),
                     _jsonb_param(
                         {
@@ -818,9 +762,7 @@ class BDS:
                 for write_index, state in enumerate(genesis_state):
                     key = state["key"]
                     value = _jsonb_param(state["value"])
-                    previous_change_id, previous_tx_hash = current_index.get(
-                        key, (None, None)
-                    )
+                    previous_change_id, previous_tx_hash = current_index.get(key, (None, None))
                     change_id = await connection.fetchval(
                         sql.insert_state_change(),
                         0,
@@ -847,15 +789,13 @@ class BDS:
                         block_time,
                     )
 
-                for contract_name, record in self._collect_contract_records(
-                    genesis_state
-                ).items():
+                for contract_name, record in self._collect_contract_records(genesis_state).items():
                     display_source = record["source"]
                     if display_source is None:
                         continue
-                    submission_time = record[
-                        "submitted_at"
-                    ] or self.get_submission_time(genesis_state, contract_name)
+                    submission_time = record["submitted_at"] or self.get_submission_time(
+                        genesis_state, contract_name
+                    )
                     await connection.execute(
                         sql.upsert_contract(),
                         contract_name,
@@ -866,9 +806,7 @@ class BDS:
                         self.is_XSC001(display_source),
                     )
 
-        logger.debug(
-            f"Saved genesis block to BDS in {timer() - start_time:.3f} seconds"
-        )
+        logger.debug(f"Saved genesis block to BDS in {timer() - start_time:.3f} seconds")
 
     async def persist_block(self, payload: BdsBlockPayload) -> bool:
         start_time = timer()
@@ -901,14 +839,8 @@ class BDS:
                         for tx in payload.transactions
                         for state_change in tx.tx_result["state"]
                     }
-                    touched_keys.update(
-                        patch["key"]
-                        for patch in state_patches
-                        if "key" in patch
-                    )
-                    current_index = await self._load_current_state_index(
-                        connection, touched_keys
-                    )
+                    touched_keys.update(patch["key"] for patch in state_patches if "key" in patch)
+                    current_index = await self._load_current_state_index(connection, touched_keys)
 
                     for tx in payload.transactions:
                         await self._persist_transaction(
@@ -969,9 +901,7 @@ class BDS:
             tx_result["status"] == 0,
             tx_result["status"],
             tx_result["chi_used"],
-            _nullable_jsonb_param(
-                canonical_result_value(tx_result.get("result"))
-            ),
+            _nullable_jsonb_param(canonical_result_value(tx_result.get("result"))),
             _jsonb_param(payload),
             _jsonb_param(tx.envelope),
             block_time,
@@ -980,9 +910,7 @@ class BDS:
         for write_index, state_change in enumerate(tx_result["state"]):
             key = state_change["key"]
             value = _jsonb_param(state_change["value"])
-            previous_change_id, previous_tx_hash = current_index.get(
-                key, (None, None)
-            )
+            previous_change_id, previous_tx_hash = current_index.get(key, (None, None))
             change_id = await connection.fetchval(
                 sql.insert_state_change(),
                 block_meta["height"],
@@ -1128,9 +1056,7 @@ class BDS:
                         "bundle_hash": execution.get("bundle_hash"),
                         "execution_hash": execution.get("execution_hash"),
                         "activation_height": execution.get("activation_height"),
-                        "governance_contract": execution.get(
-                            "governance_contract"
-                        ),
+                        "governance_contract": execution.get("governance_contract"),
                         "emergency": execution.get("emergency", False),
                         "key": change["key"],
                         "value": change["value"],
@@ -1172,9 +1098,7 @@ class BDS:
         for write_index, change in enumerate(flattened_changes):
             key = change["key"]
             value = _jsonb_param(change["value"])
-            previous_change_id, previous_tx_hash = current_index.get(
-                key, (None, None)
-            )
+            previous_change_id, previous_tx_hash = current_index.get(key, (None, None))
             change_id = await connection.fetchval(
                 sql.insert_state_change(),
                 block_meta["height"],
@@ -1228,19 +1152,14 @@ class BDS:
             """,
             list(keys),
         )
-        return {
-            row["key"]: (row["last_change_id"], row["last_tx_hash"])
-            for row in rows
-        }
+        return {row["key"]: (row["last_change_id"], row["last_tx_hash"]) for row in rows}
 
     async def get_contracts(self, limit: int = 100, offset: int = 0):
         rows = await self.db.fetch(sql.select_contracts(), [limit, offset])
         return [dict(row) for row in rows]
 
     async def get_contract_summary(self, contract_name: str):
-        row = await self.db.fetchrow(
-            sql.select_contract_summary(), [contract_name]
-        )
+        row = await self.db.fetchrow(sql.select_contract_summary(), [contract_name])
         return dict(row) if row is not None else None
 
     async def get_blocks(self, limit: int = 100, offset: int = 0):
@@ -1248,9 +1167,7 @@ class BDS:
         return [dict(row) for row in rows]
 
     async def get_block(self, block_height: int):
-        row = await self.db.fetchrow(
-            sql.select_block_by_height(), [block_height]
-        )
+        row = await self.db.fetchrow(sql.select_block_by_height(), [block_height])
         return dict(row) if row is not None else None
 
     async def get_block_by_hash(self, block_hash: str):
@@ -1258,42 +1175,26 @@ class BDS:
         return dict(row) if row is not None else None
 
     async def get_tx(self, tx_hash: str):
-        row = await self.db.fetchrow(
-            sql.select_transaction_by_hash(), [tx_hash]
-        )
+        row = await self.db.fetchrow(sql.select_transaction_by_hash(), [tx_hash])
         return dict(row) if row is not None else None
 
     async def get_txs_for_block(self, block_ref: str):
         if len(block_ref) == 64:
-            rows = await self.db.fetch(
-                sql.select_transactions_for_block_hash(), [block_ref]
-            )
+            rows = await self.db.fetch(sql.select_transactions_for_block_hash(), [block_ref])
         else:
-            rows = await self.db.fetch(
-                sql.select_transactions_for_block_height(), [int(block_ref)]
-            )
+            rows = await self.db.fetch(sql.select_transactions_for_block_height(), [int(block_ref)])
         return [dict(row) for row in rows]
 
-    async def get_txs_by_sender(
-        self, sender: str, limit: int = 100, offset: int = 0
-    ):
-        rows = await self.db.fetch(
-            sql.select_transactions_by_sender(), [sender, limit, offset]
-        )
+    async def get_txs_by_sender(self, sender: str, limit: int = 100, offset: int = 0):
+        rows = await self.db.fetch(sql.select_transactions_by_sender(), [sender, limit, offset])
         return [dict(row) for row in rows]
 
     async def get_recent_addresses(self, limit: int = 100, offset: int = 0):
-        rows = await self.db.fetch(
-            sql.select_recent_addresses(), [limit, offset]
-        )
+        rows = await self.db.fetch(sql.select_recent_addresses(), [limit, offset])
         return [dict(row) for row in rows]
 
-    async def get_txs_by_contract(
-        self, contract: str, limit: int = 100, offset: int = 0
-    ):
-        rows = await self.db.fetch(
-            sql.select_transactions_by_contract(), [contract, limit, offset]
-        )
+    async def get_txs_by_contract(self, contract: str, limit: int = 100, offset: int = 0):
+        rows = await self.db.fetch(sql.select_transactions_by_contract(), [contract, limit, offset])
         return [dict(row) for row in rows]
 
     async def get_events_for_tx(self, tx_hash: str):
@@ -1356,17 +1257,11 @@ class BDS:
                 note_index_start = data.get("note_index_start")
                 output_count = data.get("output_count")
                 commitments_blob = data.get("commitments_blob")
-                if not isinstance(note_index_start, int) or not isinstance(
-                    commitments_blob, str
-                ):
+                if not isinstance(note_index_start, int) or not isinstance(commitments_blob, str):
                     continue
-                commitments = [
-                    item for item in commitments_blob.split("|") if item != ""
-                ]
+                commitments = [item for item in commitments_blob.split("|") if item != ""]
                 resolved_output_count = (
-                    output_count
-                    if isinstance(output_count, int)
-                    else len(commitments)
+                    output_count if isinstance(output_count, int) else len(commitments)
                 )
                 if len(commitments) < resolved_output_count:
                     continue
@@ -1416,8 +1311,7 @@ class BDS:
             )
             payload_items = [dict(row) for row in payload_rows]
             payloads_by_hash = {
-                str(row["hash"]): _json_mapping(row.get("payload")) or {}
-                for row in payload_items
+                str(row["hash"]): _json_mapping(row.get("payload")) or {} for row in payload_items
             }
 
             tag_rows = await self.db.fetch(
@@ -1428,8 +1322,7 @@ class BDS:
             matching_tags = {
                 (str(row["tx_hash"]), int(row["output_index"])): dict(row)
                 for row in tag_items
-                if isinstance(row.get("tx_hash"), str)
-                and isinstance(row.get("output_index"), int)
+                if isinstance(row.get("tx_hash"), str) and isinstance(row.get("output_index"), int)
             }
 
             for row in output_rows:
@@ -1526,9 +1419,7 @@ class BDS:
                     "updated_at": record.get("updated_at"),
                     "name": _normalize_json_text(record.get("token_name")),
                     "symbol": _normalize_json_text(record.get("token_symbol")),
-                    "logo_url": _normalize_json_text(
-                        record.get("token_logo_url")
-                    ),
+                    "logo_url": _normalize_json_text(record.get("token_logo_url")),
                 }
             )
 
@@ -1541,12 +1432,8 @@ class BDS:
             "offset": offset,
         }
 
-    async def get_state_history(
-        self, key: str, limit: int = 100, offset: int = 0
-    ):
-        rows = await self.db.fetch(
-            sql.select_state_history(), [key, limit, offset]
-        )
+    async def get_state_history(self, key: str, limit: int = 100, offset: int = 0):
+        rows = await self.db.fetch(sql.select_state_history(), [key, limit, offset])
         return [dict(row) for row in rows]
 
     async def get_state_for_tx(self, tx_hash: str):
@@ -1557,9 +1444,7 @@ class BDS:
         if len(key) == 64:
             rows = await self.db.fetch(sql.select_state_block_hash(), [key])
         else:
-            rows = await self.db.fetch(
-                sql.select_state_block_height(), [int(key)]
-            )
+            rows = await self.db.fetch(sql.select_state_block_height(), [int(key)])
         return [dict(row) for row in rows]
 
     async def get_state_patches(self, limit: int = 100, offset: int = 0):
@@ -1567,27 +1452,19 @@ class BDS:
         return [dict(row) for row in rows]
 
     async def get_state_patches_for_block(self, block_height: int):
-        rows = await self.db.fetch(
-            sql.select_state_patches_for_block(), [block_height]
-        )
+        rows = await self.db.fetch(sql.select_state_patches_for_block(), [block_height])
         return [dict(row) for row in rows]
 
     async def get_state_patch_by_hash(self, patch_hash: str):
-        row = await self.db.fetchrow(
-            sql.select_state_patch_by_hash(), [patch_hash]
-        )
+        row = await self.db.fetchrow(sql.select_state_patch_by_hash(), [patch_hash])
         return dict(row) if row is not None else None
 
     async def get_state_changes_for_patch(self, patch_hash: str):
-        rows = await self.db.fetch(
-            sql.select_state_changes_for_patch(), [patch_hash]
-        )
+        rows = await self.db.fetch(sql.select_state_changes_for_patch(), [patch_hash])
         return [dict(row) for row in rows]
 
     async def get_developer_rewards(self, recipient_key: str):
-        row = await self.db.fetchrow(
-            sql.select_developer_rewards_summary(), [recipient_key]
-        )
+        row = await self.db.fetchrow(sql.select_developer_rewards_summary(), [recipient_key])
         return dict(row) if row is not None else None
 
     def is_XSC001(self, source: str) -> bool:
@@ -1601,10 +1478,7 @@ class BDS:
                 if contract_name == "submission":
                     return GENESIS_CREATED_AT
                 return datetime(1970, 1, 1, 1, 0, 0, tzinfo=timezone.utc)
-            if (
-                isinstance(item, dict)
-                and item.get("key") == f"{contract_name}.__submitted__"
-            ):
+            if isinstance(item, dict) and item.get("key") == f"{contract_name}.__submitted__":
                 time_value = item["value"].get("__time__")
                 return utc_datetime(datetime(*time_value))
         return GENESIS_CREATED_AT
@@ -1655,9 +1529,7 @@ class BDS:
             if variable not in {"__source__", "__submitted__"}:
                 continue
 
-            record = contracts.setdefault(
-                contract_name, {"source": None, "submitted_at": None}
-            )
+            record = contracts.setdefault(contract_name, {"source": None, "submitted_at": None})
 
             if variable == "__source__":
                 record["source"] = state_change.get("value")

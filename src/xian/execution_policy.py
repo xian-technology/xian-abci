@@ -16,12 +16,7 @@ def validate_vm_execution_config(
 ) -> None:
     payload = xian_config or {}
     if "tracer_mode" in payload:
-        raise ValueError(
-            "xian.tracer_mode is no longer supported; Xian nodes only run "
-            "xian_vm_v1"
-        )
+        raise ValueError("xian.tracer_mode is no longer supported; Xian nodes only run xian_vm_v1")
     if "execution" in payload:
-        raise ValueError(
-            "xian.execution has been removed; Xian nodes only run xian_vm_v1"
-        )
+        raise ValueError("xian.execution has been removed; Xian nodes only run xian_vm_v1")
     validate_vm_execution_mode()

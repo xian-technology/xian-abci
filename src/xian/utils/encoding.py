@@ -94,9 +94,7 @@ def extract_payload_string(json_str):
 
             i += 1
 
-        raise ValueError(
-            "Malformed JSON: No matching closing brace for 'payload'."
-        )
+        raise ValueError("Malformed JSON: No matching closing brace for 'payload'.")
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         raise
@@ -110,9 +108,7 @@ def convert_binary_to_hex(binary_data):
     try:
         return binascii.hexlify(binary_data).decode()
     except UnicodeDecodeError as e:
-        logger.error(
-            f"The binary data could not be decoded with UTF-8 encoding: {e}"
-        )
+        logger.error(f"The binary data could not be decoded with UTF-8 encoding: {e}")
         raise
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")

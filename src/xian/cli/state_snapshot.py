@@ -10,9 +10,7 @@ from xian.utils.cometbft import load_genesis_data
 
 
 def build_parser() -> ArgumentParser:
-    parser = ArgumentParser(
-        description="List, export, or import application state snapshots"
-    )
+    parser = ArgumentParser(description="List, export, or import application state snapshots")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     export = subparsers.add_parser("export")
@@ -56,9 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "export":
         result = manager.export_snapshot(
             output_path=(
-                Path(args.output_path).expanduser().resolve()
-                if args.output_path
-                else None
+                Path(args.output_path).expanduser().resolve() if args.output_path else None
             ),
             force=args.force,
         )
@@ -71,9 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "import":
-        result = manager.import_snapshot_archive(
-            Path(args.input_path).expanduser().resolve()
-        )
+        result = manager.import_snapshot_archive(Path(args.input_path).expanduser().resolve())
         print(
             "State snapshot imported: "
             f"snapshot_path={result['snapshot_path']} "

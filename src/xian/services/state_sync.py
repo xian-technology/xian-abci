@@ -34,9 +34,7 @@ SNAPSHOT_STATE_FILENAME = "exported_state.json"
 
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -58,10 +56,7 @@ def _safe_extract_snapshot(archive: tarfile.TarFile, destination: Path) -> None:
     destination_resolved = destination.resolve()
     for member in archive.getmembers():
         member_path = (destination / member.name).resolve()
-        if (
-            destination_resolved not in member_path.parents
-            and member_path != destination_resolved
-        ):
+        if destination_resolved not in member_path.parents and member_path != destination_resolved:
             raise ValueError(f"unsafe snapshot member path: {member.name}")
     archive.extractall(path=destination, filter="data")
 
@@ -75,9 +70,7 @@ def default_snapshot_output_path(
 ) -> Path:
     resolved_now = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
     short_hash = app_hash[:12] if app_hash else "empty"
-    return output_dir / (
-        f"xian-state-snapshot-h{height}-{short_hash}-{resolved_now}.tar.gz"
-    )
+    return output_dir / (f"xian-state-snapshot-h{height}-{short_hash}-{resolved_now}.tar.gz")
 
 
 @dataclass(frozen=True)
@@ -150,9 +143,7 @@ class StateSnapshotManager:
     def _manifest_path(self, archive_path: Path) -> Path:
         return archive_path.parent / f"{archive_path.name}.manifest.json"
 
-    def _cleanup_existing_height(
-        self, *, height: int, format_version: int
-    ) -> None:
+    def _cleanup_existing_height(self, *, height: int, format_version: int) -> None:
         for record in self.list_snapshot_records():
             if record.height != height or record.format != format_version:
                 continue
@@ -260,16 +251,12 @@ class StateSnapshotManager:
                     created_at=str(payload["created_at"]),
                 )
             )
-        records.sort(
-            key=lambda record: (record.height, record.created_at), reverse=True
-        )
+        records.sort(key=lambda record: (record.height, record.created_at), reverse=True)
         return records
 
     def list_snapshots_response(self) -> ResponseListSnapshots:
         return ResponseListSnapshots(
-            snapshots=[
-                record.to_proto() for record in self.list_snapshot_records()
-            ]
+            snapshots=[record.to_proto() for record in self.list_snapshot_records()]
         )
 
     def export_snapshot(
@@ -309,9 +296,7 @@ class StateSnapshotManager:
                 )
             )
             if archive_path.exists() and not force:
-                raise FileExistsError(
-                    f"snapshot already exists: {archive_path}"
-                )
+                raise FileExistsError(f"snapshot already exists: {archive_path}")
 
             metadata_path = temp_root / SNAPSHOT_METADATA_FILENAME
             metadata_path.write_bytes(
@@ -370,20 +355,11 @@ class StateSnapshotManager:
             with tarfile.open(snapshot_path, "r:gz") as archive:
                 _safe_extract_snapshot(archive, extract_dir)
             metadata = json.loads(
-                (extract_dir / SNAPSHOT_METADATA_FILENAME).read_text(
-                    encoding="utf-8"
-                )
+                (extract_dir / SNAPSHOT_METADATA_FILENAME).read_text(encoding="utf-8")
             )
-            exported_state = load_exported_state(
-                extract_dir / SNAPSHOT_STATE_FILENAME
-            )
-            exported_state_sha256 = _sha256_file(
-                extract_dir / SNAPSHOT_STATE_FILENAME
-            )
-            if (
-                int(metadata["snapshot_format_version"])
-                != SNAPSHOT_FORMAT_VERSION
-            ):
+            exported_state = load_exported_state(extract_dir / SNAPSHOT_STATE_FILENAME)
+            exported_state_sha256 = _sha256_file(extract_dir / SNAPSHOT_STATE_FILENAME)
+            if int(metadata["snapshot_format_version"]) != SNAPSHOT_FORMAT_VERSION:
                 raise ValueError("unsupported snapshot format version")
             if str(metadata["chain_id"]) != self.chain_id:
                 raise ValueError("snapshot chain_id mismatch")
@@ -439,9 +415,7 @@ class StateSnapshotManager:
         current_height: int,
     ) -> ResponseOfferSnapshot:
         if req_snapshot.format != SNAPSHOT_FORMAT_VERSION:
-            return ResponseOfferSnapshot(
-                result=ResponseOfferSnapshot.REJECT_FORMAT
-            )
+            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT_FORMAT)
         if req_snapshot.height <= current_height:
             return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
         if req_snapshot.chunks <= 0:
@@ -493,8 +467,7 @@ class StateSnapshotManager:
             (
                 candidate
                 for candidate in self.list_snapshot_records()
-                if candidate.height == height
-                and candidate.format == format_version
+                if candidate.height == height and candidate.format == format_version
             ),
             None,
         )
@@ -515,32 +488,22 @@ class StateSnapshotManager:
     ) -> ResponseApplySnapshotChunk:
         del sender
         if self._incoming_session is None:
-            return ResponseApplySnapshotChunk(
-                result=ResponseApplySnapshotChunk.RETRY_SNAPSHOT
-            )
+            return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.RETRY_SNAPSHOT)
         session = self._incoming_session
         if index != session.next_index:
-            return ResponseApplySnapshotChunk(
-                result=ResponseApplySnapshotChunk.RETRY
-            )
+            return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.RETRY)
         if index < 0 or index >= session.expected_chunks:
-            return ResponseApplySnapshotChunk(
-                result=ResponseApplySnapshotChunk.REJECT_SNAPSHOT
-            )
+            return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.REJECT_SNAPSHOT)
         if len(chunk) > session.expected_chunk_size:
             self._reset_incoming_session()
-            return ResponseApplySnapshotChunk(
-                result=ResponseApplySnapshotChunk.REJECT_SNAPSHOT
-            )
+            return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.REJECT_SNAPSHOT)
 
         with open(session.archive_path, "ab") as handle:
             handle.write(chunk)
         session.next_index += 1
 
         if session.next_index < session.expected_chunks:
-            return ResponseApplySnapshotChunk(
-                result=ResponseApplySnapshotChunk.ACCEPT
-            )
+            return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.ACCEPT)
 
         try:
             archive_sha256 = _sha256_file(session.archive_path)
@@ -552,14 +515,10 @@ class StateSnapshotManager:
         except Exception as exc:
             logger.error("Failed to apply state sync snapshot: {}", exc)
             self._reset_incoming_session()
-            return ResponseApplySnapshotChunk(
-                result=ResponseApplySnapshotChunk.REJECT_SNAPSHOT
-            )
+            return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.REJECT_SNAPSHOT)
 
         self._reset_incoming_session()
-        return ResponseApplySnapshotChunk(
-            result=ResponseApplySnapshotChunk.ACCEPT
-        )
+        return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.ACCEPT)
 
     def _reset_incoming_session(self) -> None:
         if self._incoming_session is not None:

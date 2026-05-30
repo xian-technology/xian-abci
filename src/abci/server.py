@@ -112,9 +112,7 @@ class ProtocolHandler:
         return write_message(response)
 
     async def no_match(self, req) -> bytes:
-        response = Response(
-            exception=ResponseException(error="ABCI request not found")
-        )
+        response = Response(exception=ResponseException(error="ABCI request not found"))
         return write_message(response)
 
 
@@ -144,12 +142,8 @@ class ABCIServer:
         asyncio.set_event_loop(loop)
         if not on_windows:
             # Unix...register signal handlers
-            loop.add_signal_handler(
-                signal.SIGINT, lambda: asyncio.create_task(_stop())
-            )
-            loop.add_signal_handler(
-                signal.SIGTERM, lambda: asyncio.create_task(_stop())
-            )
+            loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(_stop()))
+            loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(_stop()))
         try:
             logger.info(" ~ running app - press CTRL-C to stop ~")
             loop.run_until_complete(self._start())
@@ -182,9 +176,7 @@ class ABCIServer:
         )
         await self.server.serve_forever()
 
-    async def _handler(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    async def _handler(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         data = BytesIO()
         while True:
             # Read data from the reader

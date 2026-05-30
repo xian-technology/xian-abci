@@ -77,9 +77,7 @@ def _get_worker_runtime(
             client=client,
             execution_runtime=execution_runtime,
         ),
-        rewards_handler=(
-            RewardsHandler(client=client) if use_rewards_handler else None
-        ),
+        rewards_handler=(RewardsHandler(client=client) if use_rewards_handler else None),
     )
     _WORKER_RUNTIMES[key] = runtime
     return runtime
@@ -172,19 +170,13 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
             return final_results, ParallelExecutionStats(
                 worker_count=stats.worker_count,
                 estimated_known_transactions=stats.estimated_known_requests,
-                estimated_unknown_transactions=(
-                    stats.estimated_unknown_requests
-                ),
+                estimated_unknown_transactions=(stats.estimated_unknown_requests),
                 estimated_stage_count=stats.estimated_stage_count,
-                estimated_parallelizable_transactions=(
-                    stats.estimated_parallelizable_requests
-                ),
+                estimated_parallelizable_transactions=(stats.estimated_parallelizable_requests),
                 estimated_known_shapes=known_shapes,
                 estimated_unknown_shapes=unknown_shapes,
                 planned_stage_count=stats.planned_stage_count,
-                planned_parallelizable_transactions=(
-                    stats.planned_parallelizable_requests
-                ),
+                planned_parallelizable_transactions=(stats.planned_parallelizable_requests),
                 speculative_wave_count=stats.speculative_wave_count,
                 speculative_accepted=stats.speculative_accepted,
                 speculative_rejected=stats.speculative_rejected,
@@ -225,15 +217,11 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         self._executor = None
 
     def _handle_speculation_failure(self, _exc: Exception) -> None:
-        logger.exception(
-            "Parallel speculation failed; falling back to serial block execution"
-        )
+        logger.exception("Parallel speculation failed; falling back to serial block execution")
 
     def _get_base_pending_writes(self) -> dict[str, object]:
         assert self._batch_tx_processor is not None
-        return deepcopy(
-            self._batch_tx_processor.client.raw_driver.pending_writes
-        )
+        return deepcopy(self._batch_tx_processor.client.raw_driver.pending_writes)
 
     def _execute_serial_request(self, request: object) -> dict:
         assert self._batch_tx_processor is not None
@@ -369,13 +357,9 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
 
     def _apply_speculative_output(self, output: dict) -> None:
         assert self._batch_tx_processor is not None
-        output["tx_result"]["state"] = (
-            self._batch_tx_processor.materialize_writes(
-                output.get("base_writes", {}),
-                output.get("reward_deltas", {}),
-            )
+        output["tx_result"]["state"] = self._batch_tx_processor.materialize_writes(
+            output.get("base_writes", {}),
+            output.get("reward_deltas", {}),
         )
-        self._batch_tx_processor.update_chi_cost_cache(
-            output.get("base_writes", {})
-        )
+        self._batch_tx_processor.update_chi_cost_cache(output.get("base_writes", {}))
         self._batch_tx_processor.apply_tx_result(output["tx_result"])

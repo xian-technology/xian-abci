@@ -21,17 +21,13 @@ class MetricsConfig:
     bds_refresh_seconds: float = 5.0
 
     @classmethod
-    def from_runtime_settings(
-        cls, xian_config: dict[str, Any] | None
-    ) -> MetricsConfig:
+    def from_runtime_settings(cls, xian_config: dict[str, Any] | None) -> MetricsConfig:
         settings = xian_config or {}
         return cls(
             enabled=bool(settings.get("metrics_enabled", True)),
             host=str(settings.get("metrics_host", "127.0.0.1")),
             port=int(settings.get("metrics_port", 9108)),
-            bds_refresh_seconds=float(
-                settings.get("metrics_bds_refresh_seconds", 5.0)
-            ),
+            bds_refresh_seconds=float(settings.get("metrics_bds_refresh_seconds", 5.0)),
         )
 
 
@@ -42,13 +38,11 @@ def _coerce_float(value: Any) -> float | None:
         return 1.0 if value else 0.0
     try:
         return float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 
-def _add_metric_if_present(
-    family: GaugeMetricFamily, labels: list[str], value: Any
-) -> None:
+def _add_metric_if_present(family: GaugeMetricFamily, labels: list[str], value: Any) -> None:
     coerced = _coerce_float(value)
     if coerced is not None:
         family.add_metric(labels, coerced)
@@ -114,9 +108,7 @@ class XianMetricsCollector:
                 "chain_id": str(app.chain_id),
                 "execution_mode": str(getattr(app, "execution_mode", "")),
                 "bds_enabled": str(app.bds_enabled).lower(),
-                "parallel_execution_enabled": str(
-                    app.parallel_block_executor.enabled
-                ).lower(),
+                "parallel_execution_enabled": str(app.parallel_block_executor.enabled).lower(),
                 "tx_fees_enabled": str(app.enable_tx_fee).lower(),
             },
         )
@@ -133,17 +125,13 @@ class XianMetricsCollector:
         _add_metric_if_present(height_family, [], current_height)
         return height_family
 
-    def _collect_perf_globals(
-        self, perf_snapshot: dict[str, Any]
-    ) -> GaugeMetricFamily:
+    def _collect_perf_globals(self, perf_snapshot: dict[str, Any]) -> GaugeMetricFamily:
         perf_family = GaugeMetricFamily(
             "xian_perf_global_metric",
             "Global Xian performance metrics.",
             labels=["metric", "stat"],
         )
-        for metric_name, values in perf_snapshot.get(
-            "global_metrics", {}
-        ).items():
+        for metric_name, values in perf_snapshot.get("global_metrics", {}).items():
             self._add_named_stat_metrics(
                 perf_family,
                 metric_name,
@@ -151,9 +139,7 @@ class XianMetricsCollector:
             )
         return perf_family
 
-    def _collect_latest_block(
-        self, latest_block: dict[str, Any] | None
-    ) -> GaugeMetricFamily:
+    def _collect_latest_block(self, latest_block: dict[str, Any] | None) -> GaugeMetricFamily:
         latest_block_family = GaugeMetricFamily(
             "xian_perf_latest_block",
             "Most recent completed block performance snapshot.",
@@ -203,17 +189,13 @@ class XianMetricsCollector:
                 )
         return latest_block_metadata_family
 
-    def _collect_exporter_health(
-        self, perf_snapshot: dict[str, Any]
-    ) -> GaugeMetricFamily:
+    def _collect_exporter_health(self, perf_snapshot: dict[str, Any]) -> GaugeMetricFamily:
         exporter_health = GaugeMetricFamily(
             "xian_metrics_exporter",
             "Health and freshness of the Xian Prometheus exporter.",
             labels=["field"],
         )
-        _add_metric_if_present(
-            exporter_health, ["enabled"], self.service.config.enabled
-        )
+        _add_metric_if_present(exporter_health, ["enabled"], self.service.config.enabled)
         _add_metric_if_present(
             exporter_health,
             ["bds_refresh_success"],
@@ -235,9 +217,7 @@ class XianMetricsCollector:
         )
         return exporter_health
 
-    def _collect_bds_info(
-        self, app, bds_status: dict[str, Any] | None
-    ) -> InfoMetricFamily:
+    def _collect_bds_info(self, app, bds_status: dict[str, Any] | None) -> InfoMetricFamily:
         bds_info = InfoMetricFamily(
             "xian_bds",
             "Optional BDS runtime information.",
@@ -247,28 +227,20 @@ class XianMetricsCollector:
                 [],
                 {
                     "enabled": "true",
-                    "db_status": str(
-                        (bds_status or {}).get("db_status", "unknown")
-                    ),
+                    "db_status": str((bds_status or {}).get("db_status", "unknown")),
                 },
             )
         else:
-            bds_info.add_metric(
-                [], {"enabled": "false", "db_status": "disabled"}
-            )
+            bds_info.add_metric([], {"enabled": "false", "db_status": "disabled"})
         return bds_info
 
-    def _collect_bds_metrics(
-        self, app, bds_status: dict[str, Any] | None
-    ) -> GaugeMetricFamily:
+    def _collect_bds_metrics(self, app, bds_status: dict[str, Any] | None) -> GaugeMetricFamily:
         bds_family = GaugeMetricFamily(
             "xian_bds_metric",
             "Optional BDS worker and storage health metrics.",
             labels=["field"],
         )
-        _add_metric_if_present(
-            bds_family, ["enabled"], 1 if app.bds_enabled else 0
-        )
+        _add_metric_if_present(bds_family, ["enabled"], 1 if app.bds_enabled else 0)
         if app.bds_enabled:
             _add_metric_if_present(
                 bds_family,
@@ -332,9 +304,7 @@ class XianMetricsCollector:
                 _add_metric_if_present(bds_family, [field], value)
         return bds_family
 
-    def _collect_bds_alerts(
-        self, bds_status: dict[str, Any] | None
-    ) -> GaugeMetricFamily:
+    def _collect_bds_alerts(self, bds_status: dict[str, Any] | None) -> GaugeMetricFamily:
         bds_alerts = GaugeMetricFamily(
             "xian_bds_alert",
             "BDS alerts reported by the node.",
@@ -342,9 +312,7 @@ class XianMetricsCollector:
         )
         if bds_status:
             for alert in bds_status.get("alerts", []):
-                severity = str(
-                    alert.get("severity") or alert.get("level") or "unknown"
-                )
+                severity = str(alert.get("severity") or alert.get("level") or "unknown")
                 kind = str(alert.get("kind") or alert.get("code") or "unknown")
                 bds_alerts.add_metric([severity, kind], 1.0)
         return bds_alerts
@@ -383,12 +351,8 @@ class MetricsService:
         return max(0.0, time() - self.last_bds_refresh_at_unix)
 
     @classmethod
-    def from_runtime_settings(
-        cls, app, xian_config: dict[str, Any] | None
-    ) -> MetricsService:
-        return cls(
-            app=app, config=MetricsConfig.from_runtime_settings(xian_config)
-        )
+    def from_runtime_settings(cls, app, xian_config: dict[str, Any] | None) -> MetricsService:
+        return cls(app=app, config=MetricsConfig.from_runtime_settings(xian_config))
 
     async def start(self) -> None:
         if not self.config.enabled or self._http_server is not None:

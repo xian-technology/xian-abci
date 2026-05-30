@@ -182,10 +182,7 @@ class TransactionSimulator:
             apply_metering_on_success_only=False,
         )
 
-        writes = [
-            {"key": key, "value": value}
-            for key, value in outcome.writes.items()
-        ]
+        writes = [{"key": key, "value": value} for key, value in outcome.writes.items()]
         result = {
             "payload": payload,
             "status": outcome.output.status_code,
@@ -238,14 +235,10 @@ class TransactionSimulator:
         *,
         block_meta: dict | None = None,
     ) -> dict:
-        block_meta = block_meta or (
-            (self.get_block_meta() or {}) if self.get_block_meta else {}
-        )
+        block_meta = block_meta or ((self.get_block_meta() or {}) if self.get_block_meta else {})
         block_nanos = block_meta.get("nanos")
         if block_nanos is None:
-            block_nanos = get_latest_block_nanos(
-                self.client.raw_driver.storage_home
-            )
+            block_nanos = get_latest_block_nanos(self.client.raw_driver.storage_home)
         payload_hash = self._payload_hash(payload or {})
         chain_id = block_meta.get("chain_id") or self.chain_id
         block_hash = block_meta.get("hash")
@@ -259,17 +252,13 @@ class TransactionSimulator:
         input_hash = hashlib.sha3_256(
             f"{int(block_nanos or 0)}:{payload_hash}".encode("utf-8")
         ).hexdigest()
-        now = Datetime._from_datetime(
-            nanoseconds_to_utc_datetime(int(block_nanos or 0))
-        )
+        now = Datetime._from_datetime(nanoseconds_to_utc_datetime(int(block_nanos or 0)))
         execution_runtime = getattr(self, "execution_runtime", None)
         return {
             "block_hash": block_hash,
             "block_num": block_meta.get("height", block_num),
             "__input_hash": input_hash,
-            "__xian_execution_mode__": (
-                getattr(execution_runtime, "mode", None) or "xian_vm_v1"
-            ),
+            "__xian_execution_mode__": (getattr(execution_runtime, "mode", None) or "xian_vm_v1"),
             "now": now,
             "chain_id": chain_id,
         }
@@ -303,12 +292,8 @@ class QuerySimulationService:
 
     async def simulate_encoded_transaction(self, raw_payload_hex: str) -> dict:
         try:
-            decoded_payload = json.loads(
-                bytes.fromhex(raw_payload_hex).decode("utf-8")
-            )
-            normalized_payload = TransactionSimulator._normalize_payload(
-                decoded_payload
-            )
+            decoded_payload = json.loads(bytes.fromhex(raw_payload_hex).decode("utf-8"))
+            normalized_payload = TransactionSimulator._normalize_payload(decoded_payload)
         except Exception as exc:
             return _simulation_error_result(
                 payload=None,
@@ -335,19 +320,13 @@ class QuerySimulationService:
                         payload=normalized_payload,
                         extra={
                             "active_requests": self._active_requests,
-                            "simulation_max_concurrency": (
-                                self.max_concurrency
-                            ),
+                            "simulation_max_concurrency": (self.max_concurrency),
                         },
                     )
-                ).warning(
-                    "Rejected readonly simulation because capacity is exhausted"
-                )
+                ).warning("Rejected readonly simulation because capacity is exhausted")
                 return _simulation_error_result(
                     payload=normalized_payload,
-                    message=(
-                        "Simulation capacity exceeded on this node; retry later"
-                    ),
+                    message=("Simulation capacity exceeded on this node; retry later"),
                 )
             self._active_requests += 1
 
@@ -386,10 +365,7 @@ class QuerySimulationService:
             ).warning("Readonly simulation timed out")
             return _simulation_error_result(
                 payload=payload,
-                message=(
-                    "Simulation timed out on this node after "
-                    f"{self.timeout_ms} ms"
-                ),
+                message=(f"Simulation timed out on this node after {self.timeout_ms} ms"),
             )
         except Exception as exc:
             logger.bind(
@@ -422,9 +398,7 @@ class QuerySimulationService:
         if process.returncode != 0:
             detail = stderr.decode("utf-8", errors="replace").strip()
             if not detail:
-                detail = (
-                    f"Simulation worker exited with code {process.returncode}"
-                )
+                detail = f"Simulation worker exited with code {process.returncode}"
             raise RuntimeError(detail)
 
         try:

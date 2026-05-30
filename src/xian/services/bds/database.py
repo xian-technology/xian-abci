@@ -34,9 +34,7 @@ class DB:
             "application_name": self.cfg.application_name,
         }
         if self.cfg.statement_timeout_ms > 0:
-            server_settings["statement_timeout"] = (
-                f"{self.cfg.statement_timeout_ms}ms"
-            )
+            server_settings["statement_timeout"] = f"{self.cfg.statement_timeout_ms}ms"
 
         kwargs: dict[str, object] = {
             "min_size": self.cfg.pool_min_size,
@@ -65,9 +63,7 @@ class DB:
             "database": "postgres",
             "host": self.cfg.host,
             "port": self.cfg.port,
-            "server_settings": {
-                "application_name": f"{self.cfg.application_name}-bootstrap"
-            },
+            "server_settings": {"application_name": f"{self.cfg.application_name}-bootstrap"},
         }
 
     @staticmethod
@@ -85,12 +81,8 @@ class DB:
                     self.cfg.database,
                 )
                 if not result:
-                    database_name = self._validate_database_name(
-                        self.cfg.database
-                    )
-                    await temp_conn.execute(
-                        f'CREATE DATABASE "{database_name}"'
-                    )
+                    database_name = self._validate_database_name(self.cfg.database)
+                    await temp_conn.execute(f'CREATE DATABASE "{database_name}"')
             finally:
                 await temp_conn.close()
 
@@ -107,9 +99,7 @@ class DB:
         that usually don't return data
         """
         bound_params = tuple(params or ())
-        async with self.pool.acquire(
-            timeout=self._acquire_timeout_seconds()
-        ) as connection:
+        async with self.pool.acquire(timeout=self._acquire_timeout_seconds()) as connection:
             try:
                 result = await connection.execute(query, *bound_params)
                 return result
@@ -122,9 +112,7 @@ class DB:
         This is meant for SELECT statements that return data
         """
         bound_params = tuple(params or ())
-        async with self.pool.acquire(
-            timeout=self._acquire_timeout_seconds()
-        ) as connection:
+        async with self.pool.acquire(timeout=self._acquire_timeout_seconds()) as connection:
             try:
                 result = await connection.fetch(query, *bound_params)
                 return result
@@ -132,26 +120,18 @@ class DB:
                 logger.exception(f"Error while executing SQL: {e}")
                 raise e
 
-    async def fetchrow(
-        self, query: str, params: Sequence[object] | None = None
-    ):
+    async def fetchrow(self, query: str, params: Sequence[object] | None = None):
         bound_params = tuple(params or ())
-        async with self.pool.acquire(
-            timeout=self._acquire_timeout_seconds()
-        ) as connection:
+        async with self.pool.acquire(timeout=self._acquire_timeout_seconds()) as connection:
             try:
                 return await connection.fetchrow(query, *bound_params)
             except Exception as e:
                 logger.exception(f"Error while executing SQL: {e}")
                 raise e
 
-    async def fetchval(
-        self, query: str, params: Sequence[object] | None = None
-    ):
+    async def fetchval(self, query: str, params: Sequence[object] | None = None):
         bound_params = tuple(params or ())
-        async with self.pool.acquire(
-            timeout=self._acquire_timeout_seconds()
-        ) as connection:
+        async with self.pool.acquire(timeout=self._acquire_timeout_seconds()) as connection:
             try:
                 return await connection.fetchval(query, *bound_params)
             except Exception as e:
@@ -175,10 +155,6 @@ class DB:
         would re-trigger genesis persistence on restart.
         """
         if table_name not in self._HAS_ENTRIES_ALLOWED_TABLES:
-            raise ValueError(
-                f"has_entries() called with disallowed table name: {table_name!r}"
-            )
-        result = await self.fetch(
-            f'SELECT COUNT(*) AS count FROM "{table_name}"'
-        )
+            raise ValueError(f"has_entries() called with disallowed table name: {table_name!r}")
+        result = await self.fetch(f'SELECT COUNT(*) AS count FROM "{table_name}"')
         return result[0]["count"] > 0

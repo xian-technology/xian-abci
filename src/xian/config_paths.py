@@ -41,36 +41,28 @@ def resolve_contracts_dir(configs_dir: Path | None = None) -> Path:
     return path
 
 
-def resolve_network_dir(
-    network_name: str, configs_dir: Path | None = None
-) -> Path:
+def resolve_network_dir(network_name: str, configs_dir: Path | None = None) -> Path:
     path = resolve_configs_dir(configs_dir) / NETWORKS_SUBPATH / network_name
     if not path.exists():
         raise FileNotFoundError(f"network directory not found: {path}")
     return path
 
 
-def resolve_network_manifest_file(
-    network_name: str, configs_dir: Path | None = None
-) -> Path:
+def resolve_network_manifest_file(network_name: str, configs_dir: Path | None = None) -> Path:
     path = resolve_network_dir(network_name, configs_dir) / "manifest.json"
     if not path.exists():
         raise FileNotFoundError(f"network manifest not found: {path}")
     return path
 
 
-def resolve_network_genesis_file(
-    network_name: str, configs_dir: Path | None = None
-) -> Path:
+def resolve_network_genesis_file(network_name: str, configs_dir: Path | None = None) -> Path:
     path = resolve_network_dir(network_name, configs_dir) / "genesis.json"
     if not path.exists():
         raise FileNotFoundError(f"network genesis not found: {path}")
     return path
 
 
-def resolve_genesis_source(
-    source: str, configs_dir: Path | None = None
-) -> Path:
+def resolve_genesis_source(source: str, configs_dir: Path | None = None) -> Path:
     configs_root = resolve_configs_dir(configs_dir)
     raw_path = Path(source)
 
@@ -80,15 +72,11 @@ def resolve_genesis_source(
     else:
         candidates.append(configs_root / raw_path)
         if raw_path.suffix == "" and raw_path.parent == Path("."):
-            candidates.append(
-                configs_root / NETWORKS_SUBPATH / source / "genesis.json"
-            )
+            candidates.append(configs_root / NETWORKS_SUBPATH / source / "genesis.json")
 
     for candidate in candidates:
         resolved = candidate.expanduser().resolve()
         if resolved.exists():
             return resolved
 
-    raise FileNotFoundError(
-        f"unable to resolve genesis source {source!r} in xian-configs"
-    )
+    raise FileNotFoundError(f"unable to resolve genesis source {source!r} in xian-configs")

@@ -79,8 +79,8 @@ xian = [
 testpaths = ["tests"]
 
 [tool.ruff]
-line-length = 80
-target-version = "py314"
+line-length = 100
+target-version = "py313"
 exclude = [
     "build_proto.py",
     "src/cometbft",

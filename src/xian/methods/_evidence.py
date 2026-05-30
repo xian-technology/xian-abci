@@ -27,9 +27,7 @@ def _validator_consensus_address(pubkey_hex: str) -> bytes | None:
         return None
 
 
-def _resolve_misbehaving_validator_key(
-    self, validator_address: bytes
-) -> str | None:
+def _resolve_misbehaving_validator_key(self, validator_address: bytes) -> str | None:
     if not validator_address:
         return None
     known_validators = (
@@ -99,14 +97,10 @@ def maybe_apply_evidence_penalties(self, req, *, height: int) -> bool:
                     block_hash=self.current_block_meta["hash"],
                     extra={
                         "misbehavior_type": infraction_type,
-                        "validator_address": bytes(
-                            misbehavior.validator.address
-                        ).hex(),
+                        "validator_address": bytes(misbehavior.validator.address).hex(),
                     },
                 )
-            ).warning(
-                "Could not resolve validator key for misbehavior evidence"
-            )
+            ).warning("Could not resolve validator key for misbehavior evidence")
             continue
 
         evidence_id = _misbehavior_evidence_id(misbehavior, validator_key)

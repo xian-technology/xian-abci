@@ -19,7 +19,7 @@ def _shape_from_record(record: Any) -> tuple[Shape, int] | None:
         return None
     try:
         normalized_count = int(count)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     if normalized_count <= 0:
         return None
@@ -30,9 +30,7 @@ def _iter_blocks(snapshot: Any):
     if isinstance(snapshot, dict):
         recent_blocks = snapshot.get("recent_blocks")
         if isinstance(recent_blocks, list):
-            yield from (
-                block for block in recent_blocks if isinstance(block, dict)
-            )
+            yield from (block for block in recent_blocks if isinstance(block, dict))
             return
         if isinstance(snapshot.get("metadata"), dict):
             yield snapshot
@@ -129,22 +127,14 @@ def load_snapshots(paths: list[Path]) -> list[Any]:
 def _print_text(summary: dict[str, object]) -> None:
     print(f"blocks_seen: {summary['blocks_seen']}")
     print(f"parallel_blocks: {summary['parallel_blocks']}")
-    print(
-        f"estimated_known_transactions: {summary['estimated_known_transactions']}"
-    )
-    print(
-        "estimated_unknown_transactions: "
-        f"{summary['estimated_unknown_transactions']}"
-    )
+    print(f"estimated_known_transactions: {summary['estimated_known_transactions']}")
+    print(f"estimated_unknown_transactions: {summary['estimated_unknown_transactions']}")
 
     print("\nunknown_shapes:")
     unknown_shapes = summary.get("unknown_shapes") or []
     if unknown_shapes:
         for shape in unknown_shapes:
-            print(
-                f"  {shape['count']:>6}  "
-                f"{shape['contract']}.{shape['function']}"
-            )
+            print(f"  {shape['count']:>6}  {shape['contract']}.{shape['function']}")
     else:
         print("  none")
 
@@ -152,10 +142,7 @@ def _print_text(summary: dict[str, object]) -> None:
     known_shapes = summary.get("known_shapes") or []
     if known_shapes:
         for shape in known_shapes:
-            print(
-                f"  {shape['count']:>6}  "
-                f"{shape['contract']}.{shape['function']}"
-            )
+            print(f"  {shape['count']:>6}  {shape['contract']}.{shape['function']}")
     else:
         print("  none")
 

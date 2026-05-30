@@ -10,9 +10,7 @@ import time
 from pathlib import Path
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-XIAN_ZK_PYTHON = (
-    WORKSPACE_ROOT / "xian-contracting" / "packages" / "xian-zk" / "python"
-)
+XIAN_ZK_PYTHON = WORKSPACE_ROOT / "xian-contracting" / "packages" / "xian-zk" / "python"
 if str(XIAN_ZK_PYTHON) not in sys.path:
     sys.path.insert(0, str(XIAN_ZK_PYTHON))
 
@@ -70,9 +68,7 @@ def _load_contract_paths() -> tuple[Path, Path]:
         / "tests"
         / "test_shielded_note_token.py"
     )
-    spec = importlib.util.spec_from_file_location(
-        "shielded_note_token_test", test_file
-    )
+    spec = importlib.util.spec_from_file_location("shielded_note_token_test", test_file)
     if spec is None or spec.loader is None:
         raise RuntimeError("unable to load shielded note token test fixture")
     module = importlib.util.module_from_spec(spec)
@@ -409,9 +405,7 @@ def benchmark() -> dict[str, int]:
             owner_secret=field(301),
             viewing_private_key="31" * 32,
         )
-        relay_wallet = ShieldedRelayTransferWallet.from_json(
-            alice_wallet.to_json()
-        )
+        relay_wallet = ShieldedRelayTransferWallet.from_json(alice_wallet.to_json())
         bob_keys = ShieldedKeyBundle.from_parts(
             owner_secret=field(302),
             viewing_private_key="32" * 32,
@@ -433,9 +427,7 @@ def benchmark() -> dict[str, int]:
                 append_state=tree_state([]),
                 amount=30,
                 outputs=[relay_deposit_note.to_output()],
-                output_payload_hashes=output_payload_hashes(
-                    [relay_deposit_payload]
-                ),
+                output_payload_hashes=output_payload_hashes([relay_deposit_payload]),
             )
         )
         process(
@@ -517,8 +509,4 @@ def compare(current: dict[str, int]) -> dict[str, dict[str, float | int]]:
 
 if __name__ == "__main__":
     current = benchmark()
-    print(
-        json.dumps(
-            {"current": current, "comparison": compare(current)}, indent=2
-        )
-    )
+    print(json.dumps({"current": current, "comparison": compare(current)}, indent=2))

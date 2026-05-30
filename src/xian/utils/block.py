@@ -15,9 +15,7 @@ LATEST_BLOCK_READ_RETRY_DELAY_SECONDS = 0.01
 
 
 def _latest_block_path(storage_home: Path | None = None) -> Path:
-    resolved_storage_home = (
-        Path(storage_home) if storage_home is not None else c.STORAGE_HOME
-    )
+    resolved_storage_home = Path(storage_home) if storage_home is not None else c.STORAGE_HOME
     return resolved_storage_home / "__latest_block.json"
 
 
@@ -89,9 +87,7 @@ def _load_latest_block(storage_home: Path | None = None) -> dict:
 def nanoseconds_to_utc_datetime(nanoseconds: int) -> datetime:
     seconds, remainder = divmod(nanoseconds, 1_000_000_000)
     microseconds = remainder // 1_000
-    return datetime.fromtimestamp(seconds, UTC).replace(
-        microsecond=microseconds
-    )
+    return datetime.fromtimestamp(seconds, UTC).replace(microsecond=microseconds)
 
 
 def convert_cometbft_time_to_datetime(nanoseconds: int) -> datetime:

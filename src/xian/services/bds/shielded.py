@@ -87,15 +87,9 @@ def collect_shielded_output_tags(
             output_specs.append(
                 {
                     "output_index": output_index,
-                    "note_index": note_index
-                    if isinstance(note_index, int)
-                    else None,
-                    "payload_hash": (
-                        payload_hash if isinstance(payload_hash, str) else ""
-                    ),
-                    "commitment": commitment
-                    if isinstance(commitment, str)
-                    else "",
+                    "note_index": note_index if isinstance(note_index, int) else None,
+                    "payload_hash": (payload_hash if isinstance(payload_hash, str) else ""),
+                    "commitment": commitment if isinstance(commitment, str) else "",
                 }
             )
         elif event_name == "ShieldedOutputsCommitted":
@@ -107,10 +101,7 @@ def collect_shielded_output_tags(
                 continue
             if not isinstance(output_count, int):
                 output_count = len(commitments)
-            if (
-                len(commitments) < output_count
-                or len(payload_hashes) < output_count
-            ):
+            if len(commitments) < output_count or len(payload_hashes) < output_count:
                 continue
             for output_index in range(output_count):
                 output_specs.append(
@@ -128,9 +119,7 @@ def collect_shielded_output_tags(
             output_index = output_spec["output_index"]
             if output_index < 0 or output_index >= len(output_payloads):
                 continue
-            for payload_tag in extract_payload_tags(
-                output_payloads[output_index]
-            ):
+            for payload_tag in extract_payload_tags(output_payloads[output_index]):
                 rows.append(
                     {
                         "tx_hash": tx_hash,
@@ -138,15 +127,11 @@ def collect_shielded_output_tags(
                         "tx_index": tx_index,
                         "contract": contract,
                         "function": function,
-                        "action": action
-                        if isinstance(action, str)
-                        else function,
+                        "action": action if isinstance(action, str) else function,
                         "output_index": output_index,
                         "note_index": output_spec["note_index"],
                         "commitment": output_spec["commitment"],
-                        "new_root": new_root
-                        if isinstance(new_root, str)
-                        else "",
+                        "new_root": new_root if isinstance(new_root, str) else "",
                         "payload_hash": output_spec["payload_hash"],
                         "tag_kind": payload_tag["tag_kind"],
                         "tag_value": payload_tag["tag_value"],

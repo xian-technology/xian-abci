@@ -41,9 +41,7 @@ def time_root(items: Iterable[tuple[str, Any]], repeats: int) -> list[float]:
     return durations
 
 
-def time_driver_root(
-    items: Iterable[tuple[str, Any]], repeats: int
-) -> list[float]:
+def time_driver_root(items: Iterable[tuple[str, Any]], repeats: int) -> list[float]:
     materialized_items = dict(items)
     durations = []
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -70,9 +68,7 @@ def time_cached_updates(
             "amount": index + 1_000_000,
             "owner": f"updated-vk-{index}",
         }
-        for index, (key, _value) in enumerate(
-            materialized_items[: max(update_count, 0)]
-        )
+        for index, (key, _value) in enumerate(materialized_items[: max(update_count, 0)])
     }
     durations = []
     for _ in range(repeats):
@@ -97,9 +93,7 @@ def print_durations(source: str, size: int, durations: list[float]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Benchmark Xian state-root Merkle computation."
-    )
+    parser = argparse.ArgumentParser(description="Benchmark Xian state-root Merkle computation.")
     parser.add_argument(
         "--sizes",
         nargs="+",

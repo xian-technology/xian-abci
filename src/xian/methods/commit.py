@@ -24,9 +24,7 @@ async def commit(self) -> ResponseCommit:
     retain_height = 0
     if self.pruning_enabled:
         if self.current_block_meta["height"] > self.blocks_to_keep:
-            retain_height = (
-                self.current_block_meta["height"] - self.blocks_to_keep
-            )
+            retain_height = self.current_block_meta["height"] - self.blocks_to_keep
 
     self.current_block_meta = None
 

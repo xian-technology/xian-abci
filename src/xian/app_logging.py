@@ -22,9 +22,7 @@ SUPPORTED_APP_LOG_LEVELS = (
     "ERROR",
     "CRITICAL",
 )
-_APP_LOG_LEVEL_ORDER = {
-    level: index for index, level in enumerate(SUPPORTED_APP_LOG_LEVELS)
-}
+_APP_LOG_LEVEL_ORDER = {level: index for index, level in enumerate(SUPPORTED_APP_LOG_LEVELS)}
 
 _PLAIN_LOG_FORMAT = (
     "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | "
@@ -147,9 +145,7 @@ def log_level_includes(configured_level: str, target_level: str) -> bool:
     configured_rank = _APP_LOG_LEVEL_ORDER.get(normalized_configured)
     target_rank = _APP_LOG_LEVEL_ORDER.get(normalized_target)
     if configured_rank is None or target_rank is None:
-        raise ValueError(
-            f"log levels must be one of {list(_APP_LOG_LEVEL_ORDER.keys())}"
-        )
+        raise ValueError(f"log levels must be one of {list(_APP_LOG_LEVEL_ORDER.keys())}")
     return configured_rank <= target_rank
 
 
@@ -163,9 +159,7 @@ def configure_logging(
         except FileNotFoundError:
             xian_config = {}
     else:
-        xian_config = (
-            config.get("xian", config) if isinstance(config, dict) else {}
-        )
+        xian_config = config.get("xian", config) if isinstance(config, dict) else {}
     settings = resolve_app_logging_settings(
         level=xian_config.get("app_log_level", "INFO"),
         json_logging=xian_config.get("app_log_json", False),

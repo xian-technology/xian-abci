@@ -86,9 +86,7 @@ class NonceStorage:
                 )
 
             if len(sender_pending) >= self.max_pending_nonces_per_sender:
-                raise TransactionException(
-                    "Too many pending transactions reserved for sender"
-                )
+                raise TransactionException("Too many pending transactions reserved for sender")
 
             sender_pending[tx_nonce] = NonceReservation(
                 tx_hash=tx_hash,
@@ -98,29 +96,20 @@ class NonceStorage:
 
     def set_nonce_by_tx(self, tx):
         self.client.raw_driver.set(
-            c.NONCE_FILENAME
-            + config.INDEX_SEPARATOR
-            + tx["payload"]["sender"]
-            + config.DELIMITER,
+            c.NONCE_FILENAME + config.INDEX_SEPARATOR + tx["payload"]["sender"] + config.DELIMITER,
             tx["payload"]["nonce"],
         )
 
     def set_nonce(self, sender, value):
         self.client.raw_driver.set(
-            c.NONCE_FILENAME
-            + config.INDEX_SEPARATOR
-            + sender
-            + config.DELIMITER,
+            c.NONCE_FILENAME + config.INDEX_SEPARATOR + sender + config.DELIMITER,
             value,
         )
 
     # Move this to transaction.py
     def get_nonce(self, sender):
         return self.client.raw_driver.get(
-            c.NONCE_FILENAME
-            + config.INDEX_SEPARATOR
-            + sender
-            + config.DELIMITER
+            c.NONCE_FILENAME + config.INDEX_SEPARATOR + sender + config.DELIMITER
         )
 
     # Move this to transaction.py
@@ -151,10 +140,7 @@ class NonceStorage:
 
         if value > current_nonce:
             self.client.raw_driver.set(
-                c.NONCE_FILENAME
-                + config.INDEX_SEPARATOR
-                + sender
-                + config.DELIMITER,
+                c.NONCE_FILENAME + config.INDEX_SEPARATOR + sender + config.DELIMITER,
                 value,
             )
 

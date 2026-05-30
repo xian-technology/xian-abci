@@ -132,9 +132,7 @@ def resolve_p2p_seeds(
     for seed in discover_seeds:
         status = fetch_seed_node_status(seed)
         if status is None:
-            raise RuntimeError(
-                f"failed to get node information from seed node {seed}"
-            )
+            raise RuntimeError(f"failed to get node information from seed node {seed}")
 
         node_id = status["result"]["node_info"]["id"]
         resolved.append(f"{node_id}@{seed}:26656")
@@ -147,9 +145,7 @@ def _safe_extract_tar_archive(archive_path: Path, target_path: Path) -> None:
         for member in archive.getmembers():
             member_path = (target_root / member.name).resolve()
             if not member_path.is_relative_to(target_root):
-                raise ValueError(
-                    f"snapshot archive contains invalid path: {member.name}"
-                )
+                raise ValueError(f"snapshot archive contains invalid path: {member.name}")
         archive.extractall(path=target_root, filter="data")
 
 
@@ -190,9 +186,7 @@ def _normalize_snapshot_manifest_public_keys(
     normalized: list[str] = []
     for value in public_keys:
         if not isinstance(value, str):
-            raise ValueError(
-                "trusted snapshot signing keys must be hex strings"
-            )
+            raise ValueError("trusted snapshot signing keys must be hex strings")
         key = value.strip()
         if not is_valid_ed25519_key(key):
             raise ValueError(f"invalid snapshot signing key: {value!r}")
@@ -222,22 +216,17 @@ def _verify_snapshot_manifest(
         raise ValueError("snapshot manifest must be a JSON object")
 
     manifest_version = manifest.get("manifest_version")
-    if isinstance(manifest_version, bool) or not isinstance(
-        manifest_version, int
-    ):
+    if isinstance(manifest_version, bool) or not isinstance(manifest_version, int):
         raise ValueError("snapshot manifest_version must be an integer")
     if manifest_version != 1:
-        raise ValueError(
-            f"unsupported snapshot manifest_version: {manifest_version}"
-        )
+        raise ValueError(f"unsupported snapshot manifest_version: {manifest_version}")
 
     chain_id = manifest.get("chain_id")
     if not isinstance(chain_id, str) or chain_id == "":
         raise ValueError("snapshot manifest chain_id must be a string")
     if expected_chain_id is not None and chain_id != expected_chain_id:
         raise ValueError(
-            "snapshot manifest chain_id mismatch: "
-            f"expected {expected_chain_id}, got {chain_id}"
+            f"snapshot manifest chain_id mismatch: expected {expected_chain_id}, got {chain_id}"
         )
 
     height = manifest.get("height")
@@ -250,9 +239,7 @@ def _verify_snapshot_manifest(
 
     snapshot_sha256 = manifest.get("snapshot_sha256")
     if not isinstance(snapshot_sha256, str) or len(snapshot_sha256) != 64:
-        raise ValueError(
-            "snapshot manifest snapshot_sha256 must be a 64-character hex string"
-        )
+        raise ValueError("snapshot manifest snapshot_sha256 must be a 64-character hex string")
     try:
         bytes.fromhex(snapshot_sha256)
     except ValueError as ex:
@@ -262,12 +249,8 @@ def _verify_snapshot_manifest(
     snapshot_sha256 = snapshot_sha256.lower()
 
     signing_public_key = manifest.get("signing_public_key")
-    if not isinstance(signing_public_key, str) or not is_valid_ed25519_key(
-        signing_public_key
-    ):
-        raise ValueError(
-            "snapshot manifest signing_public_key must be a valid Ed25519 hex key"
-        )
+    if not isinstance(signing_public_key, str) or not is_valid_ed25519_key(signing_public_key):
+        raise ValueError("snapshot manifest signing_public_key must be a valid Ed25519 hex key")
     if signing_public_key not in trusted_manifest_public_keys:
         raise ValueError("snapshot manifest signer is not trusted")
 
@@ -299,16 +282,13 @@ def apply_snapshot_archive(
     expected_chain_id: str | None = None,
 ) -> str:
     home.mkdir(parents=True, exist_ok=True)
-    trusted_keys = _normalize_snapshot_manifest_public_keys(
-        trusted_manifest_public_keys
-    )
+    trusted_keys = _normalize_snapshot_manifest_public_keys(trusted_manifest_public_keys)
     effective_snapshot_url = snapshot_url
     effective_sha256 = expected_sha256
     if expected_sha256 is None:
         if not trusted_keys:
             raise ValueError(
-                "remote snapshot restore requires expected_sha256 or "
-                "trusted snapshot signing keys"
+                "remote snapshot restore requires expected_sha256 or trusted snapshot signing keys"
             )
         manifest = _fetch_json_url(snapshot_url, timeout=30)
         verified_manifest = _verify_snapshot_manifest(
@@ -390,9 +370,7 @@ def configure_existing_home(
     simulation_max_chi: int = 1_000_000,
     parallel_execution_enabled: bool = DEFAULT_PARALLEL_EXECUTION_ENABLED,
     parallel_execution_workers: int = DEFAULT_PARALLEL_EXECUTION_WORKERS,
-    parallel_execution_min_transactions: int = (
-        DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS
-    ),
+    parallel_execution_min_transactions: int = (DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS),
     parallel_execution_max_speculative_waves: int = (
         DEFAULT_PARALLEL_EXECUTION_MAX_SPECULATIVE_WAVES
     ),
@@ -402,9 +380,7 @@ def configure_existing_home(
     parallel_execution_low_acceptance_min_wave_size: int = (
         DEFAULT_PARALLEL_EXECUTION_LOW_ACCEPTANCE_MIN_WAVE_SIZE
     ),
-    parallel_execution_warm_workers: bool = (
-        DEFAULT_PARALLEL_EXECUTION_WARM_WORKERS
-    ),
+    parallel_execution_warm_workers: bool = (DEFAULT_PARALLEL_EXECUTION_WARM_WORKERS),
     parallel_execution_access_estimates_enabled: bool = (
         DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED
     ),
@@ -471,23 +447,13 @@ def configure_existing_home(
                 enabled=parallel_execution_enabled,
                 workers=parallel_execution_workers,
                 min_transactions=parallel_execution_min_transactions,
-                max_speculative_waves=(
-                    parallel_execution_max_speculative_waves
-                ),
-                min_wave_acceptance_ratio=(
-                    parallel_execution_min_wave_acceptance_ratio
-                ),
-                low_acceptance_min_wave_size=(
-                    parallel_execution_low_acceptance_min_wave_size
-                ),
+                max_speculative_waves=(parallel_execution_max_speculative_waves),
+                min_wave_acceptance_ratio=(parallel_execution_min_wave_acceptance_ratio),
+                low_acceptance_min_wave_size=(parallel_execution_low_acceptance_min_wave_size),
                 warm_workers=parallel_execution_warm_workers,
-                access_estimates_enabled=(
-                    parallel_execution_access_estimates_enabled
-                ),
+                access_estimates_enabled=(parallel_execution_access_estimates_enabled),
             ),
-            pending_nonce_reservation_ttl_seconds=(
-                pending_nonce_reservation_ttl_seconds
-            ),
+            pending_nonce_reservation_ttl_seconds=(pending_nonce_reservation_ttl_seconds),
             max_pending_nonces_per_sender=max_pending_nonces_per_sender,
             bds=BdsOptions(
                 dsn=bds_dsn,
@@ -520,9 +486,7 @@ def configure_existing_home(
             p2p_seeds=tuple(p2p_seeds or ()),
             p2p_persistent_peers=tuple(p2p_persistent_peers or ()),
             snapshot_url=snapshot_url,
-            snapshot_signing_public_keys=tuple(
-                snapshot_signing_public_keys or ()
-            ),
+            snapshot_signing_public_keys=tuple(snapshot_signing_public_keys or ()),
             snapshot_expected_chain_id=snapshot_expected_chain_id,
             genesis_source=genesis_source,
             genesis_payload=genesis_payload,
@@ -530,9 +494,7 @@ def configure_existing_home(
         )
 
     request = options
-    node_config = request.node_config or NodeConfigOptions(
-        moniker=request.moniker
-    )
+    node_config = request.node_config or NodeConfigOptions(moniker=request.moniker)
     config_path = request.home / "config" / "config.toml"
     existing_config = load_existing_cometbft_config(config_path)
     p2p_seeds = resolve_p2p_seeds(
@@ -559,9 +521,7 @@ def configure_existing_home(
             pending_nonce_reservation_ttl_seconds=(
                 node_config.pending_nonce_reservation_ttl_seconds
             ),
-            max_pending_nonces_per_sender=(
-                node_config.max_pending_nonces_per_sender
-            ),
+            max_pending_nonces_per_sender=(node_config.max_pending_nonces_per_sender),
             bds=node_config.bds,
             proxy_app=node_config.proxy_app,
             prometheus=node_config.prometheus,
@@ -576,18 +536,12 @@ def configure_existing_home(
         snapshot_archive_name = apply_snapshot_archive(
             request.snapshot_url,
             request.home,
-            trusted_manifest_public_keys=list(
-                request.snapshot_signing_public_keys
-            )
-            or None,
+            trusted_manifest_public_keys=list(request.snapshot_signing_public_keys) or None,
             expected_chain_id=request.snapshot_expected_chain_id,
         )
 
     genesis_target_path: Path | None = None
-    if (
-        request.genesis_payload is not None
-        or request.genesis_source is not None
-    ):
+    if request.genesis_payload is not None or request.genesis_source is not None:
         genesis_target_path = resolve_home_relative_path(
             request.home,
             config["genesis_file"],
@@ -609,9 +563,7 @@ def configure_existing_home(
             request.home,
             config["priv_validator_key_file"],
         )
-        priv_validator_key = build_priv_validator_key(
-            request.validator_private_key_hex
-        )
+        priv_validator_key = build_priv_validator_key(request.validator_private_key_hex)
         priv_validator_key.pop("_private_key_hex", None)
         write_json(
             priv_validator_key_path,
@@ -625,9 +577,7 @@ def configure_existing_home(
     return {
         "config_path": str(config_path),
         "xian_config_path": str(xian_config_path),
-        "genesis_path": (
-            str(genesis_target_path) if genesis_target_path else None
-        ),
+        "genesis_path": (str(genesis_target_path) if genesis_target_path else None),
         "priv_validator_key_path": (
             str(priv_validator_key_path) if priv_validator_key_path else None
         ),

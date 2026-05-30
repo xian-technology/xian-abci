@@ -145,9 +145,7 @@ class ScheduledPatchRecord:
     emergency: bool
     status: str
 
-    def to_dict(
-        self, *, local_bundle: StatePatchBundle | None
-    ) -> dict[str, Any]:
+    def to_dict(self, *, local_bundle: StatePatchBundle | None) -> dict[str, Any]:
         return {
             "patch_id": self.patch_id,
             "proposal_id": self.proposal_id,
@@ -159,9 +157,7 @@ class ScheduledPatchRecord:
             "emergency": self.emergency,
             "status": self.status,
             "local_bundle_available": local_bundle is not None,
-            "local_file_path": None
-            if local_bundle is None
-            else local_bundle.file_path,
+            "local_file_path": None if local_bundle is None else local_bundle.file_path,
         }
 
 
@@ -215,9 +211,7 @@ class StatePatchManager:
             for bundle_file in bundle_files:
                 bundle = self._load_bundle_file(bundle_file)
                 if bundle.patch_id in bundles:
-                    raise ValueError(
-                        f"duplicate patch_id '{bundle.patch_id}' in bundle inventory"
-                    )
+                    raise ValueError(f"duplicate patch_id '{bundle.patch_id}' in bundle inventory")
                 bundles[bundle.patch_id] = bundle
         except Exception:
             self.local_bundles = {}
@@ -240,67 +234,43 @@ class StatePatchManager:
     def _load_bundle_file(self, bundle_file: Path) -> StatePatchBundle:
         payload = json.loads(bundle_file.read_text(encoding="utf-8"))
         if payload.get("version") != STATE_PATCH_BUNDLE_VERSION:
-            raise ValueError(
-                f"{bundle_file} has unsupported state patch bundle version"
-            )
+            raise ValueError(f"{bundle_file} has unsupported state patch bundle version")
 
         patch_id = payload.get("patch_id")
-        if not isinstance(patch_id, str) or not PATCH_ID_PATTERN.fullmatch(
-            patch_id
-        ):
+        if not isinstance(patch_id, str) or not PATCH_ID_PATTERN.fullmatch(patch_id):
             raise ValueError(f"{bundle_file} has invalid patch_id")
 
         activation_height = payload.get("activation_height")
         if not isinstance(activation_height, int) or activation_height <= 0:
-            raise ValueError(
-                f"{bundle_file} must set a positive activation_height"
-            )
+            raise ValueError(f"{bundle_file} must set a positive activation_height")
 
-        governance_contract = payload.get(
-            "governance_contract", self.governance_contract
-        )
-        if (
-            not isinstance(governance_contract, str)
-            or governance_contract == ""
-        ):
+        governance_contract = payload.get("governance_contract", self.governance_contract)
+        if not isinstance(governance_contract, str) or governance_contract == "":
             raise ValueError(f"{bundle_file} has invalid governance_contract")
 
         chain_id = payload.get("chain_id")
-        if chain_id is not None and (
-            not isinstance(chain_id, str) or chain_id == ""
-        ):
+        if chain_id is not None and (not isinstance(chain_id, str) or chain_id == ""):
             raise ValueError(f"{bundle_file} has invalid chain_id")
 
         changes = payload.get("changes")
         if not isinstance(changes, list) or len(changes) == 0:
-            raise ValueError(
-                f"{bundle_file} must define a non-empty changes list"
-            )
+            raise ValueError(f"{bundle_file} must define a non-empty changes list")
 
         normalized_changes: list[dict[str, Any]] = []
         seen_keys: set[str] = set()
         for raw_change in changes:
             if not isinstance(raw_change, dict):
-                raise ValueError(
-                    f"{bundle_file} contains a non-object patch change"
-                )
+                raise ValueError(f"{bundle_file} contains a non-object patch change")
             key = raw_change.get("key")
             if not isinstance(key, str) or key == "":
-                raise ValueError(
-                    f"{bundle_file} contains a patch change with no key"
-                )
+                raise ValueError(f"{bundle_file} contains a patch change with no key")
             if key in seen_keys:
-                raise ValueError(
-                    f"{bundle_file} contains duplicate key {key!r}"
-                )
+                raise ValueError(f"{bundle_file} contains duplicate key {key!r}")
             if key.endswith(".__code__"):
-                raise ValueError(
-                    f"{bundle_file} cannot patch __code__ directly; use __source__"
-                )
+                raise ValueError(f"{bundle_file} cannot patch __code__ directly; use __source__")
             if key.endswith(f".{XIAN_VM_V1_IR_KEY}"):
                 raise ValueError(
-                    f"{bundle_file} cannot patch {XIAN_VM_V1_IR_KEY} directly; "
-                    "use __source__"
+                    f"{bundle_file} cannot patch {XIAN_VM_V1_IR_KEY} directly; use __source__"
                 )
             seen_keys.add(key)
             normalized_changes.append(
@@ -340,9 +310,7 @@ class StatePatchManager:
         self._require_loaded()
         return [
             bundle.to_inventory_record()
-            for bundle in sorted(
-                self.local_bundles.values(), key=lambda item: item.patch_id
-            )
+            for bundle in sorted(self.local_bundles.values(), key=lambda item: item.patch_id)
         ]
 
     def _read_scheduled_patch_records(
@@ -380,15 +348,11 @@ class StatePatchManager:
                 [patch_id, "activation_height"],
             )
             summary = (
-                self.raw_driver.get_var(
-                    self.governance_contract, "patches", [patch_id, "summary"]
-                )
+                self.raw_driver.get_var(self.governance_contract, "patches", [patch_id, "summary"])
                 or ""
             )
             uri = (
-                self.raw_driver.get_var(
-                    self.governance_contract, "patches", [patch_id, "uri"]
-                )
+                self.raw_driver.get_var(self.governance_contract, "patches", [patch_id, "uri"])
                 or ""
             )
             emergency = bool(
@@ -397,13 +361,9 @@ class StatePatchManager:
                 )
             )
             if not isinstance(proposal_id, int):
-                raise ValueError(
-                    f"missing proposal_id for governed state patch {patch_id}"
-                )
+                raise ValueError(f"missing proposal_id for governed state patch {patch_id}")
             if not isinstance(bundle_hash, str) or bundle_hash == "":
-                raise ValueError(
-                    f"missing bundle_hash for governed state patch {patch_id}"
-                )
+                raise ValueError(f"missing bundle_hash for governed state patch {patch_id}")
             if activation_height != height:
                 raise ValueError(
                     f"governed state patch {patch_id} has inconsistent activation height"
@@ -425,9 +385,7 @@ class StatePatchManager:
         records.sort(key=lambda item: item.patch_id)
         return records
 
-    def get_scheduled_patch_inventory(
-        self, height: int
-    ) -> list[dict[str, Any]]:
+    def get_scheduled_patch_inventory(self, height: int) -> list[dict[str, Any]]:
         self._require_loaded()
         records = self._read_scheduled_patch_records(
             height=height,
@@ -449,30 +407,20 @@ class StatePatchManager:
                 f"local={bundle.bundle_hash} governed={record.bundle_hash}"
             )
         if bundle.activation_height != record.activation_height:
-            raise ValueError(
-                f"state patch activation height mismatch for {record.patch_id}"
-            )
+            raise ValueError(f"state patch activation height mismatch for {record.patch_id}")
         if bundle.governance_contract != record.governance_contract:
-            raise ValueError(
-                f"state patch governance contract mismatch for {record.patch_id}"
-            )
+            raise ValueError(f"state patch governance contract mismatch for {record.patch_id}")
         if bundle.chain_id is not None and self.chain_id != bundle.chain_id:
-            raise ValueError(
-                f"state patch {record.patch_id} targets chain_id {bundle.chain_id!r}"
-            )
+            raise ValueError(f"state patch {record.patch_id} targets chain_id {bundle.chain_id!r}")
 
-    def _build_applied_changes(
-        self, bundle: StatePatchBundle
-    ) -> tuple[dict[str, Any], ...]:
+    def _build_applied_changes(self, bundle: StatePatchBundle) -> tuple[dict[str, Any], ...]:
         applied_changes: list[dict[str, Any]] = []
         for change in bundle.changes:
             applied_changes.append(dict(change))
             parts = change["key"].split(".")
             if len(parts) > 1 and parts[1] == "__source__":
                 contract_name = parts[0]
-                normalized_source, vm_ir_json = (
-                    build_contract_artifacts_from_source(change)
-                )
+                normalized_source, vm_ir_json = build_contract_artifacts_from_source(change)
                 applied_changes[-1]["value"] = normalized_source
                 applied_changes.append(
                     {
@@ -534,13 +482,9 @@ class StatePatchManager:
         if not executions:
             return None, []
         aggregate_hash = _hash_text(
-            _canonical_json(
-                [execution.execution_hash for execution in executions]
-            )
+            _canonical_json([execution.execution_hash for execution in executions])
         )
-        return aggregate_hash, [
-            execution.to_payload_dict() for execution in executions
-        ]
+        return aggregate_hash, [execution.to_payload_dict() for execution in executions]
 
     def _apply_single_bundle(self, execution: PatchExecution) -> None:
         logger.info(
@@ -555,9 +499,7 @@ class StatePatchManager:
             parts = key.split(".")
             if len(parts) > 1 and parts[1] == "__source__":
                 contract_name = parts[0]
-                normalized_source, vm_ir_json = (
-                    build_contract_artifacts_from_source(change)
-                )
+                normalized_source, vm_ir_json = build_contract_artifacts_from_source(change)
                 self.raw_driver.set(key, normalized_source)
                 self.raw_driver.set(
                     f"{contract_name}.{XIAN_VM_V1_IR_KEY}",
@@ -615,9 +557,7 @@ class StatePatchManager:
         *,
         block_hash: str | None = None,
     ) -> tuple[str | None, list[dict[str, Any]]]:
-        executions = self._build_executions(
-            height=height, include_applied=False
-        )
+        executions = self._build_executions(height=height, include_applied=False)
         if not executions:
             return None, []
 
@@ -631,15 +571,11 @@ class StatePatchManager:
             )
 
         aggregate_hash = _hash_text(
-            _canonical_json(
-                [execution.execution_hash for execution in executions]
-            )
+            _canonical_json([execution.execution_hash for execution in executions])
         )
         logger.info(
             "Applied {} governed state patch bundle(s) for block {}",
             len(executions),
             height,
         )
-        return aggregate_hash, [
-            execution.to_payload_dict() for execution in executions
-        ]
+        return aggregate_hash, [execution.to_payload_dict() for execution in executions]

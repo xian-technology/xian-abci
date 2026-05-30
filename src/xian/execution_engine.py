@@ -72,10 +72,7 @@ def vm_deployment_artifacts_error(
     contract_name: str,
     function_name: str,
 ) -> str:
-    return (
-        "xian_vm_v1 requires deployment_artifacts for "
-        f"{contract_name}.{function_name}"
-    )
+    return f"xian_vm_v1 requires deployment_artifacts for {contract_name}.{function_name}"
 
 
 def metering_write_keys(
@@ -149,9 +146,7 @@ def snapshot_driver_state(driver) -> dict:
         "pending_reads": deepcopy(driver.pending_reads),
         "pending_deltas": deepcopy(driver.pending_deltas),
         "transaction_reads": deepcopy(driver.transaction_reads),
-        "transaction_read_prefixes": deepcopy(
-            getattr(driver, "transaction_read_prefixes", set())
-        ),
+        "transaction_read_prefixes": deepcopy(getattr(driver, "transaction_read_prefixes", set())),
         "transaction_writes": deepcopy(driver.transaction_writes),
         "log_events": deepcopy(driver.log_events),
     }
@@ -164,9 +159,7 @@ def restore_driver_state(driver, state_snapshot: dict | None) -> None:
     driver.pending_reads = deepcopy(state_snapshot["pending_reads"])
     driver.pending_deltas = deepcopy(state_snapshot["pending_deltas"])
     driver.transaction_reads = deepcopy(state_snapshot["transaction_reads"])
-    driver.transaction_read_prefixes = deepcopy(
-        state_snapshot["transaction_read_prefixes"]
-    )
+    driver.transaction_read_prefixes = deepcopy(state_snapshot["transaction_read_prefixes"])
     driver.transaction_writes = deepcopy(state_snapshot["transaction_writes"])
     driver.log_events = deepcopy(state_snapshot["log_events"])
 
@@ -236,9 +229,7 @@ def execute_vm_contract(
     ):
         return VmExecutionResult(
             status_code=1,
-            result=ValueError(
-                vm_deployment_artifacts_error(contract_name, function_name)
-            ),
+            result=ValueError(vm_deployment_artifacts_error(contract_name, function_name)),
             writes={},
             events=[],
             chi_used=0,
@@ -251,12 +242,8 @@ def execute_vm_contract(
         "caller": sender,
         "this": contract_name,
         "entry": (contract_name, function_name),
-        "owner": getattr(driver, "get_owner", lambda _name: None)(
-            contract_name
-        ),
-        "submission_name": (
-            kwargs.get("name") if contract_name == "submission" else None
-        ),
+        "owner": getattr(driver, "get_owner", lambda _name: None)(contract_name),
+        "submission_name": (kwargs.get("name") if contract_name == "submission" else None),
         "now": environment.get("now"),
         "block_num": environment.get("block_num"),
         "block_hash": environment.get("block_hash"),
@@ -325,9 +312,7 @@ def execute_vm_transaction(
         transaction_size_bytes=transaction_size_bytes,
     )
     vm_reads = deepcopy(driver.transaction_reads)
-    vm_prefix_reads = frozenset(
-        deepcopy(getattr(driver, "transaction_read_prefixes", set()))
-    )
+    vm_prefix_reads = frozenset(deepcopy(getattr(driver, "transaction_read_prefixes", set())))
 
     chi_used = int(vm_output.chi_used or 0)
     contract_costs = dict(vm_output.contract_costs or {})
@@ -366,13 +351,10 @@ def _prepare_vm_contract_bundle(
 ) -> VmPreparedContract:
     if contract_name in stack:
         raise ValueError(
-            "xian_vm_v1 import graph contains a cycle: "
-            + " -> ".join((*stack, contract_name))
+            "xian_vm_v1 import graph contains a cycle: " + " -> ".join((*stack, contract_name))
         )
 
-    artifact_hash, module_ir_json = _load_vm_module_ir_json(
-        driver, contract_name
-    )
+    artifact_hash, module_ir_json = _load_vm_module_ir_json(driver, contract_name)
     cache_key = (contract_name, artifact_hash)
     cached = _VM_PREPARED_CONTRACTS.get(cache_key)
     if cached is not None:

@@ -22,9 +22,7 @@ from xian.dashboard.app import (
 
 
 def build_parser() -> ArgumentParser:
-    parser = ArgumentParser(
-        description="Run the optional Xian dashboard and chain explorer"
-    )
+    parser = ArgumentParser(description="Run the optional Xian dashboard and chain explorer")
     parser.add_argument(
         "--rpc-url",
         default="http://127.0.0.1:26657",
@@ -129,12 +127,8 @@ def main(argv: list[str] | None = None) -> int:
             max_ws_outbound_queue=args.max_ws_outbound_queue,
             rest_rate_limit_per_second=args.rest_rate_limit_per_second,
             rest_rate_limit_burst=args.rest_rate_limit_burst,
-            expensive_rest_rate_limit_per_second=(
-                args.expensive_rest_rate_limit_per_second
-            ),
-            expensive_rest_rate_limit_burst=(
-                args.expensive_rest_rate_limit_burst
-            ),
+            expensive_rest_rate_limit_per_second=(args.expensive_rest_rate_limit_per_second),
+            expensive_rest_rate_limit_burst=(args.expensive_rest_rate_limit_burst),
             max_rest_concurrency=args.max_rest_concurrency,
             rate_limit_max_keys=args.rate_limit_max_keys,
         ),

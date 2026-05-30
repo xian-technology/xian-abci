@@ -16,9 +16,7 @@ def build_parser() -> ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    output_dir = (
-        Path(args.output_path) if args.output_path is not None else Path.cwd()
-    )
+    output_dir = Path(args.output_path) if args.output_path is not None else Path.cwd()
     output_path = export_state(
         output_dir=output_dir,
         founder_private_key=args.key,

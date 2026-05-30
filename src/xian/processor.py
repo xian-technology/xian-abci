@@ -231,9 +231,7 @@ class TxProcessor:
                         "error_type": type(err).__name__,
                     },
                 )
-            ).exception(
-                "Transaction execution failed before producing an executor result"
-            )
+            ).exception("Transaction execution failed before producing an executor result")
             return None
         finally:
             if self.profiler is not None:
@@ -273,9 +271,7 @@ class TxProcessor:
             chi_budget=transaction["payload"]["chi_supplied"],
             chi_cost=chi_cost,
             meter=metering,
-            transaction_size_bytes=canonical_transaction_size_bytes(
-                transaction
-            ),
+            transaction_size_bytes=canonical_transaction_size_bytes(transaction),
             currency_contract=self.currency_contract,
             balances_hash=self.balances_hash,
         )
@@ -287,9 +283,7 @@ class TxProcessor:
             "events": list(outcome.output.events),
             "chi_used": outcome.chi_used,
             "reads": dict(getattr(outcome, "reads", {}) or {}),
-            "prefix_reads": frozenset(
-                getattr(outcome, "prefix_reads", frozenset()) or ()
-            ),
+            "prefix_reads": frozenset(getattr(outcome, "prefix_reads", frozenset()) or ()),
             "contract_costs": outcome.contract_costs,
         }
 
@@ -336,12 +330,10 @@ class TxProcessor:
             reward_deltas = {}
             reward_records = []
             if output["status_code"] == 0 and rewards_handler is not None:
-                rewards, reward_deltas, reward_records = (
-                    rewards_handler.build_tx_reward_outputs(
-                        total_chi_to_split=output["chi_used"],
-                        contract=transaction["payload"]["contract"],
-                        contract_costs=output.get("contract_costs"),
-                    )
+                rewards, reward_deltas, reward_records = rewards_handler.build_tx_reward_outputs(
+                    total_chi_to_split=output["chi_used"],
+                    contract=transaction["payload"]["contract"],
+                    contract_costs=output.get("contract_costs"),
                 )
 
             base_writes = self.determine_writes_from_output(
@@ -361,22 +353,16 @@ class TxProcessor:
                 elif output_reads is not None:
                     reads = frozenset(output_reads)
                 else:
-                    reads = frozenset(
-                        self.client.raw_driver.transaction_reads.keys()
-                    )
+                    reads = frozenset(self.client.raw_driver.transaction_reads.keys())
 
                 output_prefix_reads = output.get("prefix_reads")
                 if output_prefix_reads is not None:
                     prefix_reads = frozenset(output_prefix_reads)
                 else:
-                    prefix_reads = frozenset(
-                        self.client.raw_driver.transaction_read_prefixes
-                    )
+                    prefix_reads = frozenset(self.client.raw_driver.transaction_read_prefixes)
 
             for write in writes:
-                self.client.raw_driver.set(
-                    key=write["key"], value=write["value"]
-                )
+                self.client.raw_driver.set(key=write["key"], value=write["value"])
 
             tx_output = {
                 "hash": tx_hash,
@@ -569,9 +555,7 @@ class TxProcessor:
             if not isinstance(address, str):
                 return None
             reads.add(make_key(self.balances_hash, [address]))
-        elif (
-            contract in {"chi_cost", "rewards"} and function == "current_value"
-        ):
+        elif contract in {"chi_cost", "rewards"} and function == "current_value":
             reads.add(make_key("S", ["value"]))
         elif contract in {"chi_cost", "rewards"} and function == "set_value":
             writes.add(make_key("S", ["value"]))

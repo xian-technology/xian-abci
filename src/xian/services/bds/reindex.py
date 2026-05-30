@@ -84,9 +84,7 @@ class CometBftRpcClient:
             self._session = aiohttp.ClientSession()
         return self._session
 
-    async def _get(
-        self, path: str, params: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    async def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         session = await self._session_or_create()
         async with session.get(
             f"{self.rpc_url}/{path}",
@@ -211,8 +209,8 @@ class BdsReindexer:
             if payload is not None:
                 transactions.append(payload)
 
-        patch_hash, applied_patches = (
-            self.state_patch_manager.build_applied_patches_for_block(height)
+        patch_hash, applied_patches = self.state_patch_manager.build_applied_patches_for_block(
+            height
         )
         return BdsBlockPayload(
             block_meta={
@@ -245,12 +243,8 @@ class BdsReindexer:
                 f"source={source_block_hash} trusted={trusted_block_hash}"
             )
 
-        source_app_hash = str(
-            block_response["block"]["header"]["app_hash"]
-        ).upper()
-        trusted_app_hash = str(
-            trusted_block["block"]["header"]["app_hash"]
-        ).upper()
+        source_app_hash = str(block_response["block"]["header"]["app_hash"]).upper()
+        trusted_app_hash = str(trusted_block["block"]["header"]["app_hash"]).upper()
         if source_app_hash != trusted_app_hash:
             raise ValueError(
                 f"block {height} app hash mismatch: "
@@ -292,12 +286,8 @@ class BdsReindexer:
         tx_hash = hash_bytes(raw_tx).upper()
         tx_result = dict(decoded_result)
         tx_result["hash"] = tx_hash
-        tx_result["status"] = int(
-            tx_result.get("status", tx_result_rpc["code"])
-        )
-        tx_result["chi_used"] = int(
-            tx_result.get("chi_used", tx_result_rpc.get("gas_used", 0))
-        )
+        tx_result["status"] = int(tx_result.get("status", tx_result_rpc["code"]))
+        tx_result["chi_used"] = int(tx_result.get("chi_used", tx_result_rpc.get("gas_used", 0)))
         tx_result.setdefault("state", [])
         tx_result.setdefault("events", [])
         tx_result.setdefault("rewards", {})
@@ -334,9 +324,7 @@ async def run_bds_reindex(
     bds = BDS(config=bds_config)
     await bds.initialize_storage(cometbft_genesis, reset=reset)
 
-    state_patch_manager = StatePatchManager(
-        Driver(storage_home=constants.STORAGE_HOME)
-    )
+    state_patch_manager = StatePatchManager(Driver(storage_home=constants.STORAGE_HOME))
     patch_dir_path = resolve_state_patch_dir(constants)
     state_patch_manager.load_patches(str(patch_dir_path))
 
@@ -344,9 +332,7 @@ async def run_bds_reindex(
     trusted_rpc_url = resolve_rpc_url(constants)
     block_source = CometBftRpcClient(source_rpc_url)
     trusted_block_source = (
-        None
-        if source_rpc_url == trusted_rpc_url
-        else CometBftRpcClient(trusted_rpc_url)
+        None if source_rpc_url == trusted_rpc_url else CometBftRpcClient(trusted_rpc_url)
     )
     reindexer = BdsReindexer(
         bds=bds,

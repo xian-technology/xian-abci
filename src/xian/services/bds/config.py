@@ -19,7 +19,7 @@ def _coerce_int(value: object, *, default: int) -> int:
     resolved = _first_non_empty(value, default=default)
     try:
         return int(resolved)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
 
 
@@ -27,7 +27,7 @@ def _coerce_float(value: object, *, default: float) -> float:
     resolved = _first_non_empty(value, default=default)
     try:
         return float(resolved)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
 
 
@@ -170,8 +170,7 @@ class BdsConfig:
                 ),
                 default=128,
             ),
-            catchup_enabled=str(catchup_enabled).lower()
-            not in {"0", "false", "no", "off"},
+            catchup_enabled=str(catchup_enabled).lower() not in {"0", "false", "no", "off"},
             catchup_poll_seconds=_coerce_float(
                 catchup_poll_seconds,
                 default=1.0,

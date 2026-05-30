@@ -9,9 +9,7 @@ from xian.services.bds.runtime import resolve_bds_config
 
 
 def build_parser() -> ArgumentParser:
-    parser = ArgumentParser(
-        description="Safely inspect, drain, or compact the local BDS spool"
-    )
+    parser = ArgumentParser(description="Safely inspect, drain, or compact the local BDS spool")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     compact = subparsers.add_parser("compact")

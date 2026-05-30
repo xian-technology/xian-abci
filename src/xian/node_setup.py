@@ -239,19 +239,11 @@ class ParallelExecutionOptions:
     enabled: bool = DEFAULT_PARALLEL_EXECUTION_ENABLED
     workers: int = DEFAULT_PARALLEL_EXECUTION_WORKERS
     min_transactions: int = DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS
-    max_speculative_waves: int = (
-        DEFAULT_PARALLEL_EXECUTION_MAX_SPECULATIVE_WAVES
-    )
-    min_wave_acceptance_ratio: float = (
-        DEFAULT_PARALLEL_EXECUTION_MIN_WAVE_ACCEPTANCE_RATIO
-    )
-    low_acceptance_min_wave_size: int = (
-        DEFAULT_PARALLEL_EXECUTION_LOW_ACCEPTANCE_MIN_WAVE_SIZE
-    )
+    max_speculative_waves: int = DEFAULT_PARALLEL_EXECUTION_MAX_SPECULATIVE_WAVES
+    min_wave_acceptance_ratio: float = DEFAULT_PARALLEL_EXECUTION_MIN_WAVE_ACCEPTANCE_RATIO
+    low_acceptance_min_wave_size: int = DEFAULT_PARALLEL_EXECUTION_LOW_ACCEPTANCE_MIN_WAVE_SIZE
     warm_workers: bool = DEFAULT_PARALLEL_EXECUTION_WARM_WORKERS
-    access_estimates_enabled: bool = (
-        DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED
-    )
+    access_estimates_enabled: bool = DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,9 +285,7 @@ class NodeConfigOptions:
     metrics: MetricsOptions = field(default_factory=MetricsOptions)
     app_logging: AppLoggingOptions = field(default_factory=AppLoggingOptions)
     simulation: SimulationOptions = field(default_factory=SimulationOptions)
-    parallel_execution: ParallelExecutionOptions = field(
-        default_factory=ParallelExecutionOptions
-    )
+    parallel_execution: ParallelExecutionOptions = field(default_factory=ParallelExecutionOptions)
     pending_nonce_reservation_ttl_seconds: float = 60.0
     max_pending_nonces_per_sender: int = 128
     bds: BdsOptions = field(default_factory=BdsOptions)
@@ -309,10 +299,7 @@ def resolve_block_policy(
     interval: str = "0s",
 ) -> tuple[bool, str]:
     if mode not in SUPPORTED_BLOCK_POLICY_MODES:
-        raise ValueError(
-            "block_policy_mode must be one of "
-            f"{sorted(SUPPORTED_BLOCK_POLICY_MODES)}"
-        )
+        raise ValueError(f"block_policy_mode must be one of {sorted(SUPPORTED_BLOCK_POLICY_MODES)}")
     if not isinstance(interval, str) or not interval:
         raise ValueError("block_policy_interval must be a non-empty string")
 
@@ -321,8 +308,7 @@ def resolve_block_policy(
 
     if interval == "0s":
         raise ValueError(
-            "block_policy_interval must be non-zero for idle_interval and "
-            "periodic modes"
+            "block_policy_interval must be non-zero for idle_interval and periodic modes"
         )
 
     if mode == "idle_interval":
@@ -358,43 +344,26 @@ def validate_node_runtime_settings(options: NodeConfigOptions) -> None:
     if options.metrics.port < 1 or options.metrics.port > 65535:
         raise ValueError("metrics_port must be between 1 and 65535")
     if options.metrics.bds_refresh_seconds <= 0:
-        raise ValueError(
-            "metrics_bds_refresh_seconds must be greater than zero"
-        )
-    if (
-        options.parallel_execution.enabled
-        and options.parallel_execution.workers <= 0
-    ):
+        raise ValueError("metrics_bds_refresh_seconds must be greater than zero")
+    if options.parallel_execution.enabled and options.parallel_execution.workers <= 0:
         raise ValueError(
             "parallel_execution_workers must be greater than zero when "
             "parallel_execution_enabled is true"
         )
     if options.parallel_execution.min_transactions < 1:
-        raise ValueError(
-            "parallel_execution_min_transactions must be greater than zero"
-        )
+        raise ValueError("parallel_execution_min_transactions must be greater than zero")
     if options.parallel_execution.max_speculative_waves < 0:
-        raise ValueError(
-            "parallel_execution_max_speculative_waves must be non-negative"
-        )
+        raise ValueError("parallel_execution_max_speculative_waves must be non-negative")
     if not (0.0 <= options.parallel_execution.min_wave_acceptance_ratio <= 1.0):
-        raise ValueError(
-            "parallel_execution_min_wave_acceptance_ratio must be between "
-            "0.0 and 1.0"
-        )
+        raise ValueError("parallel_execution_min_wave_acceptance_ratio must be between 0.0 and 1.0")
     if options.parallel_execution.low_acceptance_min_wave_size < 1:
         raise ValueError(
-            "parallel_execution_low_acceptance_min_wave_size must be greater "
-            "than zero"
+            "parallel_execution_low_acceptance_min_wave_size must be greater than zero"
         )
     if options.pending_nonce_reservation_ttl_seconds < 0:
-        raise ValueError(
-            "pending_nonce_reservation_ttl_seconds must be non-negative"
-        )
+        raise ValueError("pending_nonce_reservation_ttl_seconds must be non-negative")
     if options.max_pending_nonces_per_sender < 1:
-        raise ValueError(
-            "max_pending_nonces_per_sender must be greater than zero"
-        )
+        raise ValueError("max_pending_nonces_per_sender must be greater than zero")
     if options.bds.port < 1 or options.bds.port > 65535:
         raise ValueError("bds_port must be between 1 and 65535")
     if options.bds.pool_min_size < 0:
@@ -402,9 +371,7 @@ def validate_node_runtime_settings(options: NodeConfigOptions) -> None:
     if options.bds.pool_max_size < 1:
         raise ValueError("bds_pool_max_size must be greater than zero")
     if options.bds.pool_min_size > options.bds.pool_max_size:
-        raise ValueError(
-            "bds_pool_min_size must be less than or equal to bds_pool_max_size"
-        )
+        raise ValueError("bds_pool_min_size must be less than or equal to bds_pool_max_size")
     if options.bds.statement_timeout_ms < 0:
         raise ValueError("bds_statement_timeout_ms must be non-negative")
     if options.bds.acquire_timeout_ms < 0:
@@ -432,9 +399,7 @@ def resolve_app_logging_settings(
         raise ValueError("app_log_level must be a string")
     normalized_level = level.upper()
     if normalized_level not in SUPPORTED_APP_LOG_LEVELS:
-        raise ValueError(
-            f"app_log_level must be one of {sorted(SUPPORTED_APP_LOG_LEVELS)}"
-        )
+        raise ValueError(f"app_log_level must be one of {sorted(SUPPORTED_APP_LOG_LEVELS)}")
     if rotation_hours <= 0:
         raise ValueError("app_log_rotation_hours must be greater than zero")
     if retention_days <= 0:
@@ -464,20 +429,15 @@ def resolve_statesync_settings(
             "trust_period": trust_period,
         }
 
-    normalized_servers = [
-        server.strip() for server in (rpc_servers or []) if server.strip()
-    ]
+    normalized_servers = [server.strip() for server in (rpc_servers or []) if server.strip()]
     if len(normalized_servers) < 2:
         raise ValueError(
-            "statesync requires at least two RPC servers for light-client "
-            "verification"
+            "statesync requires at least two RPC servers for light-client verification"
         )
     if trust_height <= 0:
         raise ValueError("statesync_trust_height must be greater than zero")
     if not isinstance(trust_hash, str) or not trust_hash:
-        raise ValueError(
-            "statesync_trust_hash must be provided when statesync is enabled"
-        )
+        raise ValueError("statesync_trust_hash must be provided when statesync is enabled")
 
     return {
         "enable": True,
@@ -511,9 +471,7 @@ def _build_ed25519_key_material(seed: bytes) -> tuple[SigningKey, bytes, str]:
 
 def build_priv_validator_key(private_key_hex: str) -> dict[str, Any]:
     seed = _normalize_private_key(private_key_hex)
-    signing_key, public_key_bytes, priv_key_b64 = _build_ed25519_key_material(
-        seed
-    )
+    signing_key, public_key_bytes, priv_key_b64 = _build_ed25519_key_material(seed)
     address_bytes = hashlib.sha256(public_key_bytes).digest()[:20]
 
     return {
@@ -526,28 +484,20 @@ def build_priv_validator_key(private_key_hex: str) -> dict[str, Any]:
             "type": "tendermint/PrivKeyEd25519",
             "value": priv_key_b64,
         },
-        "_private_key_hex": signing_key.encode(encoder=HexEncoder).decode(
-            "ascii"
-        ),
+        "_private_key_hex": signing_key.encode(encoder=HexEncoder).decode("ascii"),
     }
 
 
 def generate_validator_material(
     private_key_hex: str | None = None,
 ) -> dict[str, Any]:
-    priv_validator_key = build_priv_validator_key(
-        _normalize_private_key(private_key_hex).hex()
-    )
-    public_key_bytes = Base64Encoder.decode(
-        priv_validator_key["pub_key"]["value"].encode("ascii")
-    )
+    priv_validator_key = build_priv_validator_key(_normalize_private_key(private_key_hex).hex())
+    public_key_bytes = Base64Encoder.decode(priv_validator_key["pub_key"]["value"].encode("ascii"))
     return {
         "validator_private_key_hex": priv_validator_key["_private_key_hex"],
         "validator_public_key_hex": public_key_bytes.hex(),
         "priv_validator_key": {
-            key: value
-            for key, value in priv_validator_key.items()
-            if key != "_private_key_hex"
+            key: value for key, value in priv_validator_key.items() if key != "_private_key_hex"
         },
     }
 
@@ -607,30 +557,16 @@ def render_node_configs(
     cometbft_config["proxy_app"] = options.proxy_app
     cometbft_config["moniker"] = options.moniker
     cometbft_config["consensus"]["create_empty_blocks"] = create_empty_blocks
-    cometbft_config["consensus"]["create_empty_blocks_interval"] = (
-        create_empty_blocks_interval
-    )
+    cometbft_config["consensus"]["create_empty_blocks_interval"] = create_empty_blocks_interval
     cometbft_config["p2p"]["seeds"] = ",".join(options.p2p_seeds)
-    cometbft_config["p2p"]["persistent_peers"] = ",".join(
-        options.p2p_persistent_peers
-    )
-    cometbft_config["rpc"]["cors_allowed_origins"] = (
-        ["*"] if options.allow_cors else []
-    )
+    cometbft_config["p2p"]["persistent_peers"] = ",".join(options.p2p_persistent_peers)
+    cometbft_config["rpc"]["cors_allowed_origins"] = ["*"] if options.allow_cors else []
     cometbft_config["instrumentation"]["prometheus"] = options.prometheus
     cometbft_config["statesync"]["enable"] = resolved_statesync["enable"]
-    cometbft_config["statesync"]["rpc_servers"] = resolved_statesync[
-        "rpc_servers"
-    ]
-    cometbft_config["statesync"]["trust_height"] = resolved_statesync[
-        "trust_height"
-    ]
-    cometbft_config["statesync"]["trust_hash"] = resolved_statesync[
-        "trust_hash"
-    ]
-    cometbft_config["statesync"]["trust_period"] = resolved_statesync[
-        "trust_period"
-    ]
+    cometbft_config["statesync"]["rpc_servers"] = resolved_statesync["rpc_servers"]
+    cometbft_config["statesync"]["trust_height"] = resolved_statesync["trust_height"]
+    cometbft_config["statesync"]["trust_hash"] = resolved_statesync["trust_hash"]
+    cometbft_config["statesync"]["trust_period"] = resolved_statesync["trust_period"]
 
     xian_config["bds_enabled"] = options.bds_enabled
     xian_config["pruning_enabled"] = options.enable_pruning
@@ -638,33 +574,19 @@ def render_node_configs(
     xian_config["metrics_enabled"] = options.metrics.enabled
     xian_config["metrics_host"] = options.metrics.host
     xian_config["metrics_port"] = options.metrics.port
-    xian_config["metrics_bds_refresh_seconds"] = (
-        options.metrics.bds_refresh_seconds
-    )
+    xian_config["metrics_bds_refresh_seconds"] = options.metrics.bds_refresh_seconds
     xian_config["transaction_trace_logging"] = options.transaction_trace_logging
     xian_config["app_log_level"] = resolved_app_logging["level"]
     xian_config["app_log_json"] = resolved_app_logging["json"]
-    xian_config["app_log_rotation_hours"] = resolved_app_logging[
-        "rotation_hours"
-    ]
-    xian_config["app_log_retention_days"] = resolved_app_logging[
-        "retention_days"
-    ]
+    xian_config["app_log_rotation_hours"] = resolved_app_logging["rotation_hours"]
+    xian_config["app_log_retention_days"] = resolved_app_logging["retention_days"]
     xian_config["simulation_enabled"] = resolved_simulation["enabled"]
-    xian_config["simulation_max_concurrency"] = resolved_simulation[
-        "max_concurrency"
-    ]
+    xian_config["simulation_max_concurrency"] = resolved_simulation["max_concurrency"]
     xian_config["simulation_timeout_ms"] = resolved_simulation["timeout_ms"]
     xian_config["simulation_max_chi"] = resolved_simulation["max_chi"]
-    xian_config["parallel_execution_enabled"] = (
-        options.parallel_execution.enabled
-    )
-    xian_config["parallel_execution_workers"] = (
-        options.parallel_execution.workers
-    )
-    xian_config["parallel_execution_min_transactions"] = (
-        options.parallel_execution.min_transactions
-    )
+    xian_config["parallel_execution_enabled"] = options.parallel_execution.enabled
+    xian_config["parallel_execution_workers"] = options.parallel_execution.workers
+    xian_config["parallel_execution_min_transactions"] = options.parallel_execution.min_transactions
     xian_config["parallel_execution_max_speculative_waves"] = (
         options.parallel_execution.max_speculative_waves
     )
@@ -674,18 +596,14 @@ def render_node_configs(
     xian_config["parallel_execution_low_acceptance_min_wave_size"] = (
         options.parallel_execution.low_acceptance_min_wave_size
     )
-    xian_config["parallel_execution_warm_workers"] = (
-        options.parallel_execution.warm_workers
-    )
+    xian_config["parallel_execution_warm_workers"] = options.parallel_execution.warm_workers
     xian_config["parallel_execution_access_estimates_enabled"] = (
         options.parallel_execution.access_estimates_enabled
     )
     xian_config["pending_nonce_reservation_ttl_seconds"] = (
         options.pending_nonce_reservation_ttl_seconds
     )
-    xian_config["max_pending_nonces_per_sender"] = (
-        options.max_pending_nonces_per_sender
-    )
+    xian_config["max_pending_nonces_per_sender"] = options.max_pending_nonces_per_sender
     xian_config["bds"] = {
         "dsn": options.bds.dsn,
         "host": options.bds.host,
@@ -723,9 +641,7 @@ def load_genesis(path: Path) -> dict[str, Any]:
         return json.load(f)
 
 
-def write_json(
-    path: Path, payload: dict[str, Any], *, overwrite: bool = False
-) -> None:
+def write_json(path: Path, payload: dict[str, Any], *, overwrite: bool = False) -> None:
     if path.exists() and not overwrite:
         raise FileExistsError(f"{path} already exists")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -734,9 +650,7 @@ def write_json(
         f.write("\n")
 
 
-def write_toml(
-    path: Path, payload: dict[str, Any], *, overwrite: bool = False
-) -> None:
+def write_toml(path: Path, payload: dict[str, Any], *, overwrite: bool = False) -> None:
     if path.exists() and not overwrite:
         raise FileExistsError(f"{path} already exists")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -774,9 +688,7 @@ def materialize_cometbft_home(
     write_json(genesis_path, genesis, overwrite=overwrite)
 
     validator_payload = {
-        key: value
-        for key, value in priv_validator_key.items()
-        if key != "_private_key_hex"
+        key: value for key, value in priv_validator_key.items() if key != "_private_key_hex"
     }
     write_json(
         priv_validator_key_path,

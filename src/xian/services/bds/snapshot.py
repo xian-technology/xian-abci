@@ -37,16 +37,9 @@ class TableSpec:
         if self.import_query is not None:
             return self.import_query
         columns = ", ".join(self.columns)
-        placeholders = ", ".join(
-            f"${index}" for index in range(1, len(self.columns) + 1)
-        )
-        overriding = (
-            " OVERRIDING SYSTEM VALUE" if self.overriding_system_value else ""
-        )
-        return (
-            f"INSERT INTO {self.name} ({columns}){overriding} "
-            f"VALUES ({placeholders});"
-        )
+        placeholders = ", ".join(f"${index}" for index in range(1, len(self.columns) + 1))
+        overriding = " OVERRIDING SYSTEM VALUE" if self.overriding_system_value else ""
+        return f"INSERT INTO {self.name} ({columns}){overriding} VALUES ({placeholders});"
 
 
 TABLE_SPECS = (
@@ -233,9 +226,7 @@ def default_snapshot_output_path(
 ) -> Path:
     resolved_now = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
     height_suffix = indexed_height if indexed_height is not None else "empty"
-    return (
-        output_dir / f"xian-bds-snapshot-h{height_suffix}-{resolved_now}.tar.gz"
-    )
+    return output_dir / f"xian-bds-snapshot-h{height_suffix}-{resolved_now}.tar.gz"
 
 
 def _encode_row_value(spec: TableSpec, column: str, value: Any) -> Any:
@@ -258,32 +249,19 @@ def _decode_row_value(spec: TableSpec, column: str, value: Any) -> Any:
     return value
 
 
-def serialize_snapshot_row(
-    spec: TableSpec, row: dict[str, Any]
-) -> dict[str, Any]:
-    return {
-        column: _encode_row_value(spec, column, row[column])
-        for column in spec.columns
-    }
+def serialize_snapshot_row(spec: TableSpec, row: dict[str, Any]) -> dict[str, Any]:
+    return {column: _encode_row_value(spec, column, row[column]) for column in spec.columns}
 
 
-def deserialize_snapshot_row(
-    spec: TableSpec, payload: dict[str, Any]
-) -> tuple[Any, ...]:
-    return tuple(
-        _decode_row_value(spec, column, payload.get(column))
-        for column in spec.columns
-    )
+def deserialize_snapshot_row(spec: TableSpec, payload: dict[str, Any]) -> tuple[Any, ...]:
+    return tuple(_decode_row_value(spec, column, payload.get(column)) for column in spec.columns)
 
 
 def _safe_extract_snapshot(archive: tarfile.TarFile, destination: Path) -> None:
     destination_resolved = destination.resolve()
     for member in archive.getmembers():
         member_path = (destination / member.name).resolve()
-        if (
-            destination_resolved not in member_path.parents
-            and member_path != destination_resolved
-        ):
+        if destination_resolved not in member_path.parents and member_path != destination_resolved:
             raise ValueError(f"unsafe snapshot member path: {member.name}")
     archive.extractall(path=destination, filter="data")
 
@@ -316,12 +294,8 @@ async def export_bds_snapshot(
                     row_count = 0
                     table_path = temp_root / f"{spec.name}.jsonl"
                     with table_path.open("w", encoding="utf-8") as handle:
-                        async for record in connection.cursor(
-                            spec.select_query
-                        ):
-                            serialized = serialize_snapshot_row(
-                                spec, dict(record)
-                            )
+                        async for record in connection.cursor(spec.select_query):
+                            serialized = serialize_snapshot_row(spec, dict(record))
                             handle.write(
                                 json.dumps(
                                     serialized,
@@ -370,9 +344,7 @@ async def import_bds_snapshot(
         with tarfile.open(snapshot_path, "r:gz") as archive:
             _safe_extract_snapshot(archive, temp_root)
 
-        metadata = json.loads(
-            (temp_root / "metadata.json").read_text(encoding="utf-8")
-        )
+        metadata = json.loads((temp_root / "metadata.json").read_text(encoding="utf-8"))
         if metadata.get("snapshot_format_version") != SNAPSHOT_FORMAT_VERSION:
             raise ValueError("unsupported BDS snapshot format version")
         if metadata.get("schema_version") != sql.SCHEMA_VERSION:
@@ -391,22 +363,16 @@ async def import_bds_snapshot(
                 for spec in TABLE_SPECS:
                     table_path = temp_root / f"{spec.name}.jsonl"
                     if not table_path.exists():
-                        raise FileNotFoundError(
-                            f"snapshot table file missing: {table_path.name}"
-                        )
+                        raise FileNotFoundError(f"snapshot table file missing: {table_path.name}")
                     batch: list[tuple[Any, ...]] = []
                     with table_path.open("r", encoding="utf-8") as handle:
                         for line in handle:
                             line = line.strip()
                             if not line:
                                 continue
-                            batch.append(
-                                deserialize_snapshot_row(spec, json.loads(line))
-                            )
+                            batch.append(deserialize_snapshot_row(spec, json.loads(line)))
                             if len(batch) >= IMPORT_BATCH_SIZE:
-                                await connection.executemany(
-                                    spec.insert_query, batch
-                                )
+                                await connection.executemany(spec.insert_query, batch)
                                 batch.clear()
                     if batch:
                         await connection.executemany(spec.insert_query, batch)

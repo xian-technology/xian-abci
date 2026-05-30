@@ -124,18 +124,12 @@ class DashboardRateLimiter:
         expensive_rest_rate_limit_per_second: float = (
             DEFAULT_EXPENSIVE_REST_RATE_LIMIT_PER_SECOND
         ),
-        expensive_rest_rate_limit_burst: int = (
-            DEFAULT_EXPENSIVE_REST_RATE_LIMIT_BURST
-        ),
+        expensive_rest_rate_limit_burst: int = (DEFAULT_EXPENSIVE_REST_RATE_LIMIT_BURST),
         max_keys: int = DEFAULT_RATE_LIMIT_MAX_KEYS,
         clock=time.monotonic,
     ) -> None:
-        self._rest_rate_limit_per_second = _normalized_positive_float(
-            rest_rate_limit_per_second
-        )
-        self._rest_rate_limit_burst = _normalized_positive_int(
-            rest_rate_limit_burst
-        )
+        self._rest_rate_limit_per_second = _normalized_positive_float(rest_rate_limit_per_second)
+        self._rest_rate_limit_burst = _normalized_positive_int(rest_rate_limit_burst)
         self._expensive_rest_rate_limit_per_second = _normalized_positive_float(
             expensive_rest_rate_limit_per_second
         )
@@ -214,9 +208,7 @@ class DashboardRateLimiter:
     def _prune(self, now: float) -> None:
         stale_before = now - 3600
         stale_keys = [
-            key
-            for key, bucket in self._buckets.items()
-            if bucket.updated_at < stale_before
+            key for key, bucket in self._buckets.items() if bucket.updated_at < stale_before
         ]
         for key in stale_keys:
             self._buckets.pop(key, None)
@@ -259,9 +251,7 @@ async def dashboard_security_middleware(
     if request.path == "/ws" or not request.path.startswith("/api/"):
         return await handler(request)
 
-    concurrency: DashboardConcurrencyLimiter | None = request.app.get(
-        "rest_concurrency_limiter"
-    )
+    concurrency: DashboardConcurrencyLimiter | None = request.app.get("rest_concurrency_limiter")
     if concurrency is None:
         return await handler(request)
 
@@ -322,14 +312,8 @@ def _decode_abci_value(b64: str) -> str | dict | list | None:
 
 
 def _validator_pubkey_hex(status: dict | None) -> str | None:
-    validator_info = (
-        status.get("validator_info", {}) if isinstance(status, dict) else {}
-    )
-    pub_key = (
-        validator_info.get("pub_key", {})
-        if isinstance(validator_info, dict)
-        else {}
-    )
+    validator_info = status.get("validator_info", {}) if isinstance(status, dict) else {}
+    pub_key = validator_info.get("pub_key", {}) if isinstance(validator_info, dict) else {}
     value = pub_key.get("value") if isinstance(pub_key, dict) else None
     if not isinstance(value, str) or not value:
         return None
@@ -402,8 +386,7 @@ def _localnet_rpc_variants(
 
     scheme = parsed.scheme or "http"
     return {
-        urlunsplit((scheme, f"{host}:{port}", "", "", ""))
-        for host in ("127.0.0.1", "localhost")
+        urlunsplit((scheme, f"{host}:{port}", "", "", "")) for host in ("127.0.0.1", "localhost")
     }
 
 
@@ -462,23 +445,15 @@ async def _allowed_rpc_urls(
         return allowed
 
     current_moniker = (
-        status.get("node_info", {}).get("moniker")
-        if isinstance(status, dict)
-        else None
+        status.get("node_info", {}).get("moniker") if isinstance(status, dict) else None
     )
 
     for peer in net_info.get("peers", []) or []:
         peer_rpc_url = _normalize_peer_rpc_url(peer)
         if peer_rpc_url:
             allowed.add(peer_rpc_url)
-        peer_moniker = (
-            peer.get("node_info", {}).get("moniker")
-            if isinstance(peer, dict)
-            else None
-        )
-        allowed.update(
-            _localnet_rpc_variants(rpc_url, current_moniker, peer_moniker)
-        )
+        peer_moniker = peer.get("node_info", {}).get("moniker") if isinstance(peer, dict) else None
+        allowed.update(_localnet_rpc_variants(rpc_url, current_moniker, peer_moniker))
 
     return allowed
 
@@ -493,13 +468,9 @@ async def _request_rpc_url(request: web.Request) -> str:
     if normalized_requested_rpc_url == default_rpc_url:
         return default_rpc_url
 
-    allowed_rpc_urls = await _allowed_rpc_urls(
-        request.app["session"], default_rpc_url
-    )
+    allowed_rpc_urls = await _allowed_rpc_urls(request.app["session"], default_rpc_url)
     if normalized_requested_rpc_url not in allowed_rpc_urls:
-        raise web.HTTPBadRequest(
-            text=f"Unsupported rpc target: {normalized_requested_rpc_url}"
-        )
+        raise web.HTTPBadRequest(text=f"Unsupported rpc target: {normalized_requested_rpc_url}")
 
     return normalized_requested_rpc_url
 
@@ -510,7 +481,7 @@ def _request_int(request: web.Request, key: str, default: int) -> int:
         return default
     try:
         parsed_value = int(raw_value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
     return max(0, parsed_value)
 
@@ -541,9 +512,7 @@ async def _proxy(
         result = await _raw_rpc(session, rpc_url, path, params)
         return web.json_response(result)
     except aiohttp.ClientError as exc:
-        return web.json_response(
-            {"error": f"CometBFT RPC unavailable: {exc}"}, status=502
-        )
+        return web.json_response({"error": f"CometBFT RPC unavailable: {exc}"}, status=502)
     except Exception as exc:
         return web.json_response({"error": str(exc)}, status=500)
 
@@ -642,10 +611,7 @@ class SubscriptionManager:
             if not key:
                 return {"status": "error", "message": "missing key"}
             subs = self._state_subs.setdefault(ws, set())
-            if (
-                key not in subs
-                and len(subs) >= self._max_state_subscriptions_per_client
-            ):
+            if key not in subs and len(subs) >= self._max_state_subscriptions_per_client:
                 return {
                     "status": "error",
                     "message": "state subscription limit reached",
@@ -662,10 +628,7 @@ class SubscriptionManager:
             event = data.get("event")
             entry = {"contract": contract, "event": event}
             subs = self._event_subs.setdefault(ws, [])
-            if (
-                entry not in subs
-                and len(subs) >= self._max_event_subscriptions_per_client
-            ):
+            if entry not in subs and len(subs) >= self._max_event_subscriptions_per_client:
                 return {
                     "status": "error",
                     "message": "event subscription limit reached",
@@ -718,9 +681,7 @@ class SubscriptionManager:
                     break
         return matched
 
-    def match_event(
-        self, contract: str, event: str
-    ) -> list[web.WebSocketResponse]:
+    def match_event(self, contract: str, event: str) -> list[web.WebSocketResponse]:
         """Return all WS clients subscribed to this contract event."""
         matched = []
         for ws, subs in self._event_subs.items():
@@ -767,10 +728,7 @@ async def _cometbft_subscriber(app: web.Application) -> None:
             logger.info(f"Connecting to CometBFT WebSocket: {ws_url}")
             async with session.ws_connect(ws_url, heartbeat=20.0) as ws:
                 delay_idx = 0
-                logger.info(
-                    "CometBFT WebSocket connected, subscribing to"
-                    " NewBlock and Tx"
-                )
+                logger.info("CometBFT WebSocket connected, subscribing to NewBlock and Tx")
                 await _broadcast_status(app, "online")
                 await ws.send_str(_SUBSCRIBE_NEW_BLOCK)
                 await ws.send_str(_SUBSCRIBE_TX)
@@ -781,9 +739,7 @@ async def _cometbft_subscriber(app: web.Application) -> None:
                             data = json.loads(msg.data)
                             await _handle_cometbft_event(app, data)
                         except Exception:
-                            logger.exception(
-                                "Error handling CometBFT WS message"
-                            )
+                            logger.exception("Error handling CometBFT WS message")
                     elif msg.type == aiohttp.WSMsgType.ERROR:
                         logger.warning(f"CometBFT WS error: {ws.exception()}")
                         break
@@ -1009,9 +965,7 @@ def _queue_dashboard_ws_message(
     ws: web.WebSocketResponse,
     message: str,
 ) -> bool:
-    state: _DashboardWsClientState | None = app.get("ws_client_states", {}).get(
-        ws
-    )
+    state: _DashboardWsClientState | None = app.get("ws_client_states", {}).get(ws)
     if state is None:
         return False
 
@@ -1047,16 +1001,12 @@ async def _broadcast_status(app: web.Application, status: str) -> None:
 
 async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     if len(request.app["ws_clients"]) >= request.app["max_ws_clients"]:
-        raise web.HTTPServiceUnavailable(
-            text="dashboard websocket client limit reached"
-        )
+        raise web.HTTPServiceUnavailable(text="dashboard websocket client limit reached")
 
     client_key = _dashboard_client_key(request)
     client_count = request.app["ws_client_counts"].get(client_key, 0)
     if client_count >= request.app["max_ws_clients_per_client"]:
-        raise web.HTTPServiceUnavailable(
-            text="dashboard websocket client limit reached for client"
-        )
+        raise web.HTTPServiceUnavailable(text="dashboard websocket client limit reached for client")
 
     ws = web.WebSocketResponse(
         heartbeat=25.0,
@@ -1069,9 +1019,7 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     subs.add_client(ws)
     request.app["ws_client_counts"][client_key] = client_count + 1
     state = _DashboardWsClientState(
-        outbound_queue=asyncio.Queue(
-            maxsize=request.app["max_ws_outbound_queue"]
-        ),
+        outbound_queue=asyncio.Queue(maxsize=request.app["max_ws_outbound_queue"]),
         sender_task=None,
         client_key=client_key,
     )
@@ -1079,9 +1027,7 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
         _dashboard_ws_sender(request.app, ws, state.outbound_queue)
     )
     request.app["ws_client_states"][ws] = state
-    logger.debug(
-        f"Browser WS connected ({len(request.app['ws_clients'])} total)"
-    )
+    logger.debug(f"Browser WS connected ({len(request.app['ws_clients'])} total)")
 
     try:
         async for msg in ws:
@@ -1090,17 +1036,13 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                     data = json.loads(msg.data)
                     if "action" in data:
                         response = subs.handle_message(ws, data)
-                        if not _queue_dashboard_ws_message(
-                            request.app, ws, json.dumps(response)
-                        ):
+                        if not _queue_dashboard_ws_message(request.app, ws, json.dumps(response)):
                             break
                 except json.JSONDecodeError:
                     if not _queue_dashboard_ws_message(
                         request.app,
                         ws,
-                        json.dumps(
-                            {"status": "error", "message": "invalid JSON"}
-                        ),
+                        json.dumps({"status": "error", "message": "invalid JSON"}),
                     ):
                         break
                 except Exception as exc:
@@ -1114,9 +1056,7 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                 break
     finally:
         await _close_dashboard_ws_client(request.app, ws)
-        logger.debug(
-            f"Browser WS disconnected ({len(request.app['ws_clients'])} total)"
-        )
+        logger.debug(f"Browser WS disconnected ({len(request.app['ws_clients'])} total)")
 
     return ws
 
@@ -1208,27 +1148,15 @@ async def handle_validator_dashboard(request: web.Request) -> web.Response:
                 "local_account": local_account,
                 "policy": policy if isinstance(policy, dict) else None,
                 "active_validators": (
-                    active_validators
-                    if isinstance(active_validators, list)
-                    else []
+                    active_validators if isinstance(active_validators, list) else []
                 ),
                 "pending_candidates": (
-                    pending_candidates
-                    if isinstance(pending_candidates, list)
-                    else []
+                    pending_candidates if isinstance(pending_candidates, list) else []
                 ),
-                "open_votes": (
-                    open_votes if isinstance(open_votes, list) else []
-                ),
-                "local_validator": (
-                    local_validator
-                    if isinstance(local_validator, dict)
-                    else None
-                ),
+                "open_votes": (open_votes if isinstance(open_votes, list) else []),
+                "local_validator": (local_validator if isinstance(local_validator, dict) else None),
                 "local_pending_unbonds": (
-                    local_pending_unbonds
-                    if isinstance(local_pending_unbonds, list)
-                    else []
+                    local_pending_unbonds if isinstance(local_pending_unbonds, list) else []
                 ),
             }
         )
@@ -1294,9 +1222,7 @@ async def handle_block_results(
     rpc = await _request_rpc_url(request)
 
     try:
-        result = await _raw_rpc(
-            session, rpc, "block_results", {"height": height}
-        )
+        result = await _raw_rpc(session, rpc, "block_results", {"height": height})
         for tx_res in result.get("txs_results") or []:
             if tx_res.get("data"):
                 decoded = _decode_abci_value(tx_res["data"])
@@ -1373,9 +1299,7 @@ async def handle_contract(request: web.Request) -> web.Response:
                 "metadata": metadata or {},
                 "summary": summary,
                 "methods": (
-                    methods.get("methods", methods)
-                    if isinstance(methods, dict)
-                    else methods
+                    methods.get("methods", methods) if isinstance(methods, dict) else methods
                 ),
                 "variables": variables,
             }
@@ -1402,9 +1326,7 @@ async def handle_address(request: web.Request) -> web.Response:
             rpc,
             f"txs_by_sender/{address}/limit={limit}/offset={offset}",
         )
-        rewards = await _abci_query(
-            session, rpc, f"developer_rewards/{address}"
-        )
+        rewards = await _abci_query(session, rpc, f"developer_rewards/{address}")
         available = isinstance(transactions, list)
 
         return web.json_response(
@@ -1414,12 +1336,8 @@ async def handle_address(request: web.Request) -> web.Response:
                 "transactions": transactions if available else [],
                 "limit": limit,
                 "offset": offset,
-                "has_more": bool(
-                    available and len(transactions) >= limit and limit > 0
-                ),
-                "developer_rewards": rewards
-                if isinstance(rewards, dict)
-                else None,
+                "has_more": bool(available and len(transactions) >= limit and limit > 0),
+                "developer_rewards": rewards if isinstance(rewards, dict) else None,
             }
         )
     except aiohttp.ClientError as exc:
@@ -1604,9 +1522,7 @@ async def handle_monitoring(request: web.Request) -> web.Response:
     async def fetch_bds() -> dict:
         try:
             bds_query = await fetch_decoded_query("bds_status")
-            if bds_query["code"] != 0 or not isinstance(
-                bds_query["value"], dict
-            ):
+            if bds_query["code"] != 0 or not isinstance(bds_query["value"], dict):
                 return {"enabled": False}
             return {"enabled": True, "status": bds_query["value"]}
         except Exception:
@@ -1641,12 +1557,8 @@ async def _on_startup(app: web.Application) -> None:
     app["ws_client_counts"] = {}
     app["ws_client_states"] = {}
     app["subscriptions"] = SubscriptionManager(
-        max_state_subscriptions_per_client=app[
-            "max_state_subscriptions_per_client"
-        ],
-        max_event_subscriptions_per_client=app[
-            "max_event_subscriptions_per_client"
-        ],
+        max_state_subscriptions_per_client=app["max_state_subscriptions_per_client"],
+        max_event_subscriptions_per_client=app["max_event_subscriptions_per_client"],
     )
     app["_subscriber_task"] = asyncio.create_task(_cometbft_subscriber(app))
 
@@ -1682,12 +1594,8 @@ def create_app(
     max_ws_outbound_queue: int = DEFAULT_MAX_WS_OUTBOUND_QUEUE,
     rest_rate_limit_per_second: float = DEFAULT_REST_RATE_LIMIT_PER_SECOND,
     rest_rate_limit_burst: int = DEFAULT_REST_RATE_LIMIT_BURST,
-    expensive_rest_rate_limit_per_second: float = (
-        DEFAULT_EXPENSIVE_REST_RATE_LIMIT_PER_SECOND
-    ),
-    expensive_rest_rate_limit_burst: int = (
-        DEFAULT_EXPENSIVE_REST_RATE_LIMIT_BURST
-    ),
+    expensive_rest_rate_limit_per_second: float = (DEFAULT_EXPENSIVE_REST_RATE_LIMIT_PER_SECOND),
+    expensive_rest_rate_limit_burst: int = (DEFAULT_EXPENSIVE_REST_RATE_LIMIT_BURST),
     max_rest_concurrency: int = DEFAULT_MAX_REST_CONCURRENCY,
     rate_limit_max_keys: int = DEFAULT_RATE_LIMIT_MAX_KEYS,
 ) -> web.Application:
@@ -1696,9 +1604,7 @@ def create_app(
     app["rpc_url"] = normalized_rpc_url
     app["ws_url"] = _build_ws_url(normalized_rpc_url)
     app["max_ws_clients"] = _normalized_positive_int(max_ws_clients)
-    app["max_ws_clients_per_client"] = _normalized_positive_int(
-        max_ws_clients_per_client
-    )
+    app["max_ws_clients_per_client"] = _normalized_positive_int(max_ws_clients_per_client)
     app["max_state_subscriptions_per_client"] = _normalized_positive_int(
         max_state_subscriptions_per_client
     )
@@ -1709,21 +1615,15 @@ def create_app(
         max_ws_message_bytes,
         minimum=1024,
     )
-    app["max_ws_outbound_queue"] = _normalized_positive_int(
-        max_ws_outbound_queue
-    )
+    app["max_ws_outbound_queue"] = _normalized_positive_int(max_ws_outbound_queue)
     app["rate_limiter"] = DashboardRateLimiter(
         rest_rate_limit_per_second=rest_rate_limit_per_second,
         rest_rate_limit_burst=rest_rate_limit_burst,
-        expensive_rest_rate_limit_per_second=(
-            expensive_rest_rate_limit_per_second
-        ),
+        expensive_rest_rate_limit_per_second=(expensive_rest_rate_limit_per_second),
         expensive_rest_rate_limit_burst=expensive_rest_rate_limit_burst,
         max_keys=rate_limit_max_keys,
     )
-    app["rest_concurrency_limiter"] = DashboardConcurrencyLimiter(
-        max_rest_concurrency
-    )
+    app["rest_concurrency_limiter"] = DashboardConcurrencyLimiter(max_rest_concurrency)
 
     app.on_startup.append(_on_startup)
     app.on_cleanup.append(_on_cleanup)
@@ -1767,12 +1667,8 @@ async def start_dashboard(
     max_ws_outbound_queue: int = DEFAULT_MAX_WS_OUTBOUND_QUEUE,
     rest_rate_limit_per_second: float = DEFAULT_REST_RATE_LIMIT_PER_SECOND,
     rest_rate_limit_burst: int = DEFAULT_REST_RATE_LIMIT_BURST,
-    expensive_rest_rate_limit_per_second: float = (
-        DEFAULT_EXPENSIVE_REST_RATE_LIMIT_PER_SECOND
-    ),
-    expensive_rest_rate_limit_burst: int = (
-        DEFAULT_EXPENSIVE_REST_RATE_LIMIT_BURST
-    ),
+    expensive_rest_rate_limit_per_second: float = (DEFAULT_EXPENSIVE_REST_RATE_LIMIT_PER_SECOND),
+    expensive_rest_rate_limit_burst: int = (DEFAULT_EXPENSIVE_REST_RATE_LIMIT_BURST),
     max_rest_concurrency: int = DEFAULT_MAX_REST_CONCURRENCY,
     rate_limit_max_keys: int = DEFAULT_RATE_LIMIT_MAX_KEYS,
 ) -> web.AppRunner:
@@ -1786,9 +1682,7 @@ async def start_dashboard(
         max_ws_outbound_queue=max_ws_outbound_queue,
         rest_rate_limit_per_second=rest_rate_limit_per_second,
         rest_rate_limit_burst=rest_rate_limit_burst,
-        expensive_rest_rate_limit_per_second=(
-            expensive_rest_rate_limit_per_second
-        ),
+        expensive_rest_rate_limit_per_second=(expensive_rest_rate_limit_per_second),
         expensive_rest_rate_limit_burst=expensive_rest_rate_limit_burst,
         max_rest_concurrency=max_rest_concurrency,
         rate_limit_max_keys=rate_limit_max_keys,

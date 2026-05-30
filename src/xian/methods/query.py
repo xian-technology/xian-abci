@@ -99,7 +99,7 @@ def _bounded_int_param(
 ) -> int:
     try:
         value = int(params.get(key, default))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         value = default
     value = max(minimum, value)
     if maximum is not None:
@@ -137,7 +137,7 @@ def _bds_query_options(params: dict[str, str]) -> BdsQueryOptions:
     if after_id is not None:
         try:
             parsed_after_id = max(int(after_id), 0)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             parsed_after_id = None
 
     return BdsQueryOptions(
@@ -202,11 +202,7 @@ def _sort_contract_records(
 
 
 def _make_vm_query_environment(ctx: QueryContext) -> dict[str, Any]:
-    block_meta = (
-        ctx.app.current_block_meta
-        if isinstance(ctx.app.current_block_meta, dict)
-        else {}
-    )
+    block_meta = ctx.app.current_block_meta if isinstance(ctx.app.current_block_meta, dict) else {}
     block_nanos = block_meta.get("nanos")
     if block_nanos is None:
         try:
@@ -222,16 +218,12 @@ def _make_vm_query_environment(ctx: QueryContext) -> dict[str, Any]:
                 f"{block_height}:{int(block_nanos or 0)}"
             ).encode("utf-8")
         ).hexdigest()
-    now = Datetime._from_datetime(
-        nanoseconds_to_utc_datetime(int(block_nanos or 0))
-    )
+    now = Datetime._from_datetime(nanoseconds_to_utc_datetime(int(block_nanos or 0)))
     return {
         "block_hash": block_hash,
         "block_num": block_height,
         "__input_hash": hashlib.sha3_256(
-            f"query:{ctx.route}:{ctx.key}:{int(block_nanos or 0)}".encode(
-                "utf-8"
-            )
+            f"query:{ctx.route}:{ctx.key}:{int(block_nanos or 0)}".encode("utf-8")
         ).hexdigest(),
         "__xian_execution_mode__": "xian_vm_v1",
         "now": now,
@@ -252,13 +244,8 @@ def _call_contract_view(
         return None
     if has_contract is None:
         get_contract_ir = getattr(ctx.raw_driver, "get_contract_ir", None)
-        contract_ir = (
-            get_contract_ir(contract_name) if get_contract_ir else None
-        )
-        if (
-            ctx.raw_driver.get_contract_source(contract_name) is None
-            and contract_ir is None
-        ):
+        contract_ir = get_contract_ir(contract_name) if get_contract_ir else None
+        if ctx.raw_driver.get_contract_source(contract_name) is None and contract_ir is None:
             return None
 
     state = snapshot_driver_state(ctx.raw_driver)
@@ -275,10 +262,7 @@ def _call_contract_view(
             meter=False,
         )
         if output.status_code != 0:
-            logger.error(
-                "VM query failed for "
-                f"{contract_name}.{function_name}: {output.result!r}"
-            )
+            logger.error(f"VM query failed for {contract_name}.{function_name}: {output.result!r}")
             return None
         return output.result
     finally:
@@ -339,32 +323,22 @@ def _masternodes_vote_records(raw_driver, proposal_id: int) -> list[dict]:
             {
                 "proposal_id": proposal_id,
                 "voter": voter,
-                "vote": raw_driver.get(
-                    f"masternodes.vote_records:{proposal_id}:{voter}"
-                ),
-                "weight": raw_driver.get(
-                    f"masternodes.vote_weights:{proposal_id}:{voter}"
-                )
-                or 0,
+                "vote": raw_driver.get(f"masternodes.vote_records:{proposal_id}:{voter}"),
+                "weight": raw_driver.get(f"masternodes.vote_weights:{proposal_id}:{voter}") or 0,
             }
         )
     return records
 
 
-def _resolve_contract_info(
-    ctx: QueryContext, contract_name: str
-) -> dict[str, Any]:
+def _resolve_contract_info(ctx: QueryContext, contract_name: str) -> dict[str, Any]:
     return {
         "name": contract_name,
         "owner": ctx.raw_driver.get_owner(contract_name),
         "developer": ctx.raw_driver.get_contract_developer(contract_name),
         "deployer": ctx.raw_driver.get_contract_deployer(contract_name),
         "initiator": ctx.raw_driver.get_contract_initiator(contract_name),
-        "submitted_at": _submission_iso(
-            ctx.raw_driver.get_time_submitted(contract_name)
-        ),
-        "has_source": ctx.raw_driver.get_contract_source(contract_name)
-        is not None,
+        "submitted_at": _submission_iso(ctx.raw_driver.get_time_submitted(contract_name)),
+        "has_source": ctx.raw_driver.get_contract_source(contract_name) is not None,
     }
 
 
@@ -385,11 +359,8 @@ def _resolve_contract_listing(ctx: QueryContext) -> dict[str, Any]:
             {
                 "name": contract_name,
                 "submitted_at": _submission_iso(submitted_value),
-                "developer": ctx.raw_driver.get(
-                    f"{contract_name}.__developer__"
-                ),
-                "has_source": ctx.raw_driver.get_contract_source(contract_name)
-                is not None,
+                "developer": ctx.raw_driver.get(f"{contract_name}.__developer__"),
+                "has_source": ctx.raw_driver.get_contract_source(contract_name) is not None,
             }
         )
 
@@ -399,9 +370,7 @@ def _resolve_contract_listing(ctx: QueryContext) -> dict[str, Any]:
         descending=descending,
     )
     return {
-        "items": sorted_records[
-            pagination.offset : pagination.offset + pagination.limit
-        ],
+        "items": sorted_records[pagination.offset : pagination.offset + pagination.limit],
         "total": len(sorted_records),
         "limit": pagination.limit,
         "offset": pagination.offset,
@@ -412,12 +381,8 @@ def _resolve_contract_listing(ctx: QueryContext) -> dict[str, Any]:
 
 def _resolve_perf_status(ctx: QueryContext) -> dict[str, Any]:
     result = ctx.app.profiler.snapshot()
-    result["parallel_execution_enabled"] = bool(
-        ctx.app.parallel_block_executor.enabled
-    )
-    result["parallel_execution_workers"] = int(
-        ctx.app.parallel_block_executor.workers
-    )
+    result["parallel_execution_enabled"] = bool(ctx.app.parallel_block_executor.enabled)
+    result["parallel_execution_workers"] = int(ctx.app.parallel_block_executor.workers)
     result["parallel_execution_min_transactions"] = int(
         ctx.app.parallel_block_executor.min_batch_size
     )
@@ -525,9 +490,7 @@ async def _handle_contract_methods(ctx: QueryContext) -> QueryResult:
     contract_source = ctx.raw_driver.get_contract_source(ctx.key)
     if contract_source is None:
         return QueryResult(result=None)
-    return QueryResult(
-        result={"methods": parser.methods_for_contract(contract_source)}
-    )
+    return QueryResult(result={"methods": parser.methods_for_contract(contract_source)})
 
 
 async def _handle_contract_vars(ctx: QueryContext) -> QueryResult:
@@ -612,9 +575,7 @@ async def _handle_masternodes_open_votes(ctx: QueryContext) -> QueryResult:
 
 
 async def _handle_masternodes_vote(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=_masternodes_vote(ctx.raw_driver, int(ctx.path_parts[1]))
-    )
+    return QueryResult(result=_masternodes_vote(ctx.raw_driver, int(ctx.path_parts[1])))
 
 
 async def _handle_masternodes_vote_records(ctx: QueryContext) -> QueryResult:
@@ -628,23 +589,17 @@ async def _handle_masternodes_vote_records(ctx: QueryContext) -> QueryResult:
 
 async def _handle_simulate_tx(ctx: QueryContext) -> QueryResult:
     return QueryResult(
-        result=await ctx.app.simulator.simulate_encoded_transaction(
-            ctx.path_parts[1]
-        )
+        result=await ctx.app.simulator.simulate_encoded_transaction(ctx.path_parts[1])
     )
 
 
 async def _handle_state_patch_bundles(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=ctx.app.state_patch_manager.get_local_bundle_inventory()
-    )
+    return QueryResult(result=ctx.app.state_patch_manager.get_local_bundle_inventory())
 
 
 async def _handle_scheduled_state_patches(ctx: QueryContext) -> QueryResult:
     return QueryResult(
-        result=ctx.app.state_patch_manager.get_scheduled_patch_inventory(
-            int(ctx.path_parts[1])
-        )
+        result=ctx.app.state_patch_manager.get_scheduled_patch_inventory(int(ctx.path_parts[1]))
     )
 
 
@@ -660,9 +615,7 @@ def _require_bds(ctx: QueryContext):
 
 async def _handle_blocks(ctx: QueryContext) -> QueryResult:
     options = _bds_query_options(ctx.params)
-    return QueryResult(
-        result=await _require_bds(ctx).get_blocks(options.limit, options.offset)
-    )
+    return QueryResult(result=await _require_bds(ctx).get_blocks(options.limit, options.offset))
 
 
 async def _handle_bds_status(ctx: QueryContext) -> QueryResult:
@@ -688,9 +641,7 @@ async def _handle_block(ctx: QueryContext) -> QueryResult:
 
 
 async def _handle_block_by_hash(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=await _require_bds(ctx).get_block_by_hash(ctx.key)
-    )
+    return QueryResult(result=await _require_bds(ctx).get_block_by_hash(ctx.key))
 
 
 async def _handle_tx(ctx: QueryContext) -> QueryResult:
@@ -698,9 +649,7 @@ async def _handle_tx(ctx: QueryContext) -> QueryResult:
 
 
 async def _handle_txs_for_block(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=await _require_bds(ctx).get_txs_for_block(ctx.key)
-    )
+    return QueryResult(result=await _require_bds(ctx).get_txs_for_block(ctx.key))
 
 
 async def _handle_txs_by_sender(ctx: QueryContext) -> QueryResult:
@@ -741,9 +690,7 @@ async def _handle_txs_by_contract(ctx: QueryContext) -> QueryResult:
 
 
 async def _handle_events_for_tx(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=await _require_bds(ctx).get_events_for_tx(ctx.key)
-    )
+    return QueryResult(result=await _require_bds(ctx).get_events_for_tx(ctx.key))
 
 
 async def _handle_shielded_output_tags(ctx: QueryContext) -> QueryResult:
@@ -859,9 +806,7 @@ async def _handle_state_for_tx(ctx: QueryContext) -> QueryResult:
 
 
 async def _handle_state_for_block(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=await _require_bds(ctx).get_state_for_block(ctx.key)
-    )
+    return QueryResult(result=await _require_bds(ctx).get_state_for_block(ctx.key))
 
 
 async def _handle_state_patches(ctx: QueryContext) -> QueryResult:
@@ -876,34 +821,24 @@ async def _handle_state_patches(ctx: QueryContext) -> QueryResult:
 
 async def _handle_state_patches_for_block(ctx: QueryContext) -> QueryResult:
     return QueryResult(
-        result=await _require_bds(ctx).get_state_patches_for_block(
-            int(ctx.path_parts[1])
-        )
+        result=await _require_bds(ctx).get_state_patches_for_block(int(ctx.path_parts[1]))
     )
 
 
 async def _handle_state_patch(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=await _require_bds(ctx).get_state_patch_by_hash(ctx.key)
-    )
+    return QueryResult(result=await _require_bds(ctx).get_state_patch_by_hash(ctx.key))
 
 
 async def _handle_state_changes_for_patch(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=await _require_bds(ctx).get_state_changes_for_patch(ctx.key)
-    )
+    return QueryResult(result=await _require_bds(ctx).get_state_changes_for_patch(ctx.key))
 
 
 async def _handle_developer_rewards(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=await _require_bds(ctx).get_developer_rewards(ctx.key)
-    )
+    return QueryResult(result=await _require_bds(ctx).get_developer_rewards(ctx.key))
 
 
 async def _handle_contract_summary(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=await _require_bds(ctx).get_contract_summary(ctx.key)
-    )
+    return QueryResult(result=await _require_bds(ctx).get_contract_summary(ctx.key))
 
 
 CORE_QUERY_HANDLERS = {

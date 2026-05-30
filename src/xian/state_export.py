@@ -26,9 +26,7 @@ def hash_state_changes(state_changes: list[dict[str, Any]]) -> str:
     def serialize(obj: Any) -> str:
         if isinstance(obj, bytes):
             return obj.hex()
-        raise TypeError(
-            f"object of type {type(obj)!r} is not JSON serializable"
-        )
+        raise TypeError(f"object of type {type(obj)!r} is not JSON serializable")
 
     digest = hashlib.sha3_256()
     digest.update(json.dumps(state_changes, default=serialize).encode("utf-8"))
@@ -39,11 +37,7 @@ def fetch_filebased_state(
     *,
     storage_home: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    driver = (
-        Driver(storage_home=storage_home)
-        if storage_home is not None
-        else Driver()
-    )
+    driver = Driver(storage_home=storage_home) if storage_home is not None else Driver()
     contract_state = driver.get_all_contract_state()
     run_state = driver.get_run_state()
     return contract_state, run_state
@@ -60,9 +54,7 @@ def build_exported_state(
     storage_home: Path | None = None,
 ) -> dict[str, Any]:
     latest_app_hash = (
-        latest_block_hash
-        if latest_block_hash is not None
-        else get_latest_block_hash(storage_home)
+        latest_block_hash if latest_block_hash is not None else get_latest_block_hash(storage_home)
     )
     block_height = (
         latest_block_height
@@ -104,9 +96,7 @@ def build_exported_state(
     exported_state["nonces"] = nonces
     state_root = compute_exported_state_root(exported_state)
     if latest_app_hash and latest_app_hash != state_root:
-        raise ValueError(
-            "exported state root does not match latest block app hash"
-        )
+        raise ValueError("exported state root does not match latest block app hash")
     exported_state["hash"] = state_root.hex()
 
     if founder_private_key:
@@ -169,9 +159,7 @@ def import_state(
         writes[key] = value
 
     for nonce in exported_state.get("nonces", []):
-        writes[
-            (f"__n{contracting_constants.INDEX_SEPARATOR}{nonce['key']}")
-        ] = nonce["value"]
+        writes[(f"__n{contracting_constants.INDEX_SEPARATOR}{nonce['key']}")] = nonce["value"]
 
     if writes:
         driver._store.batch_set(writes)

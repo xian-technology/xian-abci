@@ -41,7 +41,7 @@ def _error_tx_result(message: str, **log_context) -> ExecTxResult:
 def _safe_positive_int(value, default: int) -> int:
     try:
         normalized = int(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
     if normalized <= 0:
         return default
@@ -63,10 +63,7 @@ def _maybe_run_validator_epoch_rebalance(self, *, height: int):
         "masternodes.last_rebalance_epoch",
         save=False,
     )
-    if (
-        last_rebalance_epoch is not None
-        and current_epoch <= last_rebalance_epoch
-    ):
+    if last_rebalance_epoch is not None and current_epoch <= last_rebalance_epoch:
         return None, False
 
     rebalance_tx = {
@@ -307,12 +304,8 @@ def _execute_transactions_in_parallel(
     self.profiler.set_block_metadata(
         parallel_enabled=True,
         parallel_worker_count=parallel_stats.worker_count,
-        parallel_estimated_known_transactions=(
-            parallel_stats.estimated_known_transactions
-        ),
-        parallel_estimated_unknown_transactions=(
-            parallel_stats.estimated_unknown_transactions
-        ),
+        parallel_estimated_known_transactions=(parallel_stats.estimated_known_transactions),
+        parallel_estimated_unknown_transactions=(parallel_stats.estimated_unknown_transactions),
         parallel_estimated_stage_count=parallel_stats.estimated_stage_count,
         parallel_estimated_parallelizable_transactions=(
             parallel_stats.estimated_parallelizable_transactions
@@ -338,15 +331,9 @@ def _execute_transactions_in_parallel(
             extra={
                 "speculative_accepted": parallel_stats.speculative_accepted,
                 "decoded_tx_count": len(decoded_txs),
-                "estimated_known_transactions": (
-                    parallel_stats.estimated_known_transactions
-                ),
-                "estimated_unknown_transactions": (
-                    parallel_stats.estimated_unknown_transactions
-                ),
-                "estimated_unknown_shapes": (
-                    parallel_stats.estimated_unknown_shapes
-                ),
+                "estimated_known_transactions": (parallel_stats.estimated_known_transactions),
+                "estimated_unknown_transactions": (parallel_stats.estimated_unknown_transactions),
+                "estimated_unknown_shapes": (parallel_stats.estimated_unknown_shapes),
                 "speculative_wave_count": parallel_stats.speculative_wave_count,
                 "serial_prefiltered": parallel_stats.serial_prefiltered,
                 "serial_fallbacks": parallel_stats.serial_fallbacks,
@@ -517,11 +504,7 @@ def _assemble_tx_results(
                 bds_transactions.append(
                     BdsTransactionPayload(
                         tx_index=block_tx_index,
-                        envelope={
-                            key: value
-                            for key, value in tx.items()
-                            if key != "b_meta"
-                        },
+                        envelope={key: value for key, value in tx.items() if key != "b_meta"},
                         payload=tx["payload"],
                         tx_result=tx_result,
                     )
@@ -580,19 +563,15 @@ def _prepare_commit_boundary(
 ):
     with self.profiler.scope("finalize_state_root", block_scoped=True):
         with self.profiler.scope("finalize_commit_prepare", block_scoped=True):
-            validator_updates = self.validator_handler.build_validator_updates(
-                height
-            )
+            validator_updates = self.validator_handler.build_validator_updates(height)
 
             patch_hash = None
             applied_patches = []
             if hasattr(self, "state_patch_manager"):
-                patch_hash, applied_patches = (
-                    self.state_patch_manager.apply_patches_for_block(
-                        height,
-                        nanos,
-                        block_hash=block_hash,
-                    )
+                patch_hash, applied_patches = self.state_patch_manager.apply_patches_for_block(
+                    height,
+                    nanos,
+                    block_hash=block_hash,
                 )
 
                 if patch_hash:

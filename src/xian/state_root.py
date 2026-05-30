@@ -10,18 +10,14 @@ from contracting import constants as contracting_constants
 from xian.utils.encoding import encode_abci_json
 
 STATE_ROOT_VERSION = "xian-state-root-v2"
-EMPTY_STATE_ROOT = hashlib.sha256(
-    f"{STATE_ROOT_VERSION}:empty".encode("utf-8")
-).digest()
+EMPTY_STATE_ROOT = hashlib.sha256(f"{STATE_ROOT_VERSION}:empty".encode("utf-8")).digest()
 LEAF_PREFIX = f"{STATE_ROOT_VERSION}:leaf:".encode("utf-8")
 NODE_PREFIX = f"{STATE_ROOT_VERSION}:node:".encode("utf-8")
 PRIORITY_PREFIX = f"{STATE_ROOT_VERSION}:priority:".encode("utf-8")
 
 
 def is_consensus_state_key(key: str) -> bool:
-    return not key.startswith("__") or key.startswith(
-        f"__n{contracting_constants.INDEX_SEPARATOR}"
-    )
+    return not key.startswith("__") or key.startswith(f"__n{contracting_constants.INDEX_SEPARATOR}")
 
 
 def _length_prefixed(payload: bytes) -> bytes:
@@ -37,9 +33,7 @@ def _hash_leaf(key: str, value: Any) -> bytes:
     key_bytes = key.encode("utf-8")
     value_bytes = encode_abci_json(value)
     return hashlib.sha256(
-        LEAF_PREFIX
-        + _length_prefixed(key_bytes)
-        + _length_prefixed(value_bytes)
+        LEAF_PREFIX + _length_prefixed(key_bytes) + _length_prefixed(value_bytes)
     ).digest()
 
 
@@ -199,9 +193,7 @@ class StateRootCache:
     def rollback(self) -> None:
         if not self._staged_old_leaf_hashes:
             return
-        for key, old_leaf_hash in reversed(
-            list(self._staged_old_leaf_hashes.items())
-        ):
+        for key, old_leaf_hash in reversed(list(self._staged_old_leaf_hashes.items())):
             self._set_leaf_hash(key, old_leaf_hash)
         self._staged_old_leaf_hashes.clear()
 
@@ -226,8 +218,7 @@ def exported_state_items(
     exported_state: dict[str, Any],
 ) -> list[tuple[str, Any]]:
     items: list[tuple[str, Any]] = [
-        (entry["key"], entry["value"])
-        for entry in exported_state.get("genesis", [])
+        (entry["key"], entry["value"]) for entry in exported_state.get("genesis", [])
     ]
     nonce_prefix = f"__n{contracting_constants.INDEX_SEPARATOR}"
     for nonce in exported_state.get("nonces", []):

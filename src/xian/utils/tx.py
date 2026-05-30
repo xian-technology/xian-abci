@@ -114,17 +114,13 @@ def check_enough_chi(
 ):
 
     if balance * chi_per_tau < chi_supplied:
-        raise TransactionException(
-            "Transaction sender has too few chi for this transaction"
-        )
+        raise TransactionException("Transaction sender has too few chi for this transaction")
 
     # Prevent people from sending their entire balances for free by checking if that is what they are doing.
     if contract == "currency" and function == "transfer":
         # If you have less than 2 transactions worth of native token after trying to send your amount, fail.
         if ((balance - amount) * chi_per_tau) / 6 < 2:
-            raise TransactionException(
-                "Transaction sender has too few chi for this transaction"
-            )
+            raise TransactionException("Transaction sender has too few chi for this transaction")
 
 
 def check_format(d: dict, rule: dict):
@@ -133,9 +129,7 @@ def check_format(d: dict, rule: dict):
     if not dict_has_keys(d, expected_keys):
         raise TransactionException("Transaction has unexpected or missing keys")
     if not recurse_rules(d, rule):
-        raise TransactionException(
-            "Transaction has wrongly formatted dictionary"
-        )
+        raise TransactionException("Transaction has wrongly formatted dictionary")
 
 
 def check_tx_keys(tx):
@@ -210,9 +204,7 @@ def validate_transaction_after_static(
             mark=False,
         )
     except Exception as e:
-        raise TransactionException(
-            f"Failed to retrieve 'currency' balance for sender: {e}"
-        )
+        raise TransactionException(f"Failed to retrieve 'currency' balance for sender: {e}")
 
     try:
         chi_rate = client.get_var(

@@ -16,9 +16,7 @@ from xian.services.bds.snapshot import (
 
 
 def build_parser() -> ArgumentParser:
-    parser = ArgumentParser(
-        description="Export or import BDS snapshots for fast bootstrap"
-    )
+    parser = ArgumentParser(description="Export or import BDS snapshots for fast bootstrap")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     export = subparsers.add_parser("export")
@@ -93,9 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "export":
-        result = asyncio.run(
-            _run_export(output_path=args.output_path, force=args.force)
-        )
+        result = asyncio.run(_run_export(output_path=args.output_path, force=args.force))
         print(
             "BDS snapshot exported: "
             f"output_path={result['output_path']} "

@@ -10,14 +10,8 @@ class ValidatorHandler:
     def __init__(self, app):
         self.client = app.client
 
-    def get_validators_from_state(
-        self, *, committed: bool = False
-    ) -> dict[str, int]:
-        read = (
-            self.client.raw_driver.value_from_disk
-            if committed
-            else self.client.raw_driver.get
-        )
+    def get_validators_from_state(self, *, committed: bool = False) -> dict[str, int]:
+        read = self.client.raw_driver.value_from_disk if committed else self.client.raw_driver.get
         validators = read("masternodes.nodes") or []
         desired = {}
         for validator in validators:
@@ -35,9 +29,7 @@ class ValidatorHandler:
     def build_validator_updates(self, height) -> list[ValidatorUpdate]:
         del height
         validators_state = self.get_validators_from_state() or {}
-        validators_committed = (
-            self.get_validators_from_state(committed=True) or {}
-        )
+        validators_committed = self.get_validators_from_state(committed=True) or {}
         updates = []
         for validator, power in validators_state.items():
             current_power = validators_committed.get(validator)
@@ -48,9 +40,7 @@ class ValidatorHandler:
                         power=power,
                     )
                 )
-                logging.info(
-                    f"Updating {validator} in validator set to power {power}"
-                )
+                logging.info(f"Updating {validator} in validator set to power {power}")
         for validator in validators_committed:
             if validator not in validators_state:
                 updates.append(

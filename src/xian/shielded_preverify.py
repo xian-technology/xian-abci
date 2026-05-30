@@ -38,13 +38,8 @@ def _normalize_output_payloads(
 ) -> list[str]:
     if output_payloads is None:
         return [""] * expected_count
-    if (
-        not isinstance(output_payloads, list)
-        or len(output_payloads) != expected_count
-    ):
-        raise AssertionError(
-            "output_payloads length must match output commitments"
-        )
+    if not isinstance(output_payloads, list) or len(output_payloads) != expected_count:
+        raise AssertionError("output_payloads length must match output commitments")
 
     normalized = []
     for payload in output_payloads:
@@ -139,19 +134,13 @@ def _note_token_entry(
         input_nullifiers = kwargs["input_nullifiers"]
         fee = kwargs.get("relayer_fee", 0)
         expires_at = kwargs.get("expires_at")
-        nullifier_digest = zk_bridge.shielded_command_nullifier_digest(
-            input_nullifiers
-        )
+        nullifier_digest = zk_bridge.shielded_command_nullifier_digest(input_nullifiers)
         relay_binding = zk_bridge.shielded_command_binding(
             nullifier_digest,
             _text_field_hash("shielded-note-relay-transfer"),
             _text_field_hash("transfer"),
             _text_field_hash(sender),
-            (
-                "0x" + "00" * 32
-                if expires_at in (None, "")
-                else _text_field_hash(str(expires_at))
-            ),
+            ("0x" + "00" * 32 if expires_at in (None, "") else _text_field_hash(str(expires_at))),
             _text_field_hash(tx["b_meta"]["chain_id"]),
             _text_field_hash("relay_transfer_shielded"),
             _text_field_hash("shielded-note-relay-v1"),
@@ -207,9 +196,7 @@ def _note_token_entry(
 
 def _command_payload_digest(payload: Any) -> str:
     if _canonicalize_command_payload is None:
-        raise AssertionError(
-            "xian_zk command payload canonicalizer is unavailable"
-        )
+        raise AssertionError("xian_zk command payload canonicalizer is unavailable")
     if payload is None:
         payload = {}
     if not isinstance(payload, dict):
@@ -273,19 +260,13 @@ def _shielded_commands_entry(
         fee = kwargs.get("relayer_fee", 0)
         public_amount = kwargs.get("public_amount", 0)
         expires_at = kwargs.get("expires_at")
-        nullifier_digest = zk_bridge.shielded_command_nullifier_digest(
-            input_nullifiers
-        )
+        nullifier_digest = zk_bridge.shielded_command_nullifier_digest(input_nullifiers)
         binding = zk_bridge.shielded_command_binding(
             nullifier_digest,
             _text_field_hash(kwargs["target_contract"]),
             _command_payload_digest(kwargs.get("payload")),
             _text_field_hash(sender),
-            (
-                "0x" + "00" * 32
-                if expires_at in (None, "")
-                else _text_field_hash(str(expires_at))
-            ),
+            ("0x" + "00" * 32 if expires_at in (None, "") else _text_field_hash(str(expires_at))),
             _text_field_hash(tx["b_meta"]["chain_id"]),
             _text_field_hash("interact"),
             _text_field_hash("shielded-command-v4"),
