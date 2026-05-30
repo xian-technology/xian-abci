@@ -41,12 +41,22 @@ async def check_tx(self, raw_tx) -> ResponseCheckTx:
 
     try:
         tx_hash = hashlib.sha256(raw_tx).hexdigest()
+        raw_driver = self.client.raw_driver
+        pending_reads = raw_driver.pending_reads.copy()
+        transaction_reads = raw_driver.transaction_reads.copy()
+        transaction_read_prefixes = raw_driver.transaction_read_prefixes.copy()
         validate_transaction_after_static(
             self.client,
             self.nonce_storage,
             tx,
             tx_hash=tx_hash,
         )
+        raw_driver.pending_reads = pending_reads
+        raw_driver.transaction_reads = transaction_reads
+        raw_driver.transaction_read_prefixes = transaction_read_prefixes
         return ResponseCheckTx(code=c.OkCode)
     except Exception as e:
+        raw_driver.pending_reads = pending_reads
+        raw_driver.transaction_reads = transaction_reads
+        raw_driver.transaction_read_prefixes = transaction_read_prefixes
         return _rejected_check_tx(error=e, raw_tx=raw_tx, tx=tx)
