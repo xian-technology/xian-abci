@@ -8,7 +8,7 @@ from utils import setup_fixtures, teardown_fixtures
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
-from cometbft.abci.v1beta1.types_pb2 import Validator
+from cometbft.abci.v1beta1.types_pb2 import RequestCommit, Validator
 from cometbft.abci.v1beta2.types_pb2 import Misbehavior, MisbehaviorType
 from cometbft.abci.v1beta3.types_pb2 import (
     Request,
@@ -97,7 +97,9 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
             "finalize_block",
             self.create_finalize_block_request(height, misbehavior=misbehavior),
         )
-        return await deserialize(raw)
+        response = await deserialize(raw)
+        await self.handler.process("commit", Request(commit=RequestCommit()))
+        return response
 
     def duplicate_vote_evidence(self, validator_key: str, *, height: int):
         evidence_time = Timestamp()

@@ -3,6 +3,8 @@ from xian.utils.block import set_latest_block
 
 
 async def commit(self) -> ResponseCommit:
+    self._restore_pending_commit_driver_state()
+
     set_latest_block(
         block_hash=self.merkle_root_hash,
         height=self.current_block_meta["height"],

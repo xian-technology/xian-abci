@@ -7,6 +7,7 @@ from utils import setup_fixtures, teardown_fixtures
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
+from cometbft.abci.v1beta1.types_pb2 import RequestCommit
 from cometbft.abci.v1beta3.types_pb2 import (
     Request,
     RequestFinalizeBlock,
@@ -85,7 +86,9 @@ class ValidatorEpochRebalanceTests(unittest.IsolatedAsyncioTestCase):
             "finalize_block",
             self.create_finalize_block_request(height),
         )
-        return await deserialize(raw)
+        response = await deserialize(raw)
+        await self.handler.process("commit", Request(commit=RequestCommit()))
+        return response
 
     async def test_finalize_block_runs_epoch_rebalance_without_user_transaction(
         self,

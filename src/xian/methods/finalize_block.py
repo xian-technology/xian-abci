@@ -725,6 +725,8 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         block_hash=block_hash,
     )
 
+    self._stage_pending_commit_driver_state()
+
     return ResponseFinalizeBlock(
         validator_updates=validator_updates,
         tx_results=tx_results,

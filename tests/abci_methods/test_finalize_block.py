@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import unittest
 from io import BytesIO
@@ -64,9 +63,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                 "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
                 return_value={"payload": {}},
             ),
-            patch(
-                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
-            ),
+            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
             patch.object(
                 self.app.tx_processor,
                 "process_tx",
@@ -79,9 +76,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             )
 
         tx_events = response.finalize_block.tx_results[0].events
-        self.assertEqual(
-            [event.type for event in tx_events], ["StateChange", "Transfer"]
-        )
+        self.assertEqual([event.type for event in tx_events], ["StateChange", "Transfer"])
 
         transfer_event = tx_events[1]
         attrs = {attr.key: attr.value for attr in transfer_event.attributes}
@@ -113,9 +108,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                 "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
                 return_value={"payload": {}},
             ),
-            patch(
-                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
-            ),
+            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
             patch.object(
                 self.app.tx_processor,
                 "process_tx",
@@ -131,32 +124,84 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         attrs = {attr.key: attr.value for attr in transfer_event.attributes}
         self.assertEqual(attrs["amount"], "5000")
 
+    async def test_finalize_stages_writes_and_releases_lock_before_commit(self):
+        tx = {
+            "payload": {
+                "sender": "alice",
+                "nonce": 0,
+                "contract": "currency",
+                "function": "transfer",
+                "kwargs": {},
+            }
+        }
+        tx_result = {
+            "hash": "ABC123",
+            "status": 0,
+            "state": [
+                {"key": "currency.balances:alice", "value": 99},
+            ],
+            "events": [],
+        }
+
+        def process_tx(*args, **kwargs):
+            del args, kwargs
+            self.app.client.raw_driver.pending_writes["currency.balances:alice"] = 99
+            return {"tx_result": tx_result}
+
+        with (
+            patch(
+                "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
+                return_value=tx,
+            ),
+            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
+            patch.object(
+                self.app.tx_processor,
+                "process_tx",
+                side_effect=process_tx,
+            ),
+            patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
+        ):
+            await self.process_request(Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"])))
+
+        self.assertFalse(self.app._state_transition_lock.locked())
+        self.assertEqual(self.app.client.raw_driver.pending_writes, {})
+        self.assertIsNotNone(self.app._pending_commit_driver_state)
+        self.assertEqual(
+            self.app._pending_commit_driver_state["pending_writes"],
+            {"currency.balances:alice": 99},
+        )
+        self.assertIsNone(self.app.client.raw_driver.get("currency.balances:alice", save=False))
+
+        raw = await self.handler.process("commit", Request(commit=RequestCommit()))
+        response = await deserialize(raw)
+
+        self.assertEqual(response.commit.retain_height, 0)
+        self.assertIsNone(self.app._pending_commit_driver_state)
+        self.assertEqual(
+            self.app.client.raw_driver.get("currency.balances:alice", save=False),
+            99,
+        )
+
     async def test_finalize_block_handles_missing_tx_result(self):
         with (
             patch(
                 "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
                 return_value={"payload": {}},
             ),
-            patch(
-                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
-            ),
+            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
             patch.object(
                 self.app.tx_processor,
                 "process_tx",
                 return_value={"tx_result": None},
             ),
-            patch.object(
-                self.app.nonce_storage, "set_nonce_by_tx"
-            ) as set_nonce,
+            patch.object(self.app.nonce_storage, "set_nonce_by_tx") as set_nonce,
         ):
             response = await self.process_request(
                 Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
             )
 
         self.assertEqual(len(response.finalize_block.tx_results), 1)
-        self.assertEqual(
-            response.finalize_block.tx_results[0].code, c.ErrorCode
-        )
+        self.assertEqual(response.finalize_block.tx_results[0].code, c.ErrorCode)
         set_nonce.assert_not_called()
 
     async def test_finalize_block_missing_tx_hash_does_not_set_nonce(self):
@@ -181,25 +226,19 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                     "metadata": {"signature": "sig"},
                 },
             ),
-            patch(
-                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
-            ),
+            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
             patch.object(
                 self.app.tx_processor,
                 "process_tx",
                 return_value={"tx_result": tx_result},
             ),
-            patch.object(
-                self.app.nonce_storage, "set_nonce_by_tx"
-            ) as set_nonce,
+            patch.object(self.app.nonce_storage, "set_nonce_by_tx") as set_nonce,
         ):
             response = await self.process_request(
                 Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
             )
 
-        self.assertEqual(
-            response.finalize_block.tx_results[0].code, c.ErrorCode
-        )
+        self.assertEqual(response.finalize_block.tx_results[0].code, c.ErrorCode)
         set_nonce.assert_not_called()
 
     async def test_finalize_block_app_hash_commits_state_writes(self):
@@ -238,22 +277,18 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                         "metadata": {"signature": "sig"},
                     },
                 ),
-                patch(
-                    "xian.methods.finalize_block.validate_consensus_transaction_after_static"
-                ),
+                patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
                 patch.object(
                     self.app.tx_processor,
                     "process_tx",
-                    side_effect=lambda *args, **kwargs: process_result(
-                        tx_result
-                    ),
+                    side_effect=lambda *args, **kwargs: process_result(tx_result),
                 ),
                 patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
             ):
                 response = await self.process_request(
                     Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
                 )
-            self.app.merkle_root_hash = None
+            await self.handler.process("commit", Request(commit=RequestCommit()))
             return response.finalize_block.app_hash
 
         first_hash = await finalize_with(base_result)
@@ -261,7 +296,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotEqual(first_hash, second_hash)
 
-    async def test_query_waits_for_commit_after_finalize_block(self):
+    async def test_query_reads_committed_state_between_finalize_and_commit(self):
         tx_result = {
             "hash": "ABC123",
             "status": 0,
@@ -292,9 +327,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                     "metadata": {"signature": "sig"},
                 },
             ),
-            patch(
-                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
-            ),
+            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
             patch.object(
                 self.app.tx_processor,
                 "process_tx",
@@ -302,23 +335,23 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):
-            await self.process_request(
-                Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
-            )
+            await self.process_request(Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"])))
 
-        query_task = asyncio.create_task(
-            self.handler.process(
+        pre_commit_response = await deserialize(
+            await self.handler.process(
                 "query",
-                Request(
-                    query=RequestQuery(path="/get/currency.balances:alice")
-                ),
+                Request(query=RequestQuery(path="/get/currency.balances:alice")),
             )
         )
-        await asyncio.sleep(0.01)
-        self.assertFalse(query_task.done())
+        self.assertEqual(pre_commit_response.query.value, b"")
 
         await self.handler.process("commit", Request(commit=RequestCommit()))
-        query_response = await deserialize(await query_task)
+        query_response = await deserialize(
+            await self.handler.process(
+                "query",
+                Request(query=RequestQuery(path="/get/currency.balances:alice")),
+            )
+        )
 
         self.assertEqual(query_response.query.value, b"99")
 
@@ -352,12 +385,8 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                 "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
                 return_value=tx,
             ),
-            patch(
-                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
-            ),
-            patch(
-                "xian.methods.finalize_block.warm_shielded_proof_cache"
-            ) as warm_cache,
+            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
+            patch("xian.methods.finalize_block.warm_shielded_proof_cache") as warm_cache,
             patch.object(
                 self.app.tx_processor,
                 "process_tx",
@@ -374,9 +403,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                     "failed_count": 0,
                 },
             )()
-            await self.process_request(
-                Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
-            )
+            await self.process_request(Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"])))
 
         warm_cache.assert_called_once()
 
@@ -407,9 +434,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                     "metadata": {"signature": "sig"},
                 },
             ),
-            patch(
-                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
-            ),
+            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
             patch.object(
                 self.app.tx_processor,
                 "process_tx",
@@ -417,9 +442,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):
-            await self.process_request(
-                Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
-            )
+            await self.process_request(Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"])))
 
         self.app.bds.enqueue_block.assert_awaited_once()
         payload = self.app.bds.enqueue_block.await_args.args[0]
@@ -456,9 +479,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                     "metadata": {"signature": "sig"},
                 },
             ),
-            patch(
-                "xian.methods.finalize_block.validate_consensus_transaction_after_static"
-            ),
+            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
             patch.object(
                 self.app.tx_processor,
                 "process_tx",

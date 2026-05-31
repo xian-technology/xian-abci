@@ -11,7 +11,7 @@ from xian_runtime_types.time import Datetime
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
-from cometbft.abci.v1beta1.types_pb2 import RequestQuery
+from cometbft.abci.v1beta1.types_pb2 import RequestCommit, RequestQuery
 from cometbft.abci.v1beta3.types_pb2 import (
     Request,
     RequestFinalizeBlock,
@@ -48,10 +48,7 @@ def get_value():
 
 def governance_contract_source() -> str:
     contract_path = (
-        Path(__file__).resolve().parents[3]
-        / "xian-configs"
-        / "contracts"
-        / "governance.s.py"
+        Path(__file__).resolve().parents[3] / "xian-configs" / "contracts" / "governance.s.py"
     )
     return contract_path.read_text(encoding="utf-8")
 
@@ -112,7 +109,9 @@ class GovernedStatePatchTests(unittest.IsolatedAsyncioTestCase):
             "finalize_block",
             self.create_finalize_block_request(height),
         )
-        return await deserialize(raw)
+        response = await deserialize(raw)
+        await self.handler.process("commit", Request(commit=RequestCommit()))
+        return response
 
     async def query(self, path: str):
         raw = await self.handler.process(
@@ -130,9 +129,7 @@ class GovernedStatePatchTests(unittest.IsolatedAsyncioTestCase):
         self.app.state_patch_manager.load_patches(self.patch_dir)
 
     async def approve_patch(self, *, patch_id: str, activation_height: int):
-        bundle_hash = self.app.state_patch_manager.local_bundles[
-            patch_id
-        ].bundle_hash
+        bundle_hash = self.app.state_patch_manager.local_bundles[patch_id].bundle_hash
         base_env = {
             "now": Datetime(2026, 1, 1),
             "block_num": 10,
@@ -172,9 +169,7 @@ class GovernedStatePatchTests(unittest.IsolatedAsyncioTestCase):
         await self.approve_patch(patch_id="patch-alpha", activation_height=12)
 
         await self.finalize_block(11)
-        self.assertIsNone(
-            self.app.client.raw_driver.get("con_patch_target.value")
-        )
+        self.assertIsNone(self.app.client.raw_driver.get("con_patch_target.value"))
 
         response = await self.finalize_block(12)
         self.assertEqual(

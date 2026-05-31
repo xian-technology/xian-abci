@@ -4,6 +4,7 @@ import gc
 import importlib
 import signal
 import sys
+from copy import deepcopy
 from dataclasses import replace
 
 
@@ -198,10 +199,12 @@ class Xian:
         self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None
         self.merkle_root_hash = None
-        # FinalizeBlock leaves consensus writes pending until Commit. Keep
-        # ABCI reads and mempool admission off that working state.
+        # FinalizeBlock leaves consensus writes pending until Commit, but
+        # CometBFT flushes outstanding CheckTx requests before it calls Commit.
+        # Stage those writes outside the live driver so CheckTx can drain
+        # against committed state without deadlocking the commit boundary.
         self._state_transition_lock = asyncio.Lock()
-        self._state_transition_lock_held_for_commit = False
+        self._pending_commit_driver_state = None
 
         self.bds_enabled = xian_config.get("bds_enabled", False)
         self.bds_config = BdsConfig.from_runtime_settings(xian_config)
@@ -328,7 +331,43 @@ class Xian:
     def _release_state_transition_lock(self):
         if self._state_transition_lock.locked():
             self._state_transition_lock.release()
-        self._state_transition_lock_held_for_commit = False
+
+    def _stage_pending_commit_driver_state(self):
+        if self._pending_commit_driver_state is not None:
+            raise RuntimeError("previous block has staged writes that were not committed")
+
+        driver = self.client.raw_driver
+        self._pending_commit_driver_state = {
+            "pending_writes": deepcopy(driver.pending_writes),
+            "pending_reads": deepcopy(driver.pending_reads),
+            "transaction_reads": deepcopy(driver.transaction_reads),
+            "transaction_read_prefixes": deepcopy(driver.transaction_read_prefixes),
+            "transaction_writes": deepcopy(driver.transaction_writes),
+            "log_events": deepcopy(driver.log_events),
+        }
+        driver.pending_writes.clear()
+        driver.pending_reads.clear()
+        driver.transaction_reads.clear()
+        driver.transaction_read_prefixes.clear()
+        driver.transaction_writes.clear()
+        driver.log_events.clear()
+
+    def _restore_pending_commit_driver_state(self):
+        staged_state = self._pending_commit_driver_state
+        if staged_state is None:
+            return
+
+        driver = self.client.raw_driver
+        driver.pending_writes = staged_state["pending_writes"]
+        driver.pending_reads = staged_state["pending_reads"]
+        driver.transaction_reads = staged_state["transaction_reads"]
+        driver.transaction_read_prefixes = staged_state["transaction_read_prefixes"]
+        driver.transaction_writes = staged_state["transaction_writes"]
+        driver.log_events = staged_state["log_events"]
+        self._pending_commit_driver_state = None
+
+    def _discard_pending_commit_driver_state(self):
+        self._pending_commit_driver_state = None
 
     async def echo(self, req):
         """
@@ -366,11 +405,7 @@ class Xian:
         Contains the fields of the newly decided block.
         This method is equivalent to the call sequence BeginBlock, [DeliverTx], and EndBlock in the previous version of ABCI.
         """
-        acquired_for_finalize = False
-        if not self._state_transition_lock_held_for_commit:
-            await self._state_transition_lock.acquire()
-            self._state_transition_lock_held_for_commit = True
-            acquired_for_finalize = True
+        await self._state_transition_lock.acquire()
         self.profiler.start_block(req.height, len(req.txs))
         try:
             with self.profiler.scope("finalize_block", block_scoped=True):
@@ -378,26 +413,23 @@ class Xian:
             self.profiler.end_block(app_hash=res.app_hash.hex())
             return res
         except Exception as exc:
+            self._discard_pending_commit_driver_state()
             self.state_root_cache.rollback()
             self.profiler.end_block(error=f"{type(exc).__name__}: {exc}")
-            if acquired_for_finalize:
-                self._release_state_transition_lock()
             raise
+        finally:
+            self._release_state_transition_lock()
 
     async def commit(self):
         """
         Signal the Application to persist the application state. Application is expected to persist its state at the end of this call, before calling ResponseCommit.
         """
-        acquired_here = False
-        if not self._state_transition_lock_held_for_commit:
-            await self._state_transition_lock.acquire()
-            acquired_here = True
+        await self._state_transition_lock.acquire()
         try:
             res = await commit.commit(self)
             return res
         finally:
-            if acquired_here or self._state_transition_lock_held_for_commit:
-                self._release_state_transition_lock()
+            self._release_state_transition_lock()
 
     async def process_proposal(self, req):
         """
