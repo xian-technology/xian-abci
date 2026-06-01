@@ -864,6 +864,16 @@ async def _handle_token_balances(ctx: QueryContext) -> QueryResult:
     )
 
 
+async def _handle_token_contracts(ctx: QueryContext) -> QueryResult:
+    options = _bds_query_options(ctx.params)
+    return QueryResult(
+        result=await _require_bds(ctx).get_token_contracts(
+            options.limit,
+            options.offset,
+        )
+    )
+
+
 async def _handle_state_history(ctx: QueryContext) -> QueryResult:
     options = _bds_query_options(ctx.params)
     return QueryResult(
@@ -873,6 +883,10 @@ async def _handle_state_history(ctx: QueryContext) -> QueryResult:
             options.offset,
         )
     )
+
+
+async def _handle_state_previous(ctx: QueryContext) -> QueryResult:
+    return QueryResult(result=await _require_bds(ctx).get_state_previous(ctx.key))
 
 
 async def _handle_state_for_tx(ctx: QueryContext) -> QueryResult:
@@ -959,8 +973,10 @@ BDS_QUERY_HANDLERS = {
     "events": _handle_events,
     "recent_events": _handle_recent_events,
     "state": _handle_state,
+    "token_contracts": _handle_token_contracts,
     "token_balances": _handle_token_balances,
     "state_history": _handle_state_history,
+    "state_previous": _handle_state_previous,
     "state_for_tx": _handle_state_for_tx,
     "state_for_block": _handle_state_for_block,
     "state_patches": _handle_state_patches,

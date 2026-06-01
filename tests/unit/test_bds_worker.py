@@ -52,6 +52,7 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
 
             first = _payload(11, "A")
             second = _payload(12, "B")
+            bds._write_spool_file(_payload(9, "STALE"))
             bds._write_spool_file(second)
             bds._write_spool_file(first)
 
@@ -60,25 +61,30 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(sorted(bds._pending_payloads), [11, 12])
             self.assertEqual(bds._pending_payloads[11].block_meta["hash"], "A")
             self.assertEqual(bds._pending_payloads[12].block_meta["hash"], "B")
+            self.assertFalse(
+                (Path(spool_dir) / "00000000000000000009-STALE.json").exists()
+            )
 
     async def test_enqueue_block_does_not_block_when_queue_is_full(self):
         with TemporaryDirectory() as spool_dir:
             bds = _RecordingBDS(spool_dir)
             Path(spool_dir).mkdir(parents=True, exist_ok=True)
             bds.config = BdsConfig(queue_max_size=1, spool_dir=spool_dir)
-            bds._start_worker()
+            bds._worker_task = asyncio.create_task(asyncio.sleep(3600))
 
             await bds.enqueue_block(_payload(1, "A"))
             await bds.enqueue_block(_payload(2, "B"))
 
             self.assertEqual(len(bds._pending_payloads), 1)
             self.assertEqual(list(bds._pending_payloads), [1])
-            self.assertEqual(len(list(Path(spool_dir).glob("*.json"))), 0)
+            self.assertEqual(len(list(Path(spool_dir).glob("*.json"))), 2)
             self.assertEqual(
                 bds._last_enqueue_error["code"],
                 "pending_buffer_full",
             )
-            await bds.close()
+            bds._worker_task.cancel()
+            await asyncio.gather(bds._worker_task, return_exceptions=True)
+            bds._worker_task = None
 
     async def test_status_reports_spool_and_index_lag(self):
         with TemporaryDirectory() as spool_dir:

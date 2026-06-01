@@ -90,6 +90,8 @@ Event and contract-summary queries:
 Indexed state and token queries:
 
 - `/state/<prefix>`
+- `/state_previous/<key>`
+- `/token_contracts`
 - `/token_balances/<address>`
 - `/state_history/<key>`
 - `/state_for_tx/<hash>`

@@ -272,6 +272,52 @@ class _FakeBDS:
             "include_zero": include_zero,
         }
 
+    async def get_token_contracts(self, limit, offset):
+        return {
+            "available": True,
+            "items": [
+                {
+                    "contract": "currency",
+                    "name": "Xian",
+                    "symbol": "XIAN",
+                    "logo_url": "https://example.com/xian.svg",
+                    "last_tx_hash": "GENESIS",
+                    "submitted_at_block": 0,
+                }
+            ],
+            "total": 1,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    async def get_state(self, key, limit, offset):
+        return [{"key": f"{key}.balances:alice", "value": "42"}]
+
+    async def get_state_history(self, key, limit, offset):
+        return [
+            {
+                "key": key,
+                "value": "42",
+                "previous_change_id": 6,
+                "block_height": 12,
+            }
+        ]
+
+    async def get_state_previous(self, key):
+        return {
+            "key": key,
+            "current_value": "42",
+            "previous_value": "40",
+            "last_tx_hash": "TX-CURRENT",
+            "previous_tx_hash": "TX-PREVIOUS",
+        }
+
+    async def get_state_for_tx(self, tx_hash):
+        return [{"key": "currency.balances:alice", "tx_hash": tx_hash}]
+
+    async def get_state_for_block(self, block_ref):
+        return [{"key": "currency.balances:alice", "block_height": int(block_ref)}]
+
     async def get_state_patches(self, limit, offset):
         return [
             {
@@ -1010,6 +1056,51 @@ def fallback(value: list[int]):
         self.assertEqual(payload["address"], "alice")
         self.assertEqual(payload["items"][0]["contract"], "currency")
         self.assertEqual(payload["items"][0]["balance"], "42")
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/token_contracts/limit=10/offset=0"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["items"][0]["contract"], "currency")
+        self.assertEqual(payload["items"][0]["symbol"], "XIAN")
+
+    async def test_state_queries_use_bds(self):
+        self.app.bds_enabled = True
+        self.app.bds = _FakeBDS()
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/state/currency/limit=10/offset=0"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(json.loads(response.query.value)[0]["value"], "42")
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/state_history/currency.balances:alice"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(json.loads(response.query.value)[0]["previous_change_id"], 6)
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/state_previous/currency.balances:alice"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        self.assertEqual(payload["current_value"], "42")
+        self.assertEqual(payload["previous_value"], "40")
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/state_for_tx/TX-CURRENT"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(json.loads(response.query.value)[0]["tx_hash"], "TX-CURRENT")
+
+        response = await self.process_request(
+            Request(query=RequestQuery(path="/state_for_block/12"))
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(json.loads(response.query.value)[0]["block_height"], 12)
 
     async def test_event_queries_use_bds(self):
         self.app.bds_enabled = True

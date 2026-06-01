@@ -9,8 +9,8 @@ This file tracks follow-up work that still looks relevant on current `main`.
   eventual-consistency model
 - document archival-RPC reindex and backfill as an explicit operator flow
 - document Postgres storage policy, retention, and sizing guidance
-- evaluate whether operators need an optional durable buffer ahead of Postgres
-  beyond the current spool/recovery model
+- evaluate whether operators need a heavier durable buffer ahead of Postgres
+  beyond the current block spool and catch-up recovery model
 
 ## Snapshot And Recovery Follow-Ups
 

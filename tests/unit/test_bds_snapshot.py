@@ -194,6 +194,25 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
                     "created_at": datetime(2026, 1, 1, tzinfo=UTC),
                 }
             ],
+            "shielded_output_tags": [
+                {
+                    "id": 4,
+                    "block_height": 12,
+                    "tx_hash": "TX-12",
+                    "tx_index": 0,
+                    "contract": "con_private",
+                    "function": "transfer",
+                    "action": "deposit",
+                    "output_index": 0,
+                    "note_index": 7,
+                    "commitment": "0x" + "11" * 32,
+                    "new_root": "0x" + "22" * 32,
+                    "payload_hash": "0x" + "33" * 32,
+                    "tag_kind": "sync_hint",
+                    "tag_value": "0x1234",
+                    "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+                }
+            ],
         }
         status = {
             "indexed": {
@@ -243,12 +262,20 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(import_bds.reset_count, 1)
             self.assertEqual(import_bds.clear_spool_count, 1)
-            self.assertEqual(import_connection.sequence_resets, 3)
+            self.assertEqual(import_connection.sequence_resets, 4)
             self.assertEqual(
                 import_connection.inserted["state_changes"][0][0], 5
             )
             self.assertEqual(
                 import_connection.inserted["rewards"][0][8], Decimal("12.34")
+            )
+            self.assertEqual(
+                import_connection.inserted["shielded_output_tags"][0][12],
+                "sync_hint",
+            )
+            self.assertEqual(
+                import_connection.inserted["shielded_output_tags"][0][13],
+                "0x1234",
             )
             self.assertEqual(import_result["indexed_height"], 12)
 

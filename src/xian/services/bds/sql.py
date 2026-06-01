@@ -147,6 +147,7 @@ def create_state():
     );
     CREATE INDEX IF NOT EXISTS idx_state_value_numeric ON state(value_numeric);
     CREATE INDEX IF NOT EXISTS idx_state_last_block_height ON state(last_block_height DESC);
+    CREATE INDEX IF NOT EXISTS idx_state_key_prefix ON state(key text_pattern_ops);
     """
 
 
@@ -238,6 +239,9 @@ def create_contracts():
         xsc001 BOOLEAN NOT NULL DEFAULT FALSE
     );
     CREATE INDEX IF NOT EXISTS idx_contracts_submitted_at_block ON contracts(submitted_at_block DESC);
+    CREATE INDEX IF NOT EXISTS idx_contracts_xsc001_submitted_at_block
+        ON contracts(submitted_at_block DESC, name ASC)
+        WHERE xsc001 = TRUE;
     """
 
 
@@ -394,6 +398,30 @@ def select_contracts():
         xsc001
     FROM contracts
     ORDER BY submitted_at_block ASC, name ASC
+    LIMIT $1 OFFSET $2;
+    """
+
+
+def select_token_contracts():
+    return """
+    SELECT
+        c.name AS contract,
+        c.last_tx_hash,
+        c.submitted_at_block,
+        c.submitted_at,
+        name_state.value AS token_name,
+        symbol_state.value AS token_symbol,
+        logo_state.value AS token_logo_url,
+        COUNT(*) OVER() AS total_count
+    FROM contracts AS c
+    LEFT JOIN state AS name_state
+        ON name_state.key = c.name || '.metadata:token_name'
+    LEFT JOIN state AS symbol_state
+        ON symbol_state.key = c.name || '.metadata:token_symbol'
+    LEFT JOIN state AS logo_state
+        ON logo_state.key = c.name || '.metadata:token_logo_url'
+    WHERE c.xsc001 = TRUE
+    ORDER BY c.submitted_at_block DESC, c.name ASC
     LIMIT $1 OFFSET $2;
     """
 
@@ -921,6 +949,39 @@ def select_state_history():
     WHERE key = $1
     ORDER BY block_height DESC, tx_index DESC, write_index DESC
     LIMIT $2 OFFSET $3;
+    """
+
+
+def select_state_previous():
+    return """
+    SELECT
+        s.key,
+        s.value AS current_value,
+        s.last_change_id,
+        s.last_tx_hash,
+        s.last_block_height,
+        s.updated_at,
+        latest.block_hash AS current_block_hash,
+        latest.block_time AS current_block_time,
+        latest.tx_index AS current_tx_index,
+        latest.write_index AS current_write_index,
+        latest.origin_type AS current_origin_type,
+        prev.change_id AS previous_change_id,
+        prev.new_value AS previous_value,
+        prev.tx_hash AS previous_tx_hash,
+        prev.block_height AS previous_block_height,
+        prev.block_hash AS previous_block_hash,
+        prev.block_time AS previous_block_time,
+        prev.tx_index AS previous_tx_index,
+        prev.write_index AS previous_write_index,
+        prev.origin_type AS previous_origin_type,
+        prev.created_at AS previous_created_at
+    FROM state AS s
+    JOIN state_changes AS latest
+        ON latest.change_id = s.last_change_id
+    LEFT JOIN state_changes AS prev
+        ON prev.change_id = latest.previous_change_id
+    WHERE s.key = $1;
     """
 
 

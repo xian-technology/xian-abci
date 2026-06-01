@@ -140,6 +140,60 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["items"][0]["balance"], "12.5")
         self.assertEqual(result["items"][0]["symbol"], "XIAN")
 
+    async def test_get_token_contracts_returns_standard_token_rows(self):
+        bds = BDS(BdsConfig())
+        bds.db = _FakeDb(
+            [
+                {
+                    "contract": "currency",
+                    "last_tx_hash": "TX-CREATE",
+                    "submitted_at_block": 0,
+                    "submitted_at": datetime(1970, 1, 1, tzinfo=UTC),
+                    "token_name": "Xian",
+                    "token_symbol": "XIAN",
+                    "token_logo_url": "https://example.com/xian.svg",
+                    "total_count": 1,
+                }
+            ]
+        )
+
+        result = await bds.get_token_contracts(limit=25, offset=10)
+
+        self.assertEqual(
+            bds.db.fetch_calls,
+            [(sql.select_token_contracts(), [25, 10])],
+        )
+        self.assertTrue(result["available"])
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["contract"], "currency")
+        self.assertEqual(result["items"][0]["symbol"], "XIAN")
+
+    async def test_get_state_previous_returns_current_and_previous_value(self):
+        bds = BDS(BdsConfig())
+        bds.db = _FakeDb(
+            {
+                "key": "currency.balances:alice",
+                "current_value": "12",
+                "last_change_id": 7,
+                "last_tx_hash": "TX-7",
+                "last_block_height": 12,
+                "updated_at": datetime(2026, 1, 2, tzinfo=UTC),
+                "previous_change_id": 6,
+                "previous_value": "10",
+                "previous_tx_hash": "TX-6",
+                "previous_block_height": 11,
+            }
+        )
+
+        result = await bds.get_state_previous("currency.balances:alice")
+
+        self.assertEqual(
+            bds.db.fetchrow_calls,
+            [(sql.select_state_previous(), ["currency.balances:alice"])],
+        )
+        self.assertEqual(result["current_value"], "12")
+        self.assertEqual(result["previous_value"], "10")
+
     async def test_get_shielded_output_tags_returns_index_rows(self):
         bds = BDS(BdsConfig())
         bds.db = _FakeDb(

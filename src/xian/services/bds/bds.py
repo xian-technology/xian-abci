@@ -228,6 +228,7 @@ class BDS:
                     try:
                         if await self.persist_block(payload):
                             self._indexed_height = int(payload.block_meta["height"])
+                            self._remove_spool_file(payload)
                             self._prune_stale_pending_payloads()
                             break
                         await asyncio.sleep(self.WORKER_RETRY_DELAY_SECONDS)
@@ -239,6 +240,8 @@ class BDS:
             except asyncio.CancelledError:
                 raise
             finally:
+                if len(self._pending_payloads) < max(self.config.queue_max_size, 1):
+                    await self._replay_spool()
                 if self._has_next_pending_payload():
                     self._pending_event.set()
                 else:
@@ -247,6 +250,9 @@ class BDS:
     async def enqueue_block(self, payload: BdsBlockPayload) -> None:
         if self._worker_task is None:
             raise RuntimeError("BDS worker is not initialized")
+        if self._is_stale_payload(payload):
+            return
+        self._write_spool_file(payload)
         if not self._enqueue_pending_payload(payload):
             self._record_enqueue_error(
                 "pending_buffer_full",
@@ -255,7 +261,11 @@ class BDS:
 
     async def _replay_spool(self) -> None:
         for spool_path in self._pending_spool_files():
-            self._enqueue_pending_payload(self._read_spool_file(spool_path))
+            payload = self._read_spool_file(spool_path)
+            if self._is_stale_payload(payload):
+                spool_path.unlink(missing_ok=True)
+                continue
+            self._enqueue_pending_payload(payload)
 
     async def flush(self) -> None:
         if self._worker_task is None:
@@ -293,6 +303,10 @@ class BDS:
         block_hash = str(payload.block_meta["hash"])
         return self.spool_dir / f"{height:020d}-{block_hash}.json"
 
+    def _is_stale_payload(self, payload: BdsBlockPayload) -> bool:
+        height = int(payload.block_meta["height"])
+        return self._indexed_height is not None and height <= self._indexed_height
+
     def _write_spool_file(self, payload: BdsBlockPayload) -> Path:
         spool_path = self._spool_file_path(payload)
         temp_path = spool_path.with_suffix(".json.tmp")
@@ -302,6 +316,9 @@ class BDS:
         )
         temp_path.replace(spool_path)
         return spool_path
+
+    def _remove_spool_file(self, payload: BdsBlockPayload) -> None:
+        self._spool_file_path(payload).unlink(missing_ok=True)
 
     def _read_spool_file(self, spool_path: Path) -> BdsBlockPayload:
         return BdsBlockPayload.from_spool_dict(json.loads(spool_path.read_text(encoding="utf-8")))
@@ -335,7 +352,7 @@ class BDS:
 
     def _enqueue_pending_payload(self, payload: BdsBlockPayload) -> bool:
         height = int(payload.block_meta["height"])
-        if self._indexed_height is not None and height <= self._indexed_height:
+        if self._is_stale_payload(payload):
             return True
         if height in self._pending_payloads:
             return True
@@ -1172,6 +1189,34 @@ class BDS:
         rows = await self.db.fetch(sql.select_contracts(), [limit, offset])
         return [dict(row) for row in rows]
 
+    async def get_token_contracts(self, limit: int = 100, offset: int = 0):
+        rows = await self.db.fetch(sql.select_token_contracts(), [limit, offset])
+        items: list[dict[str, Any]] = []
+        total = 0
+
+        for row in rows:
+            record = dict(row)
+            total = int(record.pop("total_count", 0) or 0)
+            items.append(
+                {
+                    "contract": record["contract"],
+                    "last_tx_hash": record.get("last_tx_hash"),
+                    "submitted_at_block": record.get("submitted_at_block"),
+                    "submitted_at": record.get("submitted_at"),
+                    "name": _normalize_json_text(record.get("token_name")),
+                    "symbol": _normalize_json_text(record.get("token_symbol")),
+                    "logo_url": _normalize_json_text(record.get("token_logo_url")),
+                }
+            )
+
+        return {
+            "available": True,
+            "items": items,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+
     async def get_contract_summary(self, contract_name: str):
         row = await self.db.fetchrow(sql.select_contract_summary(), [contract_name])
         return dict(row) if row is not None else None
@@ -1449,6 +1494,10 @@ class BDS:
     async def get_state_history(self, key: str, limit: int = 100, offset: int = 0):
         rows = await self.db.fetch(sql.select_state_history(), [key, limit, offset])
         return [dict(row) for row in rows]
+
+    async def get_state_previous(self, key: str):
+        row = await self.db.fetchrow(sql.select_state_previous(), [key])
+        return dict(row) if row is not None else None
 
     async def get_state_for_tx(self, tx_hash: str):
         rows = await self.db.fetch(sql.select_state_tx(), [tx_hash])

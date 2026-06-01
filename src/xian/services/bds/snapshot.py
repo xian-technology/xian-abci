@@ -181,7 +181,8 @@ TABLE_SPECS = (
             "commitment",
             "new_root",
             "payload_hash",
-            "discovery_tag",
+            "tag_kind",
+            "tag_value",
             "created_at",
         ),
         order_by="id ASC",
@@ -400,6 +401,15 @@ async def import_bds_snapshot(
                     SELECT setval(
                         pg_get_serial_sequence('rewards', 'id'),
                         COALESCE((SELECT MAX(id) FROM rewards), 1),
+                        true
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
+                    SELECT setval(
+                        pg_get_serial_sequence('shielded_output_tags', 'id'),
+                        COALESCE((SELECT MAX(id) FROM shielded_output_tags), 1),
                         true
                     );
                     """
