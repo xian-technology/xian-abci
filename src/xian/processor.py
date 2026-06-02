@@ -16,6 +16,7 @@ from xian.execution_engine import (
     vm_metering_writes,
     vm_requires_deployment_artifacts,
 )
+from xian.fee_policy import TxFeePolicy
 from xian.utils.block import nanoseconds_to_utc_datetime
 from xian.utils.tx import canonical_transaction_size_bytes, tx_hash_from_tx
 
@@ -68,6 +69,7 @@ class TxProcessor:
         enabled_fees=False,
         rewards_handler=None,
         *,
+        fee_policy: TxFeePolicy | None = None,
         track_access: bool = False,
     ):
         started_ns = time.perf_counter_ns()
@@ -76,6 +78,7 @@ class TxProcessor:
         driver.set_transaction_read_tracking(track_access)
         environment = self.get_environment(tx=tx)
         chi_cost = self.get_chi_cost()
+        resolved_fee_policy = fee_policy or TxFeePolicy.from_legacy_enabled_fees(enabled_fees)
 
         try:
             # Execute the transaction
@@ -83,7 +86,8 @@ class TxProcessor:
                 transaction=tx,
                 chi_cost=chi_cost,
                 environment=environment,
-                metering=enabled_fees,
+                metering=resolved_fee_policy.meter_execution,
+                charge_fees=resolved_fee_policy.charge_fees,
             )
             if output is None:
                 return {
@@ -101,6 +105,8 @@ class TxProcessor:
                 transaction=tx,
                 chi_cost=chi_cost,
                 rewards_handler=rewards_handler,
+                charge_fees=resolved_fee_policy.charge_fees,
+                distribute_fee_rewards=resolved_fee_policy.distribute_fee_rewards,
                 track_access=track_access,
             )
             tx_result = processed["tx_result"]
@@ -165,6 +171,7 @@ class TxProcessor:
         chi_cost,
         environment: dict | None = None,
         metering=False,
+        charge_fees: bool = True,
     ):
         execution_runtime = getattr(
             self,
@@ -218,6 +225,7 @@ class TxProcessor:
                 chi_cost=chi_cost,
                 environment=resolved_environment,
                 metering=metering,
+                charge_fees=charge_fees,
             )
         except (TypeError, ValueError) as err:
             logger.bind(
@@ -249,6 +257,7 @@ class TxProcessor:
         chi_cost: int,
         environment: dict,
         metering: bool,
+        charge_fees: bool,
     ) -> dict:
         driver = self.client.raw_driver
         if hasattr(driver, "clear_transaction_reads"):
@@ -272,6 +281,7 @@ class TxProcessor:
             chi_cost=chi_cost,
             meter=metering,
             transaction_size_bytes=canonical_transaction_size_bytes(transaction),
+            apply_metering_writes=charge_fees,
             currency_contract=self.currency_contract,
             balances_hash=self.balances_hash,
         )
@@ -294,6 +304,8 @@ class TxProcessor:
         chi_cost,
         rewards_handler,
         *,
+        charge_fees: bool = True,
+        distribute_fee_rewards: bool = True,
         track_access: bool = False,
     ):
         started_ns = time.perf_counter_ns()
@@ -329,7 +341,11 @@ class TxProcessor:
             rewards = None
             reward_deltas = {}
             reward_records = []
-            if output["status_code"] == 0 and rewards_handler is not None:
+            if (
+                distribute_fee_rewards
+                and output["status_code"] == 0
+                and rewards_handler is not None
+            ):
                 rewards, reward_deltas, reward_records = rewards_handler.build_tx_reward_outputs(
                     total_chi_to_split=output["chi_used"],
                     contract=transaction["payload"]["contract"],
@@ -342,6 +358,7 @@ class TxProcessor:
                 chi_used=output["chi_used"],
                 chi_cost=chi_cost,
                 tx_sender=transaction["payload"]["sender"],
+                charge_fees=charge_fees,
             )
             writes = self.materialize_writes(base_writes, reward_deltas)
             reads = frozenset()
@@ -416,10 +433,13 @@ class TxProcessor:
         chi_used,
         chi_cost,
         tx_sender,
+        charge_fees=True,
     ):
         # Only apply the writes if the tx passes
         if status_code == 0:
             return dict(ouput_writes)
+        if not charge_fees:
+            return {}
         else:
             return vm_metering_writes(
                 self.client.raw_driver,

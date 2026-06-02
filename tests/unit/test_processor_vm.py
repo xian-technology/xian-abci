@@ -225,6 +225,7 @@ class ProcessorVmExecutionTests(unittest.TestCase):
                     "chain_id": "xian-local",
                 },
                 metering=True,
+                charge_fees=False,
             )
 
         self.assertEqual(output["status_code"], 0)
@@ -237,6 +238,7 @@ class ProcessorVmExecutionTests(unittest.TestCase):
             "currency",
         )
         native_execute.assert_called_once()
+        self.assertFalse(native_execute.call_args.kwargs["apply_metering_writes"])
 
 
 if __name__ == "__main__":

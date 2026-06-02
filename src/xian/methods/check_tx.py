@@ -50,6 +50,7 @@ async def check_tx(self, raw_tx) -> ResponseCheckTx:
             self.nonce_storage,
             tx,
             tx_hash=tx_hash,
+            fee_policy=self.tx_fee_policy,
         )
         raw_driver.pending_reads = pending_reads
         raw_driver.transaction_reads = transaction_reads

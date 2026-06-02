@@ -12,6 +12,7 @@ from xian.utils.tx import (
 async def process_proposal(self, req) -> ResponseProcessProposal:
     response = ResponseProcessProposal()
     nonce_tracker = SequentialNonceTracker(self.nonce_storage.get_nonce)
+    block_chi_supplied = 0
 
     for raw_tx in req.txs:
         tx = None
@@ -21,10 +22,14 @@ async def process_proposal(self, req) -> ResponseProcessProposal:
                 chain_id=self.chain_id,
                 max_raw_tx_bytes=self.max_tx_bytes,
             )
+            self.tx_fee_policy.validate_tx(tx)
+            next_block_chi_supplied = block_chi_supplied + self.tx_fee_policy.tx_chi_supplied(tx)
+            self.tx_fee_policy.validate_block_total(next_block_chi_supplied)
             validate_consensus_transaction_after_static(
                 tx,
                 nonce_tracker=nonce_tracker,
             )
+            block_chi_supplied = next_block_chi_supplied
         except Exception as exc:
             logger.bind(
                 **build_log_fields(

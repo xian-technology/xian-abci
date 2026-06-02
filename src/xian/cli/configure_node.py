@@ -3,6 +3,12 @@ from __future__ import annotations
 import json
 from argparse import ArgumentParser, BooleanOptionalAction
 
+from xian.fee_policy import (
+    DEFAULT_FREE_BLOCK_MAX_CHI,
+    DEFAULT_FREE_TX_MAX_CHI,
+    DEFAULT_TX_FEE_MODE,
+    SUPPORTED_TX_FEE_MODES,
+)
 from xian.genesis_builder import build_bundle_network_genesis
 from xian.node_admin import ExistingHomeOptions, configure_existing_home
 from xian.node_setup import (
@@ -289,6 +295,27 @@ def build_parser() -> ArgumentParser:
         default=1_000_000,
     )
     parser.add_argument(
+        "--tx-fee-mode",
+        choices=sorted(SUPPORTED_TX_FEE_MODES),
+        help="transaction fee policy for user transactions",
+        required=False,
+        default=DEFAULT_TX_FEE_MODE,
+    )
+    parser.add_argument(
+        "--free-tx-max-chi",
+        type=int,
+        help="maximum chi_supplied accepted per transaction in free_metered mode",
+        required=False,
+        default=DEFAULT_FREE_TX_MAX_CHI,
+    )
+    parser.add_argument(
+        "--free-block-max-chi",
+        type=int,
+        help="maximum total chi_supplied accepted per block in free_metered mode",
+        required=False,
+        default=DEFAULT_FREE_BLOCK_MAX_CHI,
+    )
+    parser.add_argument(
         "--parallel-execution-enabled",
         action=BooleanOptionalAction,
         help="enable speculative parallel block execution",
@@ -562,6 +589,9 @@ def main(argv: list[str] | None = None) -> int:
                     timeout_ms=args.simulation_timeout_ms,
                     max_chi=args.simulation_max_chi,
                 ),
+                tx_fee_mode=args.tx_fee_mode,
+                free_tx_max_chi=args.free_tx_max_chi,
+                free_block_max_chi=args.free_block_max_chi,
                 parallel_execution=ParallelExecutionOptions(
                     enabled=args.parallel_execution_enabled,
                     workers=args.parallel_execution_workers,

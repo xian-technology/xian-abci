@@ -15,6 +15,7 @@ from abci.utils import read_messages
 from cometbft.abci.v1beta1.types_pb2 import RequestCheckTx
 from cometbft.abci.v1beta3.types_pb2 import Request, Response
 from xian.constants import Constants as c
+from xian.fee_policy import TxFeePolicy
 from xian.utils.encoding import encode_transaction_bytes
 from xian.xian_abci import Xian
 
@@ -276,6 +277,37 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.check_tx.code, c.ErrorCode)
         self.assertIn("too few chi", response.check_tx.log)
+        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+
+    async def test_check_tx_free_metered_accepts_zero_balance_sender(self):
+        self.app.tx_fee_policy = TxFeePolicy.free_metered(
+            max_tx_chi=100,
+            max_block_chi=1_000,
+        )
+        self.app.enable_tx_fee = False
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+        self.app.client.raw_driver.set(f"currency.balances:{SENDER}", 0)
+
+        response = await self.process_request(self.make_request())
+
+        self.assertEqual(response.check_tx.code, c.OkCode)
+        self.assertEqual(
+            self.app.nonce_storage.get_pending_nonce(SENDER),
+            VALID_NONCE,
+        )
+
+    async def test_check_tx_free_metered_rejects_tx_over_chi_cap(self):
+        self.app.tx_fee_policy = TxFeePolicy.free_metered(
+            max_tx_chi=99,
+            max_block_chi=1_000,
+        )
+        self.app.enable_tx_fee = False
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+
+        response = await self.process_request(self.make_request())
+
+        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertIn("maximum configured limit of 99", response.check_tx.log)
         self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 
     async def test_check_tx_accepts_runtime_big_int_transfer_amount(self):

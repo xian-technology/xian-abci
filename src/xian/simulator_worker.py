@@ -27,6 +27,7 @@ def main() -> int:
             client=client,
             execution_runtime=task.get("execution_runtime"),
             chain_id=task.get("chain_id"),
+            charge_fees=task.get("charge_fees", True),
         )
         result = simulator.simulate(
             task["payload"],

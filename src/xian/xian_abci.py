@@ -42,6 +42,7 @@ from xian.execution_engine import (
     snapshot_driver_state,
 )
 from xian.execution_policy import validate_vm_execution_config
+from xian.fee_policy import TxFeePolicy
 from xian.methods import (
     check_tx,
     commit,
@@ -185,6 +186,8 @@ class Xian:
             trace_logging=self.transaction_trace_debug_logging,
             execution_runtime=self.execution_runtime,
         )
+        self.tx_fee_policy = TxFeePolicy.from_runtime_config(xian_config)
+        self.enable_tx_fee = self.tx_fee_policy.charge_fees
         self.simulator = QuerySimulationService(
             storage_home=constants.STORAGE_HOME,
             execution_runtime=self.execution_runtime,
@@ -195,6 +198,7 @@ class Xian:
             max_concurrency=xian_config.get("simulation_max_concurrency", 2),
             timeout_ms=xian_config.get("simulation_timeout_ms", 3000),
             max_chi=xian_config.get("simulation_max_chi", 1_000_000),
+            charge_fees=self.tx_fee_policy.charge_fees,
         )
         self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None
@@ -267,7 +271,6 @@ class Xian:
         if self.genesis.get("abci_genesis", None) is None:
             raise ValueError("No value set for 'abci_genesis' in Tendermint genesis.json")
 
-        self.enable_tx_fee = True
         self.static_rewards = False
         self.static_rewards_amount_foundation = 1
         self.static_rewards_amount_validators = 1
@@ -286,6 +289,7 @@ class Xian:
                     "chain_id": self.chain_id,
                     "execution_mode": self.execution_mode,
                     "bds_enabled": self.bds_enabled,
+                    "tx_fee_mode": self.tx_fee_policy.mode,
                     "simulation_enabled": self.simulator.enabled,
                     "parallel_execution_enabled": (self.parallel_block_executor.enabled),
                     "transaction_trace_logging": (self.transaction_trace_logging),

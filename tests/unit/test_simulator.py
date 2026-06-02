@@ -267,6 +267,30 @@ class SimulatorTests(unittest.TestCase):
             "currency",
         )
 
+    def test_execute_honors_free_metered_simulation_fee_policy(self):
+        simulator = _simulator()
+        simulator.charge_fees = False
+        simulator._make_environment = lambda payload, block_meta=None: {}
+
+        with (
+            mock.patch("xian.simulator.prepare_vm_contract"),
+            mock.patch(
+                "xian.simulator.execute_vm_transaction",
+                return_value=_native_result("ok", chi_used=1),
+            ) as native_execute,
+        ):
+            result = simulator._execute(
+                {
+                    "sender": "alice",
+                    "contract": "currency",
+                    "function": "balance_of",
+                    "kwargs": {"account": "alice"},
+                }
+            )
+
+        self.assertEqual(result["status"], 0)
+        self.assertFalse(native_execute.call_args.kwargs["apply_metering_writes"])
+
     def test_execute_rejects_submission_without_artifacts_for_xian_vm(self):
         simulator = _simulator()
         simulator._make_environment = lambda payload, block_meta=None: {}

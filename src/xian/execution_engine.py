@@ -295,6 +295,7 @@ def execute_vm_transaction(
     meter: bool,
     transaction_size_bytes: int = 0,
     apply_metering_on_success_only: bool = True,
+    apply_metering_writes: bool = True,
     currency_contract: str = "currency",
     balances_hash: str = "balances",
 ) -> VmTransactionResult:
@@ -319,7 +320,7 @@ def execute_vm_transaction(
     merged_writes = dict(vm_output.writes)
     restore_driver_state(driver, base_driver_state)
 
-    if vm_output.status_code == 0 or not apply_metering_on_success_only:
+    if apply_metering_writes and (vm_output.status_code == 0 or not apply_metering_on_success_only):
         if meter and chi_used > 0:
             merged_writes.update(
                 vm_metering_writes(

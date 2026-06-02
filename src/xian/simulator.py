@@ -52,11 +52,13 @@ class TransactionSimulator:
         get_block_meta=None,
         execution_runtime: VmRuntime | None = None,
         chain_id: str | None = None,
+        charge_fees: bool = True,
     ):
         self.client = client
         self.get_block_meta = get_block_meta or (lambda: None)
         self.execution_runtime = execution_runtime or VmRuntime()
         self.chain_id = chain_id
+        self.charge_fees = bool(charge_fees)
 
     def simulate(
         self,
@@ -180,6 +182,7 @@ class TransactionSimulator:
             chi_cost=chi_cost,
             meter=True,
             apply_metering_on_success_only=False,
+            apply_metering_writes=bool(getattr(self, "charge_fees", True)),
         )
 
         writes = [{"key": key, "value": value} for key, value in outcome.writes.items()]
@@ -277,6 +280,7 @@ class QuerySimulationService:
         max_concurrency: int = 2,
         timeout_ms: int = 3000,
         max_chi: int = 1_000_000,
+        charge_fees: bool = True,
     ) -> None:
         self.storage_home = Path(storage_home)
         self.execution_runtime = execution_runtime or VmRuntime()
@@ -287,6 +291,7 @@ class QuerySimulationService:
         self.max_concurrency = max(int(max_concurrency), 1)
         self.timeout_ms = max(int(timeout_ms), 1)
         self.max_chi = max(int(max_chi), 1)
+        self.charge_fees = bool(charge_fees)
         self._active_requests = 0
         self._counter_lock = asyncio.Lock()
 
@@ -338,6 +343,7 @@ class QuerySimulationService:
                 "block_meta": self.get_block_meta() or {},
                 "chain_id": self.chain_id,
                 "max_chi": self.max_chi,
+                "charge_fees": self.charge_fees,
                 "driver_state": self.get_state_snapshot(),
             }
             result = await self._run_task(task, normalized_payload)

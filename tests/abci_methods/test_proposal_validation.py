@@ -24,6 +24,7 @@ from cometbft.abci.v1beta3.types_pb2 import (
     Response,
 )
 from xian.constants import Constants as c
+from xian.fee_policy import TxFeePolicy
 from xian.utils.encoding import encode_transaction_bytes
 from xian.xian_abci import Xian
 
@@ -48,6 +49,7 @@ def make_signed_tx_bytes(
     *,
     nonce: int,
     chain_id: str = "xian-testnet-1",
+    chi_supplied: int = 100,
     mutate_signature: bool = False,
 ) -> bytes:
     signing_key = nacl.signing.SigningKey(SEED)
@@ -62,7 +64,7 @@ def make_signed_tx_bytes(
         "kwargs": {"amount": "1", "to": sender},
         "nonce": nonce,
         "sender": sender,
-        "chi_supplied": 100,
+        "chi_supplied": chi_supplied,
     }
     payload_str = _canonical_json(payload)
     signature = signing_key.sign(payload_str.encode("utf-8")).signature.hex()
@@ -146,6 +148,25 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(list(response.prepare_proposal.txs), [valid_tx])
 
+    async def test_prepare_proposal_free_metered_drops_tx_over_chi_cap(self):
+        self.app.tx_fee_policy = TxFeePolicy.free_metered(
+            max_tx_chi=100,
+            max_block_chi=1_000,
+        )
+        valid_tx = make_signed_tx_bytes(nonce=0, chi_supplied=100)
+        oversized_tx = make_signed_tx_bytes(nonce=1, chi_supplied=101)
+
+        response = await self.process_request(
+            "prepare_proposal",
+            Request(
+                prepare_proposal=RequestPrepareProposal(
+                    txs=[valid_tx, oversized_tx]
+                )
+            ),
+        )
+
+        self.assertEqual(list(response.prepare_proposal.txs), [valid_tx])
+
     async def test_prepare_proposal_filters_duplicate_nonce(self):
         tx_one = make_signed_tx_bytes(nonce=0)
         tx_two = make_signed_tx_bytes(nonce=0)
@@ -190,6 +211,28 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
     async def test_process_proposal_rejects_duplicate_nonce(self):
         tx_one = make_signed_tx_bytes(nonce=0)
         tx_two = make_signed_tx_bytes(nonce=0)
+
+        response = await self.process_request(
+            "process_proposal",
+            Request(
+                process_proposal=RequestProcessProposal(txs=[tx_one, tx_two])
+            ),
+        )
+
+        self.assertEqual(
+            response.process_proposal.status,
+            ResponseProcessProposal.ProposalStatus.REJECT,
+        )
+
+    async def test_process_proposal_free_metered_rejects_block_over_chi_cap(
+        self,
+    ):
+        self.app.tx_fee_policy = TxFeePolicy.free_metered(
+            max_tx_chi=100,
+            max_block_chi=150,
+        )
+        tx_one = make_signed_tx_bytes(nonce=0, chi_supplied=100)
+        tx_two = make_signed_tx_bytes(nonce=1, chi_supplied=100)
 
         response = await self.process_request(
             "process_proposal",

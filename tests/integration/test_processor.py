@@ -2,12 +2,13 @@ import os
 import time
 import unittest
 from datetime import UTC, datetime
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from contracting.local import ContractingClient
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
 
+from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 
 
@@ -235,6 +236,40 @@ class TestProcessor(unittest.TestCase):
             larger_result["tx_result"]["chi_used"],
             base_result["tx_result"]["chi_used"],
         )
+
+    def test_free_metered_process_tx_does_not_debit_native_balance(self):
+        self.d.set("chi_cost.S:value", 20)
+        self.d.set("currency.balances:bob", 100000)
+        self.d.set("currency_1.balances:bob", 100000)
+        rewards_handler = Mock()
+
+        result = self.tx_processor.process_tx(
+            tx={
+                "payload": {
+                    "contract": "currency_1",
+                    "function": "transfer",
+                    "sender": "bob",
+                    "kwargs": {"amount": 5, "to": "casey"},
+                    "chi_supplied": 1000,
+                },
+                "metadata": {"signature": "abc"},
+                "b_meta": create_block_meta(),
+            },
+            fee_policy=TxFeePolicy.free_metered(
+                max_tx_chi=1000,
+                max_block_chi=1000,
+            ),
+            rewards_handler=rewards_handler,
+        )
+
+        self.assertEqual(result["tx_result"]["status"], 0)
+        self.assertGreater(result["tx_result"]["chi_used"], 0)
+        self.assertEqual(self.d.get("currency.balances:bob"), 100000)
+        self.assertNotIn(
+            "currency.balances:bob",
+            {write["key"] for write in result["tx_result"]["state"]},
+        )
+        rewards_handler.build_tx_reward_outputs.assert_not_called()
 
     def test_reset_block_cache_clears_verified_proof_cache(self):
         with patch(

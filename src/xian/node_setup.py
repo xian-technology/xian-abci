@@ -12,6 +12,12 @@ from nacl.signing import SigningKey
 from xian_runtime_types.encoding import encode
 
 from xian import toml_utils
+from xian.fee_policy import (
+    DEFAULT_FREE_BLOCK_MAX_CHI,
+    DEFAULT_FREE_TX_MAX_CHI,
+    DEFAULT_TX_FEE_MODE,
+    normalize_tx_fee_mode,
+)
 
 DEFAULT_COMETBFT_CONFIG_TOML = """
 version = "0.39.3"
@@ -147,6 +153,9 @@ simulation_enabled = true
 simulation_max_concurrency = 2
 simulation_timeout_ms = 3000
 simulation_max_chi = 1000000
+tx_fee_mode = "paid_metered"
+free_tx_max_chi = 1000000
+free_block_max_chi = 20000000
 parallel_execution_enabled = false
 parallel_execution_workers = 4
 parallel_execution_min_transactions = 8
@@ -285,6 +294,9 @@ class NodeConfigOptions:
     metrics: MetricsOptions = field(default_factory=MetricsOptions)
     app_logging: AppLoggingOptions = field(default_factory=AppLoggingOptions)
     simulation: SimulationOptions = field(default_factory=SimulationOptions)
+    tx_fee_mode: str = DEFAULT_TX_FEE_MODE
+    free_tx_max_chi: int = DEFAULT_FREE_TX_MAX_CHI
+    free_block_max_chi: int = DEFAULT_FREE_BLOCK_MAX_CHI
     parallel_execution: ParallelExecutionOptions = field(default_factory=ParallelExecutionOptions)
     pending_nonce_reservation_ttl_seconds: float = 60.0
     max_pending_nonces_per_sender: int = 128
@@ -339,6 +351,13 @@ def resolve_simulation_settings(
 
 
 def validate_node_runtime_settings(options: NodeConfigOptions) -> None:
+    normalize_tx_fee_mode(options.tx_fee_mode)
+    if options.free_tx_max_chi <= 0:
+        raise ValueError("free_tx_max_chi must be greater than zero")
+    if options.free_block_max_chi <= 0:
+        raise ValueError("free_block_max_chi must be greater than zero")
+    if options.free_block_max_chi < options.free_tx_max_chi:
+        raise ValueError("free_block_max_chi must be greater than or equal to free_tx_max_chi")
     if options.blocks_to_keep <= 0:
         raise ValueError("blocks_to_keep must be greater than zero")
     if options.metrics.port < 1 or options.metrics.port > 65535:
@@ -584,6 +603,9 @@ def render_node_configs(
     xian_config["simulation_max_concurrency"] = resolved_simulation["max_concurrency"]
     xian_config["simulation_timeout_ms"] = resolved_simulation["timeout_ms"]
     xian_config["simulation_max_chi"] = resolved_simulation["max_chi"]
+    xian_config["tx_fee_mode"] = normalize_tx_fee_mode(options.tx_fee_mode)
+    xian_config["free_tx_max_chi"] = options.free_tx_max_chi
+    xian_config["free_block_max_chi"] = options.free_block_max_chi
     xian_config["parallel_execution_enabled"] = options.parallel_execution.enabled
     xian_config["parallel_execution_workers"] = options.parallel_execution.workers
     xian_config["parallel_execution_min_transactions"] = options.parallel_execution.min_transactions

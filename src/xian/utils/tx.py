@@ -178,6 +178,7 @@ def validate_transaction(
     *,
     tx_hash: str,
     chain_id: str,
+    fee_policy=None,
 ):
     validate_transaction_static(tx, chain_id=chain_id)
     validate_transaction_after_static(
@@ -185,6 +186,7 @@ def validate_transaction(
         nonce_storage,
         tx,
         tx_hash=tx_hash,
+        fee_policy=fee_policy,
     )
 
 
@@ -194,7 +196,14 @@ def validate_transaction_after_static(
     tx,
     *,
     tx_hash: str,
+    fee_policy=None,
 ):
+    if fee_policy is not None:
+        fee_policy.validate_tx(tx)
+        if not fee_policy.require_chi_balance:
+            nonce_storage.check_nonce(tx, tx_hash=tx_hash)
+            return
+
     # Get the senders balance and the current chi rate
     try:
         balance = client.get_var(

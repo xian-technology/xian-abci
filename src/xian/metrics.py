@@ -98,6 +98,7 @@ class XianMetricsCollector:
         yield self._collect_bds_alerts(bds_status)
 
     def _collect_node_info(self, app) -> InfoMetricFamily:
+        tx_fee_policy = getattr(app, "tx_fee_policy", None)
         node_info = InfoMetricFamily(
             "xian_node",
             "Static Xian node runtime information.",
@@ -110,6 +111,7 @@ class XianMetricsCollector:
                 "bds_enabled": str(app.bds_enabled).lower(),
                 "parallel_execution_enabled": str(app.parallel_block_executor.enabled).lower(),
                 "tx_fees_enabled": str(app.enable_tx_fee).lower(),
+                "tx_fee_mode": str(getattr(tx_fee_policy, "mode", "")),
             },
         )
         return node_info

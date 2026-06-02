@@ -203,6 +203,7 @@ def _initialize_block(self, req):
 def _decode_block_transactions(self, req, *, height: int, block_hash: str):
     decoded_entries = []
     nonce_tracker = SequentialNonceTracker(self.nonce_storage.get_nonce)
+    block_chi_supplied = 0
     with self.profiler.scope("finalize_decode", block_scoped=True):
         for tx_bytes in req.txs:
             try:
@@ -227,10 +228,16 @@ def _decode_block_transactions(self, req, *, height: int, block_hash: str):
                 continue
 
             try:
+                self.tx_fee_policy.validate_tx(tx)
+                next_block_chi_supplied = block_chi_supplied + self.tx_fee_policy.tx_chi_supplied(
+                    tx
+                )
+                self.tx_fee_policy.validate_block_total(next_block_chi_supplied)
                 validate_consensus_transaction_after_static(
                     tx,
                     nonce_tracker=nonce_tracker,
                 )
+                block_chi_supplied = next_block_chi_supplied
             except Exception as e:
                 decoded_entries.append(
                     {
@@ -295,6 +302,7 @@ def _execute_transactions_in_parallel(
             txs=decoded_txs,
             tx_processor=self.tx_processor,
             enabled_fees=self.enable_tx_fee,
+            fee_policy=self.tx_fee_policy,
             rewards_handler=self.rewards_handler,
         )
     if parallel_execution is None:
@@ -372,6 +380,7 @@ def _execute_block_transactions(
                     result = self.tx_processor.process_tx(
                         tx,
                         enabled_fees=self.enable_tx_fee,
+                        fee_policy=self.tx_fee_policy,
                         rewards_handler=self.rewards_handler,
                         track_access=False,
                     )

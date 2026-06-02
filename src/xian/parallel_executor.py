@@ -16,6 +16,7 @@ from contracting.storage.driver import Driver
 from loguru import logger
 
 from xian.execution_engine import VmRuntime
+from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
 
@@ -99,6 +100,7 @@ def _speculative_process_tx(task: dict) -> dict:
         return runtime.tx_processor.process_tx(
             task["tx"],
             enabled_fees=task["enabled_fees"],
+            fee_policy=task.get("fee_policy"),
             rewards_handler=runtime.rewards_handler,
             track_access=True,
         )
@@ -135,6 +137,7 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         self._executor: ProcessPoolExecutor | None = None
         self._batch_tx_processor: TxProcessor | None = None
         self._batch_enabled_fees = False
+        self._batch_fee_policy: TxFeePolicy | None = None
         self._batch_rewards_handler: RewardsHandler | None = None
         super().__init__(
             enabled=enabled,
@@ -152,13 +155,15 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         txs: list[dict],
         tx_processor: TxProcessor,
         enabled_fees: bool,
-        rewards_handler: RewardsHandler | None,
+        fee_policy: TxFeePolicy | None = None,
+        rewards_handler: RewardsHandler | None = None,
     ) -> tuple[list[dict], ParallelExecutionStats] | None:
         if not self.is_enabled_for_batch(len(txs)):
             return None
 
         self._batch_tx_processor = tx_processor
         self._batch_enabled_fees = enabled_fees
+        self._batch_fee_policy = fee_policy
         self._batch_rewards_handler = rewards_handler
         try:
             known_shapes, unknown_shapes = self._estimate_shape_summaries(
@@ -187,6 +192,7 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         finally:
             self._batch_tx_processor = None
             self._batch_enabled_fees = False
+            self._batch_fee_policy = None
             self._batch_rewards_handler = None
 
     def warm(self, *, use_rewards_handler: bool) -> None:
@@ -229,6 +235,7 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         return self._batch_tx_processor.process_tx(
             request,
             enabled_fees=self._batch_enabled_fees,
+            fee_policy=self._batch_fee_policy,
             rewards_handler=self._batch_rewards_handler,
             track_access=True,
         )
@@ -244,6 +251,7 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
                 "storage_home": str(self.storage_home),
                 "tx": tx,
                 "enabled_fees": self._batch_enabled_fees,
+                "fee_policy": self._batch_fee_policy,
                 "use_rewards_handler": self._batch_rewards_handler is not None,
                 "execution_runtime": self.execution_runtime,
                 "base_pending_writes": deepcopy(base_pending_writes),
