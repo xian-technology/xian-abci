@@ -13,6 +13,7 @@ from abci.server import ProtocolHandler
 from abci.utils import read_messages
 from cometbft.abci.v1beta1.types_pb2 import RequestQuery
 from cometbft.abci.v1beta3.types_pb2 import Request, Response
+from contracting.storage.driver import SOURCE_KEY, XIAN_VM_V1_IR_KEY
 from xian.constants import Constants
 from xian.xian_abci import Xian
 
@@ -681,18 +682,99 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(vm_ir["vm_profile"], "xian_vm_v1")
 
     async def test_contract_methods_query(self):
+        self.app.client.raw_driver.set_var(
+            "currency",
+            SOURCE_KEY,
+            value="@export\ndef fake_method(value: str):\n    return value\n",
+        )
+
         response = await self.process_request(
             Request(query=RequestQuery(path="/contract_methods/currency"))
         )
         self.assertEqual(response.query.code, Constants.OkCode)
         self.assertEqual(response.query.info, "dict")
+        self.assertEqual(
+            json.loads(response.query.value),
+            {
+                "methods": [
+                    {
+                        "name": "seed",
+                        "arguments": [{"name": "vk", "type": "str"}],
+                    },
+                    {
+                        "name": "balance_of",
+                        "arguments": [{"name": "account", "type": "str"}],
+                    },
+                ]
+            },
+        )
 
     async def test_contract_vars_query(self):
+        self.app.client.raw_driver.set_var(
+            "currency",
+            SOURCE_KEY,
+            value="fake_variable = Variable()\n",
+        )
+
         response = await self.process_request(
             Request(query=RequestQuery(path="/contract_vars/currency"))
         )
         self.assertEqual(response.query.code, Constants.OkCode)
         self.assertEqual(response.query.info, "dict")
+        self.assertEqual(
+            json.loads(response.query.value),
+            {
+                "variables": [],
+                "hashes": ["balances"],
+            },
+        )
+
+    async def test_contract_metadata_queries_fall_back_to_source_without_ir(self):
+        self.app.client.raw_driver.delete(
+            self.app.client.raw_driver.make_key("currency", XIAN_VM_V1_IR_KEY)
+        )
+        self.app.client.raw_driver.set_var(
+            "currency",
+            SOURCE_KEY,
+            value="""
+owner = Variable()
+balances = Hash()
+
+@export
+def fallback(value: list[int]):
+    return value
+""".strip(),
+        )
+
+        methods_response = await self.process_request(
+            Request(query=RequestQuery(path="/contract_methods/currency"))
+        )
+        vars_response = await self.process_request(
+            Request(query=RequestQuery(path="/contract_vars/currency"))
+        )
+
+        self.assertEqual(methods_response.query.code, Constants.OkCode)
+        self.assertEqual(methods_response.query.info, "dict")
+        self.assertEqual(
+            json.loads(methods_response.query.value),
+            {
+                "methods": [
+                    {
+                        "name": "fallback",
+                        "arguments": [{"name": "value", "type": "list[int]"}],
+                    }
+                ]
+            },
+        )
+        self.assertEqual(vars_response.query.code, Constants.OkCode)
+        self.assertEqual(vars_response.query.info, "dict")
+        self.assertEqual(
+            json.loads(vars_response.query.value),
+            {
+                "variables": ["owner"],
+                "hashes": ["balances"],
+            },
+        )
 
     async def test_state_patches_query_uses_bds(self):
         self.app.bds_enabled = True

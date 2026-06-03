@@ -1075,6 +1075,13 @@ async def handle_index(request: web.Request) -> web.Response:
     )
 
 
+async def handle_favicon(request: web.Request) -> web.Response:
+    return web.FileResponse(
+        STATIC_DIR / "favicon.png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 async def handle_status(request: web.Request) -> web.Response:
     return await _proxy(
         request.app["session"],
@@ -1629,6 +1636,7 @@ def create_app(
     app.on_cleanup.append(_on_cleanup)
 
     app.router.add_get("/", handle_index)
+    app.router.add_get("/favicon.png", handle_favicon)
     app.router.add_get("/explorer", handle_index)
     app.router.add_get("/explorer/{_path:.+}", handle_index)
     app.router.add_get("/ws", handle_ws)

@@ -72,6 +72,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 xian = [
     "dashboard/static/*.html",
+    "dashboard/static/*.png",
     "tools/state_patches/*.json",
 ]
 

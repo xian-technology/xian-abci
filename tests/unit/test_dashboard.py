@@ -261,6 +261,14 @@ class DashboardTests(unittest.TestCase):
         )
         self.assertEqual(app["rest_concurrency_limiter"].limit, 7)
 
+    def test_create_app_routes_favicon_png(self) -> None:
+        app = create_app("http://127.0.0.1:26657")
+
+        paths = {route.resource.canonical for route in app.router.routes()}
+
+        self.assertIn("/favicon.png", paths)
+        self.assertNotIn("/favicon.svg", paths)
+
     def test_decode_block_tx_entry_attaches_canonical_tx_hash(self) -> None:
         tx = {
             "payload": {

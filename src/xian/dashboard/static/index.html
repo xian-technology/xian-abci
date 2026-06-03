@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Xian Node</title>
+<link rel="icon" type="image/png" href="/favicon.png">
 <script>
 document.documentElement.dataset.route =
   location.pathname.startsWith("/explorer") ? "explorer" : "dashboard";
@@ -25,8 +26,8 @@ a:hover{text-decoration:underline}
 /* ── header ── */
 .header{display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:56px;background:var(--surface);border-bottom:1px solid var(--border)}
 .header-left{display:flex;align-items:center;gap:12px}
-.logo{font-size:1.25rem;font-weight:700;letter-spacing:.5px;cursor:pointer}
-.logo span{color:var(--accent)}
+.logo{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;cursor:pointer;flex:0 0 auto}
+.logo-img{display:block;width:40px;height:40px;object-fit:contain}
 .chain-badge{font-size:.75rem;padding:2px 8px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-family:var(--mono)}
 .header-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
 .status-stack{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
@@ -217,7 +218,9 @@ tr.clickable{cursor:pointer}
 
 <div class="header">
   <div class="header-left">
-    <div class="logo" data-action="navigate" data-nav-view="home"><span>X</span>ian</div>
+    <div class="logo" data-action="navigate" data-nav-view="home" aria-label="Xian" title="Xian">
+      <img class="logo-img" src="/favicon.png" alt="Xian">
+    </div>
     <div class="chain-badge" id="chain-id">&mdash;</div>
   </div>
   <div class="header-right">
@@ -475,8 +478,13 @@ function decodeDataAttr(value){
     return String(value);
   }
 }
+function navPath(view, id){
+  if(view === "home") return "/";
+  if(view === "list") return explorerListPath();
+  return "/explorer/"+view+"/"+encodeURIComponent(id);
+}
 function navAttrs(view, id){
-  let attrs = ' data-action="navigate" data-nav-view="'+dataAttrValue(view)+'"';
+  let attrs = ' href="'+escHtml(withCurrentRpc(navPath(view, id)))+'" data-action="navigate" data-nav-view="'+dataAttrValue(view)+'"';
   if(id !== undefined && id !== null) attrs += ' data-nav-id="'+dataAttrValue(id)+'"';
   return attrs;
 }
@@ -526,18 +534,18 @@ function addressLink(address, opts){
   const left = opts && opts.left ? opts.left : 12;
   const right = opts && opts.right ? opts.right : 10;
   const label = opts && opts.label ? opts.label : truncateMiddle(address, left, right);
-  return '<span class="link mono" title="'+escHtml(address)+'"'+navAttrs('address', address)+'>'+escHtml(label)+'</span>';
+  return '<a class="link mono" title="'+escHtml(address)+'"'+navAttrs('address', address)+'>'+escHtml(label)+'</a>';
 }
 function txLink(hash, opts){
   if(!hash) return "\u2014";
   const left = opts && opts.left ? opts.left : 10;
   const right = opts && opts.right ? opts.right : 8;
   const label = opts && opts.label ? opts.label : truncateMiddle(hash, left, right);
-  return '<span class="link mono" title="'+escHtml(hash)+'"'+navAttrs('tx', hash)+'>'+escHtml(label)+'</span>';
+  return '<a class="link mono" title="'+escHtml(hash)+'"'+navAttrs('tx', hash)+'>'+escHtml(label)+'</a>';
 }
 function contractLink(name){
   if(!name) return "\u2014";
-  return '<span class="link mono"'+navAttrs('contract', name)+'>'+escHtml(name)+'</span>';
+  return '<a class="link mono"'+navAttrs('contract', name)+'>'+escHtml(name)+'</a>';
 }
 function compactText(value, maxLen){
   if(value === null || value === undefined) return "\u2014";
@@ -1016,6 +1024,10 @@ function runPageAction(page, dir){
   else if(page === "address") addressPage(dir);
 }
 
+function isPlainLeftClick(event){
+  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+}
+
 document.addEventListener("click", event=>{
   const target = event.target instanceof Element
     ? event.target.closest("[data-action]")
@@ -1025,6 +1037,7 @@ document.addEventListener("click", event=>{
 
   const action = target.dataset.action;
   if(action === "navigate"){
+    if(!isPlainLeftClick(event)) return;
     event.preventDefault();
     const view = decodeDataAttr(target.dataset.navView);
     const id = target.dataset.navId === undefined
@@ -1663,7 +1676,7 @@ async function viewBlock(height){
 
       html += `<tr class="${txHash?"clickable":""}" ${clickAttr}>
         <td>${i+1}</td>
-        <td><span class="link"${navAttrs('contract', contract)}>${escHtml(contract)}</span></td>
+        <td><a class="link"${navAttrs('contract', contract)}>${escHtml(contract)}</a></td>
         <td>${escHtml(fn)}</td>
         <td>${sender}</td>
         <td>${statusBadge}</td>
@@ -1712,7 +1725,7 @@ async function viewTx(hash){
     <div class="card-header">Transaction Overview</div>
     <div class="card-body">
       <div class="data-row"><span class="data-key">Hash</span><span class="data-val">${escHtml(txHash)}</span></div>
-      <div class="data-row"><span class="data-key">Block Height</span><span class="data-val"><span class="link"${navAttrs('block', height)}>${height}</span></span></div>
+      <div class="data-row"><span class="data-key">Block Height</span><span class="data-val"><a class="link"${navAttrs('block', height)}>${height}</a></span></div>
       <div class="data-row"><span class="data-key">Index</span><span class="data-val">${tx.index!==undefined?tx.index:"\u2014"}</span></div>`;
 
   if(txResult.code !== undefined){
@@ -2093,7 +2106,7 @@ async function viewContract(name){
   if(summary){
     html +=
       '<div class="data-row"><span class="data-key">Creation Tx</span><span class="data-val">'+(summary.last_tx_hash ? txLink(summary.last_tx_hash,{left:14,right:10}) : "\u2014")+'</span></div>'+
-      '<div class="data-row"><span class="data-key">Created At Block</span><span class="data-val">'+(summary.submitted_at_block ? '<span class="link mono"'+navAttrs('block', String(summary.submitted_at_block))+'>'+escHtml(String(summary.submitted_at_block))+'</span>' : "\u2014")+'</span></div>'+
+      '<div class="data-row"><span class="data-key">Created At Block</span><span class="data-val">'+(summary.submitted_at_block ? '<a class="link mono"'+navAttrs('block', String(summary.submitted_at_block))+'>'+escHtml(String(summary.submitted_at_block))+'</a>' : "\u2014")+'</span></div>'+
       '<div class="data-row"><span class="data-key">Generated Rewards</span><span class="data-val">'+escHtml(String(summary.total_rewards ?? "\u2014"))+'</span></div>'+
       '<div class="data-row"><span class="data-key">Reward Records</span><span class="data-val">'+escHtml(String(summary.reward_count ?? "\u2014"))+'</span></div>'+
       '<div class="data-row"><span class="data-key">Indexed Txs</span><span class="data-val">'+escHtml(String(summary.tx_count ?? "\u2014"))+'</span></div>';

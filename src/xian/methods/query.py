@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -330,6 +331,71 @@ def _masternodes_vote_records(raw_driver, proposal_id: int) -> list[dict]:
     return records
 
 
+def _contract_ir_for_metadata(raw_driver, contract_name: str) -> dict[str, Any] | None:
+    get_contract_ir = getattr(raw_driver, "get_contract_ir", None)
+    if get_contract_ir is None:
+        return None
+
+    module_ir_json = get_contract_ir(contract_name)
+    if not isinstance(module_ir_json, str) or not module_ir_json:
+        return None
+
+    try:
+        module_ir = json.loads(module_ir_json)
+    except json.JSONDecodeError:
+        logger.warning(f"invalid contract IR metadata for {contract_name}")
+        return None
+
+    if not isinstance(module_ir, dict):
+        return None
+    return module_ir
+
+
+def _methods_for_contract_ir(module_ir: dict[str, Any]) -> list[dict[str, Any]]:
+    methods: list[dict[str, Any]] = []
+    for function in module_ir.get("functions", []):
+        if not isinstance(function, dict):
+            continue
+        name = function.get("name")
+        if not isinstance(name, str) or name.startswith("__"):
+            continue
+
+        arguments: list[dict[str, Any]] = []
+        for parameter in function.get("parameters", []):
+            if not isinstance(parameter, dict):
+                continue
+            parameter_name = parameter.get("name")
+            if not isinstance(parameter_name, str):
+                continue
+            argument = {"name": parameter_name}
+            annotation = parameter.get("annotation")
+            if isinstance(annotation, str):
+                argument["type"] = annotation
+            arguments.append(argument)
+
+        methods.append({"name": name, "arguments": arguments})
+    return methods
+
+
+def _variables_for_contract_ir(module_ir: dict[str, Any]) -> dict[str, list[str]]:
+    variables: list[str] = []
+    hashes: list[str] = []
+
+    for declaration in module_ir.get("global_declarations", []):
+        if not isinstance(declaration, dict) or declaration.get("node") != "storage_decl":
+            continue
+        name = declaration.get("name")
+        storage_type = declaration.get("storage_type")
+        if not isinstance(name, str):
+            continue
+        if storage_type == "Variable":
+            variables.append(name.removeprefix("__"))
+        elif storage_type == "Hash":
+            hashes.append(name.removeprefix("__"))
+
+    return {"variables": variables, "hashes": hashes}
+
+
 def _resolve_contract_info(ctx: QueryContext, contract_name: str) -> dict[str, Any]:
     return {
         "name": contract_name,
@@ -487,6 +553,10 @@ async def _handle_contract_ir(ctx: QueryContext) -> QueryResult:
 
 
 async def _handle_contract_methods(ctx: QueryContext) -> QueryResult:
+    module_ir = _contract_ir_for_metadata(ctx.raw_driver, ctx.key)
+    if module_ir is not None:
+        return QueryResult(result={"methods": _methods_for_contract_ir(module_ir)})
+
     contract_source = ctx.raw_driver.get_contract_source(ctx.key)
     if contract_source is None:
         return QueryResult(result=None)
@@ -494,6 +564,10 @@ async def _handle_contract_methods(ctx: QueryContext) -> QueryResult:
 
 
 async def _handle_contract_vars(ctx: QueryContext) -> QueryResult:
+    module_ir = _contract_ir_for_metadata(ctx.raw_driver, ctx.key)
+    if module_ir is not None:
+        return QueryResult(result=_variables_for_contract_ir(module_ir))
+
     contract_source = ctx.raw_driver.get_contract_source(ctx.key)
     if contract_source is None:
         return QueryResult(result=None)
