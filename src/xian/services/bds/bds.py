@@ -488,9 +488,11 @@ class BDS:
             if self._indexed_height is None or indexed_height > self._indexed_height:
                 self._indexed_height = indexed_height
         self._prune_stale_pending_payloads()
+        index_height_delta = None
         height_lag = None
         if isinstance(current_block_height, int) and isinstance(indexed_height, int):
-            height_lag = max(current_block_height - indexed_height, 0)
+            index_height_delta = current_block_height - indexed_height
+            height_lag = max(index_height_delta, 0)
 
         queue_depth = len(self._pending_payloads)
         queue_capacity = max(self.config.queue_max_size, 1)
@@ -555,6 +557,17 @@ class BDS:
                     "value": disk_usage.free,
                 }
             )
+        if isinstance(index_height_delta, int) and index_height_delta < 0:
+            alerts.append(
+                {
+                    "level": "error",
+                    "code": "indexed_height_ahead",
+                    "message": "BDS indexed height is ahead of the current chain height",
+                    "current_block_height": current_block_height,
+                    "indexed_height": indexed_height,
+                    "value": abs(index_height_delta),
+                }
+            )
 
         has_spool_backlog = len(spool_snapshot.files) > 0
         has_height_lag = isinstance(height_lag, int) and height_lag > 0
@@ -581,6 +594,7 @@ class BDS:
             "last_enqueue_error": self._last_enqueue_error,
             "indexed": indexed,
             "current_block_height": current_block_height,
+            "index_height_delta": index_height_delta,
             "height_lag": height_lag,
             "catching_up": has_spool_backlog or has_height_lag,
             "alerts": alerts,

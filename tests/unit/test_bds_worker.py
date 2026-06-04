@@ -150,6 +150,43 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(status["height_lag"], 0)
             self.assertFalse(status["catching_up"])
 
+    async def test_status_alerts_when_indexed_height_is_ahead_of_chain(self):
+        with TemporaryDirectory() as spool_dir:
+            bds = _RecordingBDS(spool_dir)
+            Path(spool_dir).mkdir(parents=True, exist_ok=True)
+            bds.db.fetchrow = AsyncMock(
+                return_value={
+                    "indexed_block_count": 16700,
+                    "indexed_height": 16647,
+                    "indexed_block_hash": "BLOCK-16647",
+                    "indexed_block_time": 16647,
+                    "indexed_block_time_iso": datetime(
+                        2026, 1, 1, tzinfo=UTC
+                    ),
+                    "indexed_tx_count": 3,
+                    "indexed_app_hash": "APP-16647",
+                }
+            )
+
+            status = await bds.get_status(current_block_height=60)
+
+            self.assertEqual(status["height_lag"], 0)
+            self.assertEqual(status["index_height_delta"], -16587)
+            self.assertFalse(status["catching_up"])
+            self.assertIn(
+                {
+                    "level": "error",
+                    "code": "indexed_height_ahead",
+                    "message": (
+                        "BDS indexed height is ahead of the current chain height"
+                    ),
+                    "current_block_height": 60,
+                    "indexed_height": 16647,
+                    "value": 16587,
+                },
+                status["alerts"],
+            )
+
     async def test_status_prunes_stale_pending_entries(self):
         with TemporaryDirectory() as spool_dir:
             bds = _RecordingBDS(spool_dir)

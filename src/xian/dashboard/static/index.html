@@ -1333,6 +1333,17 @@ function renderBdsHealth(monitoring){
   const status = bds.status || {};
   const indexed = status.indexed || {};
   const alerts = status.alerts || [];
+  const currentHeight = status.current_block_height;
+  const indexedHeight = indexed.indexed_height;
+  const parsedCurrentHeight = Number(currentHeight);
+  const parsedIndexedHeight = Number(indexedHeight);
+  const hasHeightMismatch =
+    Number.isFinite(parsedCurrentHeight) &&
+    Number.isFinite(parsedIndexedHeight) &&
+    parsedIndexedHeight > parsedCurrentHeight;
+  const mismatchBlocks = hasHeightMismatch
+    ? parsedIndexedHeight - parsedCurrentHeight
+    : null;
 
   if(!bds.enabled){
     $("bds-health").innerHTML = '<div class="empty">BDS is disabled for this node</div>';
@@ -1341,8 +1352,14 @@ function renderBdsHealth(monitoring){
 
   let html =
     '<div class="data-row"><span class="data-key">DB Status</span><span class="data-val">'+escHtml(String(status.db_status || "\u2014"))+'</span></div>'+
+    '<div class="data-row"><span class="data-key">Chain Height</span><span class="data-val">'+escHtml(String(currentHeight ?? "\u2014"))+'</span></div>'+
     '<div class="data-row"><span class="data-key">Indexed Height</span><span class="data-val">'+escHtml(String(indexed.indexed_height ?? "\u2014"))+'</span></div>'+
     '<div class="data-row"><span class="data-key">Height Lag</span><span class="data-val">'+escHtml(String(status.height_lag ?? "\u2014"))+'</span></div>'+
+    (
+      hasHeightMismatch
+        ? '<div class="data-row"><span class="data-key">Index Mismatch</span><span class="data-val" style="color:var(--red)">BDS ahead by '+escHtml(String(mismatchBlocks))+' blocks</span></div>'
+        : ''
+    )+
     '<div class="data-row"><span class="data-key">Pending Buffer</span><span class="data-val">'+escHtml(String(status.queue_depth ?? "\u2014"))+' / '+escHtml(String(status.queue_capacity ?? "\u2014"))+'</span></div>'+
     '<div class="data-row"><span class="data-key">Spool</span><span class="data-val">'+escHtml(String(status.spool_pending_count ?? "\u2014"))+' files / '+fmtBytes(status.spool_total_bytes)+'</span></div>'+
     '<div class="data-row"><span class="data-key">Spool FS Free</span><span class="data-val">'+fmtBytes(status.storage && status.storage.filesystem_free_bytes)+'</span></div>';
