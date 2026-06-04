@@ -10,14 +10,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from contracting.local import ContractingClient
+from contracting.artifacts import build_contract_artifacts
+from contracting.local import BUILTIN_SUBMISSION_SOURCE_PATH
 from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import encode
+from xian_runtime_types.time import Datetime
 
 from xian.config_paths import (
     resolve_contracts_dir as resolve_configs_contracts_dir,
 )
+from xian.execution_engine import VmRuntime, build_vm_runtime, execute_vm_contract
 from xian.state_root import StateRootCache
 
 TEMPLATE_ARG_PATTERN = re.compile(r"%%(.*?)%%")
@@ -66,6 +69,63 @@ def load_contract_bundle_config(
         return json.load(handle)
 
 
+def _genesis_submission_time() -> Datetime:
+    now = datetime.today()
+    return Datetime(now.year, now.month, now.day, hour=now.hour, minute=now.minute)
+
+
+def _stage_native_submission_contract(driver: Driver) -> None:
+    source = BUILTIN_SUBMISSION_SOURCE_PATH.read_text(encoding="utf-8")
+    artifacts = build_contract_artifacts(
+        module_name="submission",
+        source=source,
+        lint=False,
+        vm_profile="xian_vm_v1",
+    )
+    driver.set_contract(
+        name="submission",
+        source=artifacts["source"],
+        vm_ir_json=artifacts["vm_ir_json"],
+    )
+
+
+def _deploy_native_genesis_contract(
+    *,
+    runtime: VmRuntime,
+    driver: Driver,
+    contract_name: str,
+    source: str,
+    owner: str | None,
+    constructor_args: dict[str, Any] | None,
+) -> None:
+    artifacts = build_contract_artifacts(
+        module_name=contract_name,
+        source=source,
+        lint=True,
+        vm_profile="xian_vm_v1",
+    )
+    output = execute_vm_contract(
+        runtime,
+        driver,
+        sender="sys",
+        contract_name="submission",
+        function_name="submit_contract",
+        kwargs={
+            "name": contract_name,
+            "owner": owner,
+            "constructor_args": constructor_args or {},
+            "deployment_artifacts": artifacts,
+        },
+        environment={"now": _genesis_submission_time()},
+        meter=False,
+    )
+    if output.status_code != 0:
+        raise ValueError(
+            f"Failed to deploy genesis contract {contract_name}: {output.result}"
+        )
+    driver.apply_writes(output.writes)
+
+
 def _find_members_contract(contract_config: dict[str, Any]) -> dict[str, Any]:
     for contract in contract_config["contracts"]:
         if contract.get("submit_as") == "masternodes":
@@ -98,8 +158,9 @@ def _build_genesis_block(
     storage_home: Path,
     constructor_overrides: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    contracting = ContractingClient(driver=Driver(storage_home=storage_home))
-    contracting.set_submission_contract(commit=False)
+    driver = Driver(storage_home=storage_home)
+    runtime = build_vm_runtime()
+    _stage_native_submission_contract(driver)
 
     contract_config = load_contract_bundle_config(
         network,
@@ -136,10 +197,12 @@ def _build_genesis_block(
                 constructor_args = {}
             constructor_args.update(override_args)
 
-        if not contracting.raw_driver.has_contract(contract_name):
-            contracting.submit(
-                code,
-                name=contract_name,
+        if not driver.has_contract(contract_name):
+            _deploy_native_genesis_contract(
+                runtime=runtime,
+                driver=driver,
+                contract_name=contract_name,
+                source=code,
                 owner=owner,
                 constructor_args=constructor_args,
             )
@@ -154,15 +217,15 @@ def _build_genesis_block(
         },
     }
 
-    contracting.raw_driver.hard_apply("0")
-    contracting.raw_driver.flush_cache()
-    for key, value in contracting.raw_driver.items().items():
+    driver.hard_apply("0")
+    driver.flush_cache()
+    for key, value in driver.items().items():
         genesis_block["genesis"].append({"key": key, "value": value})
     genesis_block["genesis"] = sorted(
         genesis_block["genesis"],
         key=lambda item: item["key"],
     )
-    genesis_block["hash"] = StateRootCache.from_driver(contracting.raw_driver).root_hash.hex()
+    genesis_block["hash"] = StateRootCache.from_driver(driver).root_hash.hex()
     genesis_block["origin"]["sender"] = wallet.public_key
     genesis_block["origin"]["signature"] = wallet.sign_msg(
         hash_state_changes(genesis_block["genesis"])

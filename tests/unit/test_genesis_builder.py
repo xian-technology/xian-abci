@@ -3,11 +3,16 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from contracting.artifacts import build_contract_artifacts
 from contracting.local import ContractingClient
+from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import encode
+from xian_runtime_types.time import Datetime
 
+from xian.execution_engine import build_vm_runtime, execute_vm_contract
 from xian.genesis_builder import (
     build_bundle_network_genesis,
     build_cometbft_genesis,
@@ -143,6 +148,122 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertEqual(
             state_by_key["con_seed.owner_value"], wallet.public_key
         )
+
+    def test_genesis_contract_deploy_matches_native_submission_path(self):
+        founder_private_key = (
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        )
+        fixed_now = Datetime(2026, 4, 12, 12, 0)
+        source = (
+            "owner_value = Variable()\n"
+            "limits = Variable()\n"
+            "ratios = Variable()\n\n"
+            "@construct\n"
+            "def seed(founder: str, limits_arg: list[int], ratios_arg: list[float]):\n"
+            "    owner_value.set(founder)\n"
+            "    limits.set(limits_arg)\n"
+            "    ratios.set(ratios_arg)\n\n"
+            "@export\n"
+            "def get_owner():\n"
+            "    return owner_value.get()\n"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            contracts_dir = Path(tmp_dir) / "contracts"
+            contracts_dir.mkdir()
+            (contracts_dir / "seed_contract.s.py").write_text(
+                source,
+                encoding="utf-8",
+            )
+            (contracts_dir / "contracts_test.json").write_text(
+                json.dumps(
+                    {
+                        "extension": ".s.py",
+                        "contracts": [
+                            {
+                                "name": "seed_contract",
+                                "submit_as": "con_seed_native_probe",
+                                "owner": "owner-vk",
+                                "constructor_args": {
+                                    "founder": "%%founder_public_key%%",
+                                    "limits_arg": [1, 2, 3],
+                                    "ratios_arg": [],
+                                },
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch(
+                "xian.genesis_builder._genesis_submission_time",
+                return_value=fixed_now,
+            ), mock.patch(
+                "xian.genesis_builder.execute_vm_contract",
+                wraps=execute_vm_contract,
+            ) as native_execute:
+                genesis_block = build_genesis_block(
+                    founder_private_key=founder_private_key,
+                    network="test",
+                    contracts_dir=contracts_dir,
+                )
+            self.assertEqual(native_execute.call_count, 1)
+            self.assertEqual(
+                native_execute.call_args.kwargs["contract_name"],
+                "submission",
+            )
+            self.assertEqual(
+                native_execute.call_args.kwargs["function_name"],
+                "submit_contract",
+            )
+
+            native_driver = Driver(storage_home=Path(tmp_dir) / "native")
+            native_driver.flush_full()
+            ContractingClient(driver=native_driver)
+            artifacts = build_contract_artifacts(
+                module_name="con_seed_native_probe",
+                source=source,
+                lint=True,
+                vm_profile="xian_vm_v1",
+            )
+            native_output = execute_vm_contract(
+                build_vm_runtime(),
+                native_driver,
+                sender="sys",
+                contract_name="submission",
+                function_name="submit_contract",
+                kwargs={
+                    "name": "con_seed_native_probe",
+                    "deployment_artifacts": artifacts,
+                    "owner": "owner-vk",
+                    "constructor_args": {
+                        "founder": Ed25519Account(founder_private_key).public_key,
+                        "limits_arg": [1, 2, 3],
+                        "ratios_arg": [],
+                    },
+                },
+                environment={
+                    "now": fixed_now,
+                    "block_num": 0,
+                    "block_hash": "",
+                    "chain_id": "genesis-test",
+                },
+                meter=False,
+            )
+            self.assertEqual(native_output.status_code, 0)
+            native_driver.apply_writes(native_output.writes)
+            native_driver.hard_apply("0")
+            native_driver.flush_cache()
+
+        genesis_state = {
+            entry["key"]: entry["value"]
+            for entry in genesis_block["genesis"]
+            if entry["key"].startswith("con_seed_native_probe.")
+        }
+        native_state = native_driver.items(prefix="con_seed_native_probe.")
+
+        self.assertEqual(genesis_state, native_state)
 
     def test_write_and_update_cometbft_genesis(self):
         abci_genesis = {
