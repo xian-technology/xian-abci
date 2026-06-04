@@ -89,6 +89,28 @@ def get_pending_unbond(unbond_id: int):
     return pending_unbonds[unbond_id]
 """.strip()
 
+ANNOTATION_METADATA_CODE = """
+owner = Variable()
+routes = Hash(default_value=None)
+
+
+@export(typecheck=True)
+def typed_route(
+    active: bool,
+    amount: float,
+    label: str,
+    amounts: list[float],
+    path: list[int],
+    metadata: dict[str, list[int]],
+    tags: set[int],
+    frozen: frozenset[str],
+    timestamp: datetime.datetime,
+    delay: datetime.timedelta,
+) -> dict[str, int]:
+    routes[label] = path
+    return {"path": len(path), "legs": len(metadata["legs"])}
+""".strip()
+
 ACCOUNT = "c93dee52d7dc6cc43af44007c3b1dae5b730ccf18a9e6fb43521f8e4064561e6"
 
 
@@ -774,6 +796,91 @@ def fallback(value: list[int]):
                 "variables": ["owner"],
                 "hashes": ["balances"],
             },
+        )
+
+    async def test_contract_metadata_queries_keep_ir_and_source_fallback_in_parity(self):
+        self.app.client.submit(
+            ANNOTATION_METADATA_CODE,
+            name="con_metadata_matrix",
+        )
+        expected_methods = {
+            "methods": [
+                {
+                    "name": "typed_route",
+                    "arguments": [
+                        {"name": "active", "type": "bool"},
+                        {"name": "amount", "type": "float"},
+                        {"name": "label", "type": "str"},
+                        {"name": "amounts", "type": "list[float]"},
+                        {"name": "path", "type": "list[int]"},
+                        {
+                            "name": "metadata",
+                            "type": "dict[str, list[int]]",
+                        },
+                        {"name": "tags", "type": "set[int]"},
+                        {"name": "frozen", "type": "frozenset[str]"},
+                        {
+                            "name": "timestamp",
+                            "type": "datetime.datetime",
+                        },
+                        {"name": "delay", "type": "datetime.timedelta"},
+                    ],
+                }
+            ]
+        }
+        expected_vars = {
+            "variables": ["owner"],
+            "hashes": ["routes"],
+        }
+
+        ir_methods_response = await self.process_request(
+            Request(
+                query=RequestQuery(path="/contract_methods/con_metadata_matrix")
+            )
+        )
+        ir_vars_response = await self.process_request(
+            Request(query=RequestQuery(path="/contract_vars/con_metadata_matrix"))
+        )
+
+        self.app.client.raw_driver.delete(
+            self.app.client.raw_driver.make_key(
+                "con_metadata_matrix",
+                XIAN_VM_V1_IR_KEY,
+            )
+        )
+        source_methods_response = await self.process_request(
+            Request(
+                query=RequestQuery(path="/contract_methods/con_metadata_matrix")
+            )
+        )
+        source_vars_response = await self.process_request(
+            Request(query=RequestQuery(path="/contract_vars/con_metadata_matrix"))
+        )
+
+        for response in (
+            ir_methods_response,
+            ir_vars_response,
+            source_methods_response,
+            source_vars_response,
+        ):
+            self.assertEqual(response.query.code, Constants.OkCode)
+            self.assertEqual(response.query.info, "dict")
+
+        self.assertEqual(
+            json.loads(ir_methods_response.query.value),
+            expected_methods,
+        )
+        self.assertEqual(
+            json.loads(source_methods_response.query.value),
+            expected_methods,
+        )
+        self.assertEqual(
+            json.loads(ir_vars_response.query.value),
+            expected_vars,
+        )
+        self.assertEqual(
+            json.loads(source_vars_response.query.value),
+            expected_vars,
         )
 
     async def test_state_patches_query_uses_bds(self):
