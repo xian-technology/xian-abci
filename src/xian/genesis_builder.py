@@ -120,9 +120,7 @@ def _deploy_native_genesis_contract(
         meter=False,
     )
     if output.status_code != 0:
-        raise ValueError(
-            f"Failed to deploy genesis contract {contract_name}: {output.result}"
-        )
+        raise ValueError(f"Failed to deploy genesis contract {contract_name}: {output.result}")
     driver.apply_writes(output.writes)
 
 
