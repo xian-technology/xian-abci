@@ -23,6 +23,13 @@ Xian supports three deterministic block-production policies:
 The only semantic difference is when chain time advances during otherwise idle
 periods.
 
+The empty-block interval is not an exact finalized block-time target. CometBFT
+still applies normal consensus timing, including `timeout_commit`, and Xian must
+finish block execution before the next height can finalize. For example, a local
+chain with `timeout_commit = "1s"` and
+`create_empty_blocks_interval = "1s"` should be expected to finalize idle blocks
+at roughly a two-second cadence rather than exactly once per second.
+
 Implications:
 
 - if the chain is idle, contract time does not advance
