@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import json
@@ -16,6 +17,7 @@ from xian.dashboard.app import (
     _decode_block_tx_entry,
     _localnet_rpc_variants,
     _normalize_peer_rpc_url,
+    _prune_closed_dashboard_ws_clients,
     _resolved_rpc_url_variants,
     create_app,
     dashboard_security_middleware,
@@ -586,6 +588,37 @@ class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(web.HTTPServiceUnavailable):
             await handle_ws(request)
+
+    async def test_prune_closed_dashboard_ws_clients_releases_client_slot(
+        self,
+    ) -> None:
+        class FakeWebSocket:
+            def __init__(self, *, closed: bool):
+                self.closed = closed
+
+        closed_ws = FakeWebSocket(closed=True)
+        open_ws = FakeWebSocket(closed=False)
+        sender_task = asyncio.create_task(asyncio.sleep(0))
+        await sender_task
+        app = {
+            "ws_clients": {closed_ws, open_ws},
+            "ws_client_counts": {"203.0.113.10": 2},
+            "ws_client_states": {
+                closed_ws: SimpleNamespace(
+                    client_key="203.0.113.10",
+                    sender_task=sender_task,
+                )
+            },
+            "subscriptions": SubscriptionManager(),
+        }
+        app["subscriptions"].add_client(closed_ws)
+        app["subscriptions"].add_client(open_ws)
+
+        await _prune_closed_dashboard_ws_clients(app)
+
+        self.assertEqual(app["ws_clients"], {open_ws})
+        self.assertEqual(app["ws_client_counts"], {"203.0.113.10": 1})
+        self.assertNotIn(closed_ws, app["ws_client_states"])
 
     async def test_handle_contract_returns_source_only(
         self,

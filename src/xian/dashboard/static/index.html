@@ -403,6 +403,7 @@ const ADDRESS_TXS_PER_PAGE = 50;
 const ADDRESSES_PER_PAGE = 50;
 const EVENTS_PER_PAGE = 50;
 let ws = null;
+let wsConnected = false;
 let wsReconnectDelay = 1000;
 const WS_MAX_DELAY = 30000;
 let latestStatusSnapshot = null;
@@ -424,6 +425,8 @@ let selectedRpc = null;
 let defaultRpcUrl = null;
 let refreshSlowDataInterval = null;
 let refreshMonitoringInterval = null;
+let refreshBlocksInterval = null;
+let refreshBlocksInFlight = false;
 let stateValueSeq = 0;
 const stateValueCache = new Map();
 
@@ -1256,17 +1259,23 @@ document.querySelectorAll(".tab").forEach(t=>{
 
 /* ── WebSocket ── */
 function connectWS(){
-  if(!usingDefaultRpc()) return;
+  if(!usingDefaultRpc()){
+    wsConnected = false;
+    return;
+  }
+  if(ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const url = proto + "//" + location.host + "/ws";
-  ws = new WebSocket(url);
+  const socket = new WebSocket(url);
+  ws = socket;
 
-  ws.onopen = function(){
+  socket.onopen = function(){
     console.log("WS connected");
+    wsConnected = true;
     wsReconnectDelay = 1000;
   };
 
-  ws.onmessage = function(evt){
+  socket.onmessage = function(evt){
     try{
       const msg = JSON.parse(evt.data);
       if(msg.type === "new_block") handleNewBlock(msg);
@@ -1278,20 +1287,26 @@ function connectWS(){
     }
   };
 
-  ws.onclose = function(){
+  socket.onclose = function(){
     console.log("WS disconnected, reconnecting in", wsReconnectDelay, "ms");
+    if(ws === socket) ws = null;
+    wsConnected = false;
     $("status-dot").className = "status-dot offline";
     $("status-text").textContent = "disconnected";
     setTimeout(connectWS, wsReconnectDelay);
     wsReconnectDelay = Math.min(wsReconnectDelay * 2, WS_MAX_DELAY);
   };
 
-  ws.onerror = function(){ ws.close(); };
+  socket.onerror = function(){
+    wsConnected = false;
+    socket.close();
+  };
 }
 
 function startPollingLoops(){
   if(refreshSlowDataInterval) clearInterval(refreshSlowDataInterval);
   if(refreshMonitoringInterval) clearInterval(refreshMonitoringInterval);
+  if(refreshBlocksInterval) clearInterval(refreshBlocksInterval);
   refreshSlowDataInterval = setInterval(
     refreshSlowData,
     usingDefaultRpc() ? 30000 : 5000,
@@ -1300,6 +1315,72 @@ function startPollingLoops(){
     refreshMonitoring,
     usingDefaultRpc() ? 10000 : 5000,
   );
+  refreshBlocksInterval = setInterval(refreshBlocksFallback, 5000);
+}
+
+function websocketLive(){
+  return usingDefaultRpc() && wsConnected && ws && ws.readyState === WebSocket.OPEN;
+}
+
+function updateLatestBlockFromStatus(status){
+  if(!status || !status.sync_info) return false;
+  const si = status.sync_info || {};
+  const nextHeight = parseInt(si.latest_block_height || "0", 10);
+  if(nextHeight <= 0) return false;
+  const changed = nextHeight > latestHeight;
+  latestHeight = nextHeight;
+  lastBlockTime = si.latest_block_time || lastBlockTime;
+  lastBlockHash = si.latest_block_hash || lastBlockHash;
+
+  const cards = document.querySelectorAll("#stats-row .stat");
+  if(cards.length > 0){
+    const hCard = cards[0];
+    const valEl = hCard.querySelector(".stat-value");
+    const subEl = hCard.querySelector(".stat-sub");
+    if(valEl) valEl.textContent = latestHeight.toLocaleString();
+    if(subEl) subEl.textContent = lastBlockTime ? timeAgo(lastBlockTime) : "\u2014";
+  }
+
+  if(latestStatusSnapshot && latestStatusSnapshot.sync_info){
+    latestStatusSnapshot.sync_info.latest_block_height = String(latestHeight);
+    latestStatusSnapshot.sync_info.latest_block_hash = lastBlockHash;
+    latestStatusSnapshot.sync_info.latest_block_time = lastBlockTime;
+    $("node-info").innerHTML = nodeInfoHtml(
+      latestStatusSnapshot.node_info || {},
+      latestStatusSnapshot.sync_info || {}
+    );
+  }
+
+  return changed;
+}
+
+async function refreshBlocksFallback(){
+  if(websocketLive() || refreshBlocksInFlight) return;
+  refreshBlocksInFlight = true;
+  try{
+    const previousLatestHeight = latestHeight;
+    const status = await api("status");
+    if(status.error) return;
+    latestStatusSnapshot = status;
+    markRefreshed();
+    const changed = updateLatestBlockFromStatus(status);
+    const si = status.sync_info || {};
+    const catching = si.catching_up;
+    $("status-dot").className = "status-dot "+(catching?"syncing":"online");
+    $("status-text").textContent = catching?"syncing":"synced";
+
+    const viewingLatestBlocksPage =
+      explorerView === "blocks" &&
+      explorerMaxHeight > 0 &&
+      explorerMaxHeight >= previousLatestHeight;
+    if(changed && viewingLatestBlocksPage){
+      await loadExplorerBlocks(latestHeight);
+    }
+  }catch(e){
+    console.warn("block fallback refresh failed:", e);
+  }finally{
+    refreshBlocksInFlight = false;
+  }
 }
 
 function handleNewBlock(msg){
@@ -1307,6 +1388,7 @@ function handleNewBlock(msg){
   latestHeight = msg.height;
   lastBlockTime = msg.time;
   lastBlockHash = msg.hash;
+  markRefreshed();
 
   /* update height stat card */
   const cards = document.querySelectorAll("#stats-row .stat");

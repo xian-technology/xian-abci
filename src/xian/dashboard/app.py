@@ -939,6 +939,12 @@ async def _close_dashboard_ws_client(
             pass
 
 
+async def _prune_closed_dashboard_ws_clients(app: web.Application) -> None:
+    for ws in set(app.get("ws_clients", set())):
+        if getattr(ws, "closed", False):
+            await _close_dashboard_ws_client(app, ws)
+
+
 async def _dashboard_ws_sender(
     app: web.Application,
     ws: web.WebSocketResponse,
@@ -1000,6 +1006,8 @@ async def _broadcast_status(app: web.Application, status: str) -> None:
 
 
 async def handle_ws(request: web.Request) -> web.WebSocketResponse:
+    await _prune_closed_dashboard_ws_clients(request.app)
+
     if len(request.app["ws_clients"]) >= request.app["max_ws_clients"]:
         raise web.HTTPServiceUnavailable(text="dashboard websocket client limit reached")
 
