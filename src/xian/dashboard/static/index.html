@@ -153,6 +153,28 @@ tr.clickable{cursor:pointer}
 /* ── json block ── */
 .json-block{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;font-family:var(--mono);font-size:.8rem;line-height:1.6;overflow-x:auto;white-space:pre-wrap;word-break:break-all;color:var(--text);max-height:400px;overflow-y:auto}
 
+/* ── state changes ── */
+.state-changes{display:flex;flex-direction:column}
+.state-change-head,.state-change-row{display:grid;grid-template-columns:minmax(280px,2fr) minmax(320px,1fr)}
+.state-change-head{border-bottom:1px solid var(--border);color:var(--text3);font-size:.75rem;font-weight:600;letter-spacing:.5px;text-transform:uppercase}
+.state-change-head>div{padding:10px 16px}
+.state-change-row{border-bottom:1px solid var(--border)}
+.state-change-row:last-child{border-bottom:none}
+.state-change-row:hover{background:rgba(26,35,64,.45)}
+.state-change-key,.state-change-value{min-width:0;padding:12px 16px;font-family:var(--mono);font-size:.78rem;line-height:1.55}
+.state-change-key{color:var(--text);overflow-wrap:anywhere}
+.state-change-value{border-left:1px solid var(--border);color:var(--text)}
+.state-value-inline{display:inline-block;max-width:100%;overflow-wrap:anywhere;vertical-align:top}
+.state-value-panel{display:flex;flex-direction:column;gap:8px;min-width:0}
+.state-value-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--text3);font-family:var(--font);font-size:.72rem}
+.state-value-type{display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid var(--border);border-radius:999px;background:var(--surface2);color:var(--text2);font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.4px}
+.state-value-preview,.state-value-full{margin:0;max-width:100%;overflow:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font-family:var(--mono);font-size:.78rem;line-height:1.6;white-space:pre;tab-size:4}
+.state-value-preview{max-height:170px;padding:10px 12px;color:var(--text2)}
+.state-value-full{max-height:420px;padding:12px 14px}
+.state-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.state-action{appearance:none;border:1px solid var(--border);border-radius:var(--radius);background:transparent;color:var(--text2);cursor:pointer;font-family:var(--font);font-size:.72rem;font-weight:500;line-height:1;padding:7px 9px}
+.state-action:hover{background:var(--surface2);color:var(--text)}
+
 /* ── tag list ── */
 .tag{display:inline-block;font-size:.75rem;padding:3px 10px;border-radius:4px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);margin:2px 4px 2px 0;font-family:var(--mono)}
 
@@ -210,6 +232,10 @@ tr.clickable{cursor:pointer}
   .validator-list-header,.validator-row{grid-template-columns:minmax(0,1.4fr) minmax(0,0.7fr) minmax(0,0.9fr)}
   .data-key{width:100px}
   .data-val{max-width:calc(100% - 120px)}
+  .state-change-head{display:none}
+  .state-change-row{grid-template-columns:1fr}
+  .state-change-key{padding-bottom:6px}
+  .state-change-value{border-left:none;padding-top:0}
   th,td{padding:8px 10px;font-size:.75rem}
 }
 </style>
@@ -398,6 +424,8 @@ let selectedRpc = null;
 let defaultRpcUrl = null;
 let refreshSlowDataInterval = null;
 let refreshMonitoringInterval = null;
+let stateValueSeq = 0;
+const stateValueCache = new Map();
 
 /* ── helpers ── */
 function $(id){ return document.getElementById(id) }
@@ -554,6 +582,118 @@ function compactText(value, maxLen){
   if(text.length <= limit) return text;
   return text.slice(0, limit) + "\u2026";
 }
+function resetStateValueCache(){
+  stateValueSeq = 0;
+  stateValueCache.clear();
+}
+function stateValueRawText(value){
+  if(value === undefined) return "";
+  if(value === null) return "null";
+  if(typeof value === "string") return value;
+  if(typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+function stateValueTexts(value){
+  const rawText = stateValueRawText(value);
+  let displayText = rawText;
+  let isJson = false;
+
+  if(value !== null && typeof value === "object"){
+    try{
+      displayText = JSON.stringify(value, null, 2);
+      isJson = true;
+    }catch(_){
+      displayText = rawText;
+    }
+  } else if(typeof value === "string"){
+    const trimmed = value.trim();
+    if(trimmed.startsWith("{") || trimmed.startsWith("[")){
+      try{
+        displayText = JSON.stringify(JSON.parse(trimmed), null, 2);
+        isJson = true;
+      }catch(_){
+        displayText = rawText;
+      }
+    }
+  }
+
+  return {rawText, displayText, isJson};
+}
+function stateValueKind(key, value, texts){
+  const stateKey = String(key || "");
+  const rawText = texts.rawText.trim();
+  if(stateKey.endsWith(".__source__")) return "source";
+  if(texts.isJson) return "json";
+  if(value === null) return "null";
+  if(typeof value === "boolean") return "boolean";
+  if(typeof value === "number") return "number";
+  if(/^[a-fA-F0-9]{64}$/.test(rawText)) return "address";
+  return "text";
+}
+function stateValuePreviewText(text, kind){
+  const normalized = String(text || "").replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  const lineLimit = kind === "source" ? 8 : 10;
+  const charLimit = kind === "source" ? 1200 : 1000;
+  let preview = lines.slice(0, lineLimit).join("\n");
+  let truncated = lines.length > lineLimit;
+  if(preview.length > charLimit){
+    preview = preview.slice(0, charLimit);
+    truncated = true;
+  }
+  if(truncated) preview += "\n...";
+  return preview;
+}
+function stateValueDownloadName(key, kind){
+  const safeKey = String(key || "state-value")
+    .replace(/[^a-zA-Z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 96) || "state-value";
+  const ext = kind === "json" ? "json" : kind === "source" ? "py" : "txt";
+  return safeKey + "." + ext;
+}
+function registerStateValue(key, kind, displayText, rawText){
+  const id = "sv-" + (++stateValueSeq);
+  stateValueCache.set(id, {
+    displayText: String(displayText || ""),
+    rawText: String(rawText || ""),
+    filename: stateValueDownloadName(key, kind),
+  });
+  return id;
+}
+function renderStateValue(key, value){
+  const texts = stateValueTexts(value);
+  const kind = stateValueKind(key, value, texts);
+  const displayText = texts.displayText;
+  const rawText = texts.rawText;
+  const needsPanel = kind === "source" || kind === "json" || displayText.length > 240 || displayText.includes("\n");
+
+  if(!needsPanel){
+    if(kind === "address") return addressLink(displayText, {left:16, right:12});
+    return '<span class="state-value-inline">'+escHtml(displayText)+'</span>';
+  }
+
+  const id = registerStateValue(key, kind, displayText, rawText);
+  const preview = stateValuePreviewText(displayText, kind);
+  return '<div class="state-value-panel" data-state-value-id="'+id+'">'+
+    '<div class="state-value-meta"><span class="state-value-type">'+escHtml(kind)+'</span><span>'+escHtml(fmtBytes(rawText.length))+'</span></div>'+
+    '<pre class="state-value-preview">'+escHtml(preview)+'</pre>'+
+    '<pre class="state-value-full" hidden></pre>'+
+    '<div class="state-actions">'+
+      '<button type="button" class="state-action" data-state-toggle="'+id+'" aria-expanded="false">Expand</button>'+
+      '<button type="button" class="state-action" data-copy-state-value="'+id+'">Copy</button>'+
+      '<button type="button" class="state-action" data-download-state-value="'+id+'">Download</button>'+
+    '</div>'+
+  '</div>';
+}
+function renderStateChangeRow(change){
+  const key = change && change.key ? String(change.key) : "";
+  const value = change ? change.value : "";
+  return '<div class="state-change-row">'+
+    '<div class="state-change-key">'+escHtml(key)+'</div>'+
+    '<div class="state-change-value">'+renderStateValue(key, value)+'</div>'+
+  '</div>';
+}
 function normalizeRpcUrl(value){
   if(!value) return null;
   try{
@@ -656,13 +796,54 @@ function setSelectedRpc(rpcUrl){
   selectedRpc = rpcUrl || null;
 }
 
-async function copyFullValue(encodedValue){
-  const value = decodeURIComponent(encodedValue);
+async function copyText(value){
   if(!navigator.clipboard || !navigator.clipboard.writeText) return;
   try{
     await navigator.clipboard.writeText(value);
   }catch(_){
     /* ignore clipboard failures */
+  }
+}
+async function copyFullValue(encodedValue){
+  await copyText(decodeURIComponent(encodedValue));
+}
+async function copyStateValue(id){
+  const item = stateValueCache.get(id);
+  if(!item) return;
+  await copyText(item.rawText);
+}
+function downloadStateValue(id){
+  const item = stateValueCache.get(id);
+  if(!item) return;
+  const blob = new Blob([item.rawText], {type:"text/plain;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = item.filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(()=> URL.revokeObjectURL(url), 1000);
+}
+function toggleStateValue(id, button){
+  const panel = document.querySelector('.state-value-panel[data-state-value-id="'+id+'"]');
+  if(!panel) return;
+  const preview = panel.querySelector(".state-value-preview");
+  const full = panel.querySelector(".state-value-full");
+  if(!preview || !full) return;
+
+  const expanded = full.hidden;
+  if(expanded && !full.dataset.loaded){
+    const item = stateValueCache.get(id);
+    full.textContent = item ? item.displayText : "";
+    full.dataset.loaded = "true";
+  }
+  preview.hidden = expanded;
+  full.hidden = !expanded;
+  panel.closest(".state-change-row")?.classList.toggle("expanded", expanded);
+  if(button){
+    button.textContent = expanded ? "Collapse" : "Expand";
+    button.setAttribute("aria-expanded", expanded ? "true" : "false");
   }
 }
 
@@ -1715,6 +1896,7 @@ async function viewBlock(height){
 
 /* ── tx detail view ── */
 async function viewTx(hash){
+  resetStateValueCache();
   showDetail('<div class="card"><div class="card-body"><span class="loading"></span> Loading transaction...</div></div>');
 
   const tx = await api("tx/"+hash);
@@ -1801,13 +1983,11 @@ async function viewTx(hash){
     /* state changes */
     if(dataDecoded.state && Array.isArray(dataDecoded.state) && dataDecoded.state.length){
       html += '</div><div class="card-header" style="border-top:1px solid var(--border)">State Changes ('+dataDecoded.state.length+')</div><div class="card-body" style="padding:0">';
-      html += '<table><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>';
+      html += '<div class="state-changes"><div class="state-change-head"><div>Key</div><div>Value</div></div>';
       dataDecoded.state.forEach(s=>{
-        const key = s.key||"";
-        const val = typeof s.value === "object" ? JSON.stringify(s.value) : String(s.value!==undefined?s.value:"");
-        html += `<tr><td style="word-break:break-all;font-size:.78rem">${escHtml(key)}</td><td style="word-break:break-all;font-size:.78rem">${escHtml(val)}</td></tr>`;
+        html += renderStateChangeRow(s);
       });
-      html += '</tbody></table>';
+      html += '</div>';
     }
 
     /* events */
@@ -2292,6 +2472,32 @@ $("contracts-order").addEventListener("change", ()=>{
 });
 
 document.addEventListener("click", event=>{
+  if(!(event.target instanceof Element)) return;
+
+  const stateToggle = event.target.closest("[data-state-toggle]");
+  if(stateToggle){
+    event.stopPropagation();
+    event.preventDefault();
+    toggleStateValue(stateToggle.dataset.stateToggle, stateToggle);
+    return;
+  }
+
+  const stateCopyTarget = event.target.closest("[data-copy-state-value]");
+  if(stateCopyTarget){
+    event.stopPropagation();
+    event.preventDefault();
+    copyStateValue(stateCopyTarget.dataset.copyStateValue);
+    return;
+  }
+
+  const stateDownloadTarget = event.target.closest("[data-download-state-value]");
+  if(stateDownloadTarget){
+    event.stopPropagation();
+    event.preventDefault();
+    downloadStateValue(stateDownloadTarget.dataset.downloadStateValue);
+    return;
+  }
+
   const copyTarget = event.target.closest("[data-copy-value]");
   if(copyTarget){
     event.stopPropagation();
