@@ -24,6 +24,24 @@ def _refuse_optimized_python() -> None:
         sys.exit(2)
 
 
+def _require_zk_verifier() -> None:
+    # Refuse to boot without the native zk verifier. Shielded contracts call
+    # `zk.verify_groth16(...)` on the consensus path; if the native backend is
+    # absent, that call raises instead of returning a verdict, so a node without
+    # it would compute a different transaction outcome and fork the chain. Fail
+    # fast at startup instead of silently diverging mid-block.
+    from contracting.stdlib.bridge import zk as zk_bridge
+
+    if not zk_bridge.is_available():
+        sys.stderr.write(
+            "xian-abci refuses to run without the native zk verifier. "
+            "Shielded-contract proof verification is consensus critical; a node "
+            "missing the backend would fork the network. Install "
+            "xian-tech-contracting[zk] (or xian-tech-zk).\n"
+        )
+        sys.exit(2)
+
+
 _refuse_optimized_python()
 
 from contracting.local import ContractingClient
@@ -502,6 +520,7 @@ class Xian:
 
 def main():
     _refuse_optimized_python()
+    _require_zk_verifier()
     constants = Constants()
     configure_logging(constants)
 

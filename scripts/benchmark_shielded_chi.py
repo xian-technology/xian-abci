@@ -102,7 +102,7 @@ def setup_contract(
             circuit_name=bundle["circuit_name"],
             version=bundle["version"],
             artifact_contract_name="con_shielded_note_token",
-            circuit_family="shielded_note_v3",
+            circuit_family="shielded_note_v4",
             statement_version=bundle["version"],
             tree_depth=note_prover.bundle["tree_depth"],
             leaf_capacity=note_prover.bundle["leaf_capacity"],
