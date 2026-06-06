@@ -567,7 +567,7 @@ dependencies = [
     { name = "protobuf" },
     { name = "pynacl" },
     { name = "xian-tech-accounts" },
-    { name = "xian-tech-contracting" },
+    { name = "xian-tech-contracting", extra = ["zk"] },
     { name = "xian-tech-runtime-types" },
 ]
 
@@ -597,7 +597,7 @@ requires-dist = [
     { name = "protobuf", specifier = "==7.35.0" },
     { name = "pynacl", specifier = ">=1.6.2,<2" },
     { name = "xian-tech-accounts", editable = "../xian-contracting/packages/xian-accounts" },
-    { name = "xian-tech-contracting", editable = "../xian-contracting" },
+    { name = "xian-tech-contracting", extras = ["zk"], editable = "../xian-contracting" },
     { name = "xian-tech-fastpath-core", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-fastpath-core" },
     { name = "xian-tech-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
     { name = "xian-tech-vm-core", marker = "extra == 'vm'", editable = "../xian-contracting/packages/xian-vm-core" },
@@ -641,6 +641,11 @@ dependencies = [
     { name = "xian-tech-runtime-types" },
 ]
 
+[package.optional-dependencies]
+zk = [
+    { name = "xian-tech-zk" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "cachetools", specifier = ">=7.0.6,<8" },
@@ -681,6 +686,23 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "xian-tech-contracting", editable = "../xian-contracting" }]
+
+[[package]]
+name = "xian-tech-zk"
+version = "0.1.6"
+source = { editable = "../xian-contracting/packages/xian-zk" }
+dependencies = [
+    { name = "pynacl" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pynacl", specifier = ">=1.5.0,<2" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "maturin", specifier = ">=1.13.1,<2" },
+    { name = "pytest", specifier = ">=9.0.3,<10" },
+]
 
 [[package]]
 name = "yarl"
