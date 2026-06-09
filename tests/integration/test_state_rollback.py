@@ -7,6 +7,7 @@ from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
 from fixtures.mock_constants import MockConstants
 
+from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 
 
@@ -240,7 +241,6 @@ class TestStateRollback(unittest.TestCase):
 
     def test_reassign_after_mutation_rollback(self):
         bm1 = create_block_meta(datetime.datetime.now())
-        bm2 = create_block_meta(datetime.datetime.now())
 
         # init simple
         self.txp.process_tx(
@@ -435,7 +435,6 @@ class TestStateRollback(unittest.TestCase):
 
     def test_type_error_failure_rollback(self):
         bm1 = create_block_meta(datetime.datetime.now())
-        bm2 = create_block_meta(datetime.datetime.now())
 
         # init simple
         self.txp.process_tx(
@@ -580,9 +579,8 @@ class TestStateRollback(unittest.TestCase):
         self.hard_apply_block(bm1)
         self.assert_no_contract_writes("after commit bm1 fees")
 
-        # failing tx with enabled_fees
+        # failing tx with paid metering
         res = self.txp.process_tx(
-            enabled_fees=True,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -593,7 +591,8 @@ class TestStateRollback(unittest.TestCase):
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": bm2,
-            }
+            },
+            fee_policy=TxFeePolicy.paid_metered(),
         )
         self.assertNotEqual(res.get("tx_result", {}).get("status"), 0)
         # Fees enabled: expect only currency chi write; no contract writes
@@ -625,5 +624,3 @@ class TestStateRollback(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-

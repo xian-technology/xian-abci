@@ -187,14 +187,8 @@ class TestVmReplayParity(unittest.TestCase):
         ]
 
         for tx in txs:
-            python_result = self.python_processor.process_tx(
-                tx=tx,
-                enabled_fees=False,
-            )
-            native_result = self.native_processor.process_tx(
-                tx=tx,
-                enabled_fees=False,
-            )
+            python_result = self.python_processor.process_tx(tx=tx)
+            native_result = self.native_processor.process_tx(tx=tx)
 
             self.assertEqual(
                 self._normalized_tx_result(python_result["tx_result"]),
@@ -253,14 +247,8 @@ class TestVmReplayParity(unittest.TestCase):
         ]
 
         for tx in txs:
-            python_result = self.python_processor.process_tx(
-                tx=tx,
-                enabled_fees=False,
-            )
-            native_result = self.native_processor.process_tx(
-                tx=tx,
-                enabled_fees=False,
-            )
+            python_result = self.python_processor.process_tx(tx=tx)
+            native_result = self.native_processor.process_tx(tx=tx)
 
             self.assertEqual(
                 self._normalized_tx_result(python_result["tx_result"]),

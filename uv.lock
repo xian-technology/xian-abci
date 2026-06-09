@@ -567,7 +567,7 @@ dependencies = [
     { name = "protobuf" },
     { name = "pynacl" },
     { name = "xian-tech-accounts" },
-    { name = "xian-tech-contracting", extra = ["zk"] },
+    { name = "xian-tech-contracting" },
     { name = "xian-tech-runtime-types" },
 ]
 
@@ -577,6 +577,9 @@ native = [
 ]
 vm = [
     { name = "xian-tech-vm-core" },
+]
+zk = [
+    { name = "xian-tech-contracting", extra = ["zk"] },
 ]
 
 [package.dev-dependencies]
@@ -597,12 +600,13 @@ requires-dist = [
     { name = "protobuf", specifier = "==7.35.0" },
     { name = "pynacl", specifier = ">=1.6.2,<2" },
     { name = "xian-tech-accounts", editable = "../xian-contracting/packages/xian-accounts" },
-    { name = "xian-tech-contracting", extras = ["zk"], editable = "../xian-contracting" },
+    { name = "xian-tech-contracting", editable = "../xian-contracting" },
+    { name = "xian-tech-contracting", extras = ["zk"], marker = "extra == 'zk'", editable = "../xian-contracting" },
     { name = "xian-tech-fastpath-core", marker = "extra == 'native'", editable = "../xian-contracting/packages/xian-fastpath-core" },
     { name = "xian-tech-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
     { name = "xian-tech-vm-core", marker = "extra == 'vm'", editable = "../xian-contracting/packages/xian-vm-core" },
 ]
-provides-extras = ["native", "vm"]
+provides-extras = ["native", "vm", "zk"]
 
 [package.metadata.requires-dev]
 dev = [

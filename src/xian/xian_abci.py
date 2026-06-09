@@ -24,20 +24,23 @@ def _refuse_optimized_python() -> None:
         sys.exit(2)
 
 
-def _require_zk_verifier() -> None:
-    # Refuse to boot without the native zk verifier. Shielded contracts call
-    # `zk.verify_groth16(...)` on the consensus path; if the native backend is
-    # absent, that call raises instead of returning a verdict, so a node without
-    # it would compute a different transaction outcome and fork the chain. Fail
-    # fast at startup instead of silently diverging mid-block.
+def _require_zk_verifier_if_enabled(runtime_features: dict | None) -> None:
+    if not (runtime_features or {}).get("zk", False):
+        return
+
+    # Refuse to boot zk-enabled chains without the native verifier. Shielded
+    # contracts call `zk.verify_groth16(...)` on the consensus path; if the
+    # native backend is absent, that call raises instead of returning a verdict,
+    # so a node without it would compute a different transaction outcome and
+    # fork the chain.
     from contracting.stdlib.bridge import zk as zk_bridge
 
     if not zk_bridge.is_available():
         sys.stderr.write(
-            "xian-abci refuses to run without the native zk verifier. "
-            "Shielded-contract proof verification is consensus critical; a node "
-            "missing the backend would fork the network. Install "
-            "xian-tech-contracting[zk] (or xian-tech-zk).\n"
+            "xian-abci refuses to run this zk-enabled chain without the native "
+            "zk verifier. Shielded-contract proof verification is consensus "
+            "critical; a node missing the backend would fork the network. "
+            "Install xian-tech-abci[zk] (or xian-tech-contracting[zk]).\n"
         )
         sys.exit(2)
 
@@ -88,6 +91,10 @@ from xian.parallel_executor import ParallelBlockExecutor
 from xian.perf import PerfTracker
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
+from xian.runtime_features import (
+    install_driver_runtime_features,
+    resolve_runtime_features,
+)
 from xian.services.bds.bds import BDS
 from xian.services.bds.config import BdsConfig
 from xian.services.state_sync import StateSnapshotManager
@@ -154,6 +161,19 @@ class Xian:
         self.client = ContractingClient(
             storage_home=constants.STORAGE_HOME,
         )
+        try:
+            self.runtime_feature_resolution = resolve_runtime_features(
+                driver=self.client.raw_driver,
+                genesis=self.genesis,
+            )
+        except ValueError as exc:
+            logger.error(str(exc))
+            raise SystemExit() from exc
+        self.runtime_features = install_driver_runtime_features(
+            self.client.raw_driver,
+            self.runtime_feature_resolution,
+        )
+        _require_zk_verifier_if_enabled(self.runtime_features)
         self.state_root_cache = StateRootCache.from_driver(self.client.raw_driver)
         self.chain_id = self.genesis.get("chain_id", None)
         if self.chain_id is None:
@@ -308,6 +328,8 @@ class Xian:
                     "execution_mode": self.execution_mode,
                     "bds_enabled": self.bds_enabled,
                     "tx_fee_mode": self.tx_fee_policy.mode,
+                    "runtime_features": self.runtime_features,
+                    "runtime_features_source": self.runtime_feature_resolution.source,
                     "simulation_enabled": self.simulator.enabled,
                     "parallel_execution_enabled": (self.parallel_block_executor.enabled),
                     "transaction_trace_logging": (self.transaction_trace_logging),
@@ -520,7 +542,6 @@ class Xian:
 
 def main():
     _refuse_optimized_python()
-    _require_zk_verifier()
     constants = Constants()
     configure_logging(constants)
 

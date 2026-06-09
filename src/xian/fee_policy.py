@@ -6,7 +6,7 @@ from xian.exceptions import TransactionException
 
 PAID_METERED = "paid_metered"
 FREE_METERED = "free_metered"
-LEGACY_UNMETERED = "legacy_unmetered"
+SYSTEM_UNMETERED = "system_unmetered"
 
 DEFAULT_TX_FEE_MODE = PAID_METERED
 DEFAULT_FREE_TX_MAX_CHI = 1_000_000
@@ -61,18 +61,6 @@ class TxFeePolicy:
         )
 
     @classmethod
-    def from_legacy_enabled_fees(cls, enabled_fees: bool) -> "TxFeePolicy":
-        if enabled_fees:
-            return cls.paid_metered()
-        return cls(
-            mode=LEGACY_UNMETERED,
-            meter_execution=False,
-            charge_fees=False,
-            distribute_fee_rewards=False,
-            require_chi_balance=False,
-        )
-
-    @classmethod
     def paid_metered(
         cls,
         *,
@@ -104,6 +92,16 @@ class TxFeePolicy:
             require_chi_balance=False,
             max_tx_chi=max_tx_chi,
             max_block_chi=max_block_chi,
+        )
+
+    @classmethod
+    def system_unmetered(cls) -> "TxFeePolicy":
+        return cls(
+            mode=SYSTEM_UNMETERED,
+            meter_execution=False,
+            charge_fees=False,
+            distribute_fee_rewards=False,
+            require_chi_balance=False,
         )
 
     def tx_chi_supplied(self, tx: dict) -> int:

@@ -66,7 +66,6 @@ class TxProcessor:
     def process_tx(
         self,
         tx,
-        enabled_fees=False,
         rewards_handler=None,
         *,
         fee_policy: TxFeePolicy | None = None,
@@ -78,7 +77,7 @@ class TxProcessor:
         driver.set_transaction_read_tracking(track_access)
         environment = self.get_environment(tx=tx)
         chi_cost = self.get_chi_cost()
-        resolved_fee_policy = fee_policy or TxFeePolicy.from_legacy_enabled_fees(enabled_fees)
+        fee_policy = fee_policy or TxFeePolicy.system_unmetered()
 
         try:
             # Execute the transaction
@@ -86,8 +85,8 @@ class TxProcessor:
                 transaction=tx,
                 chi_cost=chi_cost,
                 environment=environment,
-                metering=resolved_fee_policy.meter_execution,
-                charge_fees=resolved_fee_policy.charge_fees,
+                metering=fee_policy.meter_execution,
+                charge_fees=fee_policy.charge_fees,
             )
             if output is None:
                 return {
@@ -105,8 +104,8 @@ class TxProcessor:
                 transaction=tx,
                 chi_cost=chi_cost,
                 rewards_handler=rewards_handler,
-                charge_fees=resolved_fee_policy.charge_fees,
-                distribute_fee_rewards=resolved_fee_policy.distribute_fee_rewards,
+                charge_fees=fee_policy.charge_fees,
+                distribute_fee_rewards=fee_policy.distribute_fee_rewards,
                 track_access=track_access,
             )
             tx_result = processed["tx_result"]

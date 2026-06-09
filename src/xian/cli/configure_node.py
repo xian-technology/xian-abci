@@ -119,6 +119,13 @@ def build_parser() -> ArgumentParser:
         required=False,
     )
     parser.add_argument(
+        "--runtime-feature-zk",
+        action=BooleanOptionalAction,
+        help="enable zk host syscalls in generated --genesis-bundle state",
+        required=False,
+        default=False,
+    )
+    parser.add_argument(
         "--validator-privkey",
         type=str,
         help="validator private key as a 64-character hex string",
@@ -542,6 +549,7 @@ def main(argv: list[str] | None = None) -> int:
             chain_id=args.chain_id,
             network=args.genesis_bundle,
             genesis_time=args.genesis_time,
+            runtime_features={"zk": args.runtime_feature_zk},
         )
     result = configure_existing_home(
         options=ExistingHomeOptions(

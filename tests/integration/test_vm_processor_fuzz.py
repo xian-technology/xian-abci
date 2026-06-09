@@ -219,14 +219,8 @@ def test_python_and_native_processors_match_for_fuzzed_sequences(
             )
 
             tx = _make_tx(function_name, kwargs, offset_seconds)
-            python_result = python_processor.process_tx(
-                tx=tx,
-                enabled_fees=False,
-            )
-            native_result = native_processor.process_tx(
-                tx=tx,
-                enabled_fees=False,
-            )
+            python_result = python_processor.process_tx(tx=tx)
+            native_result = native_processor.process_tx(tx=tx)
 
             assert _normalized_tx_result(python_result["tx_result"]) == _normalized_tx_result(
                 native_result["tx_result"]
@@ -267,8 +261,8 @@ def test_processors_preserve_failure_rollback_invariant() -> None:
             python_client.raw_driver.get_all_contract_state()
         )
         tx = _make_tx("fail_after_write", {"key": "alpha", "value": 7}, 1)
-        python_result = python_processor.process_tx(tx=tx, enabled_fees=False)
-        native_result = native_processor.process_tx(tx=tx, enabled_fees=False)
+        python_result = python_processor.process_tx(tx=tx)
+        native_result = native_processor.process_tx(tx=tx)
 
         assert _normalized_tx_result(
             python_result["tx_result"]

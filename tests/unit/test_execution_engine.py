@@ -9,6 +9,7 @@ from contracting.artifacts import build_contract_artifacts
 from contracting.compilation.compiler import ContractingCompiler
 from contracting.execution.executor import Executor
 from contracting.local import ContractingClient
+from contracting.runtime_features import set_driver_runtime_features
 from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.decimal import ContractingDecimal
@@ -26,6 +27,7 @@ from xian.execution_engine import (
     snapshot_driver_state,
     vm_metering_writes,
 )
+from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.utils.encoding import normalize_for_abci_json, stringify_decimals
 
@@ -316,6 +318,73 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self.assertIn("submission", output.contract_costs)
         driver.flush_full()
 
+    def test_execute_native_submission_rejects_zk_contract_when_feature_disabled(self):
+        runtime = build_vm_runtime()
+        driver = Driver()
+        driver.flush_full()
+        ContractingClient(driver=driver)
+        set_driver_runtime_features(driver, {"zk": False})
+        code = (
+            "@export\n"
+            "def check():\n"
+            "    return zk.is_available()\n"
+        )
+        artifacts = build_contract_artifacts(
+            module_name="con_zk_probe",
+            source=code,
+            lint=True,
+            vm_profile="xian_vm_v1",
+        )
+
+        output = execute_vm_contract(
+            runtime,
+            driver,
+            sender="sys",
+            contract_name="submission",
+            function_name="submit_contract",
+            kwargs={
+                "name": "con_zk_probe",
+                "deployment_artifacts": artifacts,
+                "constructor_args": {},
+            },
+            environment={
+                "now": Datetime(2026, 4, 12, 12, 0),
+                "block_num": 7,
+                "block_hash": "abc123",
+                "chain_id": "xian-local",
+            },
+        )
+
+        self.assertEqual(output.status_code, 1)
+        self.assertIn("zk runtime feature is disabled", str(output.result))
+        driver.flush_full()
+
+    def test_prepare_vm_contract_rejects_zk_contract_when_feature_disabled(self):
+        runtime = build_vm_runtime()
+        driver = Driver()
+        driver.flush_full()
+        set_driver_runtime_features(driver, {"zk": False})
+        code = (
+            "@export\n"
+            "def check():\n"
+            "    return zk.is_available()\n"
+        )
+        artifacts = build_contract_artifacts(
+            module_name="con_zk_probe",
+            source=code,
+            lint=True,
+            vm_profile="xian_vm_v1",
+        )
+        driver.set_contract(
+            name="con_zk_probe",
+            source=artifacts["source"],
+            vm_ir_json=artifacts["vm_ir_json"],
+        )
+
+        with self.assertRaisesRegex(ValueError, "zk runtime feature is disabled"):
+            prepare_vm_contract(runtime, driver, "con_zk_probe")
+        driver.flush_full()
+
     def test_execute_native_submission_change_owner_stages_metadata_write(self):
         runtime = build_vm_runtime()
         driver = Driver()
@@ -527,7 +596,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 ),
             )
             for call in remove_flow:
-                result = processor.process_tx(call, enabled_fees=True)
+                result = processor.process_tx(call, fee_policy=TxFeePolicy.paid_metered())
                 self.assertIsNotNone(result["tx_result"])
                 self.assertEqual(result["tx_result"]["status"], 0)
 
@@ -540,7 +609,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     1,
                     5,
                 ),
-                enabled_fees=True,
+                fee_policy=TxFeePolicy.paid_metered(),
             )
             self.assertEqual(approve_result["tx_result"]["status"], 0)
 
@@ -557,7 +626,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     2,
                     6,
                 ),
-                enabled_fees=True,
+                fee_policy=TxFeePolicy.paid_metered(),
             )
 
             self.assertIsNotNone(reregister_result["tx_result"])

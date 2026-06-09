@@ -99,8 +99,7 @@ def _speculative_process_tx(task: dict) -> dict:
     try:
         return runtime.tx_processor.process_tx(
             task["tx"],
-            enabled_fees=task["enabled_fees"],
-            fee_policy=task.get("fee_policy"),
+            fee_policy=task["fee_policy"],
             rewards_handler=runtime.rewards_handler,
             track_access=True,
         )
@@ -136,7 +135,6 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         self._mp_context = multiprocessing.get_context("spawn")
         self._executor: ProcessPoolExecutor | None = None
         self._batch_tx_processor: TxProcessor | None = None
-        self._batch_enabled_fees = False
         self._batch_fee_policy: TxFeePolicy | None = None
         self._batch_rewards_handler: RewardsHandler | None = None
         super().__init__(
@@ -154,15 +152,13 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         *,
         txs: list[dict],
         tx_processor: TxProcessor,
-        enabled_fees: bool,
-        fee_policy: TxFeePolicy | None = None,
+        fee_policy: TxFeePolicy,
         rewards_handler: RewardsHandler | None = None,
     ) -> tuple[list[dict], ParallelExecutionStats] | None:
         if not self.is_enabled_for_batch(len(txs)):
             return None
 
         self._batch_tx_processor = tx_processor
-        self._batch_enabled_fees = enabled_fees
         self._batch_fee_policy = fee_policy
         self._batch_rewards_handler = rewards_handler
         try:
@@ -191,7 +187,6 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
             )
         finally:
             self._batch_tx_processor = None
-            self._batch_enabled_fees = False
             self._batch_fee_policy = None
             self._batch_rewards_handler = None
 
@@ -234,11 +229,14 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         assert isinstance(request, dict)
         return self._batch_tx_processor.process_tx(
             request,
-            enabled_fees=self._batch_enabled_fees,
-            fee_policy=self._batch_fee_policy,
+            fee_policy=self._require_batch_fee_policy(),
             rewards_handler=self._batch_rewards_handler,
             track_access=True,
         )
+
+    def _require_batch_fee_policy(self) -> TxFeePolicy:
+        assert self._batch_fee_policy is not None
+        return self._batch_fee_policy
 
     def _speculate_many(
         self,
@@ -250,8 +248,7 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
             {
                 "storage_home": str(self.storage_home),
                 "tx": tx,
-                "enabled_fees": self._batch_enabled_fees,
-                "fee_policy": self._batch_fee_policy,
+                "fee_policy": self._require_batch_fee_policy(),
                 "use_rewards_handler": self._batch_rewards_handler is not None,
                 "execution_runtime": self.execution_runtime,
                 "base_pending_writes": deepcopy(base_pending_writes),

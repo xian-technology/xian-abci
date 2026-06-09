@@ -80,7 +80,8 @@ class TestProcessor(unittest.TestCase):
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": create_block_meta(),
-            }
+            },
+            fee_policy=TxFeePolicy.system_unmetered(),
         )
         expected_events = [
             {
@@ -114,7 +115,6 @@ class TestProcessor(unittest.TestCase):
             value=100000,
         )
         res = self.tx_processor.process_tx(
-            enabled_fees=True,
             tx={
                 "payload": {
                     "contract": "proxy",
@@ -129,6 +129,7 @@ class TestProcessor(unittest.TestCase):
                 "metadata": {"signature": "abc"},
                 "b_meta": create_block_meta(),
             },
+            fee_policy=TxFeePolicy.paid_metered(),
         )
 
         expected_events = [
@@ -224,12 +225,12 @@ class TestProcessor(unittest.TestCase):
         }
 
         base_result = self.tx_processor.process_tx(
-            enabled_fees=True,
             tx=base_tx,
+            fee_policy=TxFeePolicy.paid_metered(),
         )
         larger_result = self.tx_processor.process_tx(
-            enabled_fees=True,
             tx=larger_tx,
+            fee_policy=TxFeePolicy.paid_metered(),
         )
 
         self.assertGreater(

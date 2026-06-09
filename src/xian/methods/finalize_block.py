@@ -6,6 +6,7 @@ from cometbft.abci.v1beta2.types_pb2 import Event, EventAttribute
 from cometbft.abci.v1beta3.types_pb2 import ExecTxResult, ResponseFinalizeBlock
 from xian.app_logging import build_log_fields
 from xian.constants import Constants as c
+from xian.fee_policy import TxFeePolicy
 from xian.methods._evidence import maybe_apply_evidence_penalties
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.shielded_preverify import warm_shielded_proof_cache
@@ -81,8 +82,8 @@ def _maybe_run_validator_epoch_rebalance(self, *, height: int):
     }
     result = self.tx_processor.process_tx(
         rebalance_tx,
-        enabled_fees=False,
         rewards_handler=None,
+        fee_policy=TxFeePolicy.system_unmetered(),
         track_access=False,
     )
     tx_result = result.get("tx_result")
@@ -301,7 +302,6 @@ def _execute_transactions_in_parallel(
         parallel_execution = self.parallel_block_executor.execute(
             txs=decoded_txs,
             tx_processor=self.tx_processor,
-            enabled_fees=self.enable_tx_fee,
             fee_policy=self.tx_fee_policy,
             rewards_handler=self.rewards_handler,
         )
@@ -379,7 +379,6 @@ def _execute_block_transactions(
                 else:
                     result = self.tx_processor.process_tx(
                         tx,
-                        enabled_fees=self.enable_tx_fee,
                         fee_policy=self.tx_fee_policy,
                         rewards_handler=self.rewards_handler,
                         track_access=False,

@@ -12,6 +12,7 @@ import hashlib
 from loguru import logger
 
 from xian.app_logging import build_log_fields
+from xian.fee_policy import TxFeePolicy
 
 SYSTEM_EVIDENCE_SENDER = "__evidence_penalty_driver__"
 MISBEHAVIOR_TYPE_NAMES = {
@@ -124,8 +125,8 @@ def maybe_apply_evidence_penalties(self, req, *, height: int) -> bool:
         }
         result = self.tx_processor.process_tx(
             evidence_tx,
-            enabled_fees=False,
             rewards_handler=None,
+            fee_policy=TxFeePolicy.system_unmetered(),
             track_access=False,
         )
         tx_result = result.get("tx_result")

@@ -7,6 +7,7 @@ from unittest import mock
 
 from contracting.artifacts import build_contract_artifacts
 from contracting.local import ContractingClient
+from contracting.runtime_features import runtime_feature_state_key
 from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import encode
@@ -53,6 +54,7 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertIn("zk_registry.__source__", state_by_key)
         self.assertIn("zk_registry.__xian_ir_v1__", state_by_key)
         self.assertEqual(state_by_key["zk_registry.registry_owner"], "governance")
+        self.assertEqual(state_by_key[runtime_feature_state_key("zk")], False)
 
     def test_genesis_hash_matches_serialized_import_state_root(self):
         founder_private_key = (

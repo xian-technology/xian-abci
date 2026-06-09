@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
+from contracting.runtime_features import (
+    RUNTIME_FEATURE_ZK,
+    module_ir_uses_runtime_feature,
+    runtime_feature_enabled,
+)
 from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.execution_policy import (
@@ -236,6 +241,22 @@ def execute_vm_contract(
             contract_costs={},
         )
 
+    deployment_feature_error = _disabled_deployment_runtime_feature_error(
+        driver,
+        contract_name=contract_name,
+        function_name=function_name,
+        kwargs=kwargs,
+    )
+    if deployment_feature_error is not None:
+        return VmExecutionResult(
+            status_code=1,
+            result=ValueError(deployment_feature_error),
+            writes={},
+            events=[],
+            chi_used=0,
+            contract_costs={},
+        )
+
     bindings = _load_vm_runtime_bindings()
     context = {
         "signer": sender,
@@ -356,12 +377,14 @@ def _prepare_vm_contract_bundle(
         )
 
     artifact_hash, module_ir_json = _load_vm_module_ir_json(driver, contract_name)
+    module_ir = json.loads(module_ir_json)
+    _reject_disabled_runtime_features(driver, contract_name, module_ir)
+
     cache_key = (contract_name, artifact_hash)
     cached = _VM_PREPARED_CONTRACTS.get(cache_key)
     if cached is not None:
         return cached
 
-    module_ir = json.loads(module_ir_json)
     bindings = _load_vm_runtime_bindings()
     bindings.validate_module_ir(module_ir)
 
@@ -390,6 +413,50 @@ def _prepare_vm_contract_bundle(
         )
 
     return prepared
+
+
+def _disabled_deployment_runtime_feature_error(
+    driver,
+    *,
+    contract_name: str,
+    function_name: str,
+    kwargs: dict[str, Any],
+) -> str | None:
+    if contract_name != "submission" or function_name != "submit_contract":
+        return None
+    deployment_artifacts = kwargs.get("deployment_artifacts")
+    if not isinstance(deployment_artifacts, dict):
+        return None
+    vm_ir_json = deployment_artifacts.get("vm_ir_json")
+    if not isinstance(vm_ir_json, str) or vm_ir_json == "":
+        return None
+    try:
+        module_ir = json.loads(vm_ir_json)
+    except json.JSONDecodeError:
+        return None
+    submitted_name = kwargs.get("name")
+    if not isinstance(submitted_name, str) or submitted_name == "":
+        submitted_name = str(deployment_artifacts.get("module_name") or "<unknown>")
+    try:
+        _reject_disabled_runtime_features(driver, submitted_name, module_ir)
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+def _reject_disabled_runtime_features(driver, contract_name: str, module_ir: dict[str, Any]) -> None:
+    if module_ir_uses_runtime_feature(
+        module_ir,
+        RUNTIME_FEATURE_ZK,
+    ) and not runtime_feature_enabled(
+        driver,
+        RUNTIME_FEATURE_ZK,
+        default_enabled=True,
+    ):
+        raise ValueError(
+            f"contract '{contract_name}' uses zk host syscalls, "
+            "but the chain zk runtime feature is disabled"
+        )
 
 
 def _load_vm_module_ir_json(

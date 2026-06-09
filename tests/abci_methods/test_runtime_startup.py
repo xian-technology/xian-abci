@@ -1,10 +1,14 @@
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
 
-from xian.xian_abci import Xian, resolve_abci_socket_path
+from xian.xian_abci import (
+    Xian,
+    _require_zk_verifier_if_enabled,
+    resolve_abci_socket_path,
+)
 
 
 class AbciSocketPathTests(unittest.TestCase):
@@ -18,6 +22,16 @@ class AbciSocketPathTests(unittest.TestCase):
     def test_resolve_abci_socket_path_rejects_non_unix_proxy(self):
         with self.assertRaisesRegex(ValueError, "only supports unix"):
             resolve_abci_socket_path("tcp://127.0.0.1:26658")
+
+    def test_zk_verifier_gate_noops_when_feature_disabled(self):
+        is_available = Mock(side_effect=AssertionError("should not be called"))
+        with patch("contracting.stdlib.bridge.zk.is_available", is_available):
+            _require_zk_verifier_if_enabled({"zk": False})
+
+    def test_zk_verifier_gate_exits_when_enabled_and_unavailable(self):
+        with patch("contracting.stdlib.bridge.zk.is_available", return_value=False):
+            with self.assertRaises(SystemExit):
+                _require_zk_verifier_if_enabled({"zk": True})
 
 
 class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):

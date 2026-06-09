@@ -18,7 +18,7 @@ dependencies = [
     "protobuf==7.35.0",
     "pynacl>=1.6.2,<2",
     "xian-tech-accounts>=0.1.1,<0.2",
-    "xian-tech-contracting[zk]>=1.0.8,<2",
+    "xian-tech-contracting>=1.0.8,<2",
     "xian-tech-runtime-types>=0.1.2,<0.2",
 ]
 keywords = ["blockchain", "cometbft", "abci", "xian", "python"]
@@ -34,6 +34,9 @@ native = [
 ]
 vm = [
     "xian-tech-vm-core>=0.1.0,<0.2",
+]
+zk = [
+    "xian-tech-contracting[zk]>=1.0.8,<2",
 ]
 
 [project.urls]

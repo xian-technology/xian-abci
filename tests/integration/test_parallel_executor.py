@@ -11,6 +11,7 @@ from unittest.mock import patch
 from contracting.local import ContractingClient
 
 from xian.execution_engine import build_vm_runtime
+from xian.fee_policy import TxFeePolicy
 from xian.parallel_executor import (
     _WORKER_RUNTIMES,
     ParallelBlockExecutor,
@@ -203,7 +204,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             serial_results = [
                 serial_processor.process_tx(
                     deepcopy(tx),
-                    enabled_fees=False,
+                    fee_policy=TxFeePolicy.system_unmetered(),
                     rewards_handler=None,
                     track_access=True,
                 )
@@ -219,7 +220,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             parallel_results, stats = executor.execute(
                 txs=deepcopy(txs),
                 tx_processor=parallel_processor,
-                enabled_fees=False,
+                fee_policy=TxFeePolicy.system_unmetered(),
                 rewards_handler=None,
             )
 
@@ -296,7 +297,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             serial_results = [
                 serial_processor.process_tx(
                     deepcopy(tx),
-                    enabled_fees=True,
+                    fee_policy=TxFeePolicy.paid_metered(),
                     rewards_handler=serial_rewards,
                     track_access=True,
                 )
@@ -312,7 +313,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             parallel_results, stats = executor.execute(
                 txs=deepcopy(txs),
                 tx_processor=parallel_processor,
-                enabled_fees=True,
+                fee_policy=TxFeePolicy.paid_metered(),
                 rewards_handler=parallel_rewards,
             )
 
@@ -385,7 +386,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             serial_results = [
                 serial_processor.process_tx(
                     deepcopy(tx),
-                    enabled_fees=False,
+                    fee_policy=TxFeePolicy.system_unmetered(),
                     rewards_handler=None,
                     track_access=True,
                 )
@@ -401,7 +402,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             parallel_results, stats = executor.execute(
                 txs=deepcopy(txs),
                 tx_processor=parallel_processor,
-                enabled_fees=False,
+                fee_policy=TxFeePolicy.system_unmetered(),
                 rewards_handler=None,
             )
 
@@ -469,7 +470,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             results, stats = executor.execute(
                 txs=deepcopy(txs),
                 tx_processor=processor,
-                enabled_fees=False,
+                fee_policy=TxFeePolicy.system_unmetered(),
                 rewards_handler=None,
             )
 
@@ -592,7 +593,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             serial_results = [
                 serial_processor.process_tx(
                     deepcopy(tx),
-                    enabled_fees=False,
+                    fee_policy=TxFeePolicy.system_unmetered(),
                     rewards_handler=None,
                     track_access=True,
                 )
@@ -608,7 +609,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             parallel_results, stats = executor.execute(
                 txs=deepcopy(txs),
                 tx_processor=parallel_processor,
-                enabled_fees=False,
+                fee_policy=TxFeePolicy.system_unmetered(),
                 rewards_handler=None,
             )
 
@@ -725,7 +726,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             serial_results = [
                 serial_processor.process_tx(
                     deepcopy(tx),
-                    enabled_fees=False,
+                    fee_policy=TxFeePolicy.system_unmetered(),
                     rewards_handler=None,
                     track_access=True,
                 )
@@ -742,7 +743,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             parallel_results, stats = executor.execute(
                 txs=deepcopy(txs),
                 tx_processor=parallel_processor,
-                enabled_fees=False,
+                fee_policy=TxFeePolicy.system_unmetered(),
                 rewards_handler=None,
             )
 
@@ -804,7 +805,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             serial_results = [
                 serial_processor.process_tx(
                     deepcopy(tx),
-                    enabled_fees=False,
+                    fee_policy=TxFeePolicy.system_unmetered(),
                     rewards_handler=None,
                     track_access=True,
                 )
@@ -821,7 +822,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             parallel_results, stats = executor.execute(
                 txs=deepcopy(txs),
                 tx_processor=parallel_processor,
-                enabled_fees=False,
+                fee_policy=TxFeePolicy.system_unmetered(),
                 rewards_handler=None,
             )
 
@@ -872,7 +873,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             serial_results = [
                 serial_processor.process_tx(
                     deepcopy(tx),
-                    enabled_fees=False,
+                    fee_policy=TxFeePolicy.system_unmetered(),
                     rewards_handler=None,
                     track_access=True,
                 )
@@ -891,7 +892,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             parallel_results, stats = executor.execute(
                 txs=deepcopy(txs),
                 tx_processor=parallel_processor,
-                enabled_fees=False,
+                fee_policy=TxFeePolicy.system_unmetered(),
                 rewards_handler=None,
             )
 
@@ -975,7 +976,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             serial_results = [
                 serial_processor.process_tx(
                     deepcopy(tx),
-                    enabled_fees=False,
+                    fee_policy=TxFeePolicy.system_unmetered(),
                     rewards_handler=None,
                     track_access=True,
                 )
@@ -993,7 +994,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             parallel_results, stats = executor.execute(
                 txs=deepcopy(txs),
                 tx_processor=parallel_processor,
-                enabled_fees=False,
+                fee_policy=TxFeePolicy.system_unmetered(),
                 rewards_handler=None,
             )
 
@@ -1039,7 +1040,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
                     nonce=0,
                     signature="sig-missing-rewards",
                 ),
-                enabled_fees=False,
+                fee_policy=TxFeePolicy.system_unmetered(),
                 rewards_handler=RewardsHandler(client=client),
             )
 
@@ -1068,6 +1069,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             workers=2,
             min_transactions=1,
         )
+        executor._batch_fee_policy = TxFeePolicy.system_unmetered()
 
         with patch("xian.parallel_executor.ProcessPoolExecutor", FakeExecutor):
             first = executor._speculate_many(

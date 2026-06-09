@@ -12,6 +12,7 @@ from typing import Any
 
 from contracting.artifacts import build_contract_artifacts
 from contracting.local import BUILTIN_SUBMISSION_SOURCE_PATH
+from contracting.runtime_features import normalize_runtime_features
 from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import encode
@@ -21,6 +22,11 @@ from xian.config_paths import (
     resolve_contracts_dir as resolve_configs_contracts_dir,
 )
 from xian.execution_engine import VmRuntime, build_vm_runtime, execute_vm_contract
+from xian.runtime_features import (
+    RuntimeFeatureResolution,
+    genesis_runtime_feature_entries,
+    install_driver_runtime_features,
+)
 from xian.state_root import StateRootCache
 
 TEMPLATE_ARG_PATTERN = re.compile(r"%%(.*?)%%")
@@ -155,8 +161,17 @@ def _build_genesis_block(
     contracts_dir: Path,
     storage_home: Path,
     constructor_overrides: dict[str, dict[str, Any]] | None = None,
+    runtime_features: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     driver = Driver(storage_home=storage_home)
+    resolved_runtime_features = normalize_runtime_features(runtime_features)
+    install_driver_runtime_features(
+        driver,
+        RuntimeFeatureResolution(
+            features=resolved_runtime_features,
+            source="genesis_builder",
+        ),
+    )
     runtime = build_vm_runtime()
     _stage_native_submission_contract(driver)
 
@@ -205,6 +220,9 @@ def _build_genesis_block(
                 constructor_args=constructor_args,
             )
 
+    for entry in genesis_runtime_feature_entries(resolved_runtime_features):
+        driver.set(entry["key"], entry["value"])
+
     genesis_block = {
         "hash": "",
         "number": "0",
@@ -238,6 +256,7 @@ def build_genesis_block(
     contracts_dir: Path | None = None,
     storage_home: Path | None = None,
     constructor_overrides: dict[str, dict[str, Any]] | None = None,
+    runtime_features: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     resolved_contracts_dir = resolve_contracts_dir(contracts_dir)
 
@@ -248,6 +267,7 @@ def build_genesis_block(
             contracts_dir=resolved_contracts_dir,
             storage_home=storage_home.resolve(),
             constructor_overrides=constructor_overrides,
+            runtime_features=runtime_features,
         )
 
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -257,6 +277,7 @@ def build_genesis_block(
             contracts_dir=resolved_contracts_dir,
             storage_home=Path(tmp_dir),
             constructor_overrides=constructor_overrides,
+            runtime_features=runtime_features,
         )
 
 
@@ -359,6 +380,7 @@ def build_single_validator_genesis(
     validator_power: int | str = 10,
     registration_fee: int = 100000,
     contracts_dir: Path | None = None,
+    runtime_features: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     founder_wallet = Ed25519Account(founder_private_key)
     return build_local_network_genesis(
@@ -375,6 +397,7 @@ def build_single_validator_genesis(
         network=network,
         registration_fee=registration_fee,
         contracts_dir=contracts_dir,
+        runtime_features=runtime_features,
     )
 
 
@@ -386,6 +409,7 @@ def build_local_network_genesis(
     network: str = "local",
     registration_fee: int = 100000,
     contracts_dir: Path | None = None,
+    runtime_features: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not validators:
         raise ValueError("at least one validator is required")
@@ -425,6 +449,7 @@ def build_local_network_genesis(
             "members": dict(member_overrides),
             "masternodes": dict(member_overrides),
         },
+        runtime_features=runtime_features,
     )
     validator_entries = [
         build_validator_genesis_entry(
@@ -447,11 +472,13 @@ def build_bundle_network_genesis(
     network: str,
     contracts_dir: Path | None = None,
     genesis_time: str | None = None,
+    runtime_features: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     abci_genesis = build_genesis_block(
         founder_private_key=DEFAULT_PRESET_GENESIS_PRIVATE_KEY,
         network=network,
         contracts_dir=contracts_dir,
+        runtime_features=runtime_features,
     )
     abci_genesis["origin"] = {"sender": "", "signature": ""}
     return build_cometbft_genesis(

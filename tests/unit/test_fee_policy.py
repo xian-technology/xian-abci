@@ -45,10 +45,10 @@ class TxFeePolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(TransactionException, "Block chi_supplied exceeds"):
             policy.validate_block_total(21)
 
-    def test_legacy_disabled_fees_remains_unmetered(self):
-        policy = TxFeePolicy.from_legacy_enabled_fees(False)
+    def test_system_policy_is_unmetered(self):
+        policy = TxFeePolicy.system_unmetered()
 
-        self.assertEqual(policy.mode, "legacy_unmetered")
+        self.assertEqual(policy.mode, "system_unmetered")
         self.assertFalse(policy.meter_execution)
         self.assertFalse(policy.charge_fees)
         self.assertFalse(policy.distribute_fee_rewards)
