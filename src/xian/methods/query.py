@@ -15,8 +15,6 @@ from xian.constants import Constants as c
 from xian.execution_engine import (
     execute_vm_contract,
     prepare_vm_contract,
-    restore_driver_state,
-    snapshot_driver_state,
 )
 from xian.utils.block import (
     get_latest_block_height,
@@ -249,7 +247,7 @@ def _call_contract_view(
         if ctx.raw_driver.get_contract_source(contract_name) is None and contract_ir is None:
             return None
 
-    state = snapshot_driver_state(ctx.raw_driver)
+    state = ctx.raw_driver.snapshot_state()
     try:
         prepare_vm_contract(runtime, ctx.raw_driver, contract_name)
         output = execute_vm_contract(
@@ -267,7 +265,7 @@ def _call_contract_view(
             return None
         return output.result
     finally:
-        restore_driver_state(ctx.raw_driver, state)
+        ctx.raw_driver.restore_state(state)
 
 
 def _pending_masternodes_votes(

@@ -17,8 +17,6 @@ from xian.execution_engine import (
     VmRuntime,
     execute_vm_transaction,
     prepare_vm_contract,
-    restore_driver_state,
-    snapshot_driver_state,
     vm_deployment_artifacts_error,
     vm_requires_deployment_artifacts,
 )
@@ -156,10 +154,10 @@ class TransactionSimulator:
             self._restore_driver_state(state_snapshot)
 
     def _snapshot_driver_state(self) -> dict:
-        return snapshot_driver_state(self.client.raw_driver)
+        return self.client.raw_driver.snapshot_state()
 
     def _restore_driver_state(self, state_snapshot: dict) -> None:
-        restore_driver_state(self.client.raw_driver, state_snapshot)
+        self.client.raw_driver.restore_state(state_snapshot)
 
     def _execute_vm_simulation(
         self,

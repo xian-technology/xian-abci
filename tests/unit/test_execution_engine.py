@@ -23,8 +23,6 @@ from xian.execution_engine import (
     execute_vm_contract,
     execute_vm_transaction,
     prepare_vm_contract,
-    restore_driver_state,
-    snapshot_driver_state,
     vm_metering_writes,
 )
 from xian.fee_policy import TxFeePolicy
@@ -1177,7 +1175,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             chi: int,
             transaction_size_bytes: int,
         ) -> dict[str, object]:
-            before_state = snapshot_driver_state(driver)
+            before_state = driver.snapshot_state()
             output = executor.execute(
                 sender=sender,
                 contract_name=contract_name,
@@ -1193,9 +1191,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             output = augment_execution_output_with_driver_state(
                 output,
                 before_state=before_state,
-                after_state=snapshot_driver_state(driver),
+                after_state=driver.snapshot_state(),
             )
-            restore_driver_state(driver, before_state)
+            driver.restore_state(before_state)
             return output
 
         def deploy_contract(
@@ -1363,32 +1361,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             prepare_vm_contract(runtime, driver, "con_missing")
 
         driver.get_contract_source.assert_not_called()
-
-    def test_snapshot_driver_state_round_trips(self):
-        driver = types.SimpleNamespace(
-            pending_writes={"currency.balances:alice": 5},
-            pending_reads={"currency.balances:alice": 1},
-            pending_deltas={"currency.balances:alice": 4},
-            transaction_reads={"currency.balances:alice": 1},
-            transaction_read_prefixes={"currency."},
-            transaction_writes={"currency.balances:alice": 5},
-            log_events=[{"event": "Transfer"}],
-        )
-
-        snapshot = snapshot_driver_state(driver)
-        driver.pending_writes = {}
-        driver.pending_reads = {}
-        driver.pending_deltas = {}
-        driver.transaction_reads = {}
-        driver.transaction_read_prefixes = set()
-        driver.transaction_writes = {}
-        driver.log_events = []
-
-        restore_driver_state(driver, snapshot)
-
-        self.assertEqual(driver.pending_writes, {"currency.balances:alice": 5})
-        self.assertEqual(driver.transaction_read_prefixes, {"currency."})
-        self.assertEqual(driver.log_events, [{"event": "Transfer"}])
 
     def test_augment_execution_output_with_driver_state_merges_hidden_writes(
         self,
@@ -1681,8 +1653,8 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
             output = augment_execution_output_with_driver_state(
                 output,
-                before_state=snapshot_driver_state(driver),
-                after_state=snapshot_driver_state(driver),
+                before_state=driver.snapshot_state(),
+                after_state=driver.snapshot_state(),
             )
             for key, value in output["writes"].items():
                 driver.set(key, value)
@@ -1698,7 +1670,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             "account": "alice",
             "amount": 3,
         }
-        before_state = snapshot_driver_state(driver)
+        before_state = driver.snapshot_state()
         native_output = execute_vm_contract(
             runtime,
             driver,
@@ -1711,7 +1683,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             chi_budget=0,
             transaction_size_bytes=0,
         )
-        restore_driver_state(driver, before_state)
+        driver.restore_state(before_state)
         python_output = executor.execute(
             sender="alice",
             contract_name=router_name,
@@ -1725,9 +1697,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         python_output = augment_execution_output_with_driver_state(
             python_output,
             before_state=before_state,
-            after_state=snapshot_driver_state(driver),
+            after_state=driver.snapshot_state(),
         )
-        restore_driver_state(driver, before_state)
+        driver.restore_state(before_state)
 
         mismatches = compare_execution_results(
             python_output,

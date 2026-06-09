@@ -132,6 +132,269 @@ def test_warm_shielded_proof_cache_skips_malformed_candidates():
     warm_verified_proofs.assert_not_called()
 
 
+def _tx(function, kwargs, *, contract="con_token", sender="sender", chain_id="xian-test"):
+    return {
+        "payload": {
+            "contract": contract,
+            "function": function,
+            "sender": sender,
+            "kwargs": kwargs,
+        },
+        "b_meta": {"chain_id": chain_id},
+    }
+
+
+def test_build_verification_request_for_transfer():
+    driver = _Driver({("con_token", "vk_ids", ("transfer",)): "transfer-vk"})
+    tx = _tx(
+        "transfer_shielded",
+        {
+            "proof_hex": "0xproof",
+            "old_root": "0xroot",
+            "input_nullifiers": ["0xnull"],
+            "output_commitments": ["0xcommit"],
+            "output_payloads": ["0xdata"],
+        },
+    )
+
+    with (
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_output_payload_hashes",
+            return_value=["0xpayloadhash"],
+        ),
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_transfer_public_inputs",
+            return_value=["0xpublic"],
+        ) as transfer_inputs,
+    ):
+        request = build_verification_request(driver, tx)
+
+    assert request == {
+        "vk_id": "transfer-vk",
+        "proof_hex": "0xproof",
+        "public_inputs": ["0xpublic"],
+    }
+    transfer_inputs.assert_called_once_with(
+        "con_token",
+        "0xroot",
+        ["0xnull"],
+        ["0xcommit"],
+        ["0xpayloadhash"],
+    )
+
+
+def test_build_verification_request_for_withdraw():
+    driver = _Driver({("con_token", "vk_ids", ("withdraw",)): "withdraw-vk"})
+    tx = _tx(
+        "withdraw_shielded",
+        {
+            "proof_hex": "0xproof",
+            "old_root": "0xroot",
+            "amount": 7,
+            "to": "recipient",
+            "input_nullifiers": ["0xnull"],
+            "output_commitments": ["0xcommit"],
+        },
+    )
+
+    with (
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_output_payload_hashes",
+            return_value=["0xpayloadhash"],
+        ),
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_withdraw_public_inputs",
+            return_value=["0xpublic"],
+        ) as withdraw_inputs,
+    ):
+        request = build_verification_request(driver, tx)
+
+    assert request == {
+        "vk_id": "withdraw-vk",
+        "proof_hex": "0xproof",
+        "public_inputs": ["0xpublic"],
+    }
+    withdraw_inputs.assert_called_once_with(
+        "con_token",
+        "0xroot",
+        7,
+        "recipient",
+        ["0xnull"],
+        ["0xcommit"],
+        ["0xpayloadhash"],
+    )
+
+
+def test_build_verification_request_for_relay_transfer_binds_chain_and_sender():
+    driver = _Driver(
+        {("con_token", "vk_ids", ("relay_transfer",)): "relay-vk"}
+    )
+    tx = _tx(
+        "relay_transfer_shielded",
+        {
+            "proof_hex": "0xproof",
+            "old_root": "0xroot",
+            "input_nullifiers": ["0xnull"],
+            "output_commitments": ["0xcommit"],
+            "relayer_fee": 3,
+        },
+    )
+
+    with (
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_output_payload_hashes",
+            side_effect=lambda payloads: [f"hash:{p}" for p in payloads],
+        ),
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_command_nullifier_digest",
+            return_value="0xdigest",
+        ),
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_command_binding",
+            return_value="0xbinding",
+        ) as binding,
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_command_execution_tag",
+            return_value="0xtag",
+        ) as execution_tag,
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_command_public_inputs",
+            return_value=["0xpublic"],
+        ) as command_inputs,
+    ):
+        request = build_verification_request(driver, tx)
+
+    assert request == {
+        "vk_id": "relay-vk",
+        "proof_hex": "0xproof",
+        "public_inputs": ["0xpublic"],
+    }
+    binding_args = binding.call_args.args
+    assert binding_args[0] == "0xdigest"
+    # No expiry was supplied, so the binding must use the zero field.
+    assert binding_args[4] == "0x" + "00" * 32
+    assert binding_args[8] == 3
+    assert binding_args[9] == 0
+    execution_tag.assert_called_once_with("0xdigest", "0xbinding")
+    command_inputs.assert_called_once_with(
+        "con_token",
+        "0xroot",
+        "0xbinding",
+        "0xtag",
+        3,
+        0,
+        ["0xnull"],
+        ["0xcommit"],
+        ["hash:"],
+    )
+
+
+def test_build_verification_request_for_execute_command():
+    driver = _Driver({("con_pool", "vk_ids", ("command",)): "command-vk"})
+    tx = _tx(
+        "execute_command",
+        {
+            "proof_hex": "0xproof",
+            "old_root": "0xroot",
+            "input_nullifiers": ["0xnull"],
+            "output_commitments": ["0xcommit"],
+            "target_contract": "con_dex",
+            "payload": {"action": "swap"},
+            "relayer_fee": 1,
+            "public_amount": 5,
+            "expires_at": 123,
+        },
+        contract="con_pool",
+    )
+
+    with (
+        patch(
+            "xian.shielded_preverify._canonicalize_command_payload",
+            return_value='{"action":"swap"}',
+        ) as canonicalize,
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_output_payload_hashes",
+            side_effect=lambda payloads: [f"hash:{p}" for p in payloads],
+        ),
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_command_nullifier_digest",
+            return_value="0xdigest",
+        ),
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_command_binding",
+            return_value="0xbinding",
+        ) as binding,
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_command_execution_tag",
+            return_value="0xtag",
+        ),
+        patch(
+            "xian.shielded_preverify.zk_bridge.shielded_command_public_inputs",
+            return_value=["0xpublic"],
+        ),
+    ):
+        request = build_verification_request(driver, tx)
+
+    assert request == {
+        "vk_id": "command-vk",
+        "proof_hex": "0xproof",
+        "public_inputs": ["0xpublic"],
+    }
+    canonicalize.assert_called_once_with({"action": "swap"})
+    binding_args = binding.call_args.args
+    assert binding_args[8] == 1
+    assert binding_args[9] == 5
+
+
+def test_build_verification_request_returns_none_without_vk_id():
+    driver = _Driver({})
+    tx = _tx(
+        "deposit_shielded",
+        {
+            "proof_hex": "0xproof",
+            "old_root": "0xroot",
+            "amount": 10,
+            "output_commitments": ["0xcommit"],
+        },
+    )
+
+    assert build_verification_request(driver, tx) is None
+
+
+def test_build_verification_request_ignores_unrelated_payloads():
+    driver = _Driver({})
+
+    assert build_verification_request(driver, {"payload": "not-a-dict"}) is None
+    assert build_verification_request(driver, {"payload": {"kwargs": {}}}) is None
+    no_proof = _tx("deposit_shielded", {"old_root": "0xroot"})
+    assert build_verification_request(driver, no_proof) is None
+    unknown_function = _tx("transfer", {"proof_hex": "0xproof"})
+    assert build_verification_request(driver, unknown_function) is None
+    missing_sender = _tx("deposit_shielded", {"proof_hex": "0xproof"}, sender="")
+    assert build_verification_request(driver, missing_sender) is None
+
+
+def test_build_verification_request_rejects_payload_count_mismatch():
+    driver = _Driver({("con_token", "vk_ids", ("deposit",)): "deposit-vk"})
+    tx = _tx(
+        "deposit_shielded",
+        {
+            "proof_hex": "0xproof",
+            "old_root": "0xroot",
+            "amount": 10,
+            "output_commitments": ["0xcommit"],
+            "output_payloads": ["0xdata", "0xextra"],
+        },
+    )
+
+    try:
+        build_verification_request(driver, tx)
+    except AssertionError as exc:
+        assert "output_payloads length" in str(exc)
+    else:
+        raise AssertionError("expected payload count mismatch to raise")
+
+
 def test_build_verification_request_for_deposit_defaults_empty_payloads():
     driver = _Driver({("con_token", "vk_ids", ("deposit",)): "deposit-vk"})
     tx = {

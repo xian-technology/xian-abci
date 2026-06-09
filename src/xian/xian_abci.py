@@ -4,7 +4,6 @@ import gc
 import importlib
 import signal
 import sys
-from copy import deepcopy
 from dataclasses import replace
 
 
@@ -58,10 +57,7 @@ from xian.app_logging import (
     log_level_includes,
 )
 from xian.constants import Constants
-from xian.execution_engine import (
-    build_vm_runtime,
-    snapshot_driver_state,
-)
+from xian.execution_engine import build_vm_runtime
 from xian.execution_policy import validate_vm_execution_config
 from xian.fee_policy import TxFeePolicy
 from xian.methods import (
@@ -230,7 +226,7 @@ class Xian:
             storage_home=constants.STORAGE_HOME,
             execution_runtime=self.execution_runtime,
             get_block_meta=lambda: self.current_block_meta,
-            get_state_snapshot=lambda: snapshot_driver_state(self.client.raw_driver),
+            get_state_snapshot=lambda: self.client.raw_driver.snapshot_state(),
             chain_id=self.chain_id,
             enabled=xian_config.get("simulation_enabled", True),
             max_concurrency=xian_config.get("simulation_max_concurrency", 2),
@@ -380,34 +376,14 @@ class Xian:
         if self._pending_commit_driver_state is not None:
             raise RuntimeError("previous block has staged writes that were not committed")
 
-        driver = self.client.raw_driver
-        self._pending_commit_driver_state = {
-            "pending_writes": deepcopy(driver.pending_writes),
-            "pending_reads": deepcopy(driver.pending_reads),
-            "transaction_reads": deepcopy(driver.transaction_reads),
-            "transaction_read_prefixes": deepcopy(driver.transaction_read_prefixes),
-            "transaction_writes": deepcopy(driver.transaction_writes),
-            "log_events": deepcopy(driver.log_events),
-        }
-        driver.pending_writes.clear()
-        driver.pending_reads.clear()
-        driver.transaction_reads.clear()
-        driver.transaction_read_prefixes.clear()
-        driver.transaction_writes.clear()
-        driver.log_events.clear()
+        self._pending_commit_driver_state = self.client.raw_driver.detach_pending_state()
 
     def _restore_pending_commit_driver_state(self):
         staged_state = self._pending_commit_driver_state
         if staged_state is None:
             return
 
-        driver = self.client.raw_driver
-        driver.pending_writes = staged_state["pending_writes"]
-        driver.pending_reads = staged_state["pending_reads"]
-        driver.transaction_reads = staged_state["transaction_reads"]
-        driver.transaction_read_prefixes = staged_state["transaction_read_prefixes"]
-        driver.transaction_writes = staged_state["transaction_writes"]
-        driver.log_events = staged_state["log_events"]
+        self.client.raw_driver.attach_pending_state(staged_state)
         self._pending_commit_driver_state = None
 
     def _discard_pending_commit_driver_state(self):

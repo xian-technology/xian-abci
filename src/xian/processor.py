@@ -463,10 +463,9 @@ class TxProcessor:
             writes_map[key] = current_value + delta
 
         writes = [{"key": k, "value": v} for k, v in writes_map.items()]
-        try:
-            writes.sort(key=lambda x: x["key"])
-        except Exception as e:
-            logger.error(f"Unable to sort state writes by 'key': {e}")
+        # Write ordering is consensus-critical: every validator must apply
+        # state in the same order, so a sort failure has to halt the node.
+        writes.sort(key=lambda x: x["key"])
 
         return writes
 
@@ -476,10 +475,11 @@ class TxProcessor:
         signature = tx["metadata"]["signature"]
         chain_id = block_meta["chain_id"]
 
-        # Nanos is set at the time of block being processed, and is shared between all txns in a block.
-        # TODO : confirm this w/ CometBFT docs.
-        # it's a deterministic value which is the average of times from validators who voted for this block
-        # it's set during the consensus agreement & voting for block between all validators.
+        # Nanos is derived from the block header time consensus agreed on, so
+        # it is identical for every tx in the block and deterministic across
+        # validators. CometBFT computes header time as the weighted median of
+        # validator precommit timestamps (BFT Time), or takes the proposer's
+        # timestamp when Proposer-Based Timestamps are enabled.
 
         return {
             "block_hash": block_meta["hash"],  # hash nanos

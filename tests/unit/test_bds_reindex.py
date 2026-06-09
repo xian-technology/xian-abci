@@ -1,8 +1,17 @@
 import base64
 import json
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
-from xian.services.bds.reindex import BdsReindexer
+from xian.services.bds.reindex import (
+    BdsReindexer,
+    CometBftRpcClient,
+    ReindexPlan,
+    datetime_to_nanos,
+    parse_rfc3339_nano,
+    run_bds_reindex,
+)
 from xian.utils.encoding import encode_transaction_bytes
 
 
@@ -213,6 +222,283 @@ class BdsReindexerTests(unittest.IsolatedAsyncioTestCase):
         payload = await reindexer.build_payload(4)
 
         self.assertEqual(payload.transactions, [])
+
+    async def test_build_payload_rejects_tx_result_count_mismatch(self):
+        source = _FakeBlockSource()
+        source.blocks[5] = {
+            "block_id": {"hash": "BLOCK-5"},
+            "block": {
+                "header": {
+                    "height": "5",
+                    "time": "2026-01-01T00:00:05Z",
+                    "app_hash": "APP-5",
+                },
+                "data": {"txs": [_tx_b64({"payload": {}, "metadata": {}})]},
+            },
+        }
+        source.block_results_map[5] = {"txs_results": []}
+
+        reindexer = BdsReindexer(
+            bds=_FakeBds(indexed_height=0),
+            block_source=source,
+            state_patch_manager=_FakeStatePatchManager(),
+        )
+
+        with self.assertRaisesRegex(ValueError, "tx/result count mismatch"):
+            await reindexer.build_payload(5)
+
+    async def test_verify_rejects_app_hash_mismatch_against_trusted_block(self):
+        block = {
+            "block_id": {"hash": "BLOCK-6"},
+            "block": {"header": {"app_hash": "APP-SOURCE"}},
+        }
+        trusted = _FakeBlockSource()
+        trusted.blocks[6] = {
+            "block_id": {"hash": "BLOCK-6"},
+            "block": {"header": {"app_hash": "APP-TRUSTED"}},
+        }
+        reindexer = BdsReindexer(
+            bds=_FakeBds(),
+            block_source=_FakeBlockSource(),
+            state_patch_manager=_FakeStatePatchManager(),
+            trusted_block_source=trusted,
+        )
+
+        with self.assertRaisesRegex(ValueError, "app hash mismatch"):
+            await reindexer._verify_block_against_trusted_source(
+                height=6,
+                block_response=block,
+            )
+
+    async def test_reindex_range_counts_persisted_blocks(self):
+        class _SelectiveBds(_FakeBds):
+            def __init__(self):
+                super().__init__(indexed_height=0)
+                self.heights = []
+
+            async def persist_block(self, payload):
+                self.heights.append(payload)
+                return len(self.heights) % 2 == 1
+
+        bds = _SelectiveBds()
+        reindexer = BdsReindexer(
+            bds=bds,
+            block_source=_FakeBlockSource(),
+            state_patch_manager=_FakeStatePatchManager(),
+        )
+
+        async def _payload(height):
+            return {"height": height}
+
+        with mock.patch.object(reindexer, "build_payload", side_effect=_payload):
+            persisted = await reindexer.reindex_range(
+                ReindexPlan(
+                    latest_height=4,
+                    indexed_height=0,
+                    start_height=1,
+                    end_height=4,
+                )
+            )
+
+        self.assertEqual(persisted, 2)
+        self.assertEqual(len(bds.heights), 4)
+
+    def test_extract_block_txs_handles_all_shapes(self):
+        extract = BdsReindexer._extract_block_txs
+
+        self.assertEqual(extract({"data": {"txs": ["a"]}}), ["a"])
+        self.assertEqual(extract({"data": {"txs": None}}), [])
+        self.assertEqual(extract({"data": ["b"]}), ["b"])
+        self.assertEqual(extract({"data": 42}), [])
+
+    def test_decode_tx_result_data_handles_empty_and_non_dict(self):
+        decode = BdsReindexer._decode_tx_result_data
+
+        self.assertIsNone(decode(None))
+        self.assertIsNone(decode(""))
+        non_dict = base64.b64encode(b"[1, 2]").decode("utf-8")
+        self.assertIsNone(decode(non_dict))
+
+    def test_is_indexable_tx_result_requires_consensus_fields(self):
+        is_indexable = BdsReindexer._is_indexable_tx_result
+
+        self.assertFalse(is_indexable(None))
+        self.assertFalse(is_indexable({"status": 0}))
+        self.assertTrue(
+            is_indexable({"status": 0, "state": [], "chi_used": 0})
+        )
+
+
+class ParseRfc3339NanoTests(unittest.TestCase):
+    def test_parses_z_suffix_without_fraction(self):
+        parsed = parse_rfc3339_nano("2026-01-01T00:00:04Z")
+
+        self.assertEqual(parsed.isoformat(), "2026-01-01T00:00:04+00:00")
+
+    def test_truncates_nanosecond_fraction(self):
+        parsed = parse_rfc3339_nano("2026-01-01T00:00:04.123456789Z")
+
+        self.assertEqual(parsed.microsecond, 123456)
+
+    def test_parses_explicit_positive_offset(self):
+        parsed = parse_rfc3339_nano("2026-01-01T02:00:04.5+02:00")
+
+        self.assertEqual(parsed.isoformat(), "2026-01-01T00:00:04.500000+00:00")
+
+    def test_parses_explicit_negative_offset(self):
+        parsed = parse_rfc3339_nano("2025-12-31T22:00:04.25-02:00")
+
+        self.assertEqual(parsed.isoformat(), "2026-01-01T00:00:04.250000+00:00")
+
+    def test_datetime_to_nanos_round_trips(self):
+        parsed = parse_rfc3339_nano("2026-01-01T00:00:04.123456Z")
+
+        nanos = datetime_to_nanos(parsed)
+
+        self.assertEqual(nanos, 1767225604123456000)
+
+
+class CometBftRpcClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_endpoints_delegate_to_get(self):
+        client = CometBftRpcClient("tcp://0.0.0.0:26657")
+        self.assertEqual(client.rpc_url, "http://0.0.0.0:26657")
+
+        calls = []
+
+        async def _get(path, params=None):
+            calls.append((path, params))
+            return {"sync_info": {"latest_block_height": "12"}}
+
+        with mock.patch.object(client, "_get", side_effect=_get):
+            height = await client.latest_height()
+            await client.block(3)
+            await client.block_results(4)
+
+        self.assertEqual(height, 12)
+        self.assertEqual(
+            calls,
+            [
+                ("status", None),
+                ("block", {"height": "3"}),
+                ("block_results", {"height": "4"}),
+            ],
+        )
+
+    async def test_close_shuts_down_session_once(self):
+        client = CometBftRpcClient("http://127.0.0.1:26657")
+        session = mock.AsyncMock()
+        client._session = session
+
+        await client.close()
+        await client.close()
+
+        session.close.assert_awaited_once()
+        self.assertIsNone(client._session)
+
+
+class RunBdsReindexTests(unittest.IsolatedAsyncioTestCase):
+    def _constants(self):
+        return SimpleNamespace(STORAGE_HOME="/tmp/xian-test-storage")
+
+    async def test_returns_early_when_caught_up(self):
+        bds = mock.AsyncMock()
+        block_source = mock.AsyncMock()
+        block_source.rpc_url = "http://127.0.0.1:26657"
+        plan = ReindexPlan(
+            latest_height=10,
+            indexed_height=10,
+            start_height=11,
+            end_height=10,
+        )
+        reindexer = mock.AsyncMock()
+        reindexer.build_plan.return_value = plan
+
+        with (
+            mock.patch("xian.services.bds.reindex.load_genesis_data", return_value={}),
+            mock.patch("xian.services.bds.reindex.resolve_bds_config"),
+            mock.patch("xian.services.bds.reindex.BDS", return_value=bds),
+            mock.patch("xian.services.bds.reindex.Driver"),
+            mock.patch("xian.services.bds.reindex.StatePatchManager"),
+            mock.patch(
+                "xian.services.bds.reindex.resolve_state_patch_dir",
+                return_value="/tmp/patches",
+            ),
+            mock.patch(
+                "xian.services.bds.reindex.resolve_rpc_url",
+                return_value="http://127.0.0.1:26657",
+            ),
+            mock.patch(
+                "xian.services.bds.reindex.CometBftRpcClient",
+                return_value=block_source,
+            ) as client_cls,
+            mock.patch(
+                "xian.services.bds.reindex.BdsReindexer",
+                return_value=reindexer,
+            ) as reindexer_cls,
+        ):
+            result = await run_bds_reindex(constants=self._constants())
+
+        self.assertIs(result, plan)
+        # Source and trusted URL are identical, so only one client exists and
+        # no trusted source is wired up.
+        client_cls.assert_called_once()
+        self.assertIsNone(reindexer_cls.call_args.kwargs["trusted_block_source"])
+        reindexer.reindex_range.assert_not_awaited()
+        block_source.close.assert_awaited_once()
+        bds.close.assert_awaited_once()
+
+    async def test_reindexes_with_trusted_source_for_remote_rpc(self):
+        bds = mock.AsyncMock()
+        source_client = mock.AsyncMock()
+        source_client.rpc_url = "http://remote:26657"
+        trusted_client = mock.AsyncMock()
+        trusted_client.rpc_url = "http://127.0.0.1:26657"
+        plan = ReindexPlan(
+            latest_height=10,
+            indexed_height=2,
+            start_height=3,
+            end_height=10,
+        )
+        reindexer = mock.AsyncMock()
+        reindexer.build_plan.return_value = plan
+
+        with (
+            mock.patch("xian.services.bds.reindex.load_genesis_data", return_value={}),
+            mock.patch("xian.services.bds.reindex.resolve_bds_config"),
+            mock.patch("xian.services.bds.reindex.BDS", return_value=bds),
+            mock.patch("xian.services.bds.reindex.Driver"),
+            mock.patch("xian.services.bds.reindex.StatePatchManager"),
+            mock.patch(
+                "xian.services.bds.reindex.resolve_state_patch_dir",
+                return_value="/tmp/patches",
+            ),
+            mock.patch(
+                "xian.services.bds.reindex.resolve_rpc_url",
+                side_effect=["http://remote:26657", "http://127.0.0.1:26657"],
+            ),
+            mock.patch(
+                "xian.services.bds.reindex.CometBftRpcClient",
+                side_effect=[source_client, trusted_client],
+            ),
+            mock.patch(
+                "xian.services.bds.reindex.BdsReindexer",
+                return_value=reindexer,
+            ) as reindexer_cls,
+        ):
+            result = await run_bds_reindex(
+                constants=self._constants(),
+                rpc_url="http://remote:26657",
+            )
+
+        self.assertIs(result, plan)
+        self.assertIs(
+            reindexer_cls.call_args.kwargs["trusted_block_source"],
+            trusted_client,
+        )
+        reindexer.reindex_range.assert_awaited_once_with(plan)
+        source_client.close.assert_awaited_once()
+        trusted_client.close.assert_awaited_once()
+        bds.close.assert_awaited_once()
 
 
 if __name__ == "__main__":

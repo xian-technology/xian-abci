@@ -145,30 +145,6 @@ def clear_prepared_contract_cache() -> None:
     _VM_PREPARED_CONTRACTS.clear()
 
 
-def snapshot_driver_state(driver) -> dict:
-    return {
-        "pending_writes": deepcopy(driver.pending_writes),
-        "pending_reads": deepcopy(driver.pending_reads),
-        "pending_deltas": deepcopy(driver.pending_deltas),
-        "transaction_reads": deepcopy(driver.transaction_reads),
-        "transaction_read_prefixes": deepcopy(getattr(driver, "transaction_read_prefixes", set())),
-        "transaction_writes": deepcopy(driver.transaction_writes),
-        "log_events": deepcopy(driver.log_events),
-    }
-
-
-def restore_driver_state(driver, state_snapshot: dict | None) -> None:
-    if not state_snapshot:
-        return
-    driver.pending_writes = deepcopy(state_snapshot["pending_writes"])
-    driver.pending_reads = deepcopy(state_snapshot["pending_reads"])
-    driver.pending_deltas = deepcopy(state_snapshot["pending_deltas"])
-    driver.transaction_reads = deepcopy(state_snapshot["transaction_reads"])
-    driver.transaction_read_prefixes = deepcopy(state_snapshot["transaction_read_prefixes"])
-    driver.transaction_writes = deepcopy(state_snapshot["transaction_writes"])
-    driver.log_events = deepcopy(state_snapshot["log_events"])
-
-
 @lru_cache(maxsize=1)
 def _load_vm_runtime_bindings():
     try:
@@ -320,7 +296,7 @@ def execute_vm_transaction(
     currency_contract: str = "currency",
     balances_hash: str = "balances",
 ) -> VmTransactionResult:
-    base_driver_state = snapshot_driver_state(driver)
+    base_driver_state = driver.snapshot_state()
     vm_output = execute_vm_contract(
         runtime,
         driver,
@@ -339,7 +315,7 @@ def execute_vm_transaction(
     chi_used = int(vm_output.chi_used or 0)
     contract_costs = dict(vm_output.contract_costs or {})
     merged_writes = dict(vm_output.writes)
-    restore_driver_state(driver, base_driver_state)
+    driver.restore_state(base_driver_state)
 
     if apply_metering_writes and (vm_output.status_code == 0 or not apply_metering_on_success_only):
         if meter and chi_used > 0:

@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
-from xian.cli import bds_snapshot, reindex_bds, state_snapshot
+import pytest
+
+from xian.cli import bds_snapshot, bds_spool, reindex_bds, state_snapshot
 
 
 @dataclass(frozen=True)
@@ -151,3 +153,50 @@ def test_reindex_bds_cli_passes_requested_plan(monkeypatch, capsys):
         }
     ]
     assert "BDS reindex complete:" in capsys.readouterr().out
+
+
+def test_bds_spool_commands_require_offline_acknowledgement():
+    with pytest.raises(SystemExit, match="node stopped"):
+        bds_spool.main(["compact"])
+
+    with pytest.raises(SystemExit, match="node stopped"):
+        bds_spool.main(["drain"])
+
+
+def test_bds_spool_compact_prints_summary(monkeypatch, capsys):
+    async def fake_run_compact():
+        return {
+            "compacted": {
+                "indexed_height": 7,
+                "removed_files": 2,
+                "kept_files": 1,
+            },
+            "status": {"spool_pending_count": 0},
+        }
+
+    monkeypatch.setattr(bds_spool, "_run_compact", fake_run_compact)
+
+    assert bds_spool.main(["compact", "--offline"]) == 0
+
+    out = capsys.readouterr().out
+    assert "indexed_height=7" in out
+    assert "removed_files=2" in out
+
+
+def test_bds_spool_drain_passes_timeout(monkeypatch, capsys):
+    captured = {}
+
+    async def fake_run_drain(*, timeout_seconds):
+        captured["timeout_seconds"] = timeout_seconds
+        return {"timed_out": False, "status": {"spool_pending_count": 3}}
+
+    monkeypatch.setattr(bds_spool, "_run_drain", fake_run_drain)
+
+    assert (
+        bds_spool.main(["drain", "--offline", "--timeout-seconds", "5"]) == 0
+    )
+
+    assert captured["timeout_seconds"] == 5.0
+    out = capsys.readouterr().out
+    assert "timed_out=False" in out
+    assert "pending=3" in out

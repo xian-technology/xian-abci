@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import mock
 
+from contracting.storage.driver import Driver
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.time import Datetime
 
@@ -14,8 +15,15 @@ from xian.simulator import QuerySimulationService, TransactionSimulator
 from xian.utils.block import set_latest_block_nanos
 
 
+class _FakeDriver(SimpleNamespace):
+    # Borrow the real state snapshot implementation so the fake stays in
+    # sync with the Driver interface the simulator relies on.
+    snapshot_state = Driver.snapshot_state
+    restore_state = Driver.restore_state
+
+
 def _driver(storage_home: Path | None = None):
-    driver = SimpleNamespace(
+    driver = _FakeDriver(
         storage_home=storage_home or Path("/tmp"),
         pending_writes={},
         pending_reads={},

@@ -8,7 +8,7 @@ from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
 
 from xian import simulator_ipc
-from xian.execution_engine import VmRuntime, restore_driver_state
+from xian.execution_engine import VmRuntime
 from xian.simulator import TransactionSimulator
 
 
@@ -24,7 +24,7 @@ def main() -> int:
             driver=driver,
             submission_filename=None,
         )
-        restore_driver_state(client.raw_driver, task.get("driver_state"))
+        client.raw_driver.restore_state(task.get("driver_state"))
         simulator = TransactionSimulator(
             client=client,
             execution_runtime=VmRuntime(runtime_info=task.get("runtime_info")),
