@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pickle
 import sys
 import traceback
 from pathlib import Path
@@ -8,13 +7,16 @@ from pathlib import Path
 from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
 
-from xian.execution_engine import restore_driver_state
+from xian import simulator_ipc
+from xian.execution_engine import VmRuntime, restore_driver_state
 from xian.simulator import TransactionSimulator
 
 
 def main() -> int:
     try:
-        task = pickle.load(sys.stdin.buffer)
+        task = simulator_ipc.loads(sys.stdin.buffer.read())
+        if not isinstance(task, dict):
+            raise ValueError("simulation task must be a JSON object")
         storage_home = Path(task["storage_home"])
         driver = Driver(storage_home=storage_home)
         client = ContractingClient(
@@ -25,7 +27,7 @@ def main() -> int:
         restore_driver_state(client.raw_driver, task.get("driver_state"))
         simulator = TransactionSimulator(
             client=client,
-            execution_runtime=task.get("execution_runtime"),
+            execution_runtime=VmRuntime(runtime_info=task.get("runtime_info")),
             chain_id=task.get("chain_id"),
             charge_fees=task.get("charge_fees", True),
         )
@@ -38,7 +40,7 @@ def main() -> int:
         traceback.print_exc(file=sys.stderr)
         return 1
 
-    pickle.dump(result, sys.stdout.buffer)
+    sys.stdout.buffer.write(simulator_ipc.dumps(result))
     sys.stdout.buffer.flush()
     return 0
 

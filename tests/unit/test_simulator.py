@@ -1,4 +1,5 @@
 import asyncio
+import decimal
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -6,7 +7,9 @@ from types import SimpleNamespace
 from unittest import mock
 
 from xian_runtime_types.decimal import ContractingDecimal
+from xian_runtime_types.time import Datetime
 
+from xian import simulator_ipc
 from xian.simulator import QuerySimulationService, TransactionSimulator
 from xian.utils.block import set_latest_block_nanos
 
@@ -46,6 +49,27 @@ def _native_result(result, *, status_code=0, chi_used=255):
         writes={},
         chi_used=chi_used,
     )
+
+
+class SimulatorIpcTests(unittest.TestCase):
+    def test_round_trips_supported_runtime_values(self):
+        payload = {
+            "decimal": decimal.Decimal("1.2300"),
+            "contracting_decimal": ContractingDecimal("4.5600"),
+            "datetime": Datetime(2025, 1, 2, 3, 4, 5, 123456),
+            "set": {"prefix.b", "prefix.a"},
+            "tuple": ("left", "right"),
+            "bytes": b"abc",
+        }
+
+        decoded = simulator_ipc.loads(simulator_ipc.dumps(payload))
+
+        self.assertEqual(decoded["decimal"], decimal.Decimal("1.2300"))
+        self.assertEqual(str(decoded["contracting_decimal"]), "4.56")
+        self.assertEqual(str(decoded["datetime"]), "2025-01-02 03:04:05.123456")
+        self.assertEqual(decoded["set"], {"prefix.b", "prefix.a"})
+        self.assertEqual(decoded["tuple"], ("left", "right"))
+        self.assertEqual(decoded["bytes"], b"abc")
 
 
 class SimulatorTests(unittest.TestCase):
@@ -368,6 +392,17 @@ class _DummyProcess:
         self.returncode = -9
 
 
+class _CapturingProcess:
+    returncode = 0
+
+    def __init__(self) -> None:
+        self.stdin = None
+
+    async def communicate(self, stdin):
+        self.stdin = stdin
+        return simulator_ipc.dumps({"ok": True}), b""
+
+
 class QuerySimulationServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_disabled_result_when_simulation_is_off(self):
         service = _TestQuerySimulationService(enabled=False)
@@ -418,6 +453,20 @@ class QuerySimulationServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["status"], 1)
         self.assertIn("timed out", result["result"])
+
+    async def test_worker_ipc_sends_json_bytes(self):
+        service = QuerySimulationService(storage_home=Path("/tmp"))
+        process = _CapturingProcess()
+
+        result = await service._wait_for_task_result(
+            process,
+            {"driver_state": {"transaction_read_prefixes": {"prefix.a"}}},
+        )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertIsNotNone(process.stdin)
+        self.assertTrue(process.stdin.startswith(b"{"))
+        self.assertNotEqual(process.stdin[:1], b"\x80")
 
 
 if __name__ == "__main__":

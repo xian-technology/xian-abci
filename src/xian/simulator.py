@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import pickle
 import sys
 from pathlib import Path
 
@@ -12,6 +11,7 @@ from loguru import logger
 from xian_runtime_types.encoding import convert_dict
 from xian_runtime_types.time import Datetime
 
+from xian import simulator_ipc
 from xian.app_logging import build_log_fields
 from xian.execution_engine import (
     VmRuntime,
@@ -338,7 +338,7 @@ class QuerySimulationService:
         try:
             task = {
                 "storage_home": str(self.storage_home),
-                "execution_runtime": self.execution_runtime,
+                "runtime_info": getattr(self.execution_runtime, "runtime_info", None),
                 "payload": normalized_payload,
                 "block_meta": self.get_block_meta() or {},
                 "chain_id": self.chain_id,
@@ -400,7 +400,7 @@ class QuerySimulationService:
         )
 
     async def _wait_for_task_result(self, process, task: dict) -> dict:
-        stdout, stderr = await process.communicate(pickle.dumps(task))
+        stdout, stderr = await process.communicate(simulator_ipc.dumps(task))
         if process.returncode != 0:
             detail = stderr.decode("utf-8", errors="replace").strip()
             if not detail:
@@ -408,7 +408,10 @@ class QuerySimulationService:
             raise RuntimeError(detail)
 
         try:
-            return pickle.loads(stdout)
+            result = simulator_ipc.loads(stdout)
+            if not isinstance(result, dict):
+                raise ValueError("simulation worker response must be a JSON object")
+            return result
         except Exception as exc:
             stderr_text = stderr.decode("utf-8", errors="replace").strip()
             detail = stderr_text or "Simulation worker returned invalid data"
