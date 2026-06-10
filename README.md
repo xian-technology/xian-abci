@@ -44,6 +44,7 @@ uv run xian-state-snapshot --help
 uv run xian-bds-reindex --help
 uv run xian-bds-snapshot --help
 uv run xian-bds-spool --help
+uv run xian-parallel-estimator-report --help
 ```
 
 Optional extras:
@@ -51,6 +52,8 @@ Optional extras:
 - `vm` — enables the `xian_vm_v1` bindings.
 - `native` — enables native admission helpers for development and release
   validation.
+- `zk` — enables the native zk verifier required by nodes on chains with the
+  `zk` runtime feature.
 
 For a ready-made local network instead of wiring the node yourself, use
 [`xian-stack`](../xian-stack). This repo focuses on the runtime and backend
