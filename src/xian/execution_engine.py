@@ -420,7 +420,9 @@ def _disabled_deployment_runtime_feature_error(
     return None
 
 
-def _reject_disabled_runtime_features(driver, contract_name: str, module_ir: dict[str, Any]) -> None:
+def _reject_disabled_runtime_features(
+    driver, contract_name: str, module_ir: dict[str, Any]
+) -> None:
     if module_ir_uses_runtime_feature(
         module_ir,
         RUNTIME_FEATURE_ZK,
