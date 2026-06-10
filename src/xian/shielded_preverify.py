@@ -58,140 +58,10 @@ def _text_field_hash(value: str) -> str:
     return _payload_hashes(["0x" + value.encode("utf-8").hex()])[0]
 
 
-def _note_token_entry(
-    *,
-    driver,
-    tx: dict,
-) -> dict[str, Any] | None:
-    payload = tx.get("payload")
-    if not isinstance(payload, dict):
-        return None
-    contract = payload.get("contract")
-    function = payload.get("function")
-    sender = payload.get("sender")
-    kwargs = payload.get("kwargs")
-    if not isinstance(contract, str) or not isinstance(function, str):
-        return None
-    if not isinstance(sender, str) or sender == "":
-        return None
-    if not isinstance(kwargs, dict):
-        return None
-
-    if function == "deposit_shielded":
-        vk_id = _vk_id_for(driver, contract, "deposit")
-        if vk_id is None:
-            return None
-        commitments = kwargs["output_commitments"]
-        output_payloads = _normalize_output_payloads(
-            kwargs.get("output_payloads"),
-            len(commitments),
-        )
-        payload_hashes = _payload_hashes(output_payloads)
-        return {
-            "vk_id": vk_id,
-            "proof_hex": kwargs["proof_hex"],
-            "public_inputs": zk_bridge.shielded_deposit_public_inputs(
-                contract,
-                kwargs["old_root"],
-                kwargs["amount"],
-                commitments,
-                payload_hashes,
-            ),
-        }
-
-    if function == "transfer_shielded":
-        vk_id = _vk_id_for(driver, contract, "transfer")
-        if vk_id is None:
-            return None
-        commitments = kwargs["output_commitments"]
-        output_payloads = _normalize_output_payloads(
-            kwargs.get("output_payloads"),
-            len(commitments),
-        )
-        payload_hashes = _payload_hashes(output_payloads)
-        return {
-            "vk_id": vk_id,
-            "proof_hex": kwargs["proof_hex"],
-            "public_inputs": zk_bridge.shielded_transfer_public_inputs(
-                contract,
-                kwargs["old_root"],
-                kwargs["input_nullifiers"],
-                commitments,
-                payload_hashes,
-            ),
-        }
-
-    if function == "relay_transfer_shielded":
-        vk_id = _vk_id_for(driver, contract, "relay_transfer")
-        if vk_id is None:
-            return None
-        commitments = kwargs["output_commitments"]
-        output_payloads = _normalize_output_payloads(
-            kwargs.get("output_payloads"),
-            len(commitments),
-        )
-        payload_hashes = _payload_hashes(output_payloads)
-        input_nullifiers = kwargs["input_nullifiers"]
-        fee = kwargs.get("relayer_fee", 0)
-        expires_at = kwargs.get("expires_at")
-        nullifier_digest = zk_bridge.shielded_command_nullifier_digest(input_nullifiers)
-        relay_binding = zk_bridge.shielded_command_binding(
-            nullifier_digest,
-            _text_field_hash("shielded-note-relay-transfer"),
-            _text_field_hash("transfer"),
-            _text_field_hash(sender),
-            ("0x" + "00" * 32 if expires_at in (None, "") else _text_field_hash(str(expires_at))),
-            _text_field_hash(tx["b_meta"]["chain_id"]),
-            _text_field_hash("relay_transfer_shielded"),
-            _text_field_hash("shielded-note-relay-v1"),
-            fee,
-            0,
-        )
-        execution_tag = zk_bridge.shielded_command_execution_tag(
-            nullifier_digest,
-            relay_binding,
-        )
-        return {
-            "vk_id": vk_id,
-            "proof_hex": kwargs["proof_hex"],
-            "public_inputs": zk_bridge.shielded_command_public_inputs(
-                contract,
-                kwargs["old_root"],
-                relay_binding,
-                execution_tag,
-                fee,
-                0,
-                input_nullifiers,
-                commitments,
-                payload_hashes,
-            ),
-        }
-
-    if function == "withdraw_shielded":
-        vk_id = _vk_id_for(driver, contract, "withdraw")
-        if vk_id is None:
-            return None
-        commitments = kwargs["output_commitments"]
-        output_payloads = _normalize_output_payloads(
-            kwargs.get("output_payloads"),
-            len(commitments),
-        )
-        payload_hashes = _payload_hashes(output_payloads)
-        return {
-            "vk_id": vk_id,
-            "proof_hex": kwargs["proof_hex"],
-            "public_inputs": zk_bridge.shielded_withdraw_public_inputs(
-                contract,
-                kwargs["old_root"],
-                kwargs["amount"],
-                kwargs["to"],
-                kwargs["input_nullifiers"],
-                commitments,
-                payload_hashes,
-            ),
-        }
-
-    return None
+def _expiry_field(expires_at: Any) -> str:
+    if expires_at in (None, ""):
+        return "0x" + "00" * 32
+    return _text_field_hash(str(expires_at))
 
 
 def _command_payload_digest(payload: Any) -> str:
@@ -205,119 +75,183 @@ def _command_payload_digest(payload: Any) -> str:
     return _text_field_hash(canonical)
 
 
-def _shielded_commands_entry(
-    *,
+def _entry_inputs(
     driver,
-    tx: dict,
-) -> dict[str, Any] | None:
-    payload = tx.get("payload")
-    if not isinstance(payload, dict):
+    contract: str,
+    action: str,
+    kwargs: dict,
+) -> tuple[str, list, list[str]] | None:
+    """Resolve the vk gate and output hashing shared by every entry point."""
+    vk_id = _vk_id_for(driver, contract, action)
+    if vk_id is None:
         return None
-    contract = payload.get("contract")
-    function = payload.get("function")
-    sender = payload.get("sender")
-    kwargs = payload.get("kwargs")
-    if not isinstance(contract, str) or not isinstance(function, str):
-        return None
-    if not isinstance(sender, str) or sender == "":
-        return None
-    if not isinstance(kwargs, dict):
-        return None
+    commitments = kwargs["output_commitments"]
+    output_payloads = _normalize_output_payloads(
+        kwargs.get("output_payloads"),
+        len(commitments),
+    )
+    return vk_id, commitments, _payload_hashes(output_payloads)
 
-    if function == "deposit_shielded":
-        vk_id = _vk_id_for(driver, contract, "deposit")
-        if vk_id is None:
-            return None
-        commitments = kwargs["output_commitments"]
-        output_payloads = _normalize_output_payloads(
-            kwargs.get("output_payloads"),
-            len(commitments),
-        )
-        payload_hashes = _payload_hashes(output_payloads)
-        return {
-            "vk_id": vk_id,
-            "proof_hex": kwargs["proof_hex"],
-            "public_inputs": zk_bridge.shielded_deposit_public_inputs(
-                contract,
-                kwargs["old_root"],
-                kwargs["amount"],
-                commitments,
-                payload_hashes,
-            ),
-        }
 
-    if function == "execute_command":
-        vk_id = _vk_id_for(driver, contract, "command")
-        if vk_id is None:
-            return None
-        commitments = kwargs["output_commitments"]
-        output_payloads = _normalize_output_payloads(
-            kwargs.get("output_payloads"),
-            len(commitments),
-        )
-        payload_hashes = _payload_hashes(output_payloads)
-        input_nullifiers = kwargs["input_nullifiers"]
-        fee = kwargs.get("relayer_fee", 0)
-        public_amount = kwargs.get("public_amount", 0)
-        expires_at = kwargs.get("expires_at")
-        nullifier_digest = zk_bridge.shielded_command_nullifier_digest(input_nullifiers)
-        binding = zk_bridge.shielded_command_binding(
-            nullifier_digest,
-            _text_field_hash(kwargs["target_contract"]),
-            _command_payload_digest(kwargs.get("payload")),
-            _text_field_hash(sender),
-            ("0x" + "00" * 32 if expires_at in (None, "") else _text_field_hash(str(expires_at))),
-            _text_field_hash(tx["b_meta"]["chain_id"]),
-            _text_field_hash("interact"),
-            _text_field_hash("shielded-command-v4"),
+def _deposit_entry(driver, contract: str, kwargs: dict) -> dict[str, Any] | None:
+    inputs = _entry_inputs(driver, contract, "deposit", kwargs)
+    if inputs is None:
+        return None
+    vk_id, commitments, payload_hashes = inputs
+    return {
+        "vk_id": vk_id,
+        "proof_hex": kwargs["proof_hex"],
+        "public_inputs": zk_bridge.shielded_deposit_public_inputs(
+            contract,
+            kwargs["old_root"],
+            kwargs["amount"],
+            commitments,
+            payload_hashes,
+        ),
+    }
+
+
+def _transfer_entry(driver, contract: str, kwargs: dict) -> dict[str, Any] | None:
+    inputs = _entry_inputs(driver, contract, "transfer", kwargs)
+    if inputs is None:
+        return None
+    vk_id, commitments, payload_hashes = inputs
+    return {
+        "vk_id": vk_id,
+        "proof_hex": kwargs["proof_hex"],
+        "public_inputs": zk_bridge.shielded_transfer_public_inputs(
+            contract,
+            kwargs["old_root"],
+            kwargs["input_nullifiers"],
+            commitments,
+            payload_hashes,
+        ),
+    }
+
+
+def _withdraw_entry(driver, contract: str, kwargs: dict) -> dict[str, Any] | None:
+    inputs = _entry_inputs(driver, contract, "withdraw", kwargs)
+    if inputs is None:
+        return None
+    vk_id, commitments, payload_hashes = inputs
+    return {
+        "vk_id": vk_id,
+        "proof_hex": kwargs["proof_hex"],
+        "public_inputs": zk_bridge.shielded_withdraw_public_inputs(
+            contract,
+            kwargs["old_root"],
+            kwargs["amount"],
+            kwargs["to"],
+            kwargs["input_nullifiers"],
+            commitments,
+            payload_hashes,
+        ),
+    }
+
+
+def _command_request(
+    *,
+    contract: str,
+    sender: str,
+    chain_id: str,
+    kwargs: dict,
+    vk_id: str,
+    commitments: list,
+    payload_hashes: list[str],
+    target_hash: str,
+    payload_digest: str,
+    interaction: str,
+    domain: str,
+    public_amount: Any,
+) -> dict[str, Any]:
+    input_nullifiers = kwargs["input_nullifiers"]
+    fee = kwargs.get("relayer_fee", 0)
+    nullifier_digest = zk_bridge.shielded_command_nullifier_digest(input_nullifiers)
+    binding = zk_bridge.shielded_command_binding(
+        nullifier_digest,
+        target_hash,
+        payload_digest,
+        _text_field_hash(sender),
+        _expiry_field(kwargs.get("expires_at")),
+        _text_field_hash(chain_id),
+        _text_field_hash(interaction),
+        _text_field_hash(domain),
+        fee,
+        public_amount,
+    )
+    execution_tag = zk_bridge.shielded_command_execution_tag(
+        nullifier_digest,
+        binding,
+    )
+    return {
+        "vk_id": vk_id,
+        "proof_hex": kwargs["proof_hex"],
+        "public_inputs": zk_bridge.shielded_command_public_inputs(
+            contract,
+            kwargs["old_root"],
+            binding,
+            execution_tag,
             fee,
             public_amount,
-        )
-        execution_tag = zk_bridge.shielded_command_execution_tag(
-            nullifier_digest,
-            binding,
-        )
-        return {
-            "vk_id": vk_id,
-            "proof_hex": kwargs["proof_hex"],
-            "public_inputs": zk_bridge.shielded_command_public_inputs(
-                contract,
-                kwargs["old_root"],
-                binding,
-                execution_tag,
-                fee,
-                public_amount,
-                input_nullifiers,
-                commitments,
-                payload_hashes,
-            ),
-        }
+            input_nullifiers,
+            commitments,
+            payload_hashes,
+        ),
+    }
 
-    if function == "withdraw_shielded":
-        vk_id = _vk_id_for(driver, contract, "withdraw")
-        if vk_id is None:
-            return None
-        commitments = kwargs["output_commitments"]
-        output_payloads = _normalize_output_payloads(
-            kwargs.get("output_payloads"),
-            len(commitments),
-        )
-        payload_hashes = _payload_hashes(output_payloads)
-        return {
-            "vk_id": vk_id,
-            "proof_hex": kwargs["proof_hex"],
-            "public_inputs": zk_bridge.shielded_withdraw_public_inputs(
-                contract,
-                kwargs["old_root"],
-                kwargs["amount"],
-                kwargs["to"],
-                kwargs["input_nullifiers"],
-                commitments,
-                payload_hashes,
-            ),
-        }
 
-    return None
+def _relay_transfer_entry(
+    driver,
+    tx: dict,
+    contract: str,
+    sender: str,
+    kwargs: dict,
+) -> dict[str, Any] | None:
+    inputs = _entry_inputs(driver, contract, "relay_transfer", kwargs)
+    if inputs is None:
+        return None
+    vk_id, commitments, payload_hashes = inputs
+    return _command_request(
+        contract=contract,
+        sender=sender,
+        chain_id=tx["b_meta"]["chain_id"],
+        kwargs=kwargs,
+        vk_id=vk_id,
+        commitments=commitments,
+        payload_hashes=payload_hashes,
+        target_hash=_text_field_hash("shielded-note-relay-transfer"),
+        payload_digest=_text_field_hash("transfer"),
+        interaction="relay_transfer_shielded",
+        domain="shielded-note-relay-v1",
+        public_amount=0,
+    )
+
+
+def _execute_command_entry(
+    driver,
+    tx: dict,
+    contract: str,
+    sender: str,
+    kwargs: dict,
+) -> dict[str, Any] | None:
+    inputs = _entry_inputs(driver, contract, "command", kwargs)
+    if inputs is None:
+        return None
+    vk_id, commitments, payload_hashes = inputs
+    return _command_request(
+        contract=contract,
+        sender=sender,
+        chain_id=tx["b_meta"]["chain_id"],
+        kwargs=kwargs,
+        vk_id=vk_id,
+        commitments=commitments,
+        payload_hashes=payload_hashes,
+        target_hash=_text_field_hash(kwargs["target_contract"]),
+        payload_digest=_command_payload_digest(kwargs.get("payload")),
+        interaction="interact",
+        domain="shielded-command-v4",
+        public_amount=kwargs.get("public_amount", 0),
+    )
 
 
 def build_verification_request(driver, tx: dict) -> dict[str, Any] | None:
@@ -327,11 +261,25 @@ def build_verification_request(driver, tx: dict) -> dict[str, Any] | None:
     kwargs = payload.get("kwargs")
     if not isinstance(kwargs, dict) or "proof_hex" not in kwargs:
         return None
+    contract = payload.get("contract")
+    function = payload.get("function")
+    sender = payload.get("sender")
+    if not isinstance(contract, str) or not isinstance(function, str):
+        return None
+    if not isinstance(sender, str) or sender == "":
+        return None
 
-    request = _note_token_entry(driver=driver, tx=tx)
-    if request is not None:
-        return request
-    return _shielded_commands_entry(driver=driver, tx=tx)
+    if function == "deposit_shielded":
+        return _deposit_entry(driver, contract, kwargs)
+    if function == "transfer_shielded":
+        return _transfer_entry(driver, contract, kwargs)
+    if function == "relay_transfer_shielded":
+        return _relay_transfer_entry(driver, tx, contract, sender, kwargs)
+    if function == "withdraw_shielded":
+        return _withdraw_entry(driver, contract, kwargs)
+    if function == "execute_command":
+        return _execute_command_entry(driver, tx, contract, sender, kwargs)
+    return None
 
 
 def warm_shielded_proof_cache(
