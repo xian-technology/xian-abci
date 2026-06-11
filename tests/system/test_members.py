@@ -39,15 +39,15 @@ class TestMembersContract(unittest.TestCase):
                 self.client.submit(code, name=name, constructor_args=contract_args[name])
         
         # Deploy members contract
-        members_path = os.path.join(self.contracts_dir, "members.s.py")
+        members_path = os.path.join(self.contracts_dir, "validators.s.py")
         with open(members_path) as f:
             code = f.read()
-            self.client.submit(code, name="members", constructor_args={
+            self.client.submit(code, name="validators", constructor_args={
                 "genesis_nodes": ["node1", "node2", "node3"],
                 "genesis_registration_fee": 1000
             })
 
-        self.members = self.client.get_contract_proxy("members")
+        self.members = self.client.get_contract_proxy("validators")
         self.currency = self.client.get_contract_proxy("currency")
 
         # Add initial balance to deployer directly
@@ -80,7 +80,7 @@ class TestMembersContract(unittest.TestCase):
     def test_initial_setup(self):
         # GIVEN the initial setup from constructor
         # WHEN checking initial values
-        nodes = self.members.nodes.get()
+        nodes = self.members.active_validators.get()
         fee = self.members.registration_fee.get()
         types = self.members.types.get()
         
@@ -96,7 +96,7 @@ class TestMembersContract(unittest.TestCase):
 
     def test_register_new_member(self):
         # GIVEN sufficient funds for registration
-        self.currency.approve(amount=1000, to="members", signer="new_member")
+        self.currency.approve(amount=1000, to="validators", signer="new_member")
         self.currency.transfer(amount=1000, to="new_member", signer=self.deployer_vk)
         
         # WHEN registering
@@ -115,7 +115,7 @@ class TestMembersContract(unittest.TestCase):
 
     def test_propose_and_approve_new_member(self):
         # GIVEN a pending registration
-        self.currency.approve(amount=1000, to="members", signer="new_member")
+        self.currency.approve(amount=1000, to="validators", signer="new_member")
         self.currency.transfer(amount=1000, to="new_member", signer=self.deployer_vk)
         self.members.register(
             signer="new_member",
@@ -135,9 +135,9 @@ class TestMembersContract(unittest.TestCase):
         self.members.vote(proposal_id=1, vote="yes", signer="node3")
         
         # THEN member should be added
-        nodes = self.members.nodes.get()
+        nodes = self.members.active_validators.get()
         self.assertTrue("new_member" in nodes)
-        self.assertEqual(self.members.validator_power["new_member"], 25)
+        self.assertEqual(self.members.powers["new_member"], 25)
         self.assertEqual(self.members.reward_keys["new_member"], "reward-wallet")
         self.assertEqual(self.members.statuses["new_member"], "active")
         self.assertFalse(self.members.pending_registrations["new_member"])
@@ -201,12 +201,12 @@ class TestMembersContract(unittest.TestCase):
         self.members.leave(signer="node1", environment={"now": future_time})
         
         # THEN they should be removed from nodes
-        nodes = self.members.nodes.get()
+        nodes = self.members.active_validators.get()
         self.assertTrue("node1" not in nodes)
 
     def test_vote_expiry(self):
         # GIVEN a pending vote
-        self.currency.approve(amount=1000, to="members", signer="new_member")
+        self.currency.approve(amount=1000, to="validators", signer="new_member")
         self.currency.transfer(amount=1000, to="new_member", signer=self.deployer_vk)
         self.members.register(signer="new_member")
         
@@ -241,7 +241,7 @@ class TestMembersContract(unittest.TestCase):
         self.members.vote(proposal_id=1, vote="yes", signer="node2")
         self.members.vote(proposal_id=1, vote="yes", signer="node3")
 
-        self.assertEqual(self.members.validator_power["node2"], 42)
+        self.assertEqual(self.members.powers["node2"], 42)
         self.assertEqual(self.members.member_weight(account="node2"), 42)
 
     def test_update_policy_vote_configures_auto_top_n_selection(self):
@@ -258,7 +258,7 @@ class TestMembersContract(unittest.TestCase):
         self.assertEqual(policy["power_mode"], "requested")
         self.assertEqual(policy["min_self_bond"], 100)
         self.assertEqual(policy["min_total_bond"], 100)
-        self.assertEqual(self.members.nodes.get(), [])
+        self.assertEqual(self.members.active_validators.get(), [])
 
     def test_rebalance_auto_top_n_selects_highest_total_bonded_validators(self):
         self.approve_policy_update(
@@ -280,7 +280,7 @@ class TestMembersContract(unittest.TestCase):
                 to=validator,
                 signer=self.deployer_vk,
             )
-            self.currency.approve(amount=amount, to="members", signer=validator)
+            self.currency.approve(amount=amount, to="validators", signer=validator)
 
         self.members.update_registration(
             requested_validator_power=30,
@@ -305,10 +305,10 @@ class TestMembersContract(unittest.TestCase):
         )
 
         self.assertEqual(rebalance["selected"], ["node1", "node2"])
-        self.assertEqual(self.members.nodes.get(), ["node1", "node2"])
-        self.assertEqual(self.members.validator_power["node1"], 30)
-        self.assertEqual(self.members.validator_power["node2"], 20)
-        self.assertEqual(self.members.validator_power["node3"], 0)
+        self.assertEqual(self.members.active_validators.get(), ["node1", "node2"])
+        self.assertEqual(self.members.powers["node1"], 30)
+        self.assertEqual(self.members.powers["node2"], 20)
+        self.assertEqual(self.members.powers["node3"], 0)
         self.assertEqual(self.members.statuses["node3"], "approved")
 
         self.members.delegate(
@@ -322,10 +322,10 @@ class TestMembersContract(unittest.TestCase):
         )
 
         self.assertEqual(rebalance["selected"], ["node3", "node1"])
-        self.assertEqual(self.members.nodes.get(), ["node3", "node1"])
+        self.assertEqual(self.members.active_validators.get(), ["node3", "node1"])
         self.assertEqual(self.members.statuses["node2"], "approved")
-        self.assertEqual(self.members.validator_power["node3"], 10)
-        self.assertEqual(self.members.validator_power["node2"], 0)
+        self.assertEqual(self.members.powers["node3"], 10)
+        self.assertEqual(self.members.powers["node2"], 0)
 
     def test_rebalance_excludes_validator_with_pending_leave(self):
         current_time = Datetime(year=2024, month=1, day=1, hour=12)
@@ -339,7 +339,7 @@ class TestMembersContract(unittest.TestCase):
 
         for validator, amount in {"node1": 400, "node2": 350, "node3": 300}.items():
             self.currency.transfer(amount=amount, to=validator, signer=self.deployer_vk)
-            self.currency.approve(amount=amount, to="members", signer=validator)
+            self.currency.approve(amount=amount, to="validators", signer=validator)
 
         self.members.bond_self(amount=300, signer="node1")
         self.members.bond_self(amount=250, signer="node2")
@@ -349,7 +349,7 @@ class TestMembersContract(unittest.TestCase):
             signer="node1",
             environment={"block_num": 1, "now": current_time},
         )
-        self.assertEqual(self.members.nodes.get(), ["node1", "node2"])
+        self.assertEqual(self.members.active_validators.get(), ["node1", "node2"])
         self.assertEqual(self.members.statuses["node3"], "approved")
 
         self.members.announce_leave(
@@ -361,7 +361,7 @@ class TestMembersContract(unittest.TestCase):
             environment={"block_num": 2, "now": current_time},
         )
 
-        self.assertEqual(self.members.nodes.get(), ["node2", "node3"])
+        self.assertEqual(self.members.active_validators.get(), ["node2", "node3"])
         self.assertEqual(self.members.statuses["node1"], "leaving")
         self.assertFalse(self.members.get_validator(account="node1", signer="node1")["active"])
 
@@ -377,7 +377,7 @@ class TestMembersContract(unittest.TestCase):
         )
 
         self.currency.transfer(amount=2000, to="new_member", signer=self.deployer_vk)
-        self.currency.approve(amount=1500, to="members", signer="new_member")
+        self.currency.approve(amount=1500, to="validators", signer="new_member")
         self.members.register(
             signer="new_member",
             environment={"block_num": 0},
@@ -390,7 +390,7 @@ class TestMembersContract(unittest.TestCase):
         )
 
         self.assertEqual(rebalance["selected"], ["node1", "node2", "node3"])
-        self.assertFalse("new_member" in self.members.nodes.get())
+        self.assertFalse("new_member" in self.members.active_validators.get())
         self.assertEqual(self.members.statuses["new_member"], "pending")
 
         self.members.propose_vote(
@@ -412,7 +412,7 @@ class TestMembersContract(unittest.TestCase):
             environment={"block_num": 2},
         )
 
-        self.assertTrue("new_member" in self.members.nodes.get())
+        self.assertTrue("new_member" in self.members.active_validators.get())
         self.assertEqual(self.members.statuses["new_member"], "active")
 
     def test_rebalance_interval_and_activation_delay_are_enforced(self):
@@ -427,7 +427,7 @@ class TestMembersContract(unittest.TestCase):
         )
 
         self.currency.transfer(amount=2000, to="new_member", signer=self.deployer_vk)
-        self.currency.approve(amount=1500, to="members", signer="new_member")
+        self.currency.approve(amount=1500, to="validators", signer="new_member")
         self.members.register(
             signer="new_member",
             requested_validator_power=25,
@@ -468,7 +468,7 @@ class TestMembersContract(unittest.TestCase):
                 to=validator,
                 signer=self.deployer_vk,
             )
-            self.currency.approve(amount=amount, to="members", signer=validator)
+            self.currency.approve(amount=amount, to="validators", signer=validator)
 
         self.members.bond_self(amount=300, signer="node1")
         self.members.bond_self(amount=200, signer="node2")
@@ -497,7 +497,7 @@ class TestMembersContract(unittest.TestCase):
         )
 
         self.assertEqual(policy["max_active_set_churn"], 1)
-        self.assertEqual(self.members.nodes.get(), ["node4", "node1"])
+        self.assertEqual(self.members.active_validators.get(), ["node4", "node1"])
 
         rebalance = self.members.rebalance(
             signer="node5",
@@ -505,7 +505,7 @@ class TestMembersContract(unittest.TestCase):
         )
 
         self.assertEqual(rebalance["selected"], ["node4", "node5"])
-        self.assertEqual(self.members.nodes.get(), ["node4", "node5"])
+        self.assertEqual(self.members.active_validators.get(), ["node4", "node5"])
         self.assertEqual(self.members.statuses["node2"], "approved")
         self.assertEqual(self.members.statuses["node1"], "approved")
 
@@ -513,9 +513,9 @@ class TestMembersContract(unittest.TestCase):
         self.currency.transfer(amount=1000, to="node1", signer=self.deployer_vk)
         self.currency.transfer(amount=1000, to="node2", signer=self.deployer_vk)
         self.currency.transfer(amount=1000, to="node3", signer=self.deployer_vk)
-        self.currency.approve(amount=1000, to="members", signer="node1")
-        self.currency.approve(amount=1000, to="members", signer="node2")
-        self.currency.approve(amount=1000, to="members", signer="node3")
+        self.currency.approve(amount=1000, to="validators", signer="node1")
+        self.currency.approve(amount=1000, to="validators", signer="node2")
+        self.currency.approve(amount=1000, to="validators", signer="node3")
 
         self.members.bond_self(amount=200, signer="node1")
         self.members.bond_self(amount=190, signer="node2")
@@ -588,8 +588,8 @@ class TestMembersContract(unittest.TestCase):
     ):
         self.currency.transfer(amount=500, to="node1", signer=self.deployer_vk)
         self.currency.transfer(amount=500, to="node2", signer=self.deployer_vk)
-        self.currency.approve(amount=500, to="members", signer="node1")
-        self.currency.approve(amount=500, to="members", signer="node2")
+        self.currency.approve(amount=500, to="validators", signer="node1")
+        self.currency.approve(amount=500, to="validators", signer="node2")
 
         self.members.bond_self(amount=200, signer="node1")
         self.members.bond_self(amount=150, signer="node2")
@@ -627,8 +627,8 @@ class TestMembersContract(unittest.TestCase):
 
         self.currency.transfer(amount=2000, to="node1", signer=self.deployer_vk)
         self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
-        self.currency.approve(amount=500, to="members", signer="node1")
-        self.currency.approve(amount=500, to="members", signer="delegator1")
+        self.currency.approve(amount=500, to="validators", signer="node1")
+        self.currency.approve(amount=500, to="validators", signer="delegator1")
 
         self.members.bond_self(amount=300, signer="node1")
         self.members.delegate(
@@ -649,7 +649,7 @@ class TestMembersContract(unittest.TestCase):
 
         slash_result = self.members.votes[2]["result"]
 
-        self.assertTrue("node1" in self.members.nodes.get())
+        self.assertTrue("node1" in self.members.active_validators.get())
         self.assertEqual(self.members.self_bond["node1"], 240)
         self.assertEqual(self.members.total_delegated["node1"], 160)
         self.assertEqual(self.members.delegations["delegator1", "node1"], 160)
@@ -672,7 +672,7 @@ class TestMembersContract(unittest.TestCase):
                 to=validator,
                 signer=self.deployer_vk,
             )
-            self.currency.approve(amount=amount, to="members", signer=validator)
+            self.currency.approve(amount=amount, to="validators", signer=validator)
 
         self.members.bond_self(amount=200, signer="node1")
         self.members.bond_self(amount=150, signer="node2")
@@ -688,7 +688,7 @@ class TestMembersContract(unittest.TestCase):
         )
 
         dao_balance_before = self.currency.balances["dao"]
-        self.assertEqual(self.members.nodes.get(), ["node1", "node2"])
+        self.assertEqual(self.members.active_validators.get(), ["node1", "node2"])
 
         self.members.propose_vote(
             type_of_vote="slash_member",
@@ -704,14 +704,14 @@ class TestMembersContract(unittest.TestCase):
         )
 
         self.assertEqual(self.members.self_bond["node1"], 80)
-        self.assertEqual(self.members.nodes.get(), ["node2", "node3"])
+        self.assertEqual(self.members.active_validators.get(), ["node2", "node3"])
         self.assertEqual(self.currency.balances["dao"], dao_balance_before + 120)
 
     def test_jail_and_unjail_flow_in_manual_mode(self):
         self.currency.transfer(amount=2000, to="node1", signer=self.deployer_vk)
         self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
-        self.currency.approve(amount=500, to="members", signer="node1")
-        self.currency.approve(amount=500, to="members", signer="delegator1")
+        self.currency.approve(amount=500, to="validators", signer="node1")
+        self.currency.approve(amount=500, to="validators", signer="delegator1")
 
         self.members.bond_self(amount=300, signer="node1")
         self.members.delegate(
@@ -728,10 +728,10 @@ class TestMembersContract(unittest.TestCase):
         self.members.vote(proposal_id=1, vote="yes", signer="node1")
         self.members.vote(proposal_id=1, vote="yes", signer="node3")
 
-        self.assertFalse("node1" in self.members.nodes.get())
+        self.assertFalse("node1" in self.members.active_validators.get())
         self.assertTrue(self.members.jailed["node1"])
         self.assertEqual(self.members.statuses["node1"], "approved")
-        self.assertEqual(self.members.validator_power["node1"], 0)
+        self.assertEqual(self.members.powers["node1"], 0)
         self.assertEqual(self.members.self_bond["node1"], 300)
         self.assertEqual(self.members.total_delegated["node1"], 200)
         self.assertEqual(
@@ -758,7 +758,7 @@ class TestMembersContract(unittest.TestCase):
 
         self.assertFalse(self.members.jailed["node1"])
         self.assertEqual(self.members.statuses["node1"], "approved")
-        self.assertFalse("node1" in self.members.nodes.get())
+        self.assertFalse("node1" in self.members.active_validators.get())
 
         self.members.propose_vote(
             type_of_vote="add_member",
@@ -767,7 +767,7 @@ class TestMembersContract(unittest.TestCase):
         )
         self.members.vote(proposal_id=3, vote="yes", signer="node3")
 
-        self.assertTrue("node1" in self.members.nodes.get())
+        self.assertTrue("node1" in self.members.active_validators.get())
         self.assertEqual(self.members.statuses["node1"], "active")
 
     def test_jail_in_auto_mode_excludes_validator_until_unjailed(self):
@@ -781,7 +781,7 @@ class TestMembersContract(unittest.TestCase):
                 to=validator,
                 signer=self.deployer_vk,
             )
-            self.currency.approve(amount=amount, to="members", signer=validator)
+            self.currency.approve(amount=amount, to="validators", signer=validator)
 
         self.members.bond_self(amount=300, signer="node1")
         self.members.bond_self(amount=250, signer="node2")
@@ -796,7 +796,7 @@ class TestMembersContract(unittest.TestCase):
             min_total_bond=100,
         )
 
-        self.assertEqual(self.members.nodes.get(), ["node1", "node2"])
+        self.assertEqual(self.members.active_validators.get(), ["node1", "node2"])
 
         self.members.propose_vote(
             type_of_vote="jail_member",
@@ -813,7 +813,7 @@ class TestMembersContract(unittest.TestCase):
 
         self.assertTrue(self.members.jailed["node1"])
         self.assertEqual(self.members.statuses["node1"], "approved")
-        self.assertEqual(self.members.nodes.get(), ["node2", "node3"])
+        self.assertEqual(self.members.active_validators.get(), ["node2", "node3"])
 
         self.members.propose_vote(
             type_of_vote="unjail_member",
@@ -829,10 +829,10 @@ class TestMembersContract(unittest.TestCase):
         )
 
         self.assertFalse(self.members.jailed["node1"])
-        self.assertEqual(self.members.nodes.get(), ["node1", "node2"])
+        self.assertEqual(self.members.active_validators.get(), ["node1", "node2"])
 
     def test_leave_refunds_registration_bond(self):
-        self.currency.approve(amount=1000, to="members", signer="new_member")
+        self.currency.approve(amount=1000, to="validators", signer="new_member")
         self.currency.transfer(amount=1000, to="new_member", signer=self.deployer_vk)
         self.members.register(signer="new_member")
         self.members.propose_vote(
@@ -865,8 +865,8 @@ class TestMembersContract(unittest.TestCase):
 
         self.currency.transfer(amount=3000, to="new_member", signer=self.deployer_vk)
         self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
-        self.currency.approve(amount=2000, to="members", signer="new_member")
-        self.currency.approve(amount=500, to="members", signer="delegator1")
+        self.currency.approve(amount=2000, to="validators", signer="new_member")
+        self.currency.approve(amount=500, to="validators", signer="delegator1")
 
         self.members.register(signer="new_member", environment={"now": start_time})
         self.members.propose_vote(
@@ -959,8 +959,8 @@ class TestMembersContract(unittest.TestCase):
     ):
         self.currency.transfer(amount=3000, to="new_member", signer=self.deployer_vk)
         self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
-        self.currency.approve(amount=2000, to="members", signer="new_member")
-        self.currency.approve(amount=500, to="members", signer="delegator1")
+        self.currency.approve(amount=2000, to="validators", signer="new_member")
+        self.currency.approve(amount=500, to="validators", signer="delegator1")
 
         self.members.register(signer="new_member")
         self.members.propose_vote(
@@ -1026,8 +1026,8 @@ class TestMembersContract(unittest.TestCase):
     def test_self_bond_and_delegation_update_reward_distribution_state(self):
         self.currency.transfer(amount=2000, to="node1", signer=self.deployer_vk)
         self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
-        self.currency.approve(amount=500, to="members", signer="node1")
-        self.currency.approve(amount=500, to="members", signer="delegator1")
+        self.currency.approve(amount=500, to="validators", signer="node1")
+        self.currency.approve(amount=500, to="validators", signer="delegator1")
 
         self.members.update_profile(
             commission_bps_value=1200,
@@ -1060,7 +1060,7 @@ class TestMembersContract(unittest.TestCase):
         future_time = Datetime(year=2024, month=1, day=9, hour=12, minute=0, second=0)
 
         self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
-        self.currency.approve(amount=500, to="members", signer="delegator1")
+        self.currency.approve(amount=500, to="validators", signer="delegator1")
         self.members.delegate(
             validator="node1",
             amount=200,
@@ -1092,7 +1092,7 @@ class TestMembersContract(unittest.TestCase):
         claim_time = Datetime(year=2024, month=1, day=9, hour=12, minute=0, second=0)
 
         self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
-        self.currency.approve(amount=500, to="members", signer="delegator1")
+        self.currency.approve(amount=500, to="validators", signer="delegator1")
         self.members.delegate(
             validator="node1",
             amount=200,
@@ -1143,7 +1143,7 @@ class TestMembersContract(unittest.TestCase):
         base_time = Datetime(year=2024, month=1, day=1, hour=12, minute=0, second=0)
 
         self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
-        self.currency.approve(amount=500, to="members", signer="delegator1")
+        self.currency.approve(amount=500, to="validators", signer="delegator1")
         self.members.delegate(
             validator="node1",
             amount=200,
@@ -1184,8 +1184,8 @@ class TestMembersContract(unittest.TestCase):
     def test_unregister_forces_pending_unbonds_for_candidate_stake(self):
         self.currency.transfer(amount=3000, to="new_member", signer=self.deployer_vk)
         self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
-        self.currency.approve(amount=2000, to="members", signer="new_member")
-        self.currency.approve(amount=500, to="members", signer="delegator1")
+        self.currency.approve(amount=2000, to="validators", signer="new_member")
+        self.currency.approve(amount=500, to="validators", signer="delegator1")
 
         self.members.register(signer="new_member")
         self.members.bond_self(amount=300, signer="new_member")
@@ -1233,7 +1233,7 @@ class TestMembersContract(unittest.TestCase):
         )
 
     def test_vote_snapshot_excludes_members_added_after_proposal_creation(self):
-        self.currency.approve(amount=1000, to="members", signer="new_member")
+        self.currency.approve(amount=1000, to="validators", signer="new_member")
         self.currency.transfer(amount=1000, to="new_member", signer=self.deployer_vk)
         self.members.register(signer="new_member")
 

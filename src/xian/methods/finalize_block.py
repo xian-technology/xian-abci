@@ -51,17 +51,17 @@ def _safe_positive_int(value, default: int) -> int:
 
 def _maybe_run_validator_epoch_rebalance(self, *, height: int):
     driver = self.client.raw_driver
-    selection_mode = driver.get("masternodes.config:selection_mode", save=False)
+    selection_mode = driver.get("validators.config:selection_mode", save=False)
     if selection_mode in (None, "manual"):
         return None, False
 
     rebalance_interval = _safe_positive_int(
-        driver.get("masternodes.config:rebalance_interval", save=False),
+        driver.get("validators.config:rebalance_interval", save=False),
         1,
     )
     current_epoch = height // rebalance_interval
     last_rebalance_epoch = driver.get(
-        "masternodes.last_rebalance_epoch",
+        "validators.last_rebalance_epoch",
         save=False,
     )
     if last_rebalance_epoch is not None and current_epoch <= last_rebalance_epoch:
@@ -70,7 +70,7 @@ def _maybe_run_validator_epoch_rebalance(self, *, height: int):
     rebalance_tx = {
         "payload": {
             "sender": SYSTEM_REBALANCE_SENDER,
-            "contract": "masternodes",
+            "contract": "validators",
             "function": "rebalance",
             "kwargs": {},
             "chi_supplied": 0,
@@ -546,7 +546,7 @@ def _apply_evidence_epoch_and_rewards(
             try:
                 reward_writes.append(
                     self.rewards_handler.distribute_static_rewards(
-                        master_reward=self.static_rewards_amount_validators,
+                        validator_reward=self.static_rewards_amount_validators,
                         foundation_reward=self.static_rewards_amount_foundation,
                     )
                 )

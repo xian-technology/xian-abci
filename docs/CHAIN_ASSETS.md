@@ -1,11 +1,11 @@
 # Chain Asset Ownership
 
-`xian-abci` is the universal node runtime. Chain-specific assets live in the
-sibling `xian-configs` repository and are no longer owned by this repo.
+`xian-abci` is the universal node runtime. Chain-specific assets are owned by the
+sibling `xian-configs` repository.
 
 ## Current Source Of Truth
 
-Active network assets now live in `xian-configs`:
+Active network assets live in `xian-configs`:
 
 - `networks/<name>/manifest.json`
 - `networks/<name>/genesis.json`

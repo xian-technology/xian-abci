@@ -60,16 +60,16 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
                 constructor_args=contract_args[name],
             )
 
-        members_code = (contracts_dir / "members.s.py").read_text(encoding="utf-8")
+        members_code = (contracts_dir / "validators.s.py").read_text(encoding="utf-8")
         self.app.client.submit(
             members_code,
-            name="masternodes",
+            name="validators",
             constructor_args={
                 "genesis_nodes": [NODE_1, NODE_2, NODE_3],
                 "genesis_registration_fee": 1000,
             },
         )
-        self.membership = self.app.client.get_contract_proxy("masternodes")
+        self.membership = self.app.client.get_contract_proxy("validators")
 
     async def asyncTearDown(self):
         teardown_fixtures()
@@ -118,8 +118,8 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
     async def test_finalize_block_applies_duplicate_vote_evidence_without_user_tx(
         self,
     ):
-        self.driver.set(f"masternodes.self_bond:{NODE_1}", 200)
-        self.driver.set("currency.balances:masternodes", 200)
+        self.driver.set(f"validators.self_bond:{NODE_1}", 200)
+        self.driver.set("currency.balances:validators", 200)
         dao_balance_before = self.driver.get("currency.balances:dao")
 
         before = await self.finalize_block(1)
@@ -128,11 +128,11 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
             misbehavior=[self.duplicate_vote_evidence(NODE_1, height=2)],
         )
 
-        self.assertEqual(self.driver.get(f"masternodes.total_slashed:{NODE_1}"), 10)
-        self.assertEqual(self.driver.get(f"masternodes.self_bond:{NODE_1}"), 190)
-        self.assertTrue(self.driver.get(f"masternodes.jailed:{NODE_1}"))
-        self.assertEqual(self.driver.get(f"masternodes.statuses:{NODE_1}"), "approved")
-        self.assertNotIn(NODE_1, self.driver.get("masternodes.nodes"))
+        self.assertEqual(self.driver.get(f"validators.total_slashed:{NODE_1}"), 10)
+        self.assertEqual(self.driver.get(f"validators.self_bond:{NODE_1}"), 190)
+        self.assertTrue(self.driver.get(f"validators.jailed:{NODE_1}"))
+        self.assertEqual(self.driver.get(f"validators.statuses:{NODE_1}"), "approved")
+        self.assertNotIn(NODE_1, self.driver.get("validators.active_validators"))
         self.assertEqual(
             self.driver.get("currency.balances:dao"),
             dao_balance_before + 10,
@@ -143,74 +143,74 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_finalize_block_evidence_rebalances_auto_validator_set(self):
-        self.driver.set("masternodes.nodes", [NODE_1, NODE_2])
-        self.driver.set("masternodes.candidates", [NODE_3])
-        self.driver.set(f"masternodes.statuses:{NODE_1}", "active")
-        self.driver.set(f"masternodes.statuses:{NODE_2}", "active")
-        self.driver.set(f"masternodes.statuses:{NODE_3}", "approved")
-        self.driver.set(f"masternodes.pending_registrations:{NODE_3}", False)
-        self.driver.set(f"masternodes.pending_leave:{NODE_1}", False)
-        self.driver.set(f"masternodes.pending_leave:{NODE_2}", False)
-        self.driver.set(f"masternodes.pending_leave:{NODE_3}", False)
-        self.driver.set(f"masternodes.self_bond:{NODE_1}", 200)
-        self.driver.set(f"masternodes.self_bond:{NODE_2}", 150)
-        self.driver.set(f"masternodes.self_bond:{NODE_3}", 120)
-        self.driver.set(f"masternodes.total_delegated:{NODE_1}", 0)
-        self.driver.set(f"masternodes.total_delegated:{NODE_2}", 0)
-        self.driver.set(f"masternodes.total_delegated:{NODE_3}", 0)
-        self.driver.set(f"masternodes.delegator_lists:{NODE_1}", [])
-        self.driver.set(f"masternodes.delegator_lists:{NODE_2}", [])
-        self.driver.set(f"masternodes.delegator_lists:{NODE_3}", [])
-        self.driver.set(f"masternodes.requested_power:{NODE_1}", 10)
-        self.driver.set(f"masternodes.requested_power:{NODE_2}", 10)
-        self.driver.set(f"masternodes.requested_power:{NODE_3}", 10)
-        self.driver.set(f"masternodes.validator_power:{NODE_1}", 10)
-        self.driver.set(f"masternodes.validator_power:{NODE_2}", 10)
-        self.driver.set(f"masternodes.validator_power:{NODE_3}", 0)
-        self.driver.set(f"masternodes.reward_keys:{NODE_1}", NODE_1)
-        self.driver.set(f"masternodes.reward_keys:{NODE_2}", NODE_2)
-        self.driver.set(f"masternodes.reward_keys:{NODE_3}", NODE_3)
-        self.driver.set(f"masternodes.eligible_at_epoch:{NODE_3}", 0)
-        self.driver.set("masternodes.config:selection_mode", "auto_top_n")
-        self.driver.set("masternodes.config:max_validators", 2)
-        self.driver.set("masternodes.config:power_mode", "requested")
-        self.driver.set("masternodes.config:rebalance_interval", 1)
-        self.driver.set("masternodes.config:min_self_bond", 100)
-        self.driver.set("masternodes.config:min_total_bond", 100)
-        self.driver.set("currency.balances:masternodes", 470)
+        self.driver.set("validators.active_validators", [NODE_1, NODE_2])
+        self.driver.set("validators.candidates", [NODE_3])
+        self.driver.set(f"validators.statuses:{NODE_1}", "active")
+        self.driver.set(f"validators.statuses:{NODE_2}", "active")
+        self.driver.set(f"validators.statuses:{NODE_3}", "approved")
+        self.driver.set(f"validators.pending_registrations:{NODE_3}", False)
+        self.driver.set(f"validators.pending_leave:{NODE_1}", False)
+        self.driver.set(f"validators.pending_leave:{NODE_2}", False)
+        self.driver.set(f"validators.pending_leave:{NODE_3}", False)
+        self.driver.set(f"validators.self_bond:{NODE_1}", 200)
+        self.driver.set(f"validators.self_bond:{NODE_2}", 150)
+        self.driver.set(f"validators.self_bond:{NODE_3}", 120)
+        self.driver.set(f"validators.total_delegated:{NODE_1}", 0)
+        self.driver.set(f"validators.total_delegated:{NODE_2}", 0)
+        self.driver.set(f"validators.total_delegated:{NODE_3}", 0)
+        self.driver.set(f"validators.delegator_lists:{NODE_1}", [])
+        self.driver.set(f"validators.delegator_lists:{NODE_2}", [])
+        self.driver.set(f"validators.delegator_lists:{NODE_3}", [])
+        self.driver.set(f"validators.requested_power:{NODE_1}", 10)
+        self.driver.set(f"validators.requested_power:{NODE_2}", 10)
+        self.driver.set(f"validators.requested_power:{NODE_3}", 10)
+        self.driver.set(f"validators.powers:{NODE_1}", 10)
+        self.driver.set(f"validators.powers:{NODE_2}", 10)
+        self.driver.set(f"validators.powers:{NODE_3}", 0)
+        self.driver.set(f"validators.reward_keys:{NODE_1}", NODE_1)
+        self.driver.set(f"validators.reward_keys:{NODE_2}", NODE_2)
+        self.driver.set(f"validators.reward_keys:{NODE_3}", NODE_3)
+        self.driver.set(f"validators.eligible_at_epoch:{NODE_3}", 0)
+        self.driver.set("validators.config:selection_mode", "auto_top_n")
+        self.driver.set("validators.config:max_validators", 2)
+        self.driver.set("validators.config:power_mode", "requested")
+        self.driver.set("validators.config:rebalance_interval", 1)
+        self.driver.set("validators.config:min_self_bond", 100)
+        self.driver.set("validators.config:min_total_bond", 100)
+        self.driver.set("currency.balances:validators", 470)
 
         await self.finalize_block(
             1,
             misbehavior=[self.duplicate_vote_evidence(NODE_1, height=1)],
         )
 
-        self.assertTrue(self.driver.get(f"masternodes.jailed:{NODE_1}"))
-        self.assertEqual(self.driver.get(f"masternodes.self_bond:{NODE_1}"), 190)
-        self.assertEqual(self.driver.get("masternodes.nodes"), [NODE_2, NODE_3])
-        self.assertEqual(self.driver.get(f"masternodes.statuses:{NODE_3}"), "active")
+        self.assertTrue(self.driver.get(f"validators.jailed:{NODE_1}"))
+        self.assertEqual(self.driver.get(f"validators.self_bond:{NODE_1}"), 190)
+        self.assertEqual(self.driver.get("validators.active_validators"), [NODE_2, NODE_3])
+        self.assertEqual(self.driver.get(f"validators.statuses:{NODE_3}"), "active")
 
     async def test_finalize_block_does_not_double_apply_duplicate_evidence(self):
-        self.driver.set(f"masternodes.self_bond:{NODE_1}", 200)
-        self.driver.set("currency.balances:masternodes", 200)
+        self.driver.set(f"validators.self_bond:{NODE_1}", 200)
+        self.driver.set("currency.balances:validators", 200)
         evidence = self.duplicate_vote_evidence(NODE_1, height=7)
 
         await self.finalize_block(7, misbehavior=[evidence])
         await self.finalize_block(8, misbehavior=[evidence])
 
-        self.assertEqual(self.driver.get(f"masternodes.total_slashed:{NODE_1}"), 10)
-        self.assertEqual(self.driver.get(f"masternodes.self_bond:{NODE_1}"), 190)
+        self.assertEqual(self.driver.get(f"validators.total_slashed:{NODE_1}"), 10)
+        self.assertEqual(self.driver.get(f"validators.self_bond:{NODE_1}"), 190)
 
     async def test_finalize_block_slashes_pending_unbond_for_exited_validator(self):
-        self.driver.set("masternodes.nodes", [NODE_2, NODE_3])
-        self.driver.set("masternodes.candidates", [])
-        self.driver.set(f"masternodes.statuses:{NODE_1}", "left")
-        self.driver.set(f"masternodes.self_bond:{NODE_1}", 0)
-        self.driver.set(f"masternodes.total_delegated:{NODE_1}", 0)
-        self.driver.set("masternodes.pending_unbond_counter", 1)
-        self.driver.set(f"masternodes.pending_unbond_owner_ids:{NODE_1}", [1])
-        self.driver.set(f"masternodes.pending_unbond_validator_ids:{NODE_1}", [1])
+        self.driver.set("validators.active_validators", [NODE_2, NODE_3])
+        self.driver.set("validators.candidates", [])
+        self.driver.set(f"validators.statuses:{NODE_1}", "left")
+        self.driver.set(f"validators.self_bond:{NODE_1}", 0)
+        self.driver.set(f"validators.total_delegated:{NODE_1}", 0)
+        self.driver.set("validators.pending_unbond_counter", 1)
+        self.driver.set(f"validators.pending_unbond_owner_ids:{NODE_1}", [1])
+        self.driver.set(f"validators.pending_unbond_validator_ids:{NODE_1}", [1])
         self.driver.set(
-            "masternodes.pending_unbonds:1",
+            "validators.pending_unbonds:1",
             {
                 "id": 1,
                 "owner": NODE_1,
@@ -223,7 +223,7 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
                 "claimed": False,
             },
         )
-        self.driver.set("currency.balances:masternodes", 40)
+        self.driver.set("currency.balances:validators", 40)
         dao_balance_before = self.driver.get("currency.balances:dao")
 
         before = await self.finalize_block(9)
@@ -232,13 +232,13 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
             misbehavior=[self.duplicate_vote_evidence(NODE_1, height=4)],
         )
 
-        self.assertEqual(self.driver.get(f"masternodes.total_slashed:{NODE_1}"), 2)
+        self.assertEqual(self.driver.get(f"validators.total_slashed:{NODE_1}"), 2)
         self.assertEqual(
-            self.driver.get("masternodes.pending_unbonds:1")["amount"],
+            self.driver.get("validators.pending_unbonds:1")["amount"],
             38,
         )
-        self.assertEqual(self.driver.get(f"masternodes.statuses:{NODE_1}"), "left")
-        self.assertFalse(self.driver.get(f"masternodes.jailed:{NODE_1}"))
+        self.assertEqual(self.driver.get(f"validators.statuses:{NODE_1}"), "left")
+        self.assertFalse(self.driver.get(f"validators.jailed:{NODE_1}"))
         self.assertEqual(
             self.driver.get("currency.balances:dao"),
             dao_balance_before + 2,

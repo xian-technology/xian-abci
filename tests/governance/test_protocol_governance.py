@@ -98,7 +98,7 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
         self.client.flush()
         self.client.submit(
             MEMBERSHIP_CONTRACT,
-            name="masternodes",
+            name="validators",
             constructor_args={"initial_members": ["node1", "node2"]},
         )
         self.client.submit(
@@ -109,7 +109,7 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
             governance_contract_source(),
             name="governance",
             constructor_args={
-                "membership_contract_name": "masternodes",
+                "membership_contract_name": "validators",
                 "approval_threshold_numerator": 1,
                 "approval_threshold_denominator": 1,
                 "min_patch_delay_blocks": 2,
@@ -190,7 +190,7 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
         self.client.flush()
         self.client.submit(
             MEMBERSHIP_CONTRACT,
-            name="masternodes",
+            name="validators",
             constructor_args={"initial_members": ["node1", "node2", "node3"]},
         )
         self.client.submit(
@@ -201,7 +201,7 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
             governance_contract_source(),
             name="governance",
             constructor_args={
-                "membership_contract_name": "masternodes",
+                "membership_contract_name": "validators",
                 "approval_threshold_numerator": 2,
                 "approval_threshold_denominator": 3,
                 "min_patch_delay_blocks": 2,
@@ -210,7 +210,7 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
         )
         governance = self.client.get_contract_proxy("governance")
         target = self.client.get_contract_proxy("con_target")
-        membership = self.client.get_contract_proxy("masternodes")
+        membership = self.client.get_contract_proxy("validators")
         environment = {
             "now": Datetime(2026, 1, 1),
             "block_num": 10,
@@ -247,7 +247,7 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
         self.client.flush()
         self.client.submit(
             WEIGHTED_MEMBERSHIP_CONTRACT,
-            name="masternodes",
+            name="validators",
             constructor_args={
                 "initial_members": ["node1", "node2", "node3"],
                 "initial_weights": {
@@ -265,7 +265,7 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
             governance_contract_source(),
             name="governance",
             constructor_args={
-                "membership_contract_name": "masternodes",
+                "membership_contract_name": "validators",
                 "approval_threshold_numerator": 2,
                 "approval_threshold_denominator": 3,
                 "min_patch_delay_blocks": 2,
@@ -273,7 +273,7 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
             },
         )
         governance = self.client.get_contract_proxy("governance")
-        membership = self.client.get_contract_proxy("masternodes")
+        membership = self.client.get_contract_proxy("validators")
         target = self.client.get_contract_proxy("con_target")
         environment = {
             "now": Datetime(2026, 1, 1),
@@ -323,7 +323,7 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
         self.client.flush()
         self.client.submit(
             WEIGHTED_MEMBERSHIP_CONTRACT,
-            name="masternodes",
+            name="validators",
             constructor_args={
                 "initial_members": [
                     "node1",
@@ -346,7 +346,7 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
             governance_contract_source(),
             name="governance",
             constructor_args={
-                "membership_contract_name": "masternodes",
+                "membership_contract_name": "validators",
                 "approval_threshold_numerator": 4,
                 "approval_threshold_denominator": 5,
                 "min_patch_delay_blocks": 2,

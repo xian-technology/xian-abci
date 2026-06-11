@@ -1,6 +1,6 @@
 # Snapshots And Pruning
 
-`xian-abci` now has three separate snapshot workflows, and they solve different
+`xian-abci` has three separate snapshot workflows, and they solve different
 problems:
 
 1. full-home archive restore

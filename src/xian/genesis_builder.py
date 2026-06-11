@@ -130,11 +130,11 @@ def _deploy_native_genesis_contract(
     driver.apply_writes(output.writes)
 
 
-def _find_members_contract(contract_config: dict[str, Any]) -> dict[str, Any]:
+def _find_validators_contract(contract_config: dict[str, Any]) -> dict[str, Any]:
     for contract in contract_config["contracts"]:
-        if contract.get("submit_as") == "masternodes":
+        if contract.get("name") == "validators":
             return contract
-    raise ValueError("contract bundle does not define masternodes seed data")
+    raise ValueError("contract bundle does not define validators seed data")
 
 
 def render_template_values(value: Any, substitutions: dict[str, str]) -> Any:
@@ -324,11 +324,11 @@ def derive_genesis_validators_from_bundle(
         network,
         contracts_dir=contracts_dir,
     )
-    members_contract = _find_members_contract(contract_config)
-    constructor_args = members_contract.get("constructor_args") or {}
+    validators_contract = _find_validators_contract(contract_config)
+    constructor_args = validators_contract.get("constructor_args") or {}
     genesis_nodes = constructor_args.get("genesis_nodes")
     if not isinstance(genesis_nodes, list) or not genesis_nodes:
-        raise ValueError("contract bundle masternodes seed data must define genesis_nodes")
+        raise ValueError("contract bundle validators seed data must define genesis_nodes")
 
     configured_powers = constructor_args.get("genesis_powers") or {}
     default_node_power = constructor_args.get("default_node_power", 10)
@@ -418,8 +418,8 @@ def build_local_network_genesis(
         network,
         contracts_dir=contracts_dir,
     )
-    members_contract = _find_members_contract(contract_config)
-    seeded_member_args = members_contract.get("constructor_args") or {}
+    validators_contract = _find_validators_contract(contract_config)
+    seeded_validator_args = validators_contract.get("constructor_args") or {}
     founder_wallet = Ed25519Account(founder_private_key)
     genesis_nodes = [validator["account_public_key"] for validator in validators]
     genesis_powers = {
@@ -431,14 +431,14 @@ def build_local_network_genesis(
         )
         for validator in validators
     }
-    member_overrides = {
+    validator_overrides = {
         "genesis_nodes": genesis_nodes,
         "genesis_registration_fee": registration_fee,
     }
-    if "genesis_powers" in seeded_member_args:
-        member_overrides["genesis_powers"] = genesis_powers
-    if "genesis_reward_keys" in seeded_member_args:
-        member_overrides["genesis_reward_keys"] = genesis_reward_keys
+    if "genesis_powers" in seeded_validator_args:
+        validator_overrides["genesis_powers"] = genesis_powers
+    if "genesis_reward_keys" in seeded_validator_args:
+        validator_overrides["genesis_reward_keys"] = genesis_reward_keys
     abci_genesis = build_genesis_block(
         founder_private_key=founder_private_key,
         network=network,
@@ -446,8 +446,7 @@ def build_local_network_genesis(
         constructor_overrides={
             "currency": {"vk": founder_wallet.public_key},
             "foundation": {"vk": founder_wallet.public_key},
-            "members": dict(member_overrides),
-            "masternodes": dict(member_overrides),
+            "validators": dict(validator_overrides),
         },
         runtime_features=runtime_features,
     )

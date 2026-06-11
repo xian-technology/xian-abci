@@ -110,7 +110,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             client.submit(token_code, name="currency", signer="sys")
             client.raw_driver.set("chi_cost.S:value", 100)
             client.raw_driver.set("foundation.owner", "foundation")
-            client.raw_driver.set("masternodes.nodes", ["mn-1", "mn-2"])
+            client.raw_driver.set("validators.active_validators", ["mn-1", "mn-2"])
             client.raw_driver.set("rewards.S:value", [0.88, 0.01, 0.01, 0.1])
             for address in (
                 "alice",

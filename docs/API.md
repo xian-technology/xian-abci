@@ -38,14 +38,14 @@ queries for deployed contract source, Xian VM IR, and metadata.
 These runtime queries expose membership governance and state-patch scheduling
 state:
 
-- `/masternodes_policy`
-- `/masternodes_active`
-- `/masternodes_candidates`
-- `/masternodes_validator/<account>`
-- `/masternodes_pending_unbonds/<account>`
-- `/masternodes_open_votes/limit=<n>/offset=<n>`
-- `/masternodes_vote/<proposal-id>`
-- `/masternodes_vote_records/<proposal-id>`
+- `/validators_policy`
+- `/validators_active`
+- `/validators_candidates`
+- `/validators_validator/<account>`
+- `/validators_pending_unbonds/<account>`
+- `/validators_open_votes/limit=<n>/offset=<n>`
+- `/validators_vote/<proposal-id>`
+- `/validators_vote_records/<proposal-id>`
 - `/state_patch_bundles`
 - `/scheduled_state_patches/<height>`
 

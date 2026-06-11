@@ -196,7 +196,7 @@ class SimulatorTests(unittest.TestCase):
             result = simulator._execute(
                 {
                     "sender": "alice",
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "get_validator",
                     "kwargs": {"account": "alice"},
                 }

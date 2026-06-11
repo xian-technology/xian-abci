@@ -702,18 +702,18 @@ class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
 
         async def fake_abci_query(_session, _rpc, path):
             responses = {
-                "masternodes_policy": {"selection_mode": "manual"},
-                "masternodes_active": [{"account": validator_pubkey_hex}],
-                "masternodes_candidates": [{"account": "candidate-1"}],
-                "masternodes_open_votes/limit=25/offset=0": [
+                "validators_policy": {"selection_mode": "manual"},
+                "validators_active": [{"account": validator_pubkey_hex}],
+                "validators_candidates": [{"account": "candidate-1"}],
+                "validators_open_votes/limit=25/offset=0": [
                     {"proposal_id": 7, "type": "update_policy"}
                 ],
-                f"masternodes_validator/{validator_pubkey_hex}": {
+                f"validators_validator/{validator_pubkey_hex}": {
                     "account": validator_pubkey_hex,
                     "status": "active",
                     "total_bond": 150,
                 },
-                f"masternodes_pending_unbonds/{validator_pubkey_hex}": [
+                f"validators_pending_unbonds/{validator_pubkey_hex}": [
                     {"unbond_id": 4, "amount": 25}
                 ],
             }

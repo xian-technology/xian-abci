@@ -407,7 +407,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
         self.app.client.submit(
             MASTERNODES_CODE,
-            name="masternodes",
+            name="validators",
         )
         self.app.client.raw_driver.set(
             f"currency.balances:{ACCOUNT}",
@@ -566,10 +566,10 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(payload["parallel_execution_access_estimates_enabled"])
 
-    async def test_masternodes_dashboard_queries(self):
-        self.app.client.raw_driver.set("masternodes.total_votes", 2)
+    async def test_validators_dashboard_queries(self):
+        self.app.client.raw_driver.set("validators.total_votes", 2)
         self.app.client.raw_driver.set(
-            "masternodes.votes:1",
+            "validators.votes:1",
             {
                 "type": "update_policy",
                 "status": "pending",
@@ -578,23 +578,23 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.app.client.raw_driver.set(
-            "masternodes.vote_records:1:alice",
+            "validators.vote_records:1:alice",
             "yes",
         )
         self.app.client.raw_driver.set(
-            "masternodes.vote_records:1:bob",
+            "validators.vote_records:1:bob",
             "no",
         )
         self.app.client.raw_driver.set(
-            "masternodes.vote_weights:1:alice",
+            "validators.vote_weights:1:alice",
             10,
         )
         self.app.client.raw_driver.set(
-            "masternodes.vote_weights:1:bob",
+            "validators.vote_weights:1:bob",
             20,
         )
         self.app.client.raw_driver.set(
-            "masternodes.votes:2",
+            "validators.votes:2",
             {
                 "type": "jail_member",
                 "status": "approved",
@@ -603,31 +603,31 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
 
         policy_response = await self.process_request(
-            Request(query=RequestQuery(path="/masternodes_policy"))
+            Request(query=RequestQuery(path="/validators_policy"))
         )
         active_response = await self.process_request(
-            Request(query=RequestQuery(path="/masternodes_active"))
+            Request(query=RequestQuery(path="/validators_active"))
         )
         validator_response = await self.process_request(
-            Request(query=RequestQuery(path="/masternodes_validator/alice"))
+            Request(query=RequestQuery(path="/validators_validator/alice"))
         )
         unbonds_response = await self.process_request(
             Request(
-                query=RequestQuery(path="/masternodes_pending_unbonds/alice")
+                query=RequestQuery(path="/validators_pending_unbonds/alice")
             )
         )
         votes_response = await self.process_request(
             Request(
                 query=RequestQuery(
-                    path="/masternodes_open_votes/limit=25/offset=0"
+                    path="/validators_open_votes/limit=25/offset=0"
                 )
             )
         )
         vote_response = await self.process_request(
-            Request(query=RequestQuery(path="/masternodes_vote/1"))
+            Request(query=RequestQuery(path="/validators_vote/1"))
         )
         vote_records_response = await self.process_request(
-            Request(query=RequestQuery(path="/masternodes_vote_records/1"))
+            Request(query=RequestQuery(path="/validators_vote_records/1"))
         )
 
         self.assertEqual(policy_response.query.info, "dict")

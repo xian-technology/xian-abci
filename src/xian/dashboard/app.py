@@ -1132,13 +1132,13 @@ async def handle_validator_dashboard(request: web.Request) -> web.Response:
             pending_candidates,
             open_votes,
         ) = await asyncio.gather(
-            _abci_query(session, rpc, "masternodes_policy"),
-            _abci_query(session, rpc, "masternodes_active"),
-            _abci_query(session, rpc, "masternodes_candidates"),
+            _abci_query(session, rpc, "validators_policy"),
+            _abci_query(session, rpc, "validators_active"),
+            _abci_query(session, rpc, "validators_candidates"),
             _abci_query(
                 session,
                 rpc,
-                "masternodes_open_votes/limit=25/offset=0",
+                "validators_open_votes/limit=25/offset=0",
             ),
         )
 
@@ -1149,12 +1149,12 @@ async def handle_validator_dashboard(request: web.Request) -> web.Response:
                 _abci_query(
                     session,
                     rpc,
-                    f"masternodes_validator/{local_account}",
+                    f"validators_validator/{local_account}",
                 ),
                 _abci_query(
                     session,
                     rpc,
-                    f"masternodes_pending_unbonds/{local_account}",
+                    f"validators_pending_unbonds/{local_account}",
                 ),
             )
 

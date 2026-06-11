@@ -320,15 +320,15 @@ class GenesisBuilderTests(unittest.TestCase):
                 "    return foundation_vk.get()\n",
                 encoding="utf-8",
             )
-            (contracts_dir / "members.s.py").write_text(
-                "nodes = Variable()\nfee = Variable()\n\n"
+            (contracts_dir / "validators.s.py").write_text(
+                "active_validators = Variable()\nfee = Variable()\n\n"
                 "@construct\n"
                 "def seed(genesis_nodes: list, genesis_registration_fee: int):\n"
-                "    nodes.set(genesis_nodes)\n"
+                "    active_validators.set(genesis_nodes)\n"
                 "    fee.set(genesis_registration_fee)\n\n"
                 "@export\n"
                 "def get_nodes():\n"
-                "    return nodes.get()\n",
+                "    return active_validators.get()\n",
                 encoding="utf-8",
             )
             (contracts_dir / "contracts_local.json").write_text(
@@ -342,8 +342,7 @@ class GenesisBuilderTests(unittest.TestCase):
                                 "constructor_args": {"vk": "old-vk"},
                             },
                             {
-                                "name": "members",
-                                "submit_as": "masternodes",
+                                "name": "validators",
                                 "owner": None,
                                 "constructor_args": {
                                     "genesis_nodes": ["old-node"],
@@ -362,7 +361,7 @@ class GenesisBuilderTests(unittest.TestCase):
                 contracts_dir=contracts_dir,
                 constructor_overrides={
                     "foundation": {"vk": "new-vk"},
-                    "masternodes": {
+                    "validators": {
                         "genesis_nodes": ["node-a"],
                         "genesis_registration_fee": 123,
                     },
@@ -373,8 +372,8 @@ class GenesisBuilderTests(unittest.TestCase):
             entry["key"]: entry["value"] for entry in genesis_block["genesis"]
         }
         self.assertEqual(state_by_key["foundation.foundation_vk"], "new-vk")
-        self.assertEqual(state_by_key["masternodes.nodes"], ["node-a"])
-        self.assertEqual(state_by_key["masternodes.fee"], 123)
+        self.assertEqual(state_by_key["validators.active_validators"], ["node-a"])
+        self.assertEqual(state_by_key["validators.fee"], 123)
 
     def test_build_cometbft_genesis_includes_validator_entry(self):
         abci_genesis = {
@@ -456,8 +455,7 @@ class GenesisBuilderTests(unittest.TestCase):
                         "extension": ".s.py",
                         "contracts": [
                             {
-                                "name": "members",
-                                "submit_as": "masternodes",
+                                "name": "validators",
                                 "owner": None,
                                 "constructor_args": {
                                     "genesis_nodes": [
@@ -515,7 +513,7 @@ class GenesisBuilderTests(unittest.TestCase):
             "614EBE42CBE8354F733851F4316D0DE316B1AEF0",
         )
 
-    def test_local_bundle_pins_masternodes_policy_in_genesis(self):
+    def test_local_bundle_pins_validators_policy_in_genesis(self):
         founder_private_key = (
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         )
@@ -536,17 +534,17 @@ class GenesisBuilderTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            state_by_key["masternodes.config:selection_mode"], "manual"
+            state_by_key["validators.config:selection_mode"], "manual"
         )
-        self.assertEqual(state_by_key["masternodes.config:max_validators"], 5)
+        self.assertEqual(state_by_key["validators.config:max_validators"], 5)
         self.assertEqual(
-            state_by_key["masternodes.config:max_commission_bps"], 10000
-        )
-        self.assertEqual(
-            state_by_key["masternodes.config:slash_destination"], "dao"
+            state_by_key["validators.config:max_commission_bps"], 10000
         )
         self.assertEqual(
-            state_by_key["masternodes.validator_power:ee06a34cf08bf72ce592d26d36b90c79daba2829ba9634992d034318160d49f9"],
+            state_by_key["validators.config:slash_destination"], "dao"
+        )
+        self.assertEqual(
+            state_by_key["validators.powers:ee06a34cf08bf72ce592d26d36b90c79daba2829ba9634992d034318160d49f9"],
             10,
         )
 
@@ -581,15 +579,15 @@ class GenesisBuilderTests(unittest.TestCase):
                 "    return foundation_vk.get()\n",
                 encoding="utf-8",
             )
-            (contracts_dir / "members.s.py").write_text(
-                "nodes = Variable()\nfee = Variable()\n\n"
+            (contracts_dir / "validators.s.py").write_text(
+                "active_validators = Variable()\nfee = Variable()\n\n"
                 "@construct\n"
                 "def seed(genesis_nodes: list, genesis_registration_fee: int):\n"
-                "    nodes.set(genesis_nodes)\n"
+                "    active_validators.set(genesis_nodes)\n"
                 "    fee.set(genesis_registration_fee)\n\n"
                 "@export\n"
                 "def get_nodes():\n"
-                "    return nodes.get()\n",
+                "    return active_validators.get()\n",
                 encoding="utf-8",
             )
             (contracts_dir / "contracts_local.json").write_text(
@@ -608,8 +606,7 @@ class GenesisBuilderTests(unittest.TestCase):
                                 "constructor_args": {"vk": "old-vk"},
                             },
                             {
-                                "name": "members",
-                                "submit_as": "masternodes",
+                                "name": "validators",
                                 "owner": None,
                                 "constructor_args": {
                                     "genesis_nodes": ["old-node"],
@@ -653,8 +650,8 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertEqual(
             state_by_key["foundation.foundation_vk"], wallet.public_key
         )
-        self.assertEqual(state_by_key["masternodes.nodes"], [wallet.public_key])
-        self.assertEqual(state_by_key["masternodes.fee"], 321)
+        self.assertEqual(state_by_key["validators.active_validators"], [wallet.public_key])
+        self.assertEqual(state_by_key["validators.fee"], 321)
         self.assertEqual(genesis["validators"][0]["power"], "25")
         self.assertEqual(genesis["validators"][0]["name"], "validator-1")
 
@@ -691,15 +688,15 @@ class GenesisBuilderTests(unittest.TestCase):
                 "    return foundation_vk.get()\n",
                 encoding="utf-8",
             )
-            (contracts_dir / "members.s.py").write_text(
-                "nodes = Variable()\nfee = Variable()\n\n"
+            (contracts_dir / "validators.s.py").write_text(
+                "active_validators = Variable()\nfee = Variable()\n\n"
                 "@construct\n"
                 "def seed(genesis_nodes: list, genesis_registration_fee: int):\n"
-                "    nodes.set(genesis_nodes)\n"
+                "    active_validators.set(genesis_nodes)\n"
                 "    fee.set(genesis_registration_fee)\n\n"
                 "@export\n"
                 "def get_nodes():\n"
-                "    return nodes.get()\n",
+                "    return active_validators.get()\n",
                 encoding="utf-8",
             )
             (contracts_dir / "contracts_local.json").write_text(
@@ -718,8 +715,7 @@ class GenesisBuilderTests(unittest.TestCase):
                                 "constructor_args": {"vk": "old-vk"},
                             },
                             {
-                                "name": "members",
-                                "submit_as": "masternodes",
+                                "name": "validators",
                                 "owner": None,
                                 "constructor_args": {
                                     "genesis_nodes": ["old-node"],
@@ -783,10 +779,10 @@ class GenesisBuilderTests(unittest.TestCase):
             state_by_key["foundation.foundation_vk"], founder_wallet.public_key
         )
         self.assertEqual(
-            state_by_key["masternodes.nodes"],
+            state_by_key["validators.active_validators"],
             [founder_wallet.public_key, validator_two_wallet.public_key],
         )
-        self.assertEqual(state_by_key["masternodes.fee"], 321)
+        self.assertEqual(state_by_key["validators.fee"], 321)
         self.assertEqual(len(genesis["validators"]), 2)
         self.assertEqual(genesis["validators"][1]["name"], "validator-2")
         self.assertEqual(genesis["validators"][1]["power"], "25")
@@ -824,8 +820,8 @@ class GenesisBuilderTests(unittest.TestCase):
                 "    return foundation_vk.get()\n",
                 encoding="utf-8",
             )
-            (contracts_dir / "members.s.py").write_text(
-                "nodes = Variable()\n"
+            (contracts_dir / "validators.s.py").write_text(
+                "active_validators = Variable()\n"
                 "fee = Variable()\n"
                 "powers = Hash()\n"
                 "reward_keys = Hash()\n\n"
@@ -836,14 +832,14 @@ class GenesisBuilderTests(unittest.TestCase):
                 "    genesis_powers: dict = None,\n"
                 "    genesis_reward_keys: dict = None,\n"
                 "):\n"
-                "    nodes.set(genesis_nodes)\n"
+                "    active_validators.set(genesis_nodes)\n"
                 "    fee.set(genesis_registration_fee)\n"
                 "    for node in genesis_nodes:\n"
                 "        powers[node] = genesis_powers[node]\n"
                 "        reward_keys[node] = genesis_reward_keys[node]\n\n"
                 "@export\n"
                 "def get_nodes():\n"
-                "    return nodes.get()\n",
+                "    return active_validators.get()\n",
                 encoding="utf-8",
             )
             (contracts_dir / "contracts_testnet.json").write_text(
@@ -862,8 +858,7 @@ class GenesisBuilderTests(unittest.TestCase):
                                 "constructor_args": {"vk": "old-vk"},
                             },
                             {
-                                "name": "members",
-                                "submit_as": "masternodes",
+                                "name": "validators",
                                 "owner": None,
                                 "constructor_args": {
                                     "genesis_nodes": ["old-node"],
@@ -928,24 +923,24 @@ class GenesisBuilderTests(unittest.TestCase):
             for entry in genesis["abci_genesis"]["genesis"]
         }
         self.assertEqual(
-            state_by_key["masternodes.nodes"],
+            state_by_key["validators.active_validators"],
             [founder_wallet.public_key, validator_two_wallet.public_key],
         )
         self.assertEqual(
-            state_by_key[f"masternodes.powers:{founder_wallet.public_key}"],
+            state_by_key[f"validators.powers:{founder_wallet.public_key}"],
             12,
         )
         self.assertEqual(
-            state_by_key[f"masternodes.powers:{validator_two_wallet.public_key}"],
+            state_by_key[f"validators.powers:{validator_two_wallet.public_key}"],
             18,
         )
         self.assertEqual(
-            state_by_key[f"masternodes.reward_keys:{founder_wallet.public_key}"],
+            state_by_key[f"validators.reward_keys:{founder_wallet.public_key}"],
             "reward-key-1",
         )
         self.assertEqual(
             state_by_key[
-                f"masternodes.reward_keys:{validator_two_wallet.public_key}"
+                f"validators.reward_keys:{validator_two_wallet.public_key}"
             ],
             validator_two_wallet.public_key,
         )

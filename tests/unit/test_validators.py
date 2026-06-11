@@ -36,12 +36,12 @@ class ValidatorHandlerTests(unittest.TestCase):
         handler = ValidatorHandler(
             _FakeApp(
                 current_values={
-                    "masternodes.nodes": [validator],
-                    f"masternodes.validator_power:{validator}": 25,
+                    "validators.active_validators": [validator],
+                    f"validators.powers:{validator}": 25,
                 },
                 committed_values={
-                    "masternodes.nodes": [stale_validator],
-                    f"masternodes.validator_power:{stale_validator}": 10,
+                    "validators.active_validators": [stale_validator],
+                    f"validators.powers:{stale_validator}": 10,
                 },
             )
         )
@@ -57,12 +57,12 @@ class ValidatorHandlerTests(unittest.TestCase):
         handler = ValidatorHandler(
             _FakeApp(
                 current_values={
-                    "masternodes.nodes": [validator],
-                    f"masternodes.validator_power:{validator}": 42,
+                    "validators.active_validators": [validator],
+                    f"validators.powers:{validator}": 42,
                 },
                 committed_values={
-                    "masternodes.nodes": [validator],
-                    f"masternodes.validator_power:{validator}": 10,
+                    "validators.active_validators": [validator],
+                    f"validators.powers:{validator}": 10,
                 },
             )
         )
@@ -77,9 +77,9 @@ class ValidatorHandlerTests(unittest.TestCase):
         handler = ValidatorHandler(
             _FakeApp(
                 current_values={
-                    "masternodes.nodes": [validator],
+                    "validators.active_validators": [validator],
                 },
-                committed_values={"masternodes.nodes": []},
+                committed_values={"validators.active_validators": []},
             )
         )
 
@@ -92,10 +92,10 @@ class ValidatorHandlerTests(unittest.TestCase):
         validator = "11" * 32
         handler = ValidatorHandler(
             _FakeApp(
-                current_values={"masternodes.nodes": []},
+                current_values={"validators.active_validators": []},
                 committed_values={
-                    "masternodes.nodes": [validator],
-                    f"masternodes.validator_power:{validator}": 10,
+                    "validators.active_validators": [validator],
+                    f"validators.powers:{validator}": 10,
                 },
             )
         )

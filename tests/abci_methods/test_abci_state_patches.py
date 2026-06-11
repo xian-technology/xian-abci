@@ -71,14 +71,14 @@ class GovernedStatePatchTests(unittest.IsolatedAsyncioTestCase):
 
         self.app.client.submit(
             MEMBERSHIP_CONTRACT,
-            name="masternodes",
+            name="validators",
             constructor_args={"initial_members": ["node1", "node2"]},
         )
         self.app.client.submit(
             governance_contract_source(),
             name="governance",
             constructor_args={
-                "membership_contract_name": "masternodes",
+                "membership_contract_name": "validators",
                 "approval_threshold_numerator": 1,
                 "approval_threshold_denominator": 1,
                 "min_patch_delay_blocks": 2,

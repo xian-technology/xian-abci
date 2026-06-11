@@ -33,10 +33,10 @@ def _resolve_misbehaving_validator_key(self, validator_address: bytes) -> str | 
         return None
     known_validators = (
         self.client.raw_driver.get(
-            "masternodes.validator_registry",
+            "validators.validator_registry",
             save=False,
         )
-        or self.client.raw_driver.get("masternodes.nodes", save=False)
+        or self.client.raw_driver.get("validators.active_validators", save=False)
         or []
     )
     for validator_key in known_validators:
@@ -108,7 +108,7 @@ def maybe_apply_evidence_penalties(self, req, *, height: int) -> bool:
         evidence_tx = {
             "payload": {
                 "sender": SYSTEM_EVIDENCE_SENDER,
-                "contract": "masternodes",
+                "contract": "validators",
                 "function": "apply_evidence_penalty",
                 "kwargs": {
                     "member": validator_key,

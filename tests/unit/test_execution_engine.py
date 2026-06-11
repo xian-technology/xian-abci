@@ -519,7 +519,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             client.raw_driver.set("rewards.S:value", [0.88, 0.01, 0.01, 0.1])
 
             client.submit(
-                (contracts_dir / "members.s.py").read_text(),
+                (contracts_dir / "validators.s.py").read_text(),
                 name="members",
                 constructor_args={
                     "genesis_registration_fee": 100_000,

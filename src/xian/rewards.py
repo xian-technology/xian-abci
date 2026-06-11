@@ -35,11 +35,11 @@ class RewardsHandler:
             rounded_reward = 0
         return ContractingDecimal(str(rounded_reward))
 
-    def _get_masternode_power(self, masternode: str):
+    def _get_validator_power(self, validator: str):
         power = self.client.get_var(
-            contract="masternodes",
-            variable="validator_power",
-            arguments=[masternode],
+            contract="validators",
+            variable="powers",
+            arguments=[validator],
         )
         if power is None:
             return decimal.Decimal("1")
@@ -48,23 +48,23 @@ class RewardsHandler:
             return decimal.Decimal("1")
         return normalized
 
-    def _get_masternode_reward_key(self, masternode: str):
+    def _get_validator_reward_key(self, validator: str):
         reward_key = self.client.get_var(
-            contract="masternodes",
+            contract="validators",
             variable="reward_keys",
-            arguments=[masternode],
+            arguments=[validator],
         )
         if reward_key is None:
-            return masternode
+            return validator
         if reward_key == "":
-            return masternode
+            return validator
         return reward_key
 
-    def _get_masternode_commission_bps(self, masternode: str):
+    def _get_validator_commission_bps(self, validator: str):
         commission = self.client.get_var(
-            contract="masternodes",
+            contract="validators",
             variable="commission_bps",
-            arguments=[masternode],
+            arguments=[validator],
         )
         if commission is None:
             return decimal.Decimal("0")
@@ -75,11 +75,11 @@ class RewardsHandler:
             return decimal.Decimal("10000")
         return normalized
 
-    def _get_masternode_self_bond(self, masternode: str):
+    def _get_validator_self_bond(self, validator: str):
         value = self.client.get_var(
-            contract="masternodes",
+            contract="validators",
             variable="self_bond",
-            arguments=[masternode],
+            arguments=[validator],
         )
         if value is None:
             return decimal.Decimal("0")
@@ -88,21 +88,21 @@ class RewardsHandler:
             return decimal.Decimal("0")
         return normalized
 
-    def _get_masternode_delegators(self, masternode: str):
+    def _get_validator_delegators(self, validator: str):
         delegators = self.client.get_var(
-            contract="masternodes",
+            contract="validators",
             variable="delegator_lists",
-            arguments=[masternode],
+            arguments=[validator],
         )
         if not delegators:
             return []
         return delegators
 
-    def _get_masternode_delegation(self, delegator: str, masternode: str):
+    def _get_validator_delegation(self, delegator: str, validator: str):
         amount = self.client.get_var(
-            contract="masternodes",
+            contract="validators",
             variable="delegations",
-            arguments=[delegator, masternode],
+            arguments=[delegator, validator],
         )
         if amount is None:
             return decimal.Decimal("0")
@@ -111,33 +111,33 @@ class RewardsHandler:
             return decimal.Decimal("0")
         return normalized
 
-    def _get_delegator_reward_key(self, delegator: str, masternode: str):
+    def _get_delegator_reward_key(self, delegator: str, validator: str):
         reward_key = self.client.get_var(
-            contract="masternodes",
+            contract="validators",
             variable="delegator_reward_keys",
-            arguments=[delegator, masternode],
+            arguments=[delegator, validator],
         )
         if reward_key is None or reward_key == "":
             return delegator
         return reward_key
 
-    def build_validator_reward_outputs(self, masternode: str, total_reward):
+    def build_single_validator_reward_outputs(self, validator: str, total_reward):
         total_reward = self._as_decimal(total_reward)
-        operator_reward_key = self._get_masternode_reward_key(masternode)
-        commission_bps = self._get_masternode_commission_bps(masternode)
-        self_bond = self._get_masternode_self_bond(masternode)
+        operator_reward_key = self._get_validator_reward_key(validator)
+        commission_bps = self._get_validator_commission_bps(validator)
+        self_bond = self._get_validator_self_bond(validator)
 
         delegator_weights: list[tuple[str, str, decimal.Decimal]] = []
         total_delegated = decimal.Decimal("0")
-        for delegator in self._get_masternode_delegators(masternode):
-            delegation = self._get_masternode_delegation(delegator, masternode)
+        for delegator in self._get_validator_delegators(validator):
+            delegation = self._get_validator_delegation(delegator, validator)
             if delegation <= 0:
                 continue
             total_delegated += delegation
             delegator_weights.append(
                 (
                     delegator,
-                    self._get_delegator_reward_key(delegator, masternode),
+                    self._get_delegator_reward_key(delegator, validator),
                     delegation,
                 )
             )
@@ -149,10 +149,10 @@ class RewardsHandler:
                 {operator_reward_key: amount},
                 [
                     {
-                        "type": "masternode_reward",
+                        "type": "validator_reward",
                         "recipient_key": operator_reward_key,
                         "source_contract": None,
-                        "validator_key": masternode,
+                        "validator_key": validator,
                         "value": amount,
                     }
                 ],
@@ -173,10 +173,10 @@ class RewardsHandler:
             reward_mapping[operator_reward_key] += operator_amount
             reward_records.append(
                 {
-                    "type": "masternode_reward",
+                    "type": "validator_reward",
                     "recipient_key": operator_reward_key,
                     "source_contract": None,
-                    "validator_key": masternode,
+                    "validator_key": validator,
                     "value": operator_amount,
                 }
             )
@@ -196,7 +196,7 @@ class RewardsHandler:
                     "type": "delegator_reward",
                     "recipient_key": reward_key,
                     "source_contract": None,
-                    "validator_key": masternode,
+                    "validator_key": validator,
                     "delegator_key": delegator,
                     "value": share_amount,
                 }
@@ -204,17 +204,22 @@ class RewardsHandler:
 
         return dict(reward_mapping), reward_records
 
-    def build_masternode_reward_outputs(self, total_chi_to_split, participant_ratio, masternodes):
-        masternode_total = self._as_decimal(total_chi_to_split) * self._as_decimal(
+    def build_validator_set_reward_outputs(
+        self,
+        total_chi_to_split,
+        participant_ratio,
+        validators,
+    ):
+        validator_total = self._as_decimal(total_chi_to_split) * self._as_decimal(
             participant_ratio
         )
 
         weighted_nodes = []
-        for masternode in masternodes:
+        for validator in validators:
             weighted_nodes.append(
                 (
-                    masternode,
-                    self._get_masternode_power(masternode),
+                    validator,
+                    self._get_validator_power(validator),
                 )
             )
 
@@ -229,15 +234,15 @@ class RewardsHandler:
         reward_records = []
         allocated = decimal.Decimal("0")
 
-        for index, (masternode, weight) in enumerate(weighted_nodes):
+        for index, (validator, weight) in enumerate(weighted_nodes):
             if index == len(weighted_nodes) - 1:
-                share = masternode_total - allocated
+                share = validator_total - allocated
             else:
-                share = (masternode_total * weight) / total_weight
+                share = (validator_total * weight) / total_weight
                 allocated += share
 
-            share_mapping, share_records = self.build_validator_reward_outputs(
-                masternode=masternode,
+            share_mapping, share_records = self.build_single_validator_reward_outputs(
+                validator=validator,
                 total_reward=share,
             )
             for recipient_key, recipient_reward in share_mapping.items():
@@ -308,7 +313,7 @@ class RewardsHandler:
             logger.error("Rewards not set up.")
             return 0, 0, {}, []
         try:
-            master_ratio, burn_ratio, foundation_ratio, developer_ratio = self.client.get_var(
+            validator_ratio, burn_ratio, foundation_ratio, developer_ratio = self.client.get_var(
                 contract="rewards", variable="S", arguments=["value"]
             )
         except TypeError:
@@ -319,11 +324,11 @@ class RewardsHandler:
         if foundation_owner is None:
             foundation_owner = self.client.get_var(contract="foundation", variable="owner")
 
-        masternodes = self.client.get_var(contract="masternodes", variable="nodes") or []
-        masternode_mapping, masternode_records = self.build_masternode_reward_outputs(
+        validators = self.client.get_var(contract="validators", variable="active_validators") or []
+        validator_mapping, validator_records = self.build_validator_set_reward_outputs(
             total_chi_to_split=total_chi_to_split,
-            participant_ratio=master_ratio,
-            masternodes=masternodes,
+            participant_ratio=validator_ratio,
+            validators=validators,
         )
 
         foundation_reward = self.calculate_participant_reward(
@@ -341,8 +346,8 @@ class RewardsHandler:
         )
 
         return (
-            masternode_mapping,
-            masternode_records,
+            validator_mapping,
+            validator_records,
             foundation_reward,
             developer_mapping,
             developer_records,
@@ -366,8 +371,8 @@ class RewardsHandler:
             return None, {}, []
 
         (
-            masternode_mapping,
-            masternode_records,
+            validator_mapping,
+            validator_records,
             foundation_reward,
             developer_mapping,
             developer_records,
@@ -379,7 +384,7 @@ class RewardsHandler:
         )
 
         rewards = {
-            "masternode_reward": {},
+            "validator_reward": {},
             "delegator_reward": {},
             "foundation_reward": {},
             "developer_reward": {},
@@ -400,23 +405,23 @@ class RewardsHandler:
                 }
             )
 
-        for record in masternode_records:
-            masternode_amount = ContractingDecimal(str(record["value"] / chi_rate))
+        for record in validator_records:
+            validator_amount = ContractingDecimal(str(record["value"] / chi_rate))
             recipient_key = record["recipient_key"]
             reward_bucket = (
-                "delegator_reward" if record["type"] == "delegator_reward" else "masternode_reward"
+                "delegator_reward" if record["type"] == "delegator_reward" else "validator_reward"
             )
             existing_amount = rewards[reward_bucket].get(recipient_key)
             if existing_amount is None:
-                rewards[reward_bucket][recipient_key] = masternode_amount
+                rewards[reward_bucket][recipient_key] = validator_amount
             else:
-                rewards[reward_bucket][recipient_key] = existing_amount + masternode_amount
-            reward_deltas[f"currency.balances:{recipient_key}"] += masternode_amount
+                rewards[reward_bucket][recipient_key] = existing_amount + validator_amount
+            reward_deltas[f"currency.balances:{recipient_key}"] += validator_amount
             normalized_record = {
                 "type": record["type"],
                 "recipient_key": recipient_key,
                 "source_contract": None,
-                "value": masternode_amount,
+                "value": validator_amount,
             }
             if "validator_key" in record:
                 normalized_record["validator_key"] = record["validator_key"]
@@ -457,8 +462,8 @@ class RewardsHandler:
 
         driver = self.client.raw_driver
         (
-            masternode_mapping,
-            _masternode_records,
+            validator_mapping,
+            _validator_records,
             foundation_reward,
             developer_mapping,
             _developer_records,
@@ -470,15 +475,15 @@ class RewardsHandler:
         chi_cost = driver.get("chi_cost.S:value")
         foundation_reward /= chi_cost
 
-        rewards = self._distribute_masternode_rewards(driver, masternode_mapping, chi_cost)
+        rewards = self._distribute_validator_rewards(driver, validator_mapping, chi_cost)
         rewards.append(self._distribute_foundation_reward(driver, foundation_reward))
         rewards.extend(self._distribute_developer_rewards(driver, developer_mapping, chi_cost))
 
         return rewards
 
-    def _distribute_masternode_rewards(self, driver, masternode_mapping, chi_cost):
+    def _distribute_validator_rewards(self, driver, validator_mapping, chi_cost):
         rewards = []
-        for recipient_key, reward in masternode_mapping.items():
+        for recipient_key, reward in validator_mapping.items():
             normalized_reward = reward / chi_cost
             m_balance = driver.get(f"currency.balances:{recipient_key}") or 0
             m_balance_after = round(m_balance + normalized_reward, c.DUST_EXPONENT)
@@ -507,11 +512,11 @@ class RewardsHandler:
             rewards.append(driver.set(f"currency.balances:{recipient}", recipient_balance_after))
         return rewards
 
-    def distribute_static_rewards(self, master_reward, foundation_reward):
+    def distribute_static_rewards(self, validator_reward, foundation_reward):
         rewards = []
         driver = self.client.raw_driver
 
-        rewards.extend(self._distribute_masternode_rewards(driver, master_reward))
+        rewards.extend(self._distribute_validator_rewards(driver, validator_reward, 1))
         rewards.append(self._distribute_foundation_reward(driver, foundation_reward))
 
         return rewards

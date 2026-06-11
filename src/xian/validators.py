@@ -12,10 +12,10 @@ class ValidatorHandler:
 
     def get_validators_from_state(self, *, committed: bool = False) -> dict[str, int]:
         read = self.client.raw_driver.value_from_disk if committed else self.client.raw_driver.get
-        validators = read("masternodes.nodes") or []
+        validators = read("validators.active_validators") or []
         desired = {}
         for validator in validators:
-            power = read(f"masternodes.validator_power:{validator}")
+            power = read(f"validators.powers:{validator}")
             if power is None:
                 power = self.DEFAULT_VALIDATOR_POWER
             if power <= 0:

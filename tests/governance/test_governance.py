@@ -97,7 +97,7 @@ class MyTestCase(unittest.TestCase):
         dao_contract_path = CONTRACTS_DIR / "dao.s.py"
         rewards_contract_path = CONTRACTS_DIR / "rewards.s.py"
         chi_cost_contract_path = CONTRACTS_DIR / "chi_cost.s.py"
-        members_contract_path = CONTRACTS_DIR / "members.s.py"
+        members_contract_path = CONTRACTS_DIR / "validators.s.py"
         foundation_contract_path = CONTRACTS_DIR / "foundation.s.py"
 
         with open(submission_contract_path) as f:
@@ -137,23 +137,23 @@ class MyTestCase(unittest.TestCase):
 
         with open(dao_contract_path) as f:
             contract = f.read()
-        self.c.submit(contract, name="dao", owner="masternodes")
+        self.c.submit(contract, name="dao", owner="validators")
 
         with open(rewards_contract_path) as f:
             contract = f.read()
-        self.c.submit(contract, name="rewards", owner="masternodes")
+        self.c.submit(contract, name="rewards", owner="validators")
         self.d.set(key="rewards.S:value", value=[0.88, 0.01, 0.01, 0.1])
 
         with open(chi_cost_contract_path) as f:
             contract = f.read()
-        self.c.submit(contract, name="chi_cost", owner="masternodes")
+        self.c.submit(contract, name="chi_cost", owner="validators")
         self.d.set(key="chi_cost.S:value", value=20)
 
         with open(members_contract_path) as f:
             contract = f.read()
         self.c.submit(
             contract,
-            name="masternodes",
+            name="validators",
             constructor_args={
                 "genesis_registration_fee": 100000,
                 "genesis_nodes": [
@@ -180,7 +180,7 @@ class MyTestCase(unittest.TestCase):
         self.dao = self.c.get_contract_proxy("dao")
         self.rewards = self.c.get_contract_proxy("rewards")
         self.chi_cost = self.c.get_contract_proxy("chi_cost")
-        self.masternodes = self.c.get_contract_proxy("masternodes")
+        self.validators = self.c.get_contract_proxy("validators")
 
     def tearDown(self):
         teardown_fixtures()
@@ -193,7 +193,7 @@ class MyTestCase(unittest.TestCase):
                     "sender": "new_node",
                     "contract": "currency",
                     "function": "approve",
-                    "kwargs": {"amount": 100000, "to": "masternodes"},
+                    "kwargs": {"amount": 100000, "to": "validators"},
                     "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
@@ -204,7 +204,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": "new_node",
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "register",
                     "kwargs": {},
                     "chi_supplied": 1000,
@@ -219,7 +219,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": "new_node",
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "unregister",
                     "kwargs": {},
                     "chi_supplied": 1000,
@@ -235,7 +235,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_1,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "propose_vote",
                     "kwargs": {"type_of_vote": "add_member", "arg": "new_node"},
                     "chi_supplied": 1000,
@@ -248,7 +248,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_2,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -261,7 +261,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_3,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -274,7 +274,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_4,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -291,7 +291,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_1,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "remove_member",
@@ -308,7 +308,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_2,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -321,7 +321,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_3,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -334,7 +334,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_4,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -347,7 +347,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_5,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -365,7 +365,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_1,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "jail_member",
@@ -381,7 +381,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_2,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -394,7 +394,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_3,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -407,7 +407,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_4,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -420,7 +420,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_5,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 2, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -438,7 +438,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_1,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "unjail_member",
@@ -454,7 +454,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_2,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 3, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -467,7 +467,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_3,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 3, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -480,7 +480,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_4,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 3, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -498,7 +498,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_1,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "slash_member",
@@ -514,7 +514,7 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        proposal_id = self.masternodes.total_votes.get()
+        proposal_id = self.validators.total_votes.get()
         votes = [vote]
         for sender in [node_2, node_3, node_4, node_5]:
             votes.append(
@@ -522,7 +522,7 @@ class MyTestCase(unittest.TestCase):
                     tx={
                         "payload": {
                             "sender": sender,
-                            "contract": "masternodes",
+                            "contract": "validators",
                             "function": "vote",
                             "kwargs": {"proposal_id": proposal_id, "vote": "yes"},
                             "chi_supplied": 1000,
@@ -540,7 +540,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_1,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "propose_vote",
                     "kwargs": {"type_of_vote": "add_member", "arg": "new_node"},
                     "chi_supplied": 1000,
@@ -554,7 +554,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_2,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -567,7 +567,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_3,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -580,7 +580,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_4,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -597,7 +597,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_1,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "propose_vote",
                     "kwargs": {"type_of_vote": "chi_cost_change", "arg": 30},
                     "chi_supplied": 1000,
@@ -610,7 +610,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_2,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -623,7 +623,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_3,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -636,7 +636,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_4,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -652,7 +652,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_1,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "reward_change",
@@ -668,7 +668,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_3,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -681,7 +681,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_4,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -694,7 +694,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_2,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -710,7 +710,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_1,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "dao_payout",
@@ -726,7 +726,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_2,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -739,7 +739,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_3,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -752,7 +752,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_4,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -768,7 +768,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_1,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "change_registration_fee",
@@ -784,7 +784,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_2,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -797,7 +797,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_3,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -810,7 +810,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_4,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -827,7 +827,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_1,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "change_types",
@@ -848,7 +848,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_2,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -861,7 +861,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_3,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -874,7 +874,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_4,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -891,7 +891,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": "new_node",
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "announce_leave",
                     "kwargs": {},
                     "chi_supplied": 1000,
@@ -908,7 +908,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": "new_node",
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "leave",
                     "kwargs": {},
                     "chi_supplied": 1000,
@@ -922,7 +922,7 @@ class MyTestCase(unittest.TestCase):
     def test_register(self):
         self.register()
         self.assertEqual(
-            self.masternodes.pending_registrations["new_node"], True
+            self.validators.pending_registrations["new_node"], True
         )
         self.assertEqual(self.currency.balances["new_node"], 900000)
 
@@ -930,14 +930,14 @@ class MyTestCase(unittest.TestCase):
         self.register()
         self.unregister()
         self.assertEqual(
-            self.masternodes.pending_registrations["new_node"], False
+            self.validators.pending_registrations["new_node"], False
         )
         self.assertEqual(self.currency.balances["new_node"], 1000000)
 
     def test_register_propose_unregister_and_validate(self):
         self.register()
         self.assertEqual(
-            self.masternodes.pending_registrations["new_node"], True
+            self.validators.pending_registrations["new_node"], True
         )
         self.assertEqual(self.currency.balances["new_node"], 900000)
 
@@ -949,11 +949,11 @@ class MyTestCase(unittest.TestCase):
         )
 
         self.assertEqual(
-            self.masternodes.pending_registrations["new_node"], False
+            self.validators.pending_registrations["new_node"], False
         )
         self.assertEqual(self.currency.balances["new_node"], 1000000)
 
-        nodes = self.masternodes.nodes.get()
+        nodes = self.validators.active_validators.get()
         self.assertNotIn(
             "new_node", nodes,
             "The node should not be in the list of validators after unregistering."
@@ -962,10 +962,10 @@ class MyTestCase(unittest.TestCase):
     def test_vote_in_node(self):
         self.register()
         self.vote_in()
-        self.assertEqual(self.masternodes.votes[1]["yes"], 4)
-        self.assertEqual(self.masternodes.votes[1]["no"], 0)
-        self.assertEqual(self.masternodes.votes[1]["finalized"], True)
-        nodes = self.masternodes.nodes.get()
+        self.assertEqual(self.validators.votes[1]["yes"], 4)
+        self.assertEqual(self.validators.votes[1]["no"], 0)
+        self.assertEqual(self.validators.votes[1]["finalized"], True)
+        nodes = self.validators.active_validators.get()
         self.assertIn("new_node", nodes)
 
     def test_validator_governance_vote_records_and_events(self):
@@ -974,7 +974,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_1,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "topic_vote",
@@ -995,7 +995,7 @@ class MyTestCase(unittest.TestCase):
             ["ValidatorProposalSubmitted", "ValidatorProposalVoted"],
         )
         self.assertEqual(
-            self.masternodes.get_vote_record(proposal_id=1, voter=node_1),
+            self.validators.get_vote_record(proposal_id=1, voter=node_1),
             {
                 "proposal_id": 1,
                 "voter": node_1,
@@ -1004,7 +1004,7 @@ class MyTestCase(unittest.TestCase):
             },
         )
         self.assertEqual(
-            self.masternodes.get_vote_voter_snapshot(proposal_id=1),
+            self.validators.get_vote_voter_snapshot(proposal_id=1),
             [node_1, node_2, node_3, node_4, node_5],
         )
 
@@ -1013,7 +1013,7 @@ class MyTestCase(unittest.TestCase):
                 tx={
                     "payload": {
                         "sender": voter,
-                        "contract": "masternodes",
+                        "contract": "validators",
                         "function": "vote",
                         "kwargs": {"proposal_id": 1, "vote": "yes"},
                         "chi_supplied": 1000,
@@ -1027,7 +1027,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_4,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -1036,7 +1036,7 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.assertEqual(self.masternodes.votes[1]["status"], "approved")
+        self.assertEqual(self.validators.votes[1]["status"], "approved")
         self.assertEqual(
             [
                 event["event"]
@@ -1046,7 +1046,7 @@ class MyTestCase(unittest.TestCase):
             ["ValidatorProposalVoted", "ValidatorProposalApproved"],
         )
         self.assertEqual(
-            self.masternodes.get_vote_records(proposal_id=1)[3],
+            self.validators.get_vote_records(proposal_id=1)[3],
             {
                 "proposal_id": 1,
                 "voter": node_4,
@@ -1059,10 +1059,10 @@ class MyTestCase(unittest.TestCase):
         self.register()
         self.vote_in()
         self.vote_out()
-        self.assertEqual(self.masternodes.votes[2]["yes"], 5)
-        self.assertEqual(self.masternodes.votes[2]["no"], 0)
-        self.assertEqual(self.masternodes.votes[2]["finalized"], True)
-        nodes = self.masternodes.nodes.get()
+        self.assertEqual(self.validators.votes[2]["yes"], 5)
+        self.assertEqual(self.validators.votes[2]["no"], 0)
+        self.assertEqual(self.validators.votes[2]["finalized"], True)
+        nodes = self.validators.active_validators.get()
         self.assertNotIn("new_node", nodes)
 
     def test_announce_leave(self):
@@ -1075,7 +1075,7 @@ class MyTestCase(unittest.TestCase):
         self.vote_in()
         self.announce_leave()
         self.leave()
-        self.assertEqual(self.masternodes.pending_leave["new_node"], False)
+        self.assertEqual(self.validators.pending_leave["new_node"], False)
         
     def test_leave_not_pending(self):
         self.register()
@@ -1092,7 +1092,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_1,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "change_registration_fee",
@@ -1109,7 +1109,7 @@ class MyTestCase(unittest.TestCase):
             tx={
                 "payload": {
                     "sender": node_2,
-                    "contract": "masternodes",
+                    "contract": "validators",
                     "function": "vote",
                     "kwargs": {"proposal_id": 1, "vote": "yes"},
                     "chi_supplied": 1000,
@@ -1126,17 +1126,17 @@ class MyTestCase(unittest.TestCase):
         self.register()
         self.vote_in()
         self.vote_out()
-        self.assertEqual(self.masternodes.pending_leave["new_node"], False)
-        self.assertEqual(self.masternodes.statuses["new_node"], "removed")
+        self.assertEqual(self.validators.pending_leave["new_node"], False)
+        self.assertEqual(self.validators.statuses["new_node"], "removed")
         self.assertEqual(self.currency.balances["new_node"], 1000000)
 
     def test_jail_member(self):
         self.register()
         self.vote_in()
         self.vote_jail()
-        self.assertNotIn("new_node", self.masternodes.nodes.get())
-        self.assertEqual(self.masternodes.statuses["new_node"], "approved")
-        self.assertEqual(self.masternodes.jailed["new_node"], True)
+        self.assertNotIn("new_node", self.validators.active_validators.get())
+        self.assertEqual(self.validators.statuses["new_node"], "approved")
+        self.assertEqual(self.validators.jailed["new_node"], True)
         self.assertEqual(self.currency.balances["new_node"], 900000)
 
     def test_unjail_member(self):
@@ -1144,24 +1144,24 @@ class MyTestCase(unittest.TestCase):
         self.vote_in()
         self.vote_jail()
         self.vote_unjail()
-        self.assertEqual(self.masternodes.jailed["new_node"], False)
-        self.assertEqual(self.masternodes.statuses["new_node"], "approved")
-        self.assertNotIn("new_node", self.masternodes.nodes.get())
+        self.assertEqual(self.validators.jailed["new_node"], False)
+        self.assertEqual(self.validators.statuses["new_node"], "approved")
+        self.assertNotIn("new_node", self.validators.active_validators.get())
 
     def test_slash_member(self):
         self.register()
         self.vote_in()
-        self.currency.approve(amount=200, to="masternodes", signer="new_node")
-        self.masternodes.bond_self(amount=200, signer="new_node")
+        self.currency.approve(amount=200, to="validators", signer="new_node")
+        self.validators.bond_self(amount=200, signer="new_node")
 
         dao_balance_before = self.currency.balances["dao"]
         self.vote_slash()
 
-        self.assertEqual(self.masternodes.self_bond["new_node"], 150)
-        self.assertEqual(self.masternodes.total_slashed["new_node"], 50)
+        self.assertEqual(self.validators.self_bond["new_node"], 150)
+        self.assertEqual(self.validators.total_slashed["new_node"], 50)
         self.assertEqual(self.currency.balances["dao"], dao_balance_before + 50)
-        self.assertEqual(self.masternodes.votes[2]["status"], "approved")
-        self.assertEqual(self.masternodes.votes[2]["result"]["slash_amount"], 50)
+        self.assertEqual(self.validators.votes[2]["status"], "approved")
+        self.assertEqual(self.validators.votes[2]["result"]["slash_amount"], 50)
 
     def test_leave_payback(self):
         self.register()
@@ -1189,38 +1189,38 @@ class MyTestCase(unittest.TestCase):
     def test_chi_rate_vote(self):
         self.assertEqual(self.chi_cost.S["value"], 20)
         self.vote_chi_cost()
-        self.assertEqual(self.masternodes.votes[1]["yes"], 4)
-        self.assertEqual(self.masternodes.votes[1]["no"], 0)
-        self.assertEqual(self.masternodes.votes[1]["finalized"], True)
+        self.assertEqual(self.validators.votes[1]["yes"], 4)
+        self.assertEqual(self.validators.votes[1]["no"], 0)
+        self.assertEqual(self.validators.votes[1]["finalized"], True)
         self.assertEqual(self.chi_cost.S["value"], 30)
 
     def test_reward_change_vote(self):
         self.assertEqual(self.rewards.S["value"], [0.88, 0.01, 0.01, 0.1])
         self.vote_reward_change()
-        self.assertEqual(self.masternodes.votes[1]["yes"], 4)
-        self.assertEqual(self.masternodes.votes[1]["no"], 0)
-        self.assertEqual(self.masternodes.votes[1]["finalized"], True)
+        self.assertEqual(self.validators.votes[1]["yes"], 4)
+        self.assertEqual(self.validators.votes[1]["no"], 0)
+        self.assertEqual(self.validators.votes[1]["finalized"], True)
         self.assertEqual(self.rewards.S["value"], [0.78, 0.11, 0.01, 0.1])
 
     def test_dao_payout(self):
         self.assertEqual(self.currency.balances["new_node"], 1000000)
         self.vote_dao_payout()
-        self.assertEqual(self.masternodes.votes[1]["yes"], 4)
-        self.assertEqual(self.masternodes.votes[1]["no"], 0)
-        self.assertEqual(self.masternodes.votes[1]["finalized"], True)
+        self.assertEqual(self.validators.votes[1]["yes"], 4)
+        self.assertEqual(self.validators.votes[1]["no"], 0)
+        self.assertEqual(self.validators.votes[1]["finalized"], True)
         self.assertEqual(self.currency.balances["new_node"], 1100000)
 
     def test_reg_fee_change(self):
-        self.assertEqual(self.masternodes.registration_fee.get(), 100000)
+        self.assertEqual(self.validators.registration_fee.get(), 100000)
         self.vote_reg_fee_change()
-        self.assertEqual(self.masternodes.votes[1]["yes"], 4)
-        self.assertEqual(self.masternodes.votes[1]["no"], 0)
-        self.assertEqual(self.masternodes.votes[1]["finalized"], True)
-        self.assertEqual(self.masternodes.registration_fee.get(), 200000)
+        self.assertEqual(self.validators.votes[1]["yes"], 4)
+        self.assertEqual(self.validators.votes[1]["no"], 0)
+        self.assertEqual(self.validators.votes[1]["finalized"], True)
+        self.assertEqual(self.validators.registration_fee.get(), 200000)
 
     def test_types_change(self):
         self.assertEqual(
-            self.masternodes.types.get(),
+            self.validators.types.get(),
             [
             "add_member", 
             "remove_member", 
@@ -1238,11 +1238,11 @@ class MyTestCase(unittest.TestCase):
             ],
         )
         self.vote_types_change()
-        self.assertEqual(self.masternodes.votes[1]["yes"], 4)
-        self.assertEqual(self.masternodes.votes[1]["no"], 0)
-        self.assertEqual(self.masternodes.votes[1]["finalized"], True)
+        self.assertEqual(self.validators.votes[1]["yes"], 4)
+        self.assertEqual(self.validators.votes[1]["no"], 0)
+        self.assertEqual(self.validators.votes[1]["finalized"], True)
         self.assertEqual(
-            self.masternodes.types.get(),
+            self.validators.types.get(),
             ["new_type1", "new_type2", "new_type3", "new_type4"],
         )
 

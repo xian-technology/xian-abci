@@ -55,16 +55,16 @@ class ValidatorEpochRebalanceTests(unittest.IsolatedAsyncioTestCase):
                 constructor_args=contract_args[name],
             )
 
-        members_code = (contracts_dir / "members.s.py").read_text(encoding="utf-8")
+        members_code = (contracts_dir / "validators.s.py").read_text(encoding="utf-8")
         self.app.client.submit(
             members_code,
-            name="masternodes",
+            name="validators",
             constructor_args={
                 "genesis_nodes": [NODE_1, NODE_2, NODE_3],
                 "genesis_registration_fee": 1000,
             },
         )
-        self.membership = self.app.client.get_contract_proxy("masternodes")
+        self.membership = self.app.client.get_contract_proxy("validators")
 
     async def asyncTearDown(self):
         teardown_fixtures()
@@ -93,46 +93,46 @@ class ValidatorEpochRebalanceTests(unittest.IsolatedAsyncioTestCase):
     async def test_finalize_block_runs_epoch_rebalance_without_user_transaction(
         self,
     ):
-        incumbent = self.membership.nodes.get()[0]
+        incumbent = self.membership.active_validators.get()[0]
         challenger = NODE_4
 
-        self.driver.set("masternodes.nodes", [incumbent])
-        self.driver.set("masternodes.candidates", [challenger])
-        self.driver.set(f"masternodes.statuses:{incumbent}", "active")
-        self.driver.set(f"masternodes.statuses:{challenger}", "approved")
-        self.driver.set(f"masternodes.pending_registrations:{challenger}", False)
-        self.driver.set(f"masternodes.pending_leave:{challenger}", False)
-        self.driver.set(f"masternodes.self_bond:{incumbent}", 100)
-        self.driver.set(f"masternodes.self_bond:{challenger}", 200)
-        self.driver.set(f"masternodes.total_delegated:{incumbent}", 0)
-        self.driver.set(f"masternodes.total_delegated:{challenger}", 0)
-        self.driver.set(f"masternodes.delegator_lists:{incumbent}", [])
-        self.driver.set(f"masternodes.delegator_lists:{challenger}", [])
-        self.driver.set(f"masternodes.requested_power:{incumbent}", 10)
-        self.driver.set(f"masternodes.requested_power:{challenger}", 21)
-        self.driver.set(f"masternodes.validator_power:{incumbent}", 10)
-        self.driver.set(f"masternodes.validator_power:{challenger}", 0)
-        self.driver.set(f"masternodes.reward_keys:{incumbent}", incumbent)
-        self.driver.set(f"masternodes.reward_keys:{challenger}", challenger)
-        self.driver.set(f"masternodes.eligible_at_epoch:{challenger}", 1)
-        self.driver.set("masternodes.config:selection_mode", "auto_top_n")
-        self.driver.set("masternodes.config:max_validators", 1)
-        self.driver.set("masternodes.config:power_mode", "requested")
-        self.driver.set("masternodes.config:rebalance_interval", 5)
-        self.driver.set("masternodes.config:min_self_bond", 0)
-        self.driver.set("masternodes.config:min_total_bond", 0)
-        self.driver.set("masternodes.last_rebalance_epoch", 0)
+        self.driver.set("validators.active_validators", [incumbent])
+        self.driver.set("validators.candidates", [challenger])
+        self.driver.set(f"validators.statuses:{incumbent}", "active")
+        self.driver.set(f"validators.statuses:{challenger}", "approved")
+        self.driver.set(f"validators.pending_registrations:{challenger}", False)
+        self.driver.set(f"validators.pending_leave:{challenger}", False)
+        self.driver.set(f"validators.self_bond:{incumbent}", 100)
+        self.driver.set(f"validators.self_bond:{challenger}", 200)
+        self.driver.set(f"validators.total_delegated:{incumbent}", 0)
+        self.driver.set(f"validators.total_delegated:{challenger}", 0)
+        self.driver.set(f"validators.delegator_lists:{incumbent}", [])
+        self.driver.set(f"validators.delegator_lists:{challenger}", [])
+        self.driver.set(f"validators.requested_power:{incumbent}", 10)
+        self.driver.set(f"validators.requested_power:{challenger}", 21)
+        self.driver.set(f"validators.powers:{incumbent}", 10)
+        self.driver.set(f"validators.powers:{challenger}", 0)
+        self.driver.set(f"validators.reward_keys:{incumbent}", incumbent)
+        self.driver.set(f"validators.reward_keys:{challenger}", challenger)
+        self.driver.set(f"validators.eligible_at_epoch:{challenger}", 1)
+        self.driver.set("validators.config:selection_mode", "auto_top_n")
+        self.driver.set("validators.config:max_validators", 1)
+        self.driver.set("validators.config:power_mode", "requested")
+        self.driver.set("validators.config:rebalance_interval", 5)
+        self.driver.set("validators.config:min_self_bond", 0)
+        self.driver.set("validators.config:min_total_bond", 0)
+        self.driver.set("validators.last_rebalance_epoch", 0)
 
         before = await self.finalize_block(4)
-        self.assertEqual(self.membership.nodes.get(), [incumbent])
+        self.assertEqual(self.membership.active_validators.get(), [incumbent])
 
         after = await self.finalize_block(5)
 
-        self.assertEqual(self.membership.nodes.get(), [challenger])
+        self.assertEqual(self.membership.active_validators.get(), [challenger])
         self.assertEqual(self.membership.statuses[challenger], "active")
         self.assertEqual(self.membership.statuses[incumbent], "approved")
-        self.assertEqual(self.membership.validator_power[challenger], 21)
-        self.assertEqual(self.driver.get("masternodes.last_rebalance_epoch"), 1)
+        self.assertEqual(self.membership.powers[challenger], 21)
+        self.assertEqual(self.driver.get("validators.last_rebalance_epoch"), 1)
         self.assertNotEqual(
             before.finalize_block.app_hash,
             after.finalize_block.app_hash,

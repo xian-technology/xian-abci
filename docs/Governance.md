@@ -7,7 +7,7 @@ current governance contracts; it is not a full end-user governance manual.
 
 Current Xian runtime behavior spans two related governance layers:
 
-- `masternodes`: membership and validator governance used for validator set,
+- `validators`: membership and validator governance used for validator set,
   candidate, unbond, and vote state
 - `governance`: protocol-governance contract used for governed contract calls
   and scheduled state-patch bundles
@@ -22,18 +22,18 @@ patch execution.
 Validator and membership integration:
 
 - `src/xian/validators.py` reads validator membership and power from
-  `masternodes`
+  `validators`
 - `src/xian/rewards.py` reads reward-related membership state from
-  `masternodes`
+  `validators`
 - `src/xian/methods/query.py` exposes runtime queries such as:
-  - `/masternodes_policy`
-  - `/masternodes_active`
-  - `/masternodes_candidates`
-  - `/masternodes_validator/<account>`
-  - `/masternodes_pending_unbonds/<account>`
-  - `/masternodes_open_votes/limit=<n>/offset=<n>`
-  - `/masternodes_vote/<proposal-id>`
-  - `/masternodes_vote_records/<proposal-id>`
+  - `/validators_policy`
+  - `/validators_active`
+  - `/validators_candidates`
+  - `/validators_validator/<account>`
+  - `/validators_pending_unbonds/<account>`
+  - `/validators_open_votes/limit=<n>/offset=<n>`
+  - `/validators_vote/<proposal-id>`
+  - `/validators_vote_records/<proposal-id>`
 
 Protocol-governance integration:
 

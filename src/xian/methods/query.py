@@ -268,16 +268,16 @@ def _call_contract_view(
         ctx.raw_driver.restore_state(state)
 
 
-def _pending_masternodes_votes(
+def _pending_validators_votes(
     raw_driver,
     *,
     limit: int = DEFAULT_LIST_QUERY_LIMIT,
     offset: int = 0,
 ) -> list[dict]:
-    total_votes = raw_driver.get("masternodes.total_votes") or 0
+    total_votes = raw_driver.get("validators.total_votes") or 0
     items: list[dict] = []
     for proposal_id in range(total_votes, 0, -1):
-        record = raw_driver.get(f"masternodes.votes:{proposal_id}")
+        record = raw_driver.get(f"validators.votes:{proposal_id}")
         if not isinstance(record, dict):
             continue
         if record.get("finalized") is True:
@@ -294,8 +294,8 @@ def _pending_masternodes_votes(
     return items
 
 
-def _masternodes_vote(raw_driver, proposal_id: int) -> dict | None:
-    record = raw_driver.get(f"masternodes.votes:{proposal_id}")
+def _validators_vote(raw_driver, proposal_id: int) -> dict | None:
+    record = raw_driver.get(f"validators.votes:{proposal_id}")
     if not isinstance(record, dict):
         return None
     entry = dict(record)
@@ -303,8 +303,8 @@ def _masternodes_vote(raw_driver, proposal_id: int) -> dict | None:
     return entry
 
 
-def _masternodes_vote_records(raw_driver, proposal_id: int) -> list[dict]:
-    record = _masternodes_vote(raw_driver, proposal_id)
+def _validators_vote_records(raw_driver, proposal_id: int) -> list[dict]:
+    record = _validators_vote(raw_driver, proposal_id)
     if not isinstance(record, dict):
         return []
 
@@ -322,8 +322,8 @@ def _masternodes_vote_records(raw_driver, proposal_id: int) -> list[dict]:
             {
                 "proposal_id": proposal_id,
                 "voter": voter,
-                "vote": raw_driver.get(f"masternodes.vote_records:{proposal_id}:{voter}"),
-                "weight": raw_driver.get(f"masternodes.vote_weights:{proposal_id}:{voter}") or 0,
+                "vote": raw_driver.get(f"validators.vote_records:{proposal_id}:{voter}"),
+                "weight": raw_driver.get(f"validators.vote_weights:{proposal_id}:{voter}") or 0,
             }
         )
     return records
@@ -468,7 +468,7 @@ def _resolve_perf_status(ctx: QueryContext) -> dict[str, Any]:
 def _resolve_pending_unbonds(ctx: QueryContext) -> list[dict] | None:
     pending_ids = _call_contract_view(
         ctx,
-        "masternodes",
+        "validators",
         "get_pending_unbond_ids",
         kwargs={"owner": ctx.key},
     )
@@ -478,7 +478,7 @@ def _resolve_pending_unbonds(ctx: QueryContext) -> list[dict] | None:
     for unbond_id in pending_ids or []:
         unbond = _call_contract_view(
             ctx,
-            "masternodes",
+            "validators",
             "get_pending_unbond",
             kwargs={"unbond_id": unbond_id},
         )
@@ -588,57 +588,57 @@ async def _handle_perf_status(ctx: QueryContext) -> QueryResult:
     return QueryResult(result=_resolve_perf_status(ctx))
 
 
-async def _handle_masternodes_policy(ctx: QueryContext) -> QueryResult:
+async def _handle_validators_policy(ctx: QueryContext) -> QueryResult:
     return QueryResult(
         result=_call_contract_view(
             ctx,
-            "masternodes",
+            "validators",
             "get_policy_config",
         )
     )
 
 
-async def _handle_masternodes_active(ctx: QueryContext) -> QueryResult:
+async def _handle_validators_active(ctx: QueryContext) -> QueryResult:
     return QueryResult(
         result=_call_contract_view(
             ctx,
-            "masternodes",
+            "validators",
             "get_active_validators",
         )
     )
 
 
-async def _handle_masternodes_candidates(ctx: QueryContext) -> QueryResult:
+async def _handle_validators_candidates(ctx: QueryContext) -> QueryResult:
     return QueryResult(
         result=_call_contract_view(
             ctx,
-            "masternodes",
+            "validators",
             "get_pending_candidates",
         )
     )
 
 
-async def _handle_masternodes_validator(ctx: QueryContext) -> QueryResult:
+async def _handle_validators_validator(ctx: QueryContext) -> QueryResult:
     return QueryResult(
         result=_call_contract_view(
             ctx,
-            "masternodes",
+            "validators",
             "get_validator",
             kwargs={"account": ctx.key},
         )
     )
 
 
-async def _handle_masternodes_pending_unbonds(
+async def _handle_validators_pending_unbonds(
     ctx: QueryContext,
 ) -> QueryResult:
     return QueryResult(result=_resolve_pending_unbonds(ctx))
 
 
-async def _handle_masternodes_open_votes(ctx: QueryContext) -> QueryResult:
+async def _handle_validators_open_votes(ctx: QueryContext) -> QueryResult:
     pagination = _offset_pagination(ctx.params)
     return QueryResult(
-        result=_pending_masternodes_votes(
+        result=_pending_validators_votes(
             ctx.raw_driver,
             limit=pagination.limit,
             offset=pagination.offset,
@@ -646,13 +646,13 @@ async def _handle_masternodes_open_votes(ctx: QueryContext) -> QueryResult:
     )
 
 
-async def _handle_masternodes_vote(ctx: QueryContext) -> QueryResult:
-    return QueryResult(result=_masternodes_vote(ctx.raw_driver, int(ctx.path_parts[1])))
+async def _handle_validators_vote(ctx: QueryContext) -> QueryResult:
+    return QueryResult(result=_validators_vote(ctx.raw_driver, int(ctx.path_parts[1])))
 
 
-async def _handle_masternodes_vote_records(ctx: QueryContext) -> QueryResult:
+async def _handle_validators_vote_records(ctx: QueryContext) -> QueryResult:
     return QueryResult(
-        result=_masternodes_vote_records(
+        result=_validators_vote_records(
             ctx.raw_driver,
             int(ctx.path_parts[1]),
         )
@@ -943,14 +943,14 @@ CORE_QUERY_HANDLERS = {
     "state_patch_bundles": _handle_state_patch_bundles,
     "scheduled_state_patches": _handle_scheduled_state_patches,
     "keys": _handle_keys,
-    "masternodes_policy": _handle_masternodes_policy,
-    "masternodes_active": _handle_masternodes_active,
-    "masternodes_candidates": _handle_masternodes_candidates,
-    "masternodes_validator": _handle_masternodes_validator,
-    "masternodes_pending_unbonds": _handle_masternodes_pending_unbonds,
-    "masternodes_open_votes": _handle_masternodes_open_votes,
-    "masternodes_vote": _handle_masternodes_vote,
-    "masternodes_vote_records": _handle_masternodes_vote_records,
+    "validators_policy": _handle_validators_policy,
+    "validators_active": _handle_validators_active,
+    "validators_candidates": _handle_validators_candidates,
+    "validators_validator": _handle_validators_validator,
+    "validators_pending_unbonds": _handle_validators_pending_unbonds,
+    "validators_open_votes": _handle_validators_open_votes,
+    "validators_vote": _handle_validators_vote,
+    "validators_vote_records": _handle_validators_vote_records,
 }
 
 
