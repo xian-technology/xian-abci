@@ -787,6 +787,128 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertEqual(genesis["validators"][1]["name"], "validator-2")
         self.assertEqual(genesis["validators"][1]["power"], "25")
 
+    def test_build_local_network_genesis_applies_validator_constructor_overrides(self):
+        founder_private_key = (
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        )
+        founder_wallet = Ed25519Account(founder_private_key)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            contracts_dir = Path(tmp_dir) / "contracts"
+            contracts_dir.mkdir()
+            (contracts_dir / "currency.s.py").write_text(
+                "currency_vk = Variable()\n\n"
+                "@construct\n"
+                "def seed(vk: str):\n"
+                "    currency_vk.set(vk)\n\n"
+                "@export\n"
+                "def get_vk():\n"
+                "    return currency_vk.get()\n",
+                encoding="utf-8",
+            )
+            (contracts_dir / "foundation.s.py").write_text(
+                "foundation_vk = Variable()\n\n"
+                "@construct\n"
+                "def seed(vk: str):\n"
+                "    foundation_vk.set(vk)\n\n"
+                "@export\n"
+                "def get_vk():\n"
+                "    return foundation_vk.get()\n",
+                encoding="utf-8",
+            )
+            (contracts_dir / "validators.s.py").write_text(
+                "active_validators = Variable()\n"
+                "fee = Variable()\n"
+                "config = Hash()\n\n"
+                "@construct\n"
+                "def seed(\n"
+                "    genesis_nodes: list,\n"
+                "    genesis_registration_fee: int,\n"
+                "    selection_mode: str = 'manual',\n"
+                "    max_validators: int = 5,\n"
+                "):\n"
+                "    active_validators.set(genesis_nodes)\n"
+                "    fee.set(genesis_registration_fee)\n"
+                "    config['selection_mode'] = selection_mode\n"
+                "    config['max_validators'] = max_validators\n\n"
+                "@export\n"
+                "def get_nodes():\n"
+                "    return active_validators.get()\n",
+                encoding="utf-8",
+            )
+            (contracts_dir / "contracts_local.json").write_text(
+                json.dumps(
+                    {
+                        "extension": ".s.py",
+                        "contracts": [
+                            {
+                                "name": "currency",
+                                "owner": None,
+                                "constructor_args": {"vk": "old-vk"},
+                            },
+                            {
+                                "name": "foundation",
+                                "owner": None,
+                                "constructor_args": {"vk": "old-vk"},
+                            },
+                            {
+                                "name": "validators",
+                                "owner": None,
+                                "constructor_args": {
+                                    "genesis_nodes": ["old-node"],
+                                    "genesis_registration_fee": 1,
+                                    "selection_mode": "manual",
+                                    "max_validators": 5,
+                                },
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            genesis = build_local_network_genesis(
+                chain_id="xian-local-1",
+                founder_private_key=founder_private_key,
+                validators=[
+                    {
+                        "account_public_key": founder_wallet.public_key,
+                        "name": "validator-1",
+                        "power": 10,
+                        "priv_validator_key": {
+                            "address": "ABC",
+                            "pub_key": {
+                                "type": "tendermint/PubKeyEd25519",
+                                "value": "pub-1",
+                            },
+                            "priv_key": {
+                                "type": "tendermint/PrivKeyEd25519",
+                                "value": "priv-1",
+                            },
+                        },
+                    },
+                ],
+                network="local",
+                registration_fee=321,
+                contracts_dir=contracts_dir,
+                validator_constructor_overrides={
+                    "selection_mode": "hybrid",
+                    "max_validators": 7,
+                },
+            )
+
+        state_by_key = {
+            entry["key"]: entry["value"]
+            for entry in genesis["abci_genesis"]["genesis"]
+        }
+        self.assertEqual(
+            state_by_key["validators.active_validators"],
+            [founder_wallet.public_key],
+        )
+        self.assertEqual(state_by_key["validators.fee"], 321)
+        self.assertEqual(state_by_key["validators.config:selection_mode"], "hybrid")
+        self.assertEqual(state_by_key["validators.config:max_validators"], 7)
+
     def test_build_local_network_genesis_overrides_bundle_validator_metadata(self):
         founder_private_key = (
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"

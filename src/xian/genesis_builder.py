@@ -410,6 +410,7 @@ def build_local_network_genesis(
     registration_fee: int = 100000,
     contracts_dir: Path | None = None,
     runtime_features: dict[str, Any] | None = None,
+    validator_constructor_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not validators:
         raise ValueError("at least one validator is required")
@@ -439,6 +440,8 @@ def build_local_network_genesis(
         validator_overrides["genesis_powers"] = genesis_powers
     if "genesis_reward_keys" in seeded_validator_args:
         validator_overrides["genesis_reward_keys"] = genesis_reward_keys
+    if validator_constructor_overrides:
+        validator_overrides.update(validator_constructor_overrides)
     abci_genesis = build_genesis_block(
         founder_private_key=founder_private_key,
         network=network,
