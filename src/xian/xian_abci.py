@@ -305,9 +305,6 @@ class Xian:
         if self.genesis.get("abci_genesis", None) is None:
             raise ValueError("No value set for 'abci_genesis' in Tendermint genesis.json")
 
-        self.static_rewards = False
-        self.static_rewards_amount_foundation = 1
-        self.static_rewards_amount_validators = 1
         self.current_block_rewards = {}
 
         self.state_patch_manager = StatePatchManager(

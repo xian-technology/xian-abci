@@ -509,12 +509,3 @@ class RewardsHandler:
             recipient_balance_after = round(recipient_balance + dev_reward, c.DUST_EXPONENT)
             rewards.append(driver.set(f"currency.balances:{recipient}", recipient_balance_after))
         return rewards
-
-    def distribute_static_rewards(self, validator_reward, foundation_reward):
-        rewards = []
-        driver = self.client.raw_driver
-
-        rewards.extend(self._distribute_validator_rewards(driver, validator_reward, 1))
-        rewards.append(self._distribute_foundation_reward(driver, foundation_reward))
-
-        return rewards

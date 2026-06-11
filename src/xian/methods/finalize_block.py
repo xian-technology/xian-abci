@@ -520,14 +520,12 @@ def _assemble_tx_results(
     return tx_results, bds_transactions
 
 
-def _apply_evidence_epoch_and_rewards(
+def _apply_evidence_and_epoch_rebalance(
     self,
     req,
     *,
     height: int,
-    block_hash: str,
 ):
-    reward_writes = []
     with self.profiler.scope("finalize_evidence", block_scoped=True):
         maybe_apply_evidence_penalties(
             self,
@@ -540,26 +538,6 @@ def _apply_evidence_epoch_and_rewards(
             self,
             height=height,
         )
-
-    if self.static_rewards:
-        with self.profiler.scope("finalize_rewards", block_scoped=True):
-            try:
-                reward_writes.append(
-                    self.rewards_handler.distribute_static_rewards(
-                        validator_reward=self.static_rewards_amount_validators,
-                        foundation_reward=self.static_rewards_amount_foundation,
-                    )
-                )
-            except Exception as e:
-                logger.bind(
-                    **build_log_fields(
-                        stage="finalize_rewards",
-                        block_height=height,
-                        block_hash=block_hash,
-                        extra={"error_type": type(e).__name__},
-                    )
-                ).exception("Static reward distribution failed for block")
-    return reward_writes
 
 
 def _prepare_commit_boundary(
@@ -642,7 +620,6 @@ def _finish_finalize_logging(
     decoded_entries: list[dict],
     decoded_txs: list[dict],
     tx_results: list[ExecTxResult],
-    reward_writes: list,
     height: int,
     block_hash: str,
 ):
@@ -651,7 +628,6 @@ def _finish_finalize_logging(
         decoded_tx_count=len(decoded_txs),
         error_tx_count=rejected_tx_count,
         finalized_tx_result_count=len(tx_results),
-        static_reward_writes=len(reward_writes),
     )
     logger.bind(
         **build_log_fields(
@@ -662,7 +638,6 @@ def _finish_finalize_logging(
                 "decoded_tx_count": len(decoded_txs),
                 "rejected_tx_count": rejected_tx_count,
                 "finalized_tx_result_count": len(tx_results),
-                "reward_write_count": len(reward_writes),
                 "app_hash": self.merkle_root_hash.hex().upper(),
             },
         )
@@ -701,11 +676,10 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
             block_hash=block_hash,
         )
 
-    reward_writes = _apply_evidence_epoch_and_rewards(
+    _apply_evidence_and_epoch_rebalance(
         self,
         req,
         height=height,
-        block_hash=block_hash,
     )
     validator_updates, patch_hash, applied_patches = _prepare_commit_boundary(
         self,
@@ -728,7 +702,6 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         decoded_entries=decoded_entries,
         decoded_txs=decoded_txs,
         tx_results=tx_results,
-        reward_writes=reward_writes,
         height=height,
         block_hash=block_hash,
     )
