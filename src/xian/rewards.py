@@ -210,9 +210,7 @@ class RewardsHandler:
         participant_ratio,
         validators,
     ):
-        validator_total = self._as_decimal(total_chi_to_split) * self._as_decimal(
-            participant_ratio
-        )
+        validator_total = self._as_decimal(total_chi_to_split) * self._as_decimal(participant_ratio)
 
         weighted_nodes = []
         for validator in validators:
