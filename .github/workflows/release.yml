@@ -101,13 +101,21 @@ jobs:
         run: |
           python - <<'PY'
           import pathlib
-          import sys
+          import re
+
+          def python_dist_version(version):
+              match = re.fullmatch(r"(\d+\.\d+\.\d+)-(alpha|beta|rc)\.(\d+)", version)
+              if not match:
+                  return version
+              marker = {"alpha": "a", "beta": "b", "rc": "rc"}[match.group(2)]
+              return f"{match.group(1)}{marker}{match.group(3)}"
 
           expected = "${{ github.ref_name }}".removeprefix("v")
+          accepted = {expected, python_dist_version(expected)}
           files = [path.name for path in pathlib.Path("dist").iterdir() if path.is_file()]
           if not files:
               raise SystemExit("No distribution artifacts were built")
-          if not all(expected in name for name in files):
+          if not all(any(version in name for version in accepted) for name in files):
               raise SystemExit(
                   f"Built artifacts do not match tag version {expected}: {files}"
               )
@@ -157,8 +165,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          release_flags=()
+          if [[ "${GITHUB_REF_NAME}" == *"-"* ]]; then
+            release_flags+=(--prerelease)
+          fi
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --repo "${GITHUB_REPOSITORY}" \
             --verify-tag \
             --title "xian-tech-abci ${GITHUB_REF_NAME#v}" \
-            --generate-notes
+            --generate-notes \
+            "${release_flags[@]}"
