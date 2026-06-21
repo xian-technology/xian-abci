@@ -243,7 +243,7 @@ prometheus = false
             network_dir = configs_dir / "networks" / "local"
             network_dir.mkdir(parents=True)
             genesis_payload = {
-                "chain_id": "xian-local-1",
+                "chain_id": "xian-mainnet-next",
                 "validators": [],
                 "abci_genesis": {},
             }
@@ -416,7 +416,7 @@ prometheus = false
                 rendered_xian_config["bds"]["disk_free_warn_bytes"],
                 4_294_967_296,
             )
-            self.assertEqual(rendered_genesis["chain_id"], "xian-local-1")
+            self.assertEqual(rendered_genesis["chain_id"], "xian-mainnet-next")
             self.assertIn("address", rendered_validator_key)
             self.assertEqual(
                 result["config_path"],
@@ -547,7 +547,7 @@ prometheus = false
             network_dir = configs_dir / "networks" / "mainnet"
             network_dir.mkdir(parents=True)
             genesis_payload = {
-                "chain_id": "xian-1",
+                "chain_id": "xian-local-1",
                 "validators": [],
                 "abci_genesis": {},
             }
@@ -569,7 +569,7 @@ prometheus = false
             rendered_genesis = json.loads(
                 (home / "config" / "genesis.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(rendered_genesis["chain_id"], "xian-1")
+            self.assertEqual(rendered_genesis["chain_id"], "xian-local-1")
             self.assertEqual(
                 result["genesis_path"],
                 str(home / "config" / "genesis.json"),
