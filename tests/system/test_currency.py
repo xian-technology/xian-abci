@@ -270,6 +270,36 @@ def approve_from_authorizer(owner: str, spender: str, amount: float):
         self.assertEqual(self.currency.approvals[public_key, spender], 100)
         self.assertEqual(self.permit_authorizer.nonces[public_key], 1)
 
+    def test_permit_valid_round_amount(self):
+        # Regression: round amounts (>= 1000) whose decimal normalizes with a
+        # positive exponent used to be rendered as engineering notation
+        # (e.g. "1E+6") by str(decimal(...)) inside the contract, which never
+        # matched the plain-decimal "amount:1000000" string the payer signs.
+        private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
+        wallet = Ed25519Account(private_key)
+        public_key = wallet.public_key
+        deadline = str(self.create_deadline())
+        spender = "some_spender"
+
+        for nonce, value in enumerate((1000, 12000, 1000000, 2500000)):
+            msg = self.construct_permit_msg(
+                "currency", public_key, spender, value, deadline, nonce=nonce
+            )
+            signature = wallet.sign_msg(msg)
+
+            self.permit_authorizer.permit(
+                token_contract="currency",
+                owner=public_key,
+                spender=spender,
+                value=value,
+                deadline=deadline,
+                nonce=nonce,
+                signature=signature,
+            )
+
+            self.assertEqual(self.currency.approvals[public_key, spender], value)
+            self.assertEqual(self.permit_authorizer.nonces[public_key], nonce + 1)
+
     def test_permit_expired(self):
         # GIVEN a permit setup with an expired deadline
         private_key = 'ed30796abc4ab47a97bfb37359f50a9c362c7b304a4b4ad1b3f5369ecb6f7fd8'
