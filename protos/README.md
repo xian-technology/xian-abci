@@ -32,8 +32,8 @@ flowchart LR
 ## Notes
 
 - The vendored `cometbft/` tree intentionally uses the versioned
-  `cometbft.*` protobuf packages. It does not come from the older
-  `proto/tendermint/` layout still used by the `v0.39.x` source branch.
+  `cometbft.*` protobuf packages rather than the `proto/tendermint/` layout
+  used by the `v0.39.x` source branch.
 - `build_proto.py` uses `grpcio-tools` directly when it is installed, or falls
   back to `uvx`/`uv` tool execution
 - `./scripts/validate-repo.sh` regenerates the stubs and fails if the checked-in
