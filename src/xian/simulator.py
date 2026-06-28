@@ -17,8 +17,8 @@ from xian.execution_engine import (
     VmRuntime,
     execute_vm_transaction,
     prepare_vm_contract,
-    vm_deployment_artifacts_error,
-    vm_requires_deployment_artifacts,
+    vm_contract_source_error,
+    vm_requires_contract_source,
 )
 from xian.utils.block import (
     get_latest_block_nanos,
@@ -130,14 +130,14 @@ class TransactionSimulator:
                 payload["contract"],
             )
             converted_kwargs = convert_dict(payload.get("kwargs", {}))
-            if vm_requires_deployment_artifacts(
+            if vm_requires_contract_source(
                 payload["contract"],
                 payload["function"],
                 converted_kwargs,
             ):
                 return _simulation_error_result(
                     payload=payload,
-                    message=vm_deployment_artifacts_error(
+                    message=vm_contract_source_error(
                         payload["contract"],
                         payload["function"],
                     ),

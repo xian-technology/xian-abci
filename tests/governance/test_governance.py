@@ -4,7 +4,6 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from contracting.artifacts import build_contract_artifacts
 from contracting.local import ContractingClient
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
@@ -37,12 +36,7 @@ def submission_kwargs_for_file(f):
 
     return {
         "name": f"con_{contract_name}",
-        "deployment_artifacts": build_contract_artifacts(
-            module_name=f"con_{contract_name}",
-            source=contract_code,
-            lint=True,
-            vm_profile="xian_vm_v1",
-        ),
+        "code": contract_code,
     }
 
 

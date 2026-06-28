@@ -12,9 +12,9 @@ from xian.execution_engine import (
     VmRuntime,
     execute_vm_transaction,
     prepare_vm_contract,
-    vm_deployment_artifacts_error,
+    vm_contract_source_error,
     vm_metering_writes,
-    vm_requires_deployment_artifacts,
+    vm_requires_contract_source,
 )
 from xian.fee_policy import TxFeePolicy
 from xian.utils.block import nanoseconds_to_utc_datetime
@@ -198,7 +198,7 @@ class TxProcessor:
                 transaction["payload"]["contract"],
             )
             converted_kwargs = convert_dict(transaction["payload"]["kwargs"])
-            if vm_requires_deployment_artifacts(
+            if vm_requires_contract_source(
                 transaction["payload"]["contract"],
                 transaction["payload"]["function"],
                 converted_kwargs,
@@ -206,7 +206,7 @@ class TxProcessor:
                 return {
                     "status_code": 1,
                     "result": ValueError(
-                        vm_deployment_artifacts_error(
+                        vm_contract_source_error(
                             transaction["payload"]["contract"],
                             transaction["payload"]["function"],
                         )

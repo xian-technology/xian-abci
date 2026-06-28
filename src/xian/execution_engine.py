@@ -61,7 +61,7 @@ class VmTransactionResult:
 _VM_PREPARED_CONTRACTS: dict[tuple[str, str], VmPreparedContract] = {}
 
 
-def vm_requires_deployment_artifacts(
+def vm_requires_contract_source(
     contract_name: str,
     function_name: str,
     kwargs: dict[str, Any],
@@ -69,15 +69,15 @@ def vm_requires_deployment_artifacts(
     return (
         contract_name == "submission"
         and function_name == "submit_contract"
-        and not kwargs.get("deployment_artifacts")
+        and (not isinstance(kwargs.get("code"), str) or kwargs.get("code") == "")
     )
 
 
-def vm_deployment_artifacts_error(
+def vm_contract_source_error(
     contract_name: str,
     function_name: str,
 ) -> str:
-    return f"xian_vm_v1 requires deployment_artifacts for {contract_name}.{function_name}"
+    return f"xian_vm_v1 requires source code for {contract_name}.{function_name}"
 
 
 def metering_write_keys(
@@ -203,30 +203,14 @@ def execute_vm_contract(
     chi_budget: int = 0,
     transaction_size_bytes: int = 0,
 ) -> VmExecutionResult:
-    if vm_requires_deployment_artifacts(
+    if vm_requires_contract_source(
         contract_name,
         function_name,
         kwargs,
     ):
         return VmExecutionResult(
             status_code=1,
-            result=ValueError(vm_deployment_artifacts_error(contract_name, function_name)),
-            writes={},
-            events=[],
-            chi_used=0,
-            contract_costs={},
-        )
-
-    deployment_feature_error = _disabled_deployment_runtime_feature_error(
-        driver,
-        contract_name=contract_name,
-        function_name=function_name,
-        kwargs=kwargs,
-    )
-    if deployment_feature_error is not None:
-        return VmExecutionResult(
-            status_code=1,
-            result=ValueError(deployment_feature_error),
+            result=ValueError(vm_contract_source_error(contract_name, function_name)),
             writes={},
             events=[],
             chi_used=0,
@@ -389,35 +373,6 @@ def _prepare_vm_contract_bundle(
         )
 
     return prepared
-
-
-def _disabled_deployment_runtime_feature_error(
-    driver,
-    *,
-    contract_name: str,
-    function_name: str,
-    kwargs: dict[str, Any],
-) -> str | None:
-    if contract_name != "submission" or function_name != "submit_contract":
-        return None
-    deployment_artifacts = kwargs.get("deployment_artifacts")
-    if not isinstance(deployment_artifacts, dict):
-        return None
-    vm_ir_json = deployment_artifacts.get("vm_ir_json")
-    if not isinstance(vm_ir_json, str) or vm_ir_json == "":
-        return None
-    try:
-        module_ir = json.loads(vm_ir_json)
-    except json.JSONDecodeError:
-        return None
-    submitted_name = kwargs.get("name")
-    if not isinstance(submitted_name, str) or submitted_name == "":
-        submitted_name = str(deployment_artifacts.get("module_name") or "<unknown>")
-    try:
-        _reject_disabled_runtime_features(driver, submitted_name, module_ir)
-    except ValueError as exc:
-        return str(exc)
-    return None
 
 
 def _reject_disabled_runtime_features(

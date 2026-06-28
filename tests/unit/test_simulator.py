@@ -6,11 +6,13 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import mock
 
+from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.time import Datetime
 
 from xian import simulator_ipc
+from xian.execution_engine import build_vm_runtime
 from xian.simulator import QuerySimulationService, TransactionSimulator
 from xian.utils.block import set_latest_block_nanos
 
@@ -275,9 +277,7 @@ class SimulatorTests(unittest.TestCase):
         simulator._make_environment = lambda payload, block_meta=None: {}
 
         with (
-            mock.patch(
-                "xian.simulator.prepare_vm_contract"
-            ) as prepare,
+            mock.patch("xian.simulator.prepare_vm_contract") as prepare,
             mock.patch(
                 "xian.simulator.execute_vm_transaction",
                 return_value=_native_result("ok", chi_used=1),
@@ -323,17 +323,13 @@ class SimulatorTests(unittest.TestCase):
         self.assertEqual(result["status"], 0)
         self.assertFalse(native_execute.call_args.kwargs["apply_metering_writes"])
 
-    def test_execute_rejects_submission_without_artifacts_for_xian_vm(self):
+    def test_execute_rejects_submission_without_source_for_xian_vm(self):
         simulator = _simulator()
         simulator._make_environment = lambda payload, block_meta=None: {}
 
         with (
-            mock.patch(
-                "xian.simulator.prepare_vm_contract"
-            ) as prepare,
-            mock.patch(
-                "xian.simulator.execute_vm_transaction"
-            ) as native_execute,
+            mock.patch("xian.simulator.prepare_vm_contract") as prepare,
+            mock.patch("xian.simulator.execute_vm_transaction") as native_execute,
         ):
             result = simulator._execute(
                 {
@@ -347,13 +343,55 @@ class SimulatorTests(unittest.TestCase):
             )
 
         self.assertEqual(result["status"], 1)
-        self.assertIn("requires deployment_artifacts", result["result"])
+        self.assertIn("requires source code", result["result"])
         prepare.assert_called_once_with(
             simulator.execution_runtime,
             simulator.client.raw_driver,
             "submission",
         )
         native_execute.assert_not_called()
+
+    def test_execute_simulates_source_only_submission_and_reports_chi(self):
+        source = (
+            "v = Variable()\n\n"
+            "@construct\n"
+            "def seed(value: int = 3):\n"
+            "    v.set(value)\n\n"
+            "@export\n"
+            "def ping():\n"
+            "    return v.get()\n"
+        )
+        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client.flush()
+        try:
+            simulator = TransactionSimulator(
+                client=client,
+                execution_runtime=build_vm_runtime(),
+                chain_id="test-chain",
+            )
+
+            result = simulator.simulate(
+                {
+                    "sender": "sys",
+                    "contract": "submission",
+                    "function": "submit_contract",
+                    "kwargs": {
+                        "name": "con_simulated_deploy_probe",
+                        "code": source,
+                        "constructor_args": {"value": 9},
+                    },
+                }
+            )
+
+            self.assertEqual(result["status"], 0)
+            self.assertGreater(result["chi_used"], 0)
+            writes = {item["key"]: item["value"] for item in result["state"]}
+            self.assertEqual(writes["con_simulated_deploy_probe.v"], 9)
+            self.assertIn("con_simulated_deploy_probe.__source__", writes)
+            self.assertIn("con_simulated_deploy_probe.__xian_ir_v1__", writes)
+            self.assertIsNone(client.raw_driver.get_contract_source("con_simulated_deploy_probe"))
+        finally:
+            client.flush()
 
 
 class _TestQuerySimulationService(QuerySimulationService):
@@ -415,9 +453,13 @@ class QuerySimulationServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_disabled_result_when_simulation_is_off(self):
         service = _TestQuerySimulationService(enabled=False)
         payload = (
-            '{"sender":"alice","contract":"currency","function":"balance_of",'
-            '"kwargs":{"account":"alice"}}'
-        ).encode("utf-8").hex()
+            (
+                '{"sender":"alice","contract":"currency","function":"balance_of",'
+                '"kwargs":{"account":"alice"}}'
+            )
+            .encode("utf-8")
+            .hex()
+        )
 
         result = await service.simulate_encoded_transaction(payload)
 
@@ -431,9 +473,13 @@ class QuerySimulationServiceTests(unittest.IsolatedAsyncioTestCase):
             timeout_ms=1000,
         )
         payload = (
-            '{"sender":"alice","contract":"currency","function":"balance_of",'
-            '"kwargs":{"account":"alice"}}'
-        ).encode("utf-8").hex()
+            (
+                '{"sender":"alice","contract":"currency","function":"balance_of",'
+                '"kwargs":{"account":"alice"}}'
+            )
+            .encode("utf-8")
+            .hex()
+        )
 
         first = asyncio.create_task(service.simulate_encoded_transaction(payload))
         await asyncio.sleep(0)
@@ -452,9 +498,13 @@ class QuerySimulationServiceTests(unittest.IsolatedAsyncioTestCase):
             timeout_ms=1,
         )
         payload = (
-            '{"sender":"alice","contract":"currency","function":"balance_of",'
-            '"kwargs":{"account":"alice"}}'
-        ).encode("utf-8").hex()
+            (
+                '{"sender":"alice","contract":"currency","function":"balance_of",'
+                '"kwargs":{"account":"alice"}}'
+            )
+            .encode("utf-8")
+            .hex()
+        )
 
         result = await service.simulate_encoded_transaction(payload)
         service.release_event.set()

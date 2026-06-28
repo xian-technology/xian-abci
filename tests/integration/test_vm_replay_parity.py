@@ -3,7 +3,6 @@ import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from contracting.artifacts import build_contract_artifacts
 from contracting.local import ContractingClient
 
 from xian.execution_engine import build_vm_runtime
@@ -214,10 +213,6 @@ class TestVmReplayParity(unittest.TestCase):
     def test_python_and_native_processors_replay_submission_deployment_sequence(
         self,
     ):
-        artifacts = build_contract_artifacts(
-            module_name="con_vm_replay_child",
-            source=DEPLOYED_PROBE_SOURCE,
-        )
         txs = [
             make_tx(
                 sender="alice",
@@ -225,7 +220,7 @@ class TestVmReplayParity(unittest.TestCase):
                 function="submit_contract",
                 kwargs={
                     "name": "con_vm_replay_child",
-                    "deployment_artifacts": artifacts,
+                    "code": DEPLOYED_PROBE_SOURCE,
                     "constructor_args": {"start": 3},
                 },
                 offset_seconds=1,

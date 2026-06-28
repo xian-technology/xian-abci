@@ -104,12 +104,6 @@ def _deploy_native_genesis_contract(
     owner: str | None,
     constructor_args: dict[str, Any] | None,
 ) -> None:
-    artifacts = build_contract_artifacts(
-        module_name=contract_name,
-        source=source,
-        lint=True,
-        vm_profile="xian_vm_v1",
-    )
     output = execute_vm_contract(
         runtime,
         driver,
@@ -118,9 +112,9 @@ def _deploy_native_genesis_contract(
         function_name="submit_contract",
         kwargs={
             "name": contract_name,
+            "code": source,
             "owner": owner,
             "constructor_args": constructor_args or {},
-            "deployment_artifacts": artifacts,
         },
         environment={"now": _genesis_submission_time()},
         meter=False,

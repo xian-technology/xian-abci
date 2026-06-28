@@ -5,7 +5,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from contracting.artifacts import build_contract_artifacts
 from contracting.local import ContractingClient
 from contracting.runtime_features import runtime_feature_state_key
 from contracting.storage.driver import Driver
@@ -223,12 +222,6 @@ class GenesisBuilderTests(unittest.TestCase):
             native_driver = Driver(storage_home=Path(tmp_dir) / "native")
             native_driver.flush_full()
             ContractingClient(driver=native_driver)
-            artifacts = build_contract_artifacts(
-                module_name="con_seed_native_probe",
-                source=source,
-                lint=True,
-                vm_profile="xian_vm_v1",
-            )
             native_output = execute_vm_contract(
                 build_vm_runtime(),
                 native_driver,
@@ -237,7 +230,7 @@ class GenesisBuilderTests(unittest.TestCase):
                 function_name="submit_contract",
                 kwargs={
                     "name": "con_seed_native_probe",
-                    "deployment_artifacts": artifacts,
+                    "code": source,
                     "owner": "owner-vk",
                     "constructor_args": {
                         "founder": Ed25519Account(founder_private_key).public_key,

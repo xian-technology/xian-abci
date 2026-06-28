@@ -186,7 +186,7 @@ class ProcessorVmExecutionTests(unittest.TestCase):
             )
 
         self.assertEqual(output["status_code"], 1)
-        self.assertIn("requires deployment_artifacts", str(output["result"]))
+        self.assertIn("requires source code", str(output["result"]))
         prepare.assert_called_once_with(
             processor.execution_runtime,
             processor.client.raw_driver,

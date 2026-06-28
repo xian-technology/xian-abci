@@ -271,13 +271,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             "def ping():\n"
             "    return v.get()\n"
         )
-        artifacts = build_contract_artifacts(
-            module_name="con_native_submission_probe",
-            source=code,
-            lint=True,
-            vm_profile="xian_vm_v1",
-        )
-
         output = execute_vm_contract(
             runtime,
             driver,
@@ -286,7 +279,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             function_name="submit_contract",
             kwargs={
                 "name": "con_native_submission_probe",
-                "deployment_artifacts": artifacts,
+                "code": code,
                 "constructor_args": {"value": 9},
             },
             environment={
@@ -316,6 +309,45 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self.assertIn("submission", output.contract_costs)
         driver.flush_full()
 
+    def test_execute_native_submission_rejects_submitted_ir_artifacts(self):
+        runtime = build_vm_runtime()
+        driver = Driver()
+        driver.flush_full()
+        ContractingClient(driver=driver)
+        source = "@export\ndef ping():\n    return 'pong'\n"
+        forged_artifacts = {
+            "format": "xian_contract_artifact_v1",
+            "module_name": "con_forged_ir_probe",
+            "vm_profile": "xian_vm_v1",
+            "source": source,
+            "vm_ir_json": "{}",
+            "hashes": {},
+        }
+
+        output = execute_vm_contract(
+            runtime,
+            driver,
+            sender="sys",
+            contract_name="submission",
+            function_name="submit_contract",
+            kwargs={
+                "name": "con_forged_ir_probe",
+                "code": source,
+                "deployment_artifacts": forged_artifacts,
+            },
+            environment={
+                "now": Datetime(2026, 4, 12, 12, 0),
+                "block_num": 7,
+                "block_hash": "abc123",
+                "chain_id": "xian-local",
+            },
+        )
+
+        self.assertEqual(output.status_code, 1)
+        self.assertIn("deployment_artifacts", str(output.result))
+        self.assertEqual(output.writes, {})
+        driver.flush_full()
+
     def test_execute_native_submission_rejects_zk_contract_when_feature_disabled(self):
         runtime = build_vm_runtime()
         driver = Driver()
@@ -327,13 +359,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             "def check():\n"
             "    return zk.is_available()\n"
         )
-        artifacts = build_contract_artifacts(
-            module_name="con_zk_probe",
-            source=code,
-            lint=True,
-            vm_profile="xian_vm_v1",
-        )
-
         output = execute_vm_contract(
             runtime,
             driver,
@@ -342,7 +367,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             function_name="submit_contract",
             kwargs={
                 "name": "con_zk_probe",
-                "deployment_artifacts": artifacts,
+                "code": code,
                 "constructor_args": {},
             },
             environment={
@@ -816,12 +841,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             / "token_fixture.py"
         ).read_text()
         contract_name = "con_tokena_probe"
-        artifacts = build_contract_artifacts(
-            module_name=contract_name,
-            source=source,
-            lint=True,
-            vm_profile="xian_vm_v1",
-        )
         client = ContractingClient(environment={"chain_id": "test-chain"})
         client.flush()
         try:
@@ -837,7 +856,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 function_name="submit_contract",
                 kwargs={
                     "name": contract_name,
-                    "deployment_artifacts": artifacts,
+                    "code": source,
                     "constructor_args": {
                         "owner": "sys",
                         "supply": 5_000_000.0,
@@ -871,12 +890,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             root_dir / "xian-stack" / "workloads" / "dex_mixed" / "con_pairs.py"
         ).read_text()
         contract_name = "con_pairs_probe"
-        artifacts = build_contract_artifacts(
-            module_name=contract_name,
-            source=source,
-            lint=True,
-            vm_profile="xian_vm_v1",
-        )
         client = ContractingClient(environment={"chain_id": "test-chain"})
         client.flush()
         try:
@@ -892,7 +905,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 function_name="submit_contract",
                 kwargs={
                     "name": contract_name,
-                    "deployment_artifacts": artifacts,
+                    "code": source,
                     "constructor_args": {},
                 },
                 environment={
@@ -930,13 +943,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             root_dir / "xian-configs" / "contracts" / "zk_registry.s.py"
         ).read_text()
         contract_name = "con_shielded_note_probe"
-        artifacts = build_contract_artifacts(
-            module_name=contract_name,
-            source=source,
-            lint=True,
-            vm_profile="xian_vm_v1",
-            compact=True,
-        )
         client = ContractingClient(environment={"chain_id": "test-chain"})
         client.flush()
         try:
@@ -957,7 +963,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 function_name="submit_contract",
                 kwargs={
                     "name": contract_name,
-                    "deployment_artifacts": artifacts,
+                    "code": source,
                     "constructor_args": {
                         "token_name": "Local Private USD",
                         "token_symbol": "lpUSD",
@@ -1203,19 +1209,13 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             *,
             chi: int,
         ) -> None:
-            artifacts = build_contract_artifacts(
-                module_name=name,
-                source=source,
-                lint=True,
-                vm_profile="xian_vm_v1",
-            )
             output = execute_python(
                 sender="sys",
                 contract_name="submission",
                 function_name="submit_contract",
                 kwargs={
                     "name": name,
-                    "deployment_artifacts": artifacts,
+                    "code": source,
                     "constructor_args": constructor_args,
                 },
                 environment={
@@ -1502,12 +1502,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         driver = Driver()
         driver.flush_full()
         ContractingClient(driver=driver)
-        artifacts = build_contract_artifacts(
-            module_name="con_deterministic_probe",
-            source="@export\ndef ping():\n    return 'pong'\n",
-            lint=True,
-            vm_profile="xian_vm_v1",
-        )
+        source = "@export\ndef ping():\n    return 'pong'\n"
 
         output = execute_vm_contract(
             runtime,
@@ -1517,7 +1512,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             function_name="submit_contract",
             kwargs={
                 "name": "con_deterministic_probe",
-                "deployment_artifacts": artifacts,
+                "code": source,
             },
             environment={},
         )
@@ -1541,13 +1536,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             "def blob_size():\n"
             "    return len(blob.get())\n"
         )
-        artifacts = build_contract_artifacts(
-            module_name="con_write_limit_probe",
-            source=source,
-            lint=True,
-            vm_profile="xian_vm_v1",
-        )
-
         output = execute_vm_contract(
             runtime,
             driver,
@@ -1556,7 +1544,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             function_name="submit_contract",
             kwargs={
                 "name": "con_write_limit_probe",
-                "deployment_artifacts": artifacts,
+                "code": source,
                 "constructor_args": {"payload": "a" * 140_000},
             },
             environment={
@@ -1630,19 +1618,13 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             (leaf_name, leaf_source),
             (router_name, router_source),
         ):
-            artifacts = build_contract_artifacts(
-                module_name=name,
-                source=source,
-                lint=True,
-                vm_profile="xian_vm_v1",
-            )
             output = executor.execute(
                 sender="alice",
                 contract_name="submission",
                 function_name="submit_contract",
                 kwargs={
                     "name": name,
-                    "deployment_artifacts": artifacts,
+                    "code": source,
                     "constructor_args": {},
                 },
                 environment=submission_environment,
