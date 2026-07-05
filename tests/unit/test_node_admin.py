@@ -13,6 +13,7 @@ from xian.node_admin import (
     ExistingHomeOptions,
     apply_snapshot_archive,
     configure_existing_home,
+    fetch_seed_node_status,
     resolve_p2p_seeds,
 )
 from xian.node_setup import (
@@ -63,6 +64,52 @@ class NodeAdminTests(unittest.TestCase):
                 resolve_p2p_seeds(discover_seeds=("127.0.0.1",)),
                 ["node-123@127.0.0.1:26656"],
             )
+
+    def test_fetch_seed_node_status_brackets_ipv6_status_url(self):
+        with patch(
+            "xian.node_admin._fetch_json_url",
+            return_value={"result": {"node_info": {"id": "node-123"}}},
+        ) as fetch:
+            self.assertEqual(
+                fetch_seed_node_status("::1", attempts=1),
+                {"result": {"node_info": {"id": "node-123"}}},
+            )
+
+        fetch.assert_called_once_with("http://[::1]:26657/status", timeout=3.0)
+
+    def test_fetch_seed_node_status_accepts_bracketed_ipv6_port(self):
+        with patch(
+            "xian.node_admin._fetch_json_url",
+            return_value={"result": {"node_info": {"id": "node-123"}}},
+        ) as fetch:
+            fetch_seed_node_status("[::1]:36657", attempts=1)
+
+        fetch.assert_called_once_with("http://[::1]:36657/status", timeout=3.0)
+
+    def test_fetch_seed_node_status_preserves_explicit_https_ipv6_url(self):
+        with patch(
+            "xian.node_admin._fetch_json_url",
+            return_value={"result": {"node_info": {"id": "node-123"}}},
+        ) as fetch:
+            fetch_seed_node_status("https://::1:36657", attempts=1)
+
+        fetch.assert_called_once_with("https://[::1]:36657/status", timeout=3.0)
+
+    def test_resolve_p2p_seeds_brackets_discovered_ipv6_seed(self):
+        with patch(
+            "xian.node_admin.fetch_seed_node_status",
+            return_value={"result": {"node_info": {"id": "node-123"}}},
+        ):
+            self.assertEqual(
+                resolve_p2p_seeds(discover_seeds=("::1",)),
+                ["node-123@[::1]:26656"],
+            )
+
+    def test_resolve_p2p_seeds_brackets_explicit_ipv6_seed(self):
+        self.assertEqual(
+            resolve_p2p_seeds(p2p_seeds=("abc@::1:26656",)),
+            ["abc@[::1]:26656"],
+        )
 
     def test_apply_snapshot_archive_verifies_signed_manifest_and_extracts_tar(
         self,
@@ -252,15 +299,12 @@ prometheus = false
                 encoding="utf-8",
             )
 
-            with patch.dict(
-                "os.environ", {"XIAN_CONFIGS_DIR": str(configs_dir)}
-            ):
+            with patch.dict("os.environ", {"XIAN_CONFIGS_DIR": str(configs_dir)}):
                 result = configure_existing_home(
                     home=home,
                     moniker="updated-node",
                     validator_private_key_hex=(
-                        "0123456789abcdef0123456789abcdef0123456789abcdef"
-                        "0123456789abcdef"
+                        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
                     ),
                     p2p_seeds=["seed-1@127.0.0.1:26656"],
                     p2p_persistent_peers=["peer-1@127.0.0.1:26656"],
@@ -312,9 +356,7 @@ prometheus = false
             rendered_config = load_toml(config_path)
             rendered_xian_config = load_toml(home / "config" / "xian.toml")
             rendered_validator_key = json.loads(
-                (home / "config" / "priv_validator_key.json").read_text(
-                    encoding="utf-8"
-                )
+                (home / "config" / "priv_validator_key.json").read_text(encoding="utf-8")
             )
             rendered_genesis = json.loads(
                 (home / "config" / "genesis.json").read_text(encoding="utf-8")
@@ -329,12 +371,8 @@ prometheus = false
                 rendered_config["p2p"]["persistent_peers"],
                 "peer-1@127.0.0.1:26656",
             )
-            self.assertEqual(
-                rendered_config["rpc"]["laddr"], "tcp://0.0.0.0:30057"
-            )
-            self.assertEqual(
-                rendered_config["p2p"]["laddr"], "tcp://0.0.0.0:30056"
-            )
+            self.assertEqual(rendered_config["rpc"]["laddr"], "tcp://0.0.0.0:30057")
+            self.assertEqual(rendered_config["p2p"]["laddr"], "tcp://0.0.0.0:30056")
             self.assertEqual(rendered_config["db_backend"], "rocksdb")
             self.assertEqual(rendered_config["db_dir"], "custom-data")
             self.assertEqual(rendered_config["rpc"]["cors_allowed_origins"], [])
@@ -344,12 +382,8 @@ prometheus = false
                 "http://rpc-1.internal:26657,http://rpc-2.internal:26657",
             )
             self.assertEqual(rendered_config["statesync"]["trust_height"], 120)
-            self.assertEqual(
-                rendered_config["statesync"]["trust_hash"], "ab" * 32
-            )
-            self.assertEqual(
-                rendered_config["statesync"]["trust_period"], "336h0m0s"
-            )
+            self.assertEqual(rendered_config["statesync"]["trust_hash"], "ab" * 32)
+            self.assertEqual(rendered_config["statesync"]["trust_period"], "336h0m0s")
             self.assertNotIn("xian", rendered_config)
             self.assertTrue(rendered_xian_config["pruning_enabled"])
             self.assertEqual(rendered_xian_config["blocks_to_keep"], 5000)
@@ -357,46 +391,32 @@ prometheus = false
             self.assertTrue(rendered_xian_config["metrics_enabled"])
             self.assertEqual(rendered_xian_config["metrics_host"], "0.0.0.0")
             self.assertEqual(rendered_xian_config["metrics_port"], 9208)
-            self.assertEqual(
-                rendered_xian_config["metrics_bds_refresh_seconds"], 7.5
-            )
+            self.assertEqual(rendered_xian_config["metrics_bds_refresh_seconds"], 7.5)
             self.assertTrue(rendered_xian_config["transaction_trace_logging"])
             self.assertEqual(rendered_xian_config["app_log_level"], "WARNING")
             self.assertTrue(rendered_xian_config["app_log_json"])
             self.assertEqual(rendered_xian_config["app_log_rotation_hours"], 4)
             self.assertEqual(rendered_xian_config["app_log_retention_days"], 12)
             self.assertFalse(rendered_xian_config["simulation_enabled"])
-            self.assertEqual(
-                rendered_xian_config["simulation_max_concurrency"], 4
-            )
-            self.assertEqual(
-                rendered_xian_config["simulation_timeout_ms"], 4500
-            )
+            self.assertEqual(rendered_xian_config["simulation_max_concurrency"], 4)
+            self.assertEqual(rendered_xian_config["simulation_timeout_ms"], 4500)
             self.assertEqual(rendered_xian_config["simulation_max_chi"], 750000)
             self.assertEqual(rendered_xian_config["bds"]["host"], "postgres")
             self.assertEqual(rendered_xian_config["bds"]["port"], 5544)
-            self.assertEqual(
-                rendered_xian_config["bds"]["database"], "xian_index"
-            )
+            self.assertEqual(rendered_xian_config["bds"]["database"], "xian_index")
             self.assertEqual(rendered_xian_config["bds"]["user"], "indexer")
             self.assertEqual(rendered_xian_config["bds"]["password"], "secret")
             self.assertEqual(rendered_xian_config["bds"]["pool_min_size"], 2)
             self.assertEqual(rendered_xian_config["bds"]["pool_max_size"], 6)
-            self.assertEqual(
-                rendered_xian_config["bds"]["statement_timeout_ms"], 5000
-            )
-            self.assertEqual(
-                rendered_xian_config["bds"]["acquire_timeout_ms"], 15000
-            )
+            self.assertEqual(rendered_xian_config["bds"]["statement_timeout_ms"], 5000)
+            self.assertEqual(rendered_xian_config["bds"]["acquire_timeout_ms"], 15000)
             self.assertEqual(
                 rendered_xian_config["bds"]["application_name"],
                 "xian-bds-test",
             )
             self.assertEqual(rendered_xian_config["bds"]["queue_max_size"], 321)
             self.assertFalse(rendered_xian_config["bds"]["catchup_enabled"])
-            self.assertEqual(
-                rendered_xian_config["bds"]["catchup_poll_seconds"], 2.5
-            )
+            self.assertEqual(rendered_xian_config["bds"]["catchup_poll_seconds"], 2.5)
             self.assertEqual(
                 rendered_xian_config["bds"]["rpc_url"],
                 "http://rpc.internal:26657",
@@ -405,9 +425,7 @@ prometheus = false
                 rendered_xian_config["bds"]["spool_dir"],
                 "/var/lib/xian/bds-spool",
             )
-            self.assertEqual(
-                rendered_xian_config["bds"]["spool_warn_entries"], 512
-            )
+            self.assertEqual(rendered_xian_config["bds"]["spool_warn_entries"], 512)
             self.assertEqual(
                 rendered_xian_config["bds"]["spool_warn_bytes"],
                 1_073_741_824,
@@ -470,8 +488,7 @@ seeds = ""
                 options=ExistingHomeOptions(
                     moniker="updated-node",
                     validator_private_key_hex=(
-                        "0123456789abcdef0123456789abcdef0123456789abcdef"
-                        "0123456789abcdef"
+                        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
                     ),
                     home=home,
                     p2p_seeds=["seed-1@127.0.0.1:26656"],
@@ -556,9 +573,7 @@ prometheus = false
                 encoding="utf-8",
             )
 
-            with patch.dict(
-                "os.environ", {"XIAN_CONFIGS_DIR": str(configs_dir)}
-            ):
+            with patch.dict("os.environ", {"XIAN_CONFIGS_DIR": str(configs_dir)}):
                 result = configure_existing_home(
                     home=home,
                     moniker="updated-node",

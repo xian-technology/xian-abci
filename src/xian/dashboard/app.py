@@ -16,7 +16,7 @@ import aiohttp
 from aiohttp import web
 from loguru import logger
 
-from xian.utils.cometbft import normalize_rpc_url
+from xian.utils.cometbft import format_url_netloc, normalize_rpc_url
 
 STATIC_DIR = Path(__file__).parent / "static"
 LOCALNET_PORT_STRIDE = 100
@@ -345,7 +345,7 @@ def _normalize_peer_rpc_url(peer: dict) -> str | None:
     if port is None:
         return None
 
-    return urlunsplit((parsed.scheme or "http", f"{host}:{port}", "", "", ""))
+    return urlunsplit((parsed.scheme or "http", format_url_netloc(host, port), "", "", ""))
 
 
 def _node_index_from_moniker(moniker: str | None) -> int | None:
@@ -385,15 +385,12 @@ def _localnet_rpc_variants(
         return set()
 
     scheme = parsed.scheme or "http"
-    return {
-        urlunsplit((scheme, f"{host}:{port}", "", "", "")) for host in ("127.0.0.1", "localhost")
-    }
+    hosts = ("::1", "localhost") if base_host == "::1" else ("127.0.0.1", "localhost")
+    return {urlunsplit((scheme, format_url_netloc(host, port), "", "", "")) for host in hosts}
 
 
 def _netloc_for_host_port(host: str, port: int) -> str:
-    if ":" in host and not host.startswith("["):
-        return f"[{host}]:{port}"
-    return f"{host}:{port}"
+    return format_url_netloc(host, port)
 
 
 def _resolved_rpc_url_variants(rpc_url: str) -> set[str]:
@@ -1670,6 +1667,10 @@ def create_app(
     return app
 
 
+def _dashboard_listen_url(host: str, port: int) -> str:
+    return f"http://{format_url_netloc(host, port)}"
+
+
 async def start_dashboard(
     host: str = "127.0.0.1",
     port: int = 8080,
@@ -1707,5 +1708,5 @@ async def start_dashboard(
     await runner.setup()
     site = web.TCPSite(runner, host, port)
     await site.start()
-    logger.info(f"Dashboard running on http://{host}:{port}")
+    logger.info(f"Dashboard running on {_dashboard_listen_url(host, port)}")
     return runner

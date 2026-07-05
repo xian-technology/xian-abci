@@ -697,10 +697,73 @@ function renderStateChangeRow(change){
     '<div class="state-change-value">'+renderStateValue(key, value)+'</div>'+
   '</div>';
 }
+function stripHostBrackets(host){
+  const value = String(host || "").trim();
+  if(value.startsWith("[") && value.endsWith("]")) return value.slice(1,-1);
+  return value;
+}
+function isIpv6Literal(host){
+  const value = stripHostBrackets(host);
+  if(!value.includes(":")) return false;
+  try{
+    new URL("http://["+value+"]/");
+    return true;
+  }catch(_){
+    return false;
+  }
+}
+function splitHostPort(value){
+  const hostPort = String(value || "").trim();
+  if(hostPort.startsWith("[")){
+    const hostEnd = hostPort.indexOf("]");
+    if(hostEnd >= 0){
+      const host = hostPort.slice(1, hostEnd);
+      const rest = hostPort.slice(hostEnd + 1);
+      return {host, port: rest.startsWith(":") ? rest.slice(1) : null};
+    }
+  }
+  const colons = (hostPort.match(/:/g) || []).length;
+  if(colons === 0) return {host: hostPort, port: null};
+  if(colons === 1){
+    const index = hostPort.lastIndexOf(":");
+    return {host: hostPort.slice(0,index), port: hostPort.slice(index + 1)};
+  }
+  const index = hostPort.lastIndexOf(":");
+  const host = hostPort.slice(0,index);
+  const port = hostPort.slice(index + 1);
+  if(/^\d+$/.test(port) && isIpv6Literal(host)) return {host, port};
+  if(isIpv6Literal(hostPort)) return {host: hostPort, port: null};
+  return {host: hostPort, port: null};
+}
+function formatUrlHost(host){
+  const value = stripHostBrackets(host);
+  return value.includes(":") ? "["+value+"]" : value;
+}
+function normalizeUrlAuthority(authority){
+  const value = String(authority || "");
+  const atIndex = value.lastIndexOf("@");
+  const prefix = atIndex >= 0 ? value.slice(0, atIndex + 1) : "";
+  const hostPort = atIndex >= 0 ? value.slice(atIndex + 1) : value;
+  const parsed = splitHostPort(hostPort);
+  return prefix + formatUrlHost(parsed.host) + (parsed.port === null ? "" : ":" + parsed.port);
+}
 function normalizeRpcUrl(value){
   if(!value) return null;
+  const raw = String(value).trim();
+  if(!raw) return null;
+  let scheme = "http";
+  let rest = raw;
+  const schemeMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(raw);
+  if(schemeMatch){
+    const rawScheme = schemeMatch[1].toLowerCase();
+    scheme = rawScheme === "https" ? "https" : "http";
+    rest = raw.slice(schemeMatch[0].length);
+  }
+  const suffixIndex = rest.search(/[/?#]/);
+  const authority = suffixIndex >= 0 ? rest.slice(0, suffixIndex) : rest;
+  const suffix = suffixIndex >= 0 ? rest.slice(suffixIndex) : "";
   try{
-    const url = new URL(String(value));
+    const url = new URL(scheme + "://" + normalizeUrlAuthority(authority) + suffix);
     url.pathname = "";
     url.search = "";
     url.hash = "";
@@ -744,7 +807,7 @@ function peerRpcUrl(peer){
   if(activeRpc && nodeMatch && peerMatch){
     try{
       const activeUrl = new URL(activeRpc);
-      if(["127.0.0.1","localhost","::1"].includes(activeUrl.hostname)){
+      if(["127.0.0.1","localhost","::1"].includes(stripHostBrackets(activeUrl.hostname))){
         const basePort = Number(activeUrl.port || (activeUrl.protocol === "https:" ? 443 : 80));
         const inferredPort = basePort + (Number(peerMatch[1]) - Number(nodeMatch[1])) * 100;
         if(inferredPort > 0){
@@ -760,14 +823,12 @@ function peerRpcUrl(peer){
   const other = nodeInfo.other || {};
   const rpcAddress = other.rpc_address;
   if(!rpcAddress) return null;
-  let normalized = String(rpcAddress).replace(/^tcp:\/\//,"http://").replace(/^unix:\/\//,"http://");
-  if(!normalized.startsWith("http://") && !normalized.startsWith("https://")){
-    normalized = "http://" + normalized.replace(/^\/+/,"");
-  }
+  const normalized = normalizeRpcUrl(rpcAddress);
+  if(!normalized) return null;
   try{
     const url = new URL(normalized);
-    if(["0.0.0.0","127.0.0.1","localhost","::"].includes(url.hostname) && peer.remote_ip){
-      url.hostname = peer.remote_ip;
+    if(["0.0.0.0","127.0.0.1","localhost","::"].includes(stripHostBrackets(url.hostname)) && peer.remote_ip){
+      url.hostname = formatUrlHost(peer.remote_ip);
     }
     url.pathname = "";
     url.search = "";

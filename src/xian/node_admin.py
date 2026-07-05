@@ -10,7 +10,7 @@ from pathlib import Path
 from time import sleep
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 from urllib.request import urlopen
 
 from xian_accounts import is_valid_ed25519_key, verify_message
@@ -44,6 +44,7 @@ from xian.node_setup import (
     write_toml,
 )
 from xian.toml_utils import load as load_toml
+from xian.utils.cometbft import format_url_netloc, normalize_rpc_url, split_host_port
 
 _ROOT_CONFIG_KEYS_TO_PRESERVE = (
     "db_backend",
@@ -61,6 +62,8 @@ _NESTED_CONFIG_KEYS_TO_PRESERVE = (
     ("rpc", "laddr"),
     ("p2p", "laddr"),
 )
+_DEFAULT_DISCOVERY_RPC_PORT = 26657
+_DEFAULT_DISCOVERY_P2P_PORT = 26656
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +104,52 @@ def preserve_runtime_config(
     return rendered_config
 
 
+def _seed_host_port(seed_node: str) -> tuple[str, str | None]:
+    seed = seed_node.strip()
+    if "://" in seed:
+        parsed = urlsplit(normalize_rpc_url(seed))
+        port = str(parsed.port) if parsed.port is not None else None
+        return parsed.hostname or "", port
+    return split_host_port(seed)
+
+
+def _seed_rpc_status_url(seed_node: str) -> str:
+    seed = seed_node.strip()
+    scheme = "http"
+    if "://" in seed:
+        parsed = urlsplit(normalize_rpc_url(seed))
+        scheme = parsed.scheme or "http"
+        host = parsed.hostname or ""
+        port = str(parsed.port) if parsed.port is not None else None
+    else:
+        host, port = split_host_port(seed)
+    return urlunsplit(
+        (
+            scheme,
+            format_url_netloc(host, port or _DEFAULT_DISCOVERY_RPC_PORT),
+            "status",
+            "",
+            "",
+        )
+    )
+
+
+def _p2p_seed_address(node_id: str, seed_node: str) -> str:
+    host, _port = _seed_host_port(seed_node)
+    return f"{node_id}@{format_url_netloc(host, _DEFAULT_DISCOVERY_P2P_PORT)}"
+
+
+def _normalize_p2p_seed(seed: str) -> str:
+    node_id, separator, address = seed.rpartition("@")
+    if not separator:
+        return seed
+
+    host, port = split_host_port(address)
+    if not host or port is None:
+        return seed
+    return f"{node_id}@{format_url_netloc(host, port)}"
+
+
 def fetch_seed_node_status(
     seed_node: str,
     *,
@@ -111,7 +160,7 @@ def fetch_seed_node_status(
     for attempt in range(attempts):
         try:
             return _fetch_json_url(
-                f"http://{seed_node}:26657/status",
+                _seed_rpc_status_url(seed_node),
                 timeout=timeout_seconds,
             )
         except (
@@ -133,14 +182,14 @@ def resolve_p2p_seeds(
     discover_seeds: tuple[str, ...] = (),
     p2p_seeds: tuple[str, ...] = (),
 ) -> list[str]:
-    resolved = list(p2p_seeds)
+    resolved = [_normalize_p2p_seed(seed) for seed in p2p_seeds]
     for seed in discover_seeds:
         status = fetch_seed_node_status(seed)
         if status is None:
             raise RuntimeError(f"failed to get node information from seed node {seed}")
 
         node_id = status["result"]["node_info"]["id"]
-        resolved.append(f"{node_id}@{seed}:26656")
+        resolved.append(_p2p_seed_address(node_id, seed))
     return resolved
 
 

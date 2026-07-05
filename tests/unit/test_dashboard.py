@@ -14,6 +14,7 @@ from xian.dashboard.app import (
     DashboardRateLimiter,
     SubscriptionManager,
     _allowed_rpc_urls,
+    _dashboard_listen_url,
     _decode_block_tx_entry,
     _localnet_rpc_variants,
     _normalize_peer_rpc_url,
@@ -64,6 +65,14 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(
             normalize_rpc_url("tcp://127.0.0.1:26657"),
             "http://127.0.0.1:26657",
+        )
+        self.assertEqual(
+            normalize_rpc_url("tcp://::1:26657"),
+            "http://[::1]:26657",
+        )
+        self.assertEqual(
+            normalize_rpc_url("http://::1:8080"),
+            "http://[::1]:8080",
         )
 
     def test_subscription_manager_matches_state_and_event_filters(self) -> None:
@@ -178,9 +187,7 @@ class DashboardTests(unittest.TestCase):
             json.loads(limited.text)["error"],
             "dashboard rate limit exceeded",
         )
-        self.assertIsNone(
-            limiter.check(dashboard_request("/api/status", remote="203.0.113.11"))
-        )
+        self.assertIsNone(limiter.check(dashboard_request("/api/status", remote="203.0.113.11")))
 
         clock.advance(1.0)
         self.assertIsNone(limiter.check(request))
@@ -220,18 +227,12 @@ class DashboardTests(unittest.TestCase):
             clock=clock,
         )
 
-        self.assertIsNone(
-            limiter.check(dashboard_request("/api/status", remote="203.0.113.1"))
-        )
-        self.assertIsNone(
-            limiter.check(dashboard_request("/api/status", remote="203.0.113.2"))
-        )
+        self.assertIsNone(limiter.check(dashboard_request("/api/status", remote="203.0.113.1")))
+        self.assertIsNone(limiter.check(dashboard_request("/api/status", remote="203.0.113.2")))
         self.assertEqual(limiter.bucket_count, 2)
 
         clock.advance(3601)
-        self.assertIsNone(
-            limiter.check(dashboard_request("/api/status", remote="203.0.113.3"))
-        )
+        self.assertIsNone(limiter.check(dashboard_request("/api/status", remote="203.0.113.3")))
         self.assertEqual(limiter.bucket_count, 1)
 
     def test_dashboard_concurrency_limiter_rejects_above_limit(self) -> None:
@@ -310,6 +311,37 @@ class DashboardTests(unittest.TestCase):
             "http://10.0.0.25:26657",
         )
 
+    def test_normalize_peer_rpc_url_brackets_ipv6_remote_ip(self) -> None:
+        peer = {
+            "remote_ip": "2001:db8::25",
+            "node_info": {
+                "other": {
+                    "rpc_address": "tcp://[::]:26657",
+                }
+            },
+        }
+
+        self.assertEqual(
+            _normalize_peer_rpc_url(peer),
+            "http://[2001:db8::25]:26657",
+        )
+
+    def test_normalize_peer_rpc_url_accepts_unbracketed_ipv6_rpc_address(
+        self,
+    ) -> None:
+        peer = {
+            "node_info": {
+                "other": {
+                    "rpc_address": "tcp://::1:26657",
+                }
+            },
+        }
+
+        self.assertEqual(
+            _normalize_peer_rpc_url(peer),
+            "http://[::1]:26657",
+        )
+
     def test_localnet_rpc_variants_infer_host_ports(self) -> None:
         self.assertEqual(
             _localnet_rpc_variants(
@@ -323,6 +355,19 @@ class DashboardTests(unittest.TestCase):
             },
         )
 
+    def test_localnet_rpc_variants_preserve_ipv6_loopback_family(self) -> None:
+        self.assertEqual(
+            _localnet_rpc_variants(
+                "http://[::1]:26657",
+                "node-0",
+                "node-1",
+            ),
+            {
+                "http://[::1]:26757",
+                "http://localhost:26757",
+            },
+        )
+
     def test_resolved_rpc_url_variants_include_dns_aliases(self) -> None:
         with patch(
             "xian.dashboard.app.socket.getaddrinfo",
@@ -331,6 +376,18 @@ class DashboardTests(unittest.TestCase):
             variants = _resolved_rpc_url_variants("http://node-0:26657")
 
         self.assertEqual(variants, {"http://172.20.0.7:26657"})
+
+    def test_resolved_rpc_url_variants_bracket_ipv6_dns_aliases(self) -> None:
+        with patch(
+            "xian.dashboard.app.socket.getaddrinfo",
+            return_value=[(0, 0, 0, "", ("2001:db8::7", 26657, 0, 0))],
+        ):
+            variants = _resolved_rpc_url_variants("http://node-0:26657")
+
+        self.assertEqual(variants, {"http://[2001:db8::7]:26657"})
+
+    def test_dashboard_listen_url_brackets_ipv6_hosts(self) -> None:
+        self.assertEqual(_dashboard_listen_url("::", 8080), "http://[::]:8080")
 
     def test_allowed_rpc_urls_include_localnet_host_variants(self) -> None:
         async def run_test() -> None:
@@ -345,9 +402,7 @@ class DashboardTests(unittest.TestCase):
                                 "remote_ip": "172.20.0.6",
                                 "node_info": {
                                     "moniker": "node-1",
-                                    "other": {
-                                        "rpc_address": "tcp://0.0.0.0:26657"
-                                    },
+                                    "other": {"rpc_address": "tcp://0.0.0.0:26657"},
                                 },
                             }
                         ]
@@ -397,9 +452,7 @@ class DashboardTests(unittest.TestCase):
 
     def test_cli_main_runs_dashboard_app(self) -> None:
         with (
-            patch(
-                "xian.dashboard.cli.create_app", return_value=object()
-            ) as create_app,
+            patch("xian.dashboard.cli.create_app", return_value=object()) as create_app,
             patch("xian.dashboard.cli.web.run_app") as run_app,
         ):
             exit_code = cli.main(
@@ -678,10 +731,7 @@ class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_handle_validator_dashboard_combines_validator_queries(
         self,
     ) -> None:
-        validator_pubkey_hex = (
-            "ee06a34cf08bf72ce592d26d36b90c79"
-            "daba2829ba9634992d034318160d49f9"
-        )
+        validator_pubkey_hex = "ee06a34cf08bf72ce592d26d36b90c79daba2829ba9634992d034318160d49f9"
         request = SimpleNamespace(
             query={},
             app={"session": object(), "rpc_url": "http://127.0.0.1:26657"},
@@ -693,9 +743,9 @@ class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
             return {
                 "validator_info": {
                     "pub_key": {
-                        "value": base64.b64encode(
-                            bytes.fromhex(validator_pubkey_hex)
-                        ).decode("ascii")
+                        "value": base64.b64encode(bytes.fromhex(validator_pubkey_hex)).decode(
+                            "ascii"
+                        )
                     }
                 }
             }
