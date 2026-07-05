@@ -248,6 +248,57 @@ class _FakeBDS:
             }
         ]
 
+    async def get_dex_candles(
+        self,
+        market_id,
+        *,
+        source_spec=None,
+        interval_seconds=60,
+        limit=100,
+        offset=0,
+        start_time=None,
+        end_time=None,
+    ):
+        pair_id = int(market_id) if str(market_id).isdigit() else None
+        self.dex_candle_call = {
+            "market_id": market_id,
+            "source": source_spec.source,
+            "contract": source_spec.contract,
+            "event": source_spec.event,
+            "market_field": source_spec.market_field,
+            "interval_seconds": interval_seconds,
+            "limit": limit,
+            "offset": offset,
+            "start_time": start_time,
+            "end_time": end_time,
+        }
+        return {
+            "available": True,
+            "source": source_spec.source,
+            "contract": source_spec.contract,
+            "market_id": str(market_id),
+            "pair_id": pair_id,
+            "interval_seconds": interval_seconds,
+            "items": [
+                {
+                    "source": source_spec.source,
+                    "market_id": str(market_id),
+                    "pair_id": pair_id,
+                    "bucket_start": "2026-01-01T00:00:00+00:00",
+                    "bucket_end": "2026-01-01T00:05:00+00:00",
+                    "open": "1.0",
+                    "high": "1.2",
+                    "low": "0.9",
+                    "close": "1.1",
+                    "volume_token0": "42",
+                    "volume_token1": "46.2",
+                    "trade_count": 3,
+                }
+            ],
+            "limit": limit,
+            "offset": offset,
+        }
+
     async def get_token_balances(
         self, address, limit, offset, *, include_zero=False
     ):
@@ -1104,7 +1155,8 @@ def fallback(value: list[int]):
 
     async def test_event_queries_use_bds(self):
         self.app.bds_enabled = True
-        self.app.bds = _FakeBDS()
+        fake_bds = _FakeBDS()
+        self.app.bds = fake_bds
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/events_for_tx/TX-1"))
@@ -1141,6 +1193,40 @@ def fallback(value: list[int]):
         payload = json.loads(response.query.value)
         self.assertTrue(payload["available"])
         self.assertEqual(payload["items"][0]["tx_hash"], "TX-RECENT")
+
+        response = await self.process_request(
+            Request(
+                query=RequestQuery(
+                    path=(
+                        "/dex_candles/7/interval=5m/limit=25/offset=5"
+                        "/start=1767225600/end=1767312000"
+                    )
+                )
+            )
+        )
+        self.assertEqual(response.query.code, Constants.OkCode)
+        payload = json.loads(response.query.value)
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["source"], "xian_pairs_v1")
+        self.assertEqual(payload["pair_id"], 7)
+        self.assertEqual(payload["market_id"], "7")
+        self.assertEqual(payload["interval_seconds"], 300)
+        self.assertEqual(payload["items"][0]["open"], "1.0")
+        self.assertEqual(
+            fake_bds.dex_candle_call,
+            {
+                "market_id": "7",
+                "source": "xian_pairs_v1",
+                "contract": "con_pairs",
+                "event": "Swap",
+                "market_field": "pair",
+                "interval_seconds": 300,
+                "limit": 25,
+                "offset": 5,
+                "start_time": datetime(2026, 1, 1, tzinfo=UTC),
+                "end_time": datetime(2026, 1, 2, tzinfo=UTC),
+            },
+        )
 
         response = await self.process_request(
             Request(

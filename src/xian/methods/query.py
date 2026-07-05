@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from contracting.compilation import parser
@@ -16,6 +17,7 @@ from xian.execution_engine import (
     execute_vm_contract,
     prepare_vm_contract,
 )
+from xian.services.bds.candles import get_candle_source_spec
 from xian.utils.block import (
     get_latest_block_height,
     get_latest_block_nanos,
@@ -27,6 +29,8 @@ DEFAULT_KEYS_QUERY_LIMIT = 100
 MAX_KEYS_QUERY_LIMIT = 200
 DEFAULT_LIST_QUERY_LIMIT = 100
 MAX_LIST_QUERY_LIMIT = 1000
+DEFAULT_DEX_CANDLE_INTERVAL_SECONDS = 60
+MAX_DEX_CANDLE_INTERVAL_SECONDS = 604800
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +154,60 @@ def _bds_query_options(params: dict[str, str]) -> BdsQueryOptions:
             minimum=0,
         ),
     )
+
+
+def _duration_seconds_param(
+    params: dict[str, str],
+    key: str,
+    *,
+    default: int,
+    minimum: int = 1,
+    maximum: int = MAX_DEX_CANDLE_INTERVAL_SECONDS,
+) -> int:
+    raw = params.get(key)
+    if raw is None:
+        return default
+
+    value_text = raw.strip().lower()
+    multiplier = 1
+    for suffix, suffix_multiplier in (
+        ("s", 1),
+        ("m", 60),
+        ("h", 3600),
+        ("d", 86400),
+        ("w", 604800),
+    ):
+        if value_text.endswith(suffix):
+            value_text = value_text[: -len(suffix)]
+            multiplier = suffix_multiplier
+            break
+
+    try:
+        value = int(value_text) * multiplier
+    except (TypeError, ValueError):
+        value = default
+    return min(max(value, minimum), maximum)
+
+
+def _optional_timestamp_param(params: dict[str, str], key: str) -> datetime | None:
+    raw = params.get(key)
+    if raw is None:
+        return None
+
+    value = raw.strip()
+    if not value:
+        return None
+
+    try:
+        if value.replace(".", "", 1).isdigit():
+            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError, OSError):
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _keys_query_after_key(prefix: str, after: str | None) -> str | None:
@@ -834,6 +892,33 @@ async def _handle_recent_events(ctx: QueryContext) -> QueryResult:
     )
 
 
+async def _handle_dex_candles(ctx: QueryContext) -> QueryResult:
+    options = _bds_query_options(ctx.params)
+    spec = get_candle_source_spec(ctx.params.get("source"))
+
+    contract = ctx.params.get("contract")
+    if contract is not None:
+        spec = spec.with_contract(contract)
+
+    market_id, _market_id_int = spec.normalize_market_id(ctx.key)
+    interval_seconds = _duration_seconds_param(
+        ctx.params,
+        "interval",
+        default=DEFAULT_DEX_CANDLE_INTERVAL_SECONDS,
+    )
+    return QueryResult(
+        result=await _require_bds(ctx).get_dex_candles(
+            market_id,
+            source_spec=spec,
+            interval_seconds=interval_seconds,
+            limit=options.limit,
+            offset=options.offset,
+            start_time=_optional_timestamp_param(ctx.params, "start"),
+            end_time=_optional_timestamp_param(ctx.params, "end"),
+        )
+    )
+
+
 async def _handle_state(ctx: QueryContext) -> QueryResult:
     options = _bds_query_options(ctx.params)
     return QueryResult(
@@ -970,6 +1055,7 @@ BDS_QUERY_HANDLERS = {
     "shielded_wallet_history": _handle_shielded_wallet_history,
     "events": _handle_events,
     "recent_events": _handle_recent_events,
+    "dex_candles": _handle_dex_candles,
     "state": _handle_state,
     "token_contracts": _handle_token_contracts,
     "token_balances": _handle_token_balances,

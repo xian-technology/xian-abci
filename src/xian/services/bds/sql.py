@@ -1031,6 +1031,91 @@ def select_events_by_contract_event_after_id():
     """
 
 
+def select_dex_candles():
+    amount0_in = _numeric_projection("jsonb_extract_path(e.data, $12::TEXT)")
+    amount1_in = _numeric_projection("jsonb_extract_path(e.data, $13::TEXT)")
+    amount0_out = _numeric_projection("jsonb_extract_path(e.data, $14::TEXT)")
+    amount1_out = _numeric_projection("jsonb_extract_path(e.data, $15::TEXT)")
+    return f"""
+    WITH raw_swaps AS (
+        SELECT
+            e.id AS event_id,
+            e.block_height,
+            e.tx_hash,
+            e.tx_index,
+            e.event_index,
+            e.created_at,
+            {amount0_in} AS amount0_in,
+            {amount1_in} AS amount1_in,
+            {amount0_out} AS amount0_out,
+            {amount1_out} AS amount1_out
+        FROM events AS e
+        WHERE e.contract = $1
+          AND e.event = $2
+          AND (
+              e.data_indexed @> jsonb_build_object($4::TEXT, $5::TEXT)
+              OR (
+                  $6::BIGINT IS NOT NULL
+                  AND e.data_indexed @> jsonb_build_object($4::TEXT, $6::BIGINT)
+              )
+          )
+          AND ($7::TIMESTAMPTZ IS NULL OR e.created_at >= $7::TIMESTAMPTZ)
+          AND ($8::TIMESTAMPTZ IS NULL OR e.created_at < $8::TIMESTAMPTZ)
+    ),
+    trades AS (
+        SELECT
+            *,
+            CASE
+                WHEN amount0_in > 0 AND amount1_out > 0 THEN amount1_out / amount0_in
+                WHEN amount1_in > 0 AND amount0_out > 0 THEN amount1_in / amount0_out
+                ELSE NULL
+            END AS price_token1_per_token0,
+            COALESCE(NULLIF(amount0_in, 0), NULLIF(amount0_out, 0), 0) AS volume_token0,
+            COALESCE(NULLIF(amount1_in, 0), NULLIF(amount1_out, 0), 0) AS volume_token1
+        FROM raw_swaps
+    ),
+    bucketed AS (
+        SELECT
+            *,
+            (FLOOR(EXTRACT(EPOCH FROM created_at) / $9::NUMERIC) * $9::NUMERIC)::BIGINT
+                AS bucket_epoch
+        FROM trades
+        WHERE price_token1_per_token0 IS NOT NULL
+    ),
+    candles AS (
+        SELECT
+            $3::TEXT AS source,
+            $5::TEXT AS market_id,
+            $6::BIGINT AS pair_id,
+            to_timestamp(bucket_epoch) AS bucket_start,
+            to_timestamp(bucket_epoch + $9::BIGINT) AS bucket_end,
+            (ARRAY_AGG(price_token1_per_token0 ORDER BY created_at ASC, event_id ASC))[1]
+                AS open,
+            MAX(price_token1_per_token0) AS high,
+            MIN(price_token1_per_token0) AS low,
+            (ARRAY_AGG(price_token1_per_token0 ORDER BY created_at DESC, event_id DESC))[1]
+                AS close,
+            SUM(volume_token0) AS volume_token0,
+            SUM(volume_token1) AS volume_token1,
+            COUNT(*) AS trade_count,
+            MIN(block_height) AS first_block_height,
+            MAX(block_height) AS last_block_height,
+            (ARRAY_AGG(event_id ORDER BY created_at ASC, event_id ASC))[1] AS first_event_id,
+            (ARRAY_AGG(event_id ORDER BY created_at DESC, event_id DESC))[1] AS last_event_id
+        FROM bucketed
+        GROUP BY bucket_epoch
+    )
+    SELECT *
+    FROM (
+        SELECT *
+        FROM candles
+        ORDER BY bucket_start DESC
+        LIMIT $10 OFFSET $11
+    ) AS page
+    ORDER BY bucket_start ASC;
+    """
+
+
 def select_recent_events():
     return """
     SELECT

@@ -84,6 +84,7 @@ Event and contract-summary queries:
 - `/events`
 - `/recent_events`
 - `/events_for_tx/<hash>`
+- `/dex_candles/<market_id>` (`source=xian_pairs_v1` by default)
 - `/developer_rewards/<address>`
 - `/contract_summary/<name>`
 

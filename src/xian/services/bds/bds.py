@@ -15,6 +15,7 @@ from loguru import logger
 
 from xian.constants import Constants
 from xian.services.bds import sql
+from xian.services.bds.candles import CandleSourceSpec, get_candle_source_spec
 from xian.services.bds.config import BdsConfig
 from xian.services.bds.database import DB
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
@@ -1384,6 +1385,51 @@ class BDS:
     async def get_recent_events(self, limit: int = 100, offset: int = 0):
         rows = await self.db.fetch(sql.select_recent_events(), [limit, offset])
         return [dict(row) for row in rows]
+
+    async def get_dex_candles(
+        self,
+        market_id: str | int,
+        *,
+        source_spec: CandleSourceSpec | None = None,
+        interval_seconds: int = 60,
+        limit: int = 100,
+        offset: int = 0,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ):
+        spec = source_spec or get_candle_source_spec()
+        market_id_text, market_id_int = spec.normalize_market_id(market_id)
+        rows = await self.db.fetch(
+            sql.select_dex_candles(),
+            [
+                spec.contract,
+                spec.event,
+                spec.source,
+                spec.market_field,
+                market_id_text,
+                market_id_int,
+                utc_datetime(start_time) if start_time is not None else None,
+                utc_datetime(end_time) if end_time is not None else None,
+                int(interval_seconds),
+                int(limit),
+                int(offset),
+                spec.amount0_in_field,
+                spec.amount1_in_field,
+                spec.amount0_out_field,
+                spec.amount1_out_field,
+            ],
+        )
+        return {
+            "available": True,
+            "source": spec.source,
+            "contract": spec.contract,
+            "market_id": market_id_text,
+            "pair_id": market_id_int,
+            "interval_seconds": int(interval_seconds),
+            "items": [dict(row) for row in rows],
+            "limit": int(limit),
+            "offset": int(offset),
+        }
 
     async def get_state(self, key: str, limit: int = 100, offset: int = 0):
         rows = await self.db.fetch(sql.select_state(), [key, limit, offset])

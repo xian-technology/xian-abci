@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from xian.services.bds import sql
 from xian.services.bds.bds import BDS
+from xian.services.bds.candles import get_candle_source_spec
 from xian.services.bds.config import BdsConfig
 
 
@@ -243,6 +244,73 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result[0]["tag_value"], "0x1234")
         self.assertEqual(result[0]["tag_kind"], "sync_hint")
         self.assertEqual(result[0]["block_height"], 12)
+
+    async def test_get_dex_candles_returns_server_side_ohlcv_buckets(self):
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        end = datetime(2026, 1, 2, tzinfo=UTC)
+        bds = BDS(BdsConfig())
+        bds.db = _FakeDb(
+            [
+                {
+                    "pair_id": 7,
+                    "source": "xian_pairs_v1",
+                    "market_id": "7",
+                    "bucket_start": datetime(2026, 1, 1, 12, tzinfo=UTC),
+                    "bucket_end": datetime(2026, 1, 1, 12, 5, tzinfo=UTC),
+                    "open": Decimal("1.0"),
+                    "high": Decimal("1.2"),
+                    "low": Decimal("0.9"),
+                    "close": Decimal("1.1"),
+                    "volume_token0": Decimal("42"),
+                    "volume_token1": Decimal("46.2"),
+                    "trade_count": 3,
+                    "first_event_id": 10,
+                    "last_event_id": 12,
+                }
+            ]
+        )
+
+        result = await bds.get_dex_candles(
+            7,
+            source_spec=get_candle_source_spec(),
+            interval_seconds=300,
+            limit=25,
+            offset=5,
+            start_time=start,
+            end_time=end,
+        )
+
+        self.assertEqual(
+            bds.db.fetch_calls,
+            [
+                (
+                    sql.select_dex_candles(),
+                    [
+                        "con_pairs",
+                        "Swap",
+                        "xian_pairs_v1",
+                        "pair",
+                        "7",
+                        7,
+                        start,
+                        end,
+                        300,
+                        25,
+                        5,
+                        "amount0In",
+                        "amount1In",
+                        "amount0Out",
+                        "amount1Out",
+                    ],
+                )
+            ],
+        )
+        self.assertTrue(result["available"])
+        self.assertEqual(result["source"], "xian_pairs_v1")
+        self.assertEqual(result["market_id"], "7")
+        self.assertEqual(result["pair_id"], 7)
+        self.assertEqual(result["interval_seconds"], 300)
+        self.assertEqual(result["items"][0]["open"], Decimal("1.0"))
 
     async def test_get_shielded_wallet_history_returns_commitments_with_optional_payloads(self):
         class _ShieldedHistoryDb:
