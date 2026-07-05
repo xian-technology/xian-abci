@@ -577,6 +577,9 @@ def configure_existing_home(
             metrics=node_config.metrics,
             app_logging=node_config.app_logging,
             simulation=node_config.simulation,
+            tx_fee_mode=node_config.tx_fee_mode,
+            free_tx_max_chi=node_config.free_tx_max_chi,
+            free_block_max_chi=node_config.free_block_max_chi,
             parallel_execution=node_config.parallel_execution,
             pending_nonce_reservation_ttl_seconds=(
                 node_config.pending_nonce_reservation_ttl_seconds

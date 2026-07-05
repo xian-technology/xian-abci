@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from io import BytesIO
 from unittest.mock import patch
 
+from contracting.storage.driver import SOURCE_KEY, XIAN_VM_V1_IR_KEY
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
 
@@ -13,7 +14,6 @@ from abci.server import ProtocolHandler
 from abci.utils import read_messages
 from cometbft.abci.v1beta1.types_pb2 import RequestQuery
 from cometbft.abci.v1beta3.types_pb2 import Request, Response
-from contracting.storage.driver import SOURCE_KEY, XIAN_VM_V1_IR_KEY
 from xian.constants import Constants
 from xian.xian_abci import Xian
 
@@ -177,13 +177,13 @@ class _FakeBDS:
         return {"height": 12, "block_hash": block_hash}
 
     async def get_tx(self, tx_hash):
-        return {"hash": tx_hash, "block_height": 12, "sender": "alice"}
+        return {"tx_hash": tx_hash, "block_height": 12, "sender": "alice"}
 
     async def get_txs_for_block(self, block_ref):
-        return [{"hash": f"TX-{block_ref}", "block_height": 12, "tx_index": 0}]
+        return [{"tx_hash": f"TX-{block_ref}", "block_height": 12, "tx_index": 0}]
 
     async def get_txs_by_sender(self, sender, limit, offset):
-        return [{"hash": "TX-SENDER", "sender": sender}]
+        return [{"tx_hash": "TX-SENDER", "sender": sender}]
 
     async def get_recent_addresses(self, limit, offset):
         return [
@@ -196,7 +196,7 @@ class _FakeBDS:
         ]
 
     async def get_txs_by_contract(self, contract, limit, offset):
-        return [{"hash": "TX-CONTRACT", "contract": contract}]
+        return [{"tx_hash": "TX-CONTRACT", "contract": contract}]
 
     async def get_events_for_tx(self, tx_hash):
         return [{"tx_hash": tx_hash, "event": "Transfer"}]
@@ -1013,13 +1013,13 @@ def fallback(value: list[int]):
             Request(query=RequestQuery(path="/tx/TX-1"))
         )
         self.assertEqual(response.query.code, Constants.OkCode)
-        self.assertEqual(json.loads(response.query.value)["hash"], "TX-1")
+        self.assertEqual(json.loads(response.query.value)["tx_hash"], "TX-1")
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/txs_for_block/12"))
         )
         self.assertEqual(response.query.code, Constants.OkCode)
-        self.assertEqual(json.loads(response.query.value)[0]["hash"], "TX-12")
+        self.assertEqual(json.loads(response.query.value)[0]["tx_hash"], "TX-12")
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/txs_by_sender/alice"))

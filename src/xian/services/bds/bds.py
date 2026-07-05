@@ -25,7 +25,7 @@ from xian.services.bds.serializer import (
     canonical_result_value,
     utc_datetime,
 )
-from xian.services.bds.shielded import collect_shielded_output_tags
+from xian.services.bds.shielded import collect_shielded_outputs, extract_payload_tags
 
 GENESIS_BLOCK_HASH = "GENESIS"
 GENESIS_TX_HASH = "GENESIS"
@@ -66,18 +66,6 @@ def _normalize_token_balance(
     if numeric_value is not None:
         return str(numeric_value)
     return _normalize_json_text(raw_value)
-
-
-def _json_mapping(value: Any) -> dict[str, Any] | None:
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str):
-        try:
-            decoded = json.loads(value)
-        except json.JSONDecodeError:
-            return None
-        return decoded if isinstance(decoded, dict) else None
-    return None
 
 
 def _is_name_call(node: ast.AST, name: str) -> bool:
@@ -696,31 +684,35 @@ class BDS:
                     "BDS schema metadata is missing for existing tables; "
                     "reset BDS storage before starting the current runtime"
                 )
-        elif current_version != str(sql.SCHEMA_VERSION):
-            logger.warning(
-                "Resetting BDS schema from version {} to {}",
-                current_version,
-                sql.SCHEMA_VERSION,
+        elif str(current_version) != str(sql.SCHEMA_VERSION):
+            raise RuntimeError(
+                f"BDS schema version {current_version!r} does not match runtime schema "
+                f"version {sql.SCHEMA_VERSION}; reset BDS storage and reindex or import "
+                "a compatible BDS snapshot before starting the current runtime"
             )
-            await self.db.execute(sql.drop_all_tables())
-            await self.db.execute(sql.create_meta())
 
-        for statement in (
-            sql.create_blocks(),
-            sql.create_transactions(),
-            sql.create_state_changes(),
-            sql.create_state(),
-            sql.create_events(),
-            sql.create_rewards(),
-            sql.create_shielded_output_tags(),
-            sql.create_contracts(),
-            sql.create_state_patches(),
-        ):
+        for statement in self._schema_statements():
             await self.db.execute(statement)
 
         await self.db.execute(
             sql.upsert_schema_version(),
             [str(sql.SCHEMA_VERSION), utc_datetime(datetime.now())],
+        )
+
+    @staticmethod
+    def _schema_statements() -> tuple[str, ...]:
+        return (
+            sql.create_blocks(),
+            sql.create_transactions(),
+            sql.create_addresses(),
+            sql.create_state_changes(),
+            sql.create_state(),
+            sql.create_events(),
+            sql.create_rewards(),
+            sql.create_shielded_outputs(),
+            sql.create_shielded_output_tags(),
+            sql.create_contracts(),
+            sql.create_state_patches(),
         )
 
     async def _managed_tables_present(self) -> bool:
@@ -740,6 +732,8 @@ class BDS:
                         'rewards',
                         'contracts',
                         'state_patches',
+                        'addresses',
+                        'shielded_outputs',
                         'shielded_output_tags'
                       )
                 );
@@ -786,6 +780,17 @@ class BDS:
                             "genesis": canonical_json_value(genesis_state),
                         }
                     ),
+                    block_time,
+                )
+                await connection.execute(
+                    sql.upsert_address_activity(),
+                    "sys",
+                    0,
+                    block_time,
+                    0,
+                    GENESIS_TX_HASH,
+                    "GENESIS_SUBMISSION",
+                    "process_genesis_block",
                     block_time,
                 )
 
@@ -845,12 +850,28 @@ class BDS:
         state_patches = payload.state_patches or []
 
         try:
-            already_persisted = await self.db.fetchval(
-                "SELECT 1 FROM blocks WHERE height = $1",
+            existing_block = await self.db.fetchrow(
+                sql.select_block_identity(),
                 [payload.block_meta["height"]],
             )
-            if already_persisted:
-                return True
+            if existing_block is not None:
+                expected_block_hash = payload.block_meta["hash"]
+                expected_app_hash = payload.app_hash
+                if (
+                    existing_block["block_hash"] == expected_block_hash
+                    and existing_block["app_hash"] == expected_app_hash
+                ):
+                    return True
+                logger.error(
+                    "BDS block identity mismatch at height {}: indexed "
+                    "block_hash={} app_hash={}, incoming block_hash={} app_hash={}",
+                    payload.block_meta["height"],
+                    existing_block["block_hash"],
+                    existing_block["app_hash"],
+                    expected_block_hash,
+                    expected_app_hash,
+                )
+                return False
 
             async with self.db.acquire() as connection:
                 async with connection.transaction():
@@ -937,6 +958,17 @@ class BDS:
             _jsonb_param(tx.envelope),
             block_time,
         )
+        await connection.execute(
+            sql.upsert_address_activity(),
+            payload["sender"],
+            block_meta["height"],
+            block_time,
+            tx_index,
+            tx_hash,
+            payload["contract"],
+            payload["function"],
+            block_time,
+        )
 
         for write_index, state_change in enumerate(tx_result["state"]):
             key = state_change["key"]
@@ -1021,7 +1053,7 @@ class BDS:
 
         kwargs = payload.get("kwargs")
         if isinstance(kwargs, dict):
-            for row in collect_shielded_output_tags(
+            for row in collect_shielded_outputs(
                 contract=str(payload.get("contract", "")),
                 function=str(payload.get("function", "")),
                 tx_hash=tx_hash,
@@ -1031,7 +1063,7 @@ class BDS:
                 kwargs=kwargs,
             ):
                 await connection.execute(
-                    sql.insert_shielded_output_tag(),
+                    sql.insert_shielded_output(),
                     row["block_height"],
                     row["tx_hash"],
                     row["tx_index"],
@@ -1043,10 +1075,29 @@ class BDS:
                     row["commitment"],
                     row["new_root"],
                     row["payload_hash"],
-                    row["tag_kind"],
-                    row["tag_value"],
                     block_time,
                 )
+                output_payload = row.get("output_payload")
+                for payload_tag in extract_payload_tags(
+                    output_payload if isinstance(output_payload, str) else None
+                ):
+                    await connection.execute(
+                        sql.insert_shielded_output_tag(),
+                        row["block_height"],
+                        row["tx_hash"],
+                        row["tx_index"],
+                        row["contract"],
+                        row["function"],
+                        row["action"],
+                        row["output_index"],
+                        row["note_index"],
+                        row["commitment"],
+                        row["new_root"],
+                        row["payload_hash"],
+                        payload_tag["tag_kind"],
+                        payload_tag["tag_value"],
+                        block_time,
+                    )
 
         if tx_result["status"] == 0:
             for contract_name, record in self._collect_contract_records(
@@ -1123,6 +1174,17 @@ class BDS:
                     "executions": canonical_json_value(state_patches),
                 }
             ),
+            block_time,
+        )
+        await connection.execute(
+            sql.upsert_address_activity(),
+            "sys",
+            block_meta["height"],
+            block_time,
+            tx_index,
+            state_patch_hash,
+            "STATE_PATCHER",
+            "STATE_PATCH",
             block_time,
         )
 
@@ -1292,132 +1354,11 @@ class BDS:
         if limit <= 0:
             return []
 
-        event_batch_size = max(1, min(limit, 1000))
-        next_event_id = 0
-        history_rows: list[dict[str, Any]] = []
-
-        while len(history_rows) < limit:
-            event_rows = await self.db.fetch(
-                sql.select_events_by_event_after_id(),
-                ["ShieldedOutputsCommitted", next_event_id, event_batch_size],
-            )
-            if not event_rows:
-                break
-
-            events = [dict(row) for row in event_rows]
-            last_event = events[-1]
-            if isinstance(last_event.get("id"), int):
-                next_event_id = int(last_event["id"])
-
-            output_rows: list[dict[str, Any]] = []
-            tx_hashes: set[str] = set()
-            for event in events:
-                data = _json_mapping(event.get("data")) or {}
-                note_index_start = data.get("note_index_start")
-                output_count = data.get("output_count")
-                commitments_blob = data.get("commitments_blob")
-                if not isinstance(note_index_start, int) or not isinstance(commitments_blob, str):
-                    continue
-                commitments = [item for item in commitments_blob.split("|") if item != ""]
-                resolved_output_count = (
-                    output_count if isinstance(output_count, int) else len(commitments)
-                )
-                if len(commitments) < resolved_output_count:
-                    continue
-
-                tx_hash = event.get("tx_hash")
-                if not isinstance(tx_hash, str):
-                    continue
-                tx_hashes.add(tx_hash)
-
-                for output_index in range(resolved_output_count):
-                    note_index = note_index_start + output_index
-                    if note_index < after_note_index:
-                        continue
-                    output_rows.append(
-                        {
-                            "event_id": event.get("id"),
-                            "tx_hash": tx_hash,
-                            "block_height": event.get("block_height"),
-                            "tx_index": event.get("tx_index"),
-                            "contract": event.get("contract"),
-                            "function": None,
-                            "action": None,
-                            "output_index": output_index,
-                            "note_index": note_index,
-                            "commitment": commitments[output_index],
-                            "new_root": data.get("new_root"),
-                            "payload_hash": None,
-                            "tag_kind": None,
-                            "tag_value": None,
-                            "output_payload": None,
-                            "created_at": event.get("created_at"),
-                        }
-                    )
-                    if len(history_rows) + len(output_rows) >= limit:
-                        break
-                if len(history_rows) + len(output_rows) >= limit:
-                    break
-
-            if not output_rows:
-                if len(events) < event_batch_size:
-                    break
-                continue
-
-            payload_rows = await self.db.fetch(
-                sql.select_transactions_payloads_for_hashes(),
-                [sorted(tx_hashes)],
-            )
-            payload_items = [dict(row) for row in payload_rows]
-            payloads_by_hash = {
-                str(row["hash"]): _json_mapping(row.get("payload")) or {} for row in payload_items
-            }
-
-            tag_rows = await self.db.fetch(
-                sql.select_shielded_output_tags_for_transactions(),
-                [kind, tag_value, sorted(tx_hashes)],
-            )
-            tag_items = [dict(row) for row in tag_rows]
-            matching_tags = {
-                (str(row["tx_hash"]), int(row["output_index"])): dict(row)
-                for row in tag_items
-                if isinstance(row.get("tx_hash"), str) and isinstance(row.get("output_index"), int)
-            }
-
-            for row in output_rows:
-                tx_hash = row["tx_hash"]
-                output_index = row["output_index"]
-                payload = payloads_by_hash.get(tx_hash, {})
-                kwargs = _json_mapping(payload.get("kwargs")) or {}
-                payloads = kwargs.get("output_payloads")
-                if (
-                    isinstance(payloads, list)
-                    and output_index < len(payloads)
-                    and isinstance(payloads[output_index], str)
-                    and (tx_hash, output_index) in matching_tags
-                ):
-                    tag = matching_tags[(tx_hash, output_index)]
-                    row["output_payload"] = payloads[output_index]
-                    row["payload_hash"] = tag.get("payload_hash")
-                    row["tag_kind"] = tag.get("tag_kind")
-                    row["tag_value"] = tag.get("tag_value")
-
-                function = payload.get("function")
-                if isinstance(function, str):
-                    row["function"] = function
-                action = _json_mapping(payload.get("kwargs")) or {}
-                resolved_action = action.get("action")
-                if isinstance(resolved_action, str):
-                    row["action"] = resolved_action
-
-                history_rows.append(row)
-                if len(history_rows) >= limit:
-                    break
-
-            if len(events) < event_batch_size:
-                break
-
-        return history_rows
+        rows = await self.db.fetch(
+            sql.select_shielded_wallet_history(),
+            [kind, tag_value, after_note_index, limit],
+        )
+        return [dict(row) for row in rows]
 
     async def get_events(
         self,

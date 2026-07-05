@@ -23,6 +23,26 @@ class _FakeDb:
 
 
 class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
+    def test_transaction_selectors_expose_tx_hash_without_duplicate_hash_field(self):
+        selectors = [
+            sql.select_transaction_by_hash(),
+            sql.select_transactions_for_block_height(),
+            sql.select_transactions_for_block_hash(),
+            sql.select_transactions_by_sender(),
+            sql.select_transactions_by_contract(),
+        ]
+
+        for selector in selectors:
+            with self.subTest(selector=selector):
+                self.assertIn("hash AS tx_hash", selector)
+                self.assertNotIn("hash,\n        hash AS tx_hash", selector)
+
+    def test_index_status_counts_all_transactions(self):
+        query = sql.select_index_status()
+
+        self.assertIn("(SELECT COUNT(*) FROM transactions) AS indexed_tx_count", query)
+        self.assertNotIn("SELECT tx_count FROM blocks", query)
+
     async def test_get_developer_rewards_returns_aggregate_summary(self):
         bds = BDS(BdsConfig())
         bds.db = _FakeDb(
@@ -88,11 +108,15 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "address": "alice",
                     "tx_count": 3,
+                    "first_block_height": 10,
+                    "first_seen": datetime(2026, 1, 1, tzinfo=UTC),
                     "last_block_height": 12,
+                    "last_tx_index": 0,
                     "last_seen": datetime(2026, 1, 1, tzinfo=UTC),
                     "last_tx_hash": "TX-1",
                     "last_contract": "currency",
                     "last_function": "transfer",
+                    "updated_at": datetime(2026, 1, 1, tzinfo=UTC),
                 }
             ]
         )
@@ -227,44 +251,45 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
 
             async def fetch(self, query: str, args: list[object]):
                 self.fetch_calls.append((query, args))
-                if query == sql.select_events_by_event_after_id():
+                if query == sql.select_shielded_wallet_history():
                     return [
                         {
-                            "id": 11,
+                            "output_id": 21,
+                            "event_id": None,
                             "block_height": 12,
                             "tx_hash": "TX-1",
                             "tx_index": 0,
                             "contract": "con_private",
-                            "data": {
-                                "new_root": "0xroot",
-                                "note_index_start": 0,
-                                "output_count": 2,
-                                "commitments_blob": "0xaaa|0xbbb",
-                            },
+                            "function": "transfer_shielded",
+                            "action": "transfer",
+                            "output_index": 0,
+                            "note_index": 0,
+                            "commitment": "0xaaa",
+                            "new_root": "0xroot",
+                            "payload_hash": None,
+                            "tag_kind": None,
+                            "tag_value": None,
+                            "output_payload": None,
                             "created_at": datetime(2026, 1, 1, tzinfo=UTC),
-                        }
-                    ]
-                if query == sql.select_transactions_payloads_for_hashes():
-                    return [
+                        },
                         {
-                            "hash": "TX-1",
-                            "payload": {
-                                "function": "transfer_shielded",
-                                "kwargs": {
-                                    "action": "transfer",
-                                    "output_payloads": ["0x1111", "0x2222"],
-                                },
-                            },
-                        }
-                    ]
-                if query == sql.select_shielded_output_tags_for_transactions():
-                    return [
-                        {
+                            "output_id": 22,
+                            "event_id": None,
+                            "block_height": 12,
                             "tx_hash": "TX-1",
+                            "tx_index": 0,
+                            "contract": "con_private",
+                            "function": "transfer_shielded",
+                            "action": "transfer",
                             "output_index": 1,
+                            "note_index": 1,
+                            "commitment": "0xbbb",
+                            "new_root": "0xroot",
                             "payload_hash": "0xhash",
                             "tag_kind": "sync_hint",
                             "tag_value": "0x1234",
+                            "output_payload": "0x2222",
+                            "created_at": datetime(2026, 1, 1, tzinfo=UTC),
                         }
                     ]
                 return []
@@ -276,6 +301,10 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
             "0x1234", limit=10, after_note_index=0
         )
 
+        self.assertEqual(
+            bds.db.fetch_calls,
+            [(sql.select_shielded_wallet_history(), ["sync_hint", "0x1234", 0, 10])],
+        )
         self.assertEqual(result[0]["note_index"], 0)
         self.assertEqual(result[0]["commitment"], "0xaaa")
         self.assertIsNone(result[0]["output_payload"])

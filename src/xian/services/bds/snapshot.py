@@ -94,6 +94,24 @@ TABLE_SPECS = (
         datetime_columns=frozenset({"created_at"}),
     ),
     TableSpec(
+        name="addresses",
+        columns=(
+            "address",
+            "tx_count",
+            "first_block_height",
+            "first_seen",
+            "last_block_height",
+            "last_tx_index",
+            "last_seen",
+            "last_tx_hash",
+            "last_contract",
+            "last_function",
+            "updated_at",
+        ),
+        order_by="address ASC",
+        datetime_columns=frozenset({"first_seen", "last_seen", "updated_at"}),
+    ),
+    TableSpec(
         name="state_changes",
         columns=(
             "change_id",
@@ -164,6 +182,27 @@ TABLE_SPECS = (
         order_by="id ASC",
         datetime_columns=frozenset({"created_at"}),
         decimal_columns=frozenset({"value"}),
+        overriding_system_value=True,
+    ),
+    TableSpec(
+        name="shielded_outputs",
+        columns=(
+            "id",
+            "block_height",
+            "tx_hash",
+            "tx_index",
+            "contract",
+            "function",
+            "action",
+            "output_index",
+            "note_index",
+            "commitment",
+            "new_root",
+            "payload_hash",
+            "created_at",
+        ),
+        order_by="id ASC",
+        datetime_columns=frozenset({"created_at"}),
         overriding_system_value=True,
     ),
     TableSpec(
@@ -401,6 +440,15 @@ async def import_bds_snapshot(
                     SELECT setval(
                         pg_get_serial_sequence('rewards', 'id'),
                         COALESCE((SELECT MAX(id) FROM rewards), 1),
+                        true
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
+                    SELECT setval(
+                        pg_get_serial_sequence('shielded_outputs', 'id'),
+                        COALESCE((SELECT MAX(id) FROM shielded_outputs), 1),
                         true
                     );
                     """

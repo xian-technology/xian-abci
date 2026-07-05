@@ -163,6 +163,41 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
                     "created_at": datetime(2026, 1, 1, tzinfo=UTC),
                 }
             ],
+            "transactions": [
+                {
+                    "hash": "TX-12",
+                    "block_height": 12,
+                    "block_hash": "BLOCK-12",
+                    "block_time": 12,
+                    "tx_index": 0,
+                    "sender": "alice",
+                    "nonce": 1,
+                    "contract": "con_token",
+                    "function": "transfer",
+                    "success": True,
+                    "status_code": 0,
+                    "chi_used": 25,
+                    "result": {"ok": True},
+                    "payload": {"sender": "alice"},
+                    "envelope": {"payload": {"sender": "alice"}},
+                    "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+                }
+            ],
+            "addresses": [
+                {
+                    "address": "alice",
+                    "tx_count": 1,
+                    "first_block_height": 12,
+                    "first_seen": datetime(2026, 1, 1, tzinfo=UTC),
+                    "last_block_height": 12,
+                    "last_tx_index": 0,
+                    "last_seen": datetime(2026, 1, 1, tzinfo=UTC),
+                    "last_tx_hash": "TX-12",
+                    "last_contract": "con_token",
+                    "last_function": "transfer",
+                    "updated_at": datetime(2026, 1, 1, tzinfo=UTC),
+                }
+            ],
             "state_changes": [
                 {
                     "change_id": 5,
@@ -191,6 +226,23 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
                     "recipient_key": "currency.balances:alice",
                     "source_contract": "con_token",
                     "value": Decimal("12.34"),
+                    "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+                }
+            ],
+            "shielded_outputs": [
+                {
+                    "id": 2,
+                    "block_height": 12,
+                    "tx_hash": "TX-12",
+                    "tx_index": 0,
+                    "contract": "con_private",
+                    "function": "transfer",
+                    "action": "deposit",
+                    "output_index": 0,
+                    "note_index": 7,
+                    "commitment": "0x" + "11" * 32,
+                    "new_root": "0x" + "22" * 32,
+                    "payload_hash": "0x" + "33" * 32,
                     "created_at": datetime(2026, 1, 1, tzinfo=UTC),
                 }
             ],
@@ -245,6 +297,10 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 metadata["tables"]["state_changes"]["row_count"], 1
             )
+            self.assertEqual(metadata["tables"]["addresses"]["row_count"], 1)
+            self.assertEqual(
+                metadata["tables"]["shielded_outputs"]["row_count"], 1
+            )
 
             import_connection = _FakeConnection({})
             import_bds = _FakeBds(import_connection, status)
@@ -262,13 +318,15 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(import_bds.reset_count, 1)
             self.assertEqual(import_bds.clear_spool_count, 1)
-            self.assertEqual(import_connection.sequence_resets, 4)
+            self.assertEqual(import_connection.sequence_resets, 5)
+            self.assertEqual(import_connection.inserted["addresses"][0][0], "alice")
             self.assertEqual(
                 import_connection.inserted["state_changes"][0][0], 5
             )
             self.assertEqual(
                 import_connection.inserted["rewards"][0][8], Decimal("12.34")
             )
+            self.assertEqual(import_connection.inserted["shielded_outputs"][0][0], 2)
             self.assertEqual(
                 import_connection.inserted["shielded_output_tags"][0][12],
                 "sync_hint",

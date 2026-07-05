@@ -333,6 +333,9 @@ prometheus = false
                     simulation_max_concurrency=4,
                     simulation_timeout_ms=4500,
                     simulation_max_chi=750000,
+                    tx_fee_mode="free_metered",
+                    free_tx_max_chi=350_000,
+                    free_block_max_chi=1_400_000,
                     bds_host="postgres",
                     bds_port=5544,
                     bds_database="xian_index",
@@ -401,6 +404,9 @@ prometheus = false
             self.assertEqual(rendered_xian_config["simulation_max_concurrency"], 4)
             self.assertEqual(rendered_xian_config["simulation_timeout_ms"], 4500)
             self.assertEqual(rendered_xian_config["simulation_max_chi"], 750000)
+            self.assertEqual(rendered_xian_config["tx_fee_mode"], "free_metered")
+            self.assertEqual(rendered_xian_config["free_tx_max_chi"], 350_000)
+            self.assertEqual(rendered_xian_config["free_block_max_chi"], 1_400_000)
             self.assertEqual(rendered_xian_config["bds"]["host"], "postgres")
             self.assertEqual(rendered_xian_config["bds"]["port"], 5544)
             self.assertEqual(rendered_xian_config["bds"]["database"], "xian_index")

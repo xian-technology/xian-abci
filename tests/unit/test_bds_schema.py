@@ -20,17 +20,28 @@ class BdsSchemaTests(unittest.IsolatedAsyncioTestCase):
             [call(sql.create_meta())],
         )
 
-    async def test_prepare_schema_resets_version_mismatch(self):
+    async def test_prepare_schema_rejects_version_mismatch(self):
+        bds = BDS(BdsConfig())
+        bds.db.execute = AsyncMock()
+        bds.db.fetchval = AsyncMock(return_value="6")
+
+        with self.assertRaisesRegex(RuntimeError, "does not match runtime schema"):
+            await bds._prepare_schema()
+
+        self.assertEqual(
+            bds.db.execute.await_args_list,
+            [call(sql.create_meta())],
+        )
+
+    async def test_prepare_schema_rejects_unsupported_version_mismatch(self):
         bds = BDS(BdsConfig())
         bds.db.execute = AsyncMock()
         bds.db.fetchval = AsyncMock(return_value="4")
 
-        await bds._prepare_schema()
+        with self.assertRaisesRegex(RuntimeError, "does not match runtime schema"):
+            await bds._prepare_schema()
 
-        executed_queries = [
-            awaited.args[0] for awaited in bds.db.execute.await_args_list
-        ]
-        self.assertEqual(executed_queries[0], sql.create_meta())
-        self.assertIn(sql.drop_all_tables(), executed_queries)
-        self.assertEqual(executed_queries[2], sql.create_meta())
-        self.assertEqual(executed_queries[-1], sql.upsert_schema_version())
+        self.assertEqual(
+            bds.db.execute.await_args_list,
+            [call(sql.create_meta())],
+        )

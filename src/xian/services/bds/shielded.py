@@ -59,6 +59,50 @@ def collect_shielded_output_tags(
     tx_result_events: list[dict[str, Any]],
     kwargs: dict[str, Any],
 ) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for output in collect_shielded_outputs(
+        contract=contract,
+        function=function,
+        tx_hash=tx_hash,
+        block_height=block_height,
+        tx_index=tx_index,
+        tx_result_events=tx_result_events,
+        kwargs=kwargs,
+    ):
+        output_payload = output.get("output_payload")
+        for payload_tag in extract_payload_tags(
+            output_payload if isinstance(output_payload, str) else None
+        ):
+            rows.append(
+                {
+                    "tx_hash": output["tx_hash"],
+                    "block_height": output["block_height"],
+                    "tx_index": output["tx_index"],
+                    "contract": output["contract"],
+                    "function": output["function"],
+                    "action": output["action"],
+                    "output_index": output["output_index"],
+                    "note_index": output["note_index"],
+                    "commitment": output["commitment"],
+                    "new_root": output["new_root"],
+                    "payload_hash": output["payload_hash"],
+                    "tag_kind": payload_tag["tag_kind"],
+                    "tag_value": payload_tag["tag_value"],
+                }
+            )
+    return rows
+
+
+def collect_shielded_outputs(
+    *,
+    contract: str,
+    function: str,
+    tx_hash: str,
+    block_height: int,
+    tx_index: int,
+    tx_result_events: list[dict[str, Any]],
+    kwargs: dict[str, Any],
+) -> list[dict[str, Any]]:
     output_payloads = kwargs.get("output_payloads")
     if not isinstance(output_payloads, list) or len(output_payloads) == 0:
         return []
@@ -119,22 +163,20 @@ def collect_shielded_output_tags(
             output_index = output_spec["output_index"]
             if output_index < 0 or output_index >= len(output_payloads):
                 continue
-            for payload_tag in extract_payload_tags(output_payloads[output_index]):
-                rows.append(
-                    {
-                        "tx_hash": tx_hash,
-                        "block_height": block_height,
-                        "tx_index": tx_index,
-                        "contract": contract,
-                        "function": function,
-                        "action": action if isinstance(action, str) else function,
-                        "output_index": output_index,
-                        "note_index": output_spec["note_index"],
-                        "commitment": output_spec["commitment"],
-                        "new_root": new_root if isinstance(new_root, str) else "",
-                        "payload_hash": output_spec["payload_hash"],
-                        "tag_kind": payload_tag["tag_kind"],
-                        "tag_value": payload_tag["tag_value"],
-                    }
-                )
+            rows.append(
+                {
+                    "tx_hash": tx_hash,
+                    "block_height": block_height,
+                    "tx_index": tx_index,
+                    "contract": contract,
+                    "function": function,
+                    "action": action if isinstance(action, str) else function,
+                    "output_index": output_index,
+                    "note_index": output_spec["note_index"],
+                    "commitment": output_spec["commitment"],
+                    "new_root": new_root if isinstance(new_root, str) else "",
+                    "payload_hash": output_spec["payload_hash"],
+                    "output_payload": output_payloads[output_index],
+                }
+            )
     return rows

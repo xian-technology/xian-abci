@@ -8,7 +8,7 @@ from unittest.mock import patch
 from xian.services.bds import sql
 from xian.services.bds.bds import BDS
 from xian.services.bds.config import BdsConfig
-from xian.services.bds.payloads import BdsTransactionPayload
+from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 
 
 class _FakeTransactionContext:
@@ -68,6 +68,19 @@ class _FakeCatchupReindexer:
         self.bds = bds
         self.block_source = block_source
         self.state_patch_manager = state_patch_manager
+
+
+class _ExistingBlockDb:
+    def __init__(self, row):
+        self.row = row
+        self.fetchrow_calls: list[tuple[str, list[object]]] = []
+
+    async def fetchrow(self, query: str, args: list[object]):
+        self.fetchrow_calls.append((query, args))
+        return self.row
+
+    def acquire(self):
+        raise AssertionError("persist_block should not acquire when the height already exists")
 
 
 class BdsPersistenceTests(unittest.IsolatedAsyncioTestCase):
@@ -342,6 +355,17 @@ def balance_of(address: str):
             "deadbeef",
         )
 
+        address_upserts = [
+            args
+            for query, args in connection.execute_calls
+            if query == sql.upsert_address_activity()
+        ]
+        self.assertEqual(len(address_upserts), 1)
+        self.assertEqual(address_upserts[0][0], "alice")
+        self.assertEqual(address_upserts[0][4], "TX-1")
+        self.assertEqual(address_upserts[0][5], "currency")
+        self.assertEqual(address_upserts[0][6], "transfer")
+
         state_change = connection.fetchval_calls[0][1]
         self.assertIsInstance(state_change[7], str)
         self.assertEqual(json.loads(state_change[7]), {"balance": "95"})
@@ -355,6 +379,18 @@ def balance_of(address: str):
         self.assertEqual(json.loads(event_insert[8]), {"to": "bob"})
         self.assertIsInstance(event_insert[9], str)
         self.assertEqual(json.loads(event_insert[9]), {"amount": "5"})
+
+        shielded_output_inserts = [
+            args
+            for query, args in connection.execute_calls
+            if query == sql.insert_shielded_output()
+        ]
+        self.assertEqual(len(shielded_output_inserts), 1)
+        self.assertEqual(shielded_output_inserts[0][0], 1)
+        self.assertEqual(shielded_output_inserts[0][1], "TX-1")
+        self.assertEqual(shielded_output_inserts[0][6], 0)
+        self.assertEqual(shielded_output_inserts[0][7], 0)
+        self.assertEqual(shielded_output_inserts[0][8], "0x" + "11" * 32)
 
         shielded_inserts = [
             args
@@ -379,6 +415,38 @@ def balance_of(address: str):
                 ("sync_hint", "0x9876"),
                 ("discovery_tag", "0x1234"),
             },
+        )
+
+    async def test_persist_block_accepts_existing_matching_block_identity(self):
+        payload = BdsBlockPayload(
+            block_meta={"height": 12, "hash": "BLOCK-12", "nanos": 12},
+            block_time=datetime(2026, 1, 1, tzinfo=UTC),
+            app_hash="APP-12",
+            transactions=[],
+        )
+        bds = BDS(BdsConfig())
+        bds.db = _ExistingBlockDb({"block_hash": "BLOCK-12", "app_hash": "APP-12"})
+
+        self.assertTrue(await bds.persist_block(payload))
+        self.assertEqual(
+            bds.db.fetchrow_calls,
+            [(sql.select_block_identity(), [12])],
+        )
+
+    async def test_persist_block_rejects_existing_mismatched_block_identity(self):
+        payload = BdsBlockPayload(
+            block_meta={"height": 12, "hash": "BLOCK-12", "nanos": 12},
+            block_time=datetime(2026, 1, 1, tzinfo=UTC),
+            app_hash="APP-12",
+            transactions=[],
+        )
+        bds = BDS(BdsConfig())
+        bds.db = _ExistingBlockDb({"block_hash": "BLOCK-OLD", "app_hash": "APP-OLD"})
+
+        self.assertFalse(await bds.persist_block(payload))
+        self.assertEqual(
+            bds.db.fetchrow_calls,
+            [(sql.select_block_identity(), [12])],
         )
 
     async def test_persist_transaction_accepts_null_rewards(self):

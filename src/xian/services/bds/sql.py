@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def _numeric_projection(column: str) -> str:
@@ -23,12 +23,14 @@ def _numeric_projection(column: str) -> str:
 def drop_all_tables():
     return """
     DROP TABLE IF EXISTS shielded_output_tags CASCADE;
+    DROP TABLE IF EXISTS shielded_outputs CASCADE;
     DROP TABLE IF EXISTS rewards CASCADE;
     DROP TABLE IF EXISTS events CASCADE;
     DROP TABLE IF EXISTS state_patches CASCADE;
     DROP TABLE IF EXISTS contracts CASCADE;
     DROP TABLE IF EXISTS state CASCADE;
     DROP TABLE IF EXISTS state_changes CASCADE;
+    DROP TABLE IF EXISTS addresses CASCADE;
     DROP TABLE IF EXISTS transactions CASCADE;
     DROP TABLE IF EXISTS blocks CASCADE;
     DROP TABLE IF EXISTS bds_meta CASCADE;
@@ -101,9 +103,33 @@ def create_transactions():
     );
     CREATE INDEX IF NOT EXISTS idx_transactions_block_hash ON transactions(block_hash);
     CREATE INDEX IF NOT EXISTS idx_transactions_sender_nonce ON transactions(sender, nonce);
+    CREATE INDEX IF NOT EXISTS idx_transactions_sender_height_index
+        ON transactions(sender, block_height DESC, tx_index DESC);
+    CREATE INDEX IF NOT EXISTS idx_transactions_contract_height_index
+        ON transactions(contract, block_height DESC, tx_index DESC);
     CREATE INDEX IF NOT EXISTS idx_transactions_contract_function_height ON transactions(contract, function, block_height DESC);
     CREATE INDEX IF NOT EXISTS idx_transactions_success_height ON transactions(success, block_height DESC);
     CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at DESC);
+    """
+
+
+def create_addresses():
+    return """
+    CREATE TABLE IF NOT EXISTS addresses (
+        address TEXT PRIMARY KEY,
+        tx_count BIGINT NOT NULL DEFAULT 0,
+        first_block_height BIGINT NOT NULL,
+        first_seen TIMESTAMPTZ NOT NULL,
+        last_block_height BIGINT NOT NULL,
+        last_tx_index INTEGER NOT NULL,
+        last_seen TIMESTAMPTZ NOT NULL,
+        last_tx_hash TEXT REFERENCES transactions(hash) ON DELETE SET NULL,
+        last_contract TEXT NOT NULL,
+        last_function TEXT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_addresses_last_activity
+        ON addresses(last_block_height DESC, last_tx_index DESC, address ASC);
     """
 
 
@@ -169,7 +195,14 @@ def create_events():
         UNIQUE (tx_hash, event_index)
     );
     CREATE INDEX IF NOT EXISTS idx_events_contract_event_height ON events(contract, event, block_height DESC);
+    CREATE INDEX IF NOT EXISTS idx_events_contract_event_order
+        ON events(contract, event, block_height DESC, tx_index DESC, event_index DESC);
+    CREATE INDEX IF NOT EXISTS idx_events_contract_event_id
+        ON events(contract, event, id);
+    CREATE INDEX IF NOT EXISTS idx_events_event_id
+        ON events(event, id);
     CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_events_created_id ON events(created_at DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_events_tx_hash ON events(tx_hash);
     CREATE INDEX IF NOT EXISTS idx_events_data_indexed ON events USING GIN (data_indexed);
     """
@@ -199,6 +232,34 @@ def create_rewards():
     """
 
 
+def create_shielded_outputs():
+    return """
+    CREATE TABLE IF NOT EXISTS shielded_outputs (
+        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        block_height BIGINT NOT NULL REFERENCES blocks(height) ON DELETE CASCADE,
+        tx_hash TEXT NOT NULL REFERENCES transactions(hash) ON DELETE CASCADE,
+        tx_index INTEGER NOT NULL,
+        contract TEXT NOT NULL,
+        function TEXT NOT NULL,
+        action TEXT NOT NULL,
+        output_index INTEGER NOT NULL,
+        note_index INTEGER,
+        commitment TEXT NOT NULL,
+        new_root TEXT NOT NULL,
+        payload_hash TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE (tx_hash, output_index)
+    );
+    CREATE INDEX IF NOT EXISTS idx_shielded_outputs_note_index
+        ON shielded_outputs(note_index ASC, id ASC)
+        WHERE note_index IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_shielded_outputs_tx_hash
+        ON shielded_outputs(tx_hash, output_index);
+    CREATE INDEX IF NOT EXISTS idx_shielded_outputs_commitment
+        ON shielded_outputs(commitment);
+    """
+
+
 def create_shielded_output_tags():
     return """
     CREATE TABLE IF NOT EXISTS shielded_output_tags (
@@ -221,6 +282,11 @@ def create_shielded_output_tags():
     );
     CREATE INDEX IF NOT EXISTS idx_shielded_output_tags_kind_value_height
         ON shielded_output_tags(tag_kind, tag_value, block_height DESC, tx_index DESC, output_index DESC);
+    CREATE INDEX IF NOT EXISTS idx_shielded_output_tags_kind_value_id
+        ON shielded_output_tags(tag_kind, tag_value, id);
+    CREATE INDEX IF NOT EXISTS idx_shielded_output_tags_kind_value_note
+        ON shielded_output_tags(tag_kind, tag_value, note_index ASC, id ASC)
+        WHERE note_index IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_shielded_output_tags_tx_hash
         ON shielded_output_tags(tx_hash, output_index);
     CREATE INDEX IF NOT EXISTS idx_shielded_output_tags_commitment
@@ -339,6 +405,87 @@ def insert_reward():
     """
 
 
+def upsert_address_activity():
+    return """
+    INSERT INTO addresses(
+        address,
+        tx_count,
+        first_block_height,
+        first_seen,
+        last_block_height,
+        last_tx_index,
+        last_seen,
+        last_tx_hash,
+        last_contract,
+        last_function,
+        updated_at
+    )
+    VALUES ($1, 1, $2, $3, $2, $4, $3, $5, $6, $7, $8)
+    ON CONFLICT (address) DO UPDATE SET
+        tx_count = addresses.tx_count + 1,
+        first_block_height = LEAST(addresses.first_block_height, EXCLUDED.first_block_height),
+        first_seen = LEAST(addresses.first_seen, EXCLUDED.first_seen),
+        last_block_height = CASE
+            WHEN (EXCLUDED.last_block_height, EXCLUDED.last_tx_index)
+                >= (addresses.last_block_height, addresses.last_tx_index)
+                THEN EXCLUDED.last_block_height
+            ELSE addresses.last_block_height
+        END,
+        last_tx_index = CASE
+            WHEN (EXCLUDED.last_block_height, EXCLUDED.last_tx_index)
+                >= (addresses.last_block_height, addresses.last_tx_index)
+                THEN EXCLUDED.last_tx_index
+            ELSE addresses.last_tx_index
+        END,
+        last_seen = CASE
+            WHEN (EXCLUDED.last_block_height, EXCLUDED.last_tx_index)
+                >= (addresses.last_block_height, addresses.last_tx_index)
+                THEN EXCLUDED.last_seen
+            ELSE addresses.last_seen
+        END,
+        last_tx_hash = CASE
+            WHEN (EXCLUDED.last_block_height, EXCLUDED.last_tx_index)
+                >= (addresses.last_block_height, addresses.last_tx_index)
+                THEN EXCLUDED.last_tx_hash
+            ELSE addresses.last_tx_hash
+        END,
+        last_contract = CASE
+            WHEN (EXCLUDED.last_block_height, EXCLUDED.last_tx_index)
+                >= (addresses.last_block_height, addresses.last_tx_index)
+                THEN EXCLUDED.last_contract
+            ELSE addresses.last_contract
+        END,
+        last_function = CASE
+            WHEN (EXCLUDED.last_block_height, EXCLUDED.last_tx_index)
+                >= (addresses.last_block_height, addresses.last_tx_index)
+                THEN EXCLUDED.last_function
+            ELSE addresses.last_function
+        END,
+        updated_at = EXCLUDED.updated_at;
+    """
+
+
+def insert_shielded_output():
+    return """
+    INSERT INTO shielded_outputs(
+        block_height,
+        tx_hash,
+        tx_index,
+        contract,
+        function,
+        action,
+        output_index,
+        note_index,
+        commitment,
+        new_root,
+        payload_hash,
+        created_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    ON CONFLICT (tx_hash, output_index) DO NOTHING;
+    """
+
+
 def insert_shielded_output_tag():
     return """
     INSERT INTO shielded_output_tags(
@@ -384,6 +531,14 @@ def insert_state_patch_record():
     )
     VALUES ($1, $2, $3, $4, $5, $6, $7)
     ON CONFLICT (hash) DO NOTHING;
+    """
+
+
+def select_block_identity():
+    return """
+    SELECT block_hash, app_hash
+    FROM blocks
+    WHERE height = $1;
     """
 
 
@@ -525,7 +680,7 @@ def select_index_status():
         (SELECT block_hash FROM blocks ORDER BY height DESC LIMIT 1) AS indexed_block_hash,
         (SELECT block_time FROM blocks ORDER BY height DESC LIMIT 1) AS indexed_block_time,
         (SELECT block_time_iso FROM blocks ORDER BY height DESC LIMIT 1) AS indexed_block_time_iso,
-        (SELECT tx_count FROM blocks ORDER BY height DESC LIMIT 1) AS indexed_tx_count,
+        (SELECT COUNT(*) FROM transactions) AS indexed_tx_count,
         (SELECT app_hash FROM blocks ORDER BY height DESC LIMIT 1) AS indexed_app_hash;
     """
 
@@ -533,7 +688,7 @@ def select_index_status():
 def select_transaction_by_hash():
     return """
     SELECT
-        hash,
+        hash AS tx_hash,
         block_height,
         block_hash,
         block_time,
@@ -557,7 +712,7 @@ def select_transaction_by_hash():
 def select_transactions_for_block_height():
     return """
     SELECT
-        hash,
+        hash AS tx_hash,
         block_height,
         block_hash,
         block_time,
@@ -582,7 +737,7 @@ def select_transactions_for_block_height():
 def select_transactions_for_block_hash():
     return """
     SELECT
-        hash,
+        hash AS tx_hash,
         block_height,
         block_hash,
         block_time,
@@ -607,7 +762,7 @@ def select_transactions_for_block_hash():
 def select_transactions_by_sender():
     return """
     SELECT
-        hash,
+        hash AS tx_hash,
         block_height,
         block_hash,
         block_time,
@@ -632,36 +787,20 @@ def select_transactions_by_sender():
 
 def select_recent_addresses():
     return """
-    WITH sender_stats AS (
-        SELECT
-            sender AS address,
-            COUNT(*) AS tx_count,
-            MAX(block_height) AS last_block_height,
-            MAX(created_at) AS last_seen
-        FROM transactions
-        GROUP BY sender
-    ),
-    latest_tx AS (
-        SELECT DISTINCT ON (sender)
-            sender AS address,
-            hash AS last_tx_hash,
-            contract AS last_contract,
-            function AS last_function
-        FROM transactions
-        ORDER BY sender, block_height DESC, tx_index DESC
-    )
     SELECT
-        sender_stats.address,
-        sender_stats.tx_count,
-        sender_stats.last_block_height,
-        sender_stats.last_seen,
-        latest_tx.last_tx_hash,
-        latest_tx.last_contract,
-        latest_tx.last_function
-    FROM sender_stats
-    JOIN latest_tx
-        ON latest_tx.address = sender_stats.address
-    ORDER BY sender_stats.last_block_height DESC, sender_stats.address ASC
+        address,
+        tx_count,
+        first_block_height,
+        first_seen,
+        last_block_height,
+        last_tx_index,
+        last_seen,
+        last_tx_hash,
+        last_contract,
+        last_function,
+        updated_at
+    FROM addresses
+    ORDER BY last_block_height DESC, last_tx_index DESC, address ASC
     LIMIT $1 OFFSET $2;
     """
 
@@ -669,7 +808,7 @@ def select_recent_addresses():
 def select_transactions_by_contract():
     return """
     SELECT
-        hash,
+        hash AS tx_hash,
         block_height,
         block_hash,
         block_time,
@@ -782,6 +921,46 @@ def select_events_by_event_after_id():
     WHERE event = $1 AND id > $2
     ORDER BY id ASC
     LIMIT $3;
+    """
+
+
+def select_shielded_wallet_history():
+    return """
+    SELECT
+        so.id AS output_id,
+        NULL::BIGINT AS event_id,
+        so.tx_hash,
+        so.block_height,
+        so.tx_index,
+        so.contract,
+        so.function,
+        so.action,
+        so.output_index,
+        so.note_index,
+        so.commitment,
+        so.new_root,
+        CASE WHEN sot.tx_hash IS NULL THEN NULL ELSE so.payload_hash END AS payload_hash,
+        sot.tag_kind,
+        sot.tag_value,
+        CASE
+            WHEN sot.tx_hash IS NOT NULL
+             AND jsonb_typeof(t.payload -> 'kwargs' -> 'output_payloads') = 'array'
+                THEN (t.payload -> 'kwargs' -> 'output_payloads') ->> so.output_index
+            ELSE NULL
+        END AS output_payload,
+        so.created_at
+    FROM shielded_outputs AS so
+    JOIN transactions AS t
+        ON t.hash = so.tx_hash
+    LEFT JOIN shielded_output_tags AS sot
+        ON sot.tx_hash = so.tx_hash
+       AND sot.output_index = so.output_index
+       AND sot.tag_kind = $1
+       AND sot.tag_value = $2
+    WHERE so.note_index IS NOT NULL
+      AND so.note_index >= $3
+    ORDER BY so.note_index ASC, so.id ASC
+    LIMIT $4;
     """
 
 
