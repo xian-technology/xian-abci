@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Check out xian-abci
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: xian-abci
 
@@ -41,42 +41,42 @@ jobs:
           echo "ref=${REF_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Check out xian-contracting
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-contracting
           ref: main
           path: xian-contracting
 
       - name: Check out xian-configs
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-configs
           ref: main
           path: xian-configs
 
       - name: Check out xian-contracts
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-contracts
           ref: main
           path: xian-contracts
 
       - name: Check out xian-stack
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-stack
           ref: main
           path: xian-stack
 
       - name: Check out xian-py
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-py
           ref: main
           path: xian-py
 
       - name: Check out xian-js
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-js
           ref: main
@@ -133,7 +133,7 @@ jobs:
         run: ./scripts/validate-sdk-transaction-parity.sh
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: xian-abci-coverage
           path: xian-abci/coverage.xml
