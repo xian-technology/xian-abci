@@ -78,6 +78,10 @@ allow_duplicate_ip = false
 handshake_timeout = "20s"
 dial_timeout = "3s"
 
+[p2p.libp2p]
+enabled = false
+bootstrap_peers = []
+
 [mempool]
 type = "flood"
 recheck = true
@@ -105,6 +109,7 @@ chunk_fetchers = "4"
 
 [blocksync]
 version = "v0"
+adaptive_sync = false
 
 [consensus]
 wal_file = "data/cs.wal/wal"
