@@ -2,4 +2,4 @@
 ABCI
 """
 
-__version__ = "0.8.17-beta.2"
+__version__ = "0.9.0"
