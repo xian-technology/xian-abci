@@ -3,7 +3,7 @@ import decimal
 import hashlib
 import json
 from datetime import datetime
-from typing import Tuple
+from typing import Any, Tuple
 
 from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal
@@ -16,6 +16,9 @@ try:
     )
 except ImportError:  # pragma: no cover - exercised through fallback path
     _native_extract_payload_string = None
+
+MIN_CANONICAL_JSON_INTEGER = -(2**63)
+MAX_CANONICAL_JSON_INTEGER = 2**64 - 1
 
 
 def _decimal_to_plain_string(value) -> str:
@@ -36,6 +39,33 @@ def encode_str(value):
     return value.encode("utf-8")
 
 
+def canonical_json_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        items = []
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError("Transaction JSON object keys must be strings")
+            items.append((key, canonical_json_value(item)))
+        return {key: item for key, item in sorted(items)}
+    if isinstance(value, list):
+        return [canonical_json_value(item) for item in value]
+    if type(value) is int and not (
+        MIN_CANONICAL_JSON_INTEGER <= value <= MAX_CANONICAL_JSON_INTEGER
+    ):
+        raise ValueError("Transaction bytes are not canonical")
+    if isinstance(value, float):
+        raise ValueError("Transaction bytes are not canonical")
+    return value
+
+
+def canonical_json_text(value: Any) -> str:
+    return json.dumps(
+        canonical_json_value(value),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
 def decode_transaction_bytes(raw) -> Tuple[dict, str]:
     # Returning a Python dict makes decode-only calls boundary-bound; keep the
     # full decode in Python and use native code only for the payload scanner.
@@ -44,10 +74,14 @@ def decode_transaction_bytes(raw) -> Tuple[dict, str]:
     tx_decoded_bytes = bytes.fromhex(tx_hex)
     tx_str = tx_decoded_bytes.decode("utf-8")
     tx_json = json.loads(tx_str)
-    payload_str = extract_payload_string(tx_str)
 
-    if json.loads(payload_str) != tx_json["payload"]:
-        raise ValueError("Invalid payload")
+    canonical_tx_str = canonical_json_text(tx_json)
+    if tx_str != canonical_tx_str:
+        raise ValueError("Transaction bytes are not canonical")
+    try:
+        payload_str = canonical_json_text(tx_json["payload"])
+    except KeyError as exc:
+        raise ValueError("Invalid payload") from exc
     return tx_json, payload_str
 
 
@@ -79,7 +113,7 @@ def extract_payload_string(json_str):
         while i < len(json_str):
             char = json_str[i]
 
-            if char == '"' and (i == 0 or json_str[i - 1] != "\\"):
+            if char == '"' and not _is_escaped(json_str, i):
                 in_string = not in_string
 
             if not in_string:
@@ -98,6 +132,15 @@ def extract_payload_string(json_str):
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         raise
+
+
+def _is_escaped(json_str: str, index: int) -> bool:
+    slash_count = 0
+    cursor = index - 1
+    while cursor >= 0 and json_str[cursor] == "\\":
+        slash_count += 1
+        cursor -= 1
+    return slash_count % 2 == 1
 
 
 def hash_bytes(bytes):

@@ -167,7 +167,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
             VALID_NONCE,
         )
 
-    async def test_check_tx_accepts_canonical_signature_with_default_json_wire_format(
+    async def test_check_tx_rejects_default_json_wire_format(
         self,
     ):
         self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
@@ -175,7 +175,9 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(self.make_request(tx_bytes))
 
-        self.assertEqual(response.check_tx.code, c.OkCode)
+        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertIn("Transaction bytes are not canonical", response.check_tx.log)
+        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 
     async def test_check_tx_expires_stale_pending_reservations(self):
         self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
@@ -358,7 +360,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(response.check_tx.code, c.ErrorCode)
-        self.assertIn("Invalid payload", response.check_tx.log)
+        self.assertIn("Transaction bytes are not canonical", response.check_tx.log)
         self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 
 

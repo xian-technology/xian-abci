@@ -180,7 +180,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(list(response.prepare_proposal.txs), [tx_one])
 
-    async def test_prepare_proposal_accepts_canonical_signature_with_default_json_wire_format(
+    async def test_prepare_proposal_filters_default_json_wire_format(
         self,
     ):
         tx = make_signed_tx_bytes_with_raw_spacing(nonce=0)
@@ -190,7 +190,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             Request(prepare_proposal=RequestPrepareProposal(txs=[tx])),
         )
 
-        self.assertEqual(list(response.prepare_proposal.txs), [tx])
+        self.assertEqual(list(response.prepare_proposal.txs), [])
 
     async def test_process_proposal_rejects_invalid_signature(self):
         invalid_tx = make_signed_tx_bytes(nonce=0, mutate_signature=True)
@@ -203,6 +203,19 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(
             response.process_proposal, ResponseProcessProposal
         )
+        self.assertEqual(
+            response.process_proposal.status,
+            ResponseProcessProposal.ProposalStatus.REJECT,
+        )
+
+    async def test_process_proposal_rejects_default_json_wire_format(self):
+        tx = make_signed_tx_bytes_with_raw_spacing(nonce=0)
+
+        response = await self.process_request(
+            "process_proposal",
+            Request(process_proposal=RequestProcessProposal(txs=[tx])),
+        )
+
         self.assertEqual(
             response.process_proposal.status,
             ResponseProcessProposal.ProposalStatus.REJECT,
@@ -264,6 +277,24 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         error_payload = json.loads(tx_result.data.decode("utf-8"))
         self.assertIn("Error decoding transaction", error_payload["error"])
         self.assertIn("Bad signature", error_payload["error"])
+
+    async def test_finalize_block_rejects_default_json_wire_format_before_execution(
+        self,
+    ):
+        tx = make_signed_tx_bytes_with_raw_spacing(nonce=0)
+
+        with patch.object(self.app.tx_processor, "process_tx") as process_tx:
+            response = await self.process_request(
+                "finalize_block",
+                Request(finalize_block=RequestFinalizeBlock(txs=[tx])),
+            )
+        process_tx.assert_not_called()
+
+        self.assertEqual(len(response.finalize_block.tx_results), 1)
+        tx_result = response.finalize_block.tx_results[0]
+        self.assertEqual(tx_result.code, c.ErrorCode)
+        error_payload = json.loads(tx_result.data.decode("utf-8"))
+        self.assertIn("Transaction bytes are not canonical", error_payload["error"])
 
     async def test_finalize_block_rejects_duplicate_nonce_before_execution(
         self,

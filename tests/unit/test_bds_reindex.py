@@ -12,7 +12,7 @@ from xian.services.bds.reindex import (
     parse_rfc3339_nano,
     run_bds_reindex,
 )
-from xian.utils.encoding import encode_transaction_bytes
+from xian.utils.encoding import canonical_json_text, encode_transaction_bytes
 
 
 class _FakeBlockSource:
@@ -59,7 +59,12 @@ class _FakeStatePatchManager:
 
 
 def _tx_b64(tx: dict) -> str:
-    tx_json = json.dumps(tx, separators=(",", ":"))
+    tx_json = canonical_json_text(tx)
+    return base64.b64encode(encode_transaction_bytes(tx_json)).decode("utf-8")
+
+
+def _noncanonical_tx_b64(tx: dict) -> str:
+    tx_json = json.dumps(tx)
     return base64.b64encode(encode_transaction_bytes(tx_json)).decode("utf-8")
 
 
@@ -141,6 +146,53 @@ class BdsReindexerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload.transactions[0].payload["sender"], "alice")
         self.assertEqual(payload.transactions[0].tx_result["status"], 0)
         self.assertIn("hash", payload.transactions[0].tx_result)
+
+    async def test_build_payload_rejects_noncanonical_block_transaction(self):
+        tx = {
+            "payload": {
+                "sender": "alice",
+                "nonce": 7,
+                "contract": "currency",
+                "function": "transfer",
+                "kwargs": {"to": "bob", "amount": 1},
+            },
+            "metadata": {"signature": "sig"},
+        }
+        tx_result = {
+            "status": 0,
+            "state": [{"key": "currency.balances:alice", "value": "99"}],
+            "events": [],
+            "chi_used": 7,
+        }
+        source = _FakeBlockSource()
+        source.blocks[12] = {
+            "block_id": {"hash": "BLOCK-12"},
+            "block": {
+                "header": {
+                    "height": "12",
+                    "time": "2026-01-01T00:00:12Z",
+                    "app_hash": "APP-12",
+                },
+                "data": {"txs": [_noncanonical_tx_b64(tx)]},
+            },
+        }
+        source.block_results_map[12] = {
+            "txs_results": [
+                {
+                    "code": "0",
+                    "gas_used": "7",
+                    "data": _tx_result_b64(tx_result),
+                }
+            ]
+        }
+        reindexer = BdsReindexer(
+            bds=_FakeBds(indexed_height=0),
+            block_source=source,
+            state_patch_manager=_FakeStatePatchManager(),
+        )
+
+        with self.assertRaisesRegex(ValueError, "Transaction bytes are not canonical"):
+            await reindexer.build_payload(12)
 
     async def test_build_payload_rejects_source_hash_mismatch_against_trusted_block(self):
         source = _FakeBlockSource()

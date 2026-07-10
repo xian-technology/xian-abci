@@ -7,6 +7,7 @@ import nacl.signing
 from parameterized import parameterized
 from xian_runtime_types.decimal import ContractingDecimal
 
+import xian.utils.encoding as encoding
 from xian.utils.encoding import (
     decode_transaction_bytes,
     encode_transaction_bytes,
@@ -141,6 +142,17 @@ class TestPayloadStrExtraction(unittest.TestCase):
                 '{"metadata":{"signature":"abc"},"payload":{"text":"This is a \\" } quoted\\" string","number":123}}',
                 True,
             ),
+            (
+                "payload_string_ending_with_backslash",
+                json.dumps(
+                    {
+                        "metadata": {"signature": "abc"},
+                        "payload": {"text": "ends with \\"},
+                    },
+                    separators=(",", ":"),
+                ),
+                True,
+            ),
         ]
     )
     def test_extract_payload(
@@ -156,6 +168,25 @@ class TestPayloadStrExtraction(unittest.TestCase):
         else:
             with self.assertRaises(ValueError):
                 extract_payload_string(tx_str)
+
+    def test_python_payload_scanner_handles_even_backslashes_before_quote(self):
+        tx_str = json.dumps(
+            {
+                "metadata": {"signature": "abc"},
+                "payload": {"text": "ends with \\"},
+            },
+            separators=(",", ":"),
+        )
+
+        original_native = encoding._native_extract_payload_string
+        encoding._native_extract_payload_string = None
+        try:
+            self.assertEqual(
+                json.loads(encoding.extract_payload_string(tx_str)),
+                {"text": "ends with \\"},
+            )
+        finally:
+            encoding._native_extract_payload_string = original_native
 
 
 class TestVerification(unittest.TestCase):
@@ -181,24 +212,32 @@ class TestEncoding(unittest.TestCase):
         [
             (
                 "valid_transaction",
-                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550d"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
+                _signed_transaction_json(),
                 False,
+                None,
+            ),
+            (
+                "default_json_spacing",
+                json.dumps(json.loads(_signed_transaction_json())),
+                True,
+                "Transaction bytes are not canonical",
             ),
             (
                 "multiple_payload_fields",
                 '{"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":10000000000,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}, "metadata":{"signature":"847871676c33d17d5a86bd8b2f12832e35e2b73692b0f28321be2f9acd3379c755440333ddc5e5bf40255256adb946aecae6729e8cb3a9028b08cdd995609f05"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
                 True,
+                "Transaction bytes are not canonical",
             ),
         ]
     )
-    def test_decode_transaction_bytes(self, name, tx_str, should_raise):
+    def test_decode_transaction_bytes(self, name, tx_str, should_raise, expected_error):
         tx_bytes = encode_transaction_bytes(tx_str)
         if should_raise:
             with self.assertRaises(ValueError) as context:
                 tx_json_decoded, payload_str = decode_transaction_bytes(
                     tx_bytes
                 )
-            self.assertTrue("Invalid payload" in str(context.exception))
+            self.assertIn(expected_error, str(context.exception))
         else:
             tx_json_decoded, payload_str = decode_transaction_bytes(tx_bytes)
         # self.assertEqual(tx_json_decoded, tx_json)

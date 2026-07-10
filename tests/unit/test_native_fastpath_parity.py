@@ -131,7 +131,7 @@ def _validate(raw_tx: bytes, *, native: bool) -> ValidationResult:
         (
             "default_json_wire_spacing",
             _signed_tx_bytes(wire_json_dumps=True),
-            True,
+            False,
         ),
         (
             "nested_ascii_kwargs",
@@ -160,6 +160,11 @@ def _validate(raw_tx: bytes, *, native: bool) -> ValidationResult:
         (
             "unicode_kwargs_use_clean_canonical_json",
             _signed_tx_bytes(kwargs={"memo": "snowman: \u2603", "to": SENDER}),
+            True,
+        ),
+        (
+            "trailing_backslash_payload_string",
+            _signed_tx_bytes(kwargs={"memo": "ends with \\", "to": SENDER}),
             True,
         ),
         (
