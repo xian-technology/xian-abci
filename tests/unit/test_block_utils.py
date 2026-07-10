@@ -6,6 +6,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
+from contracting.storage.driver import Driver
+
+from xian.constants import Constants
 from xian.utils.block import (
     LATEST_BLOCK_DEFAULT,
     LATEST_BLOCK_READ_RETRY_DELAY_SECONDS,
@@ -14,8 +17,11 @@ from xian.utils.block import (
     get_latest_block_hash,
     get_latest_block_height,
     get_latest_block_nanos,
+    reconcile_latest_block,
     set_latest_block,
     set_latest_block_hash,
+    stage_latest_block,
+    write_latest_block,
 )
 
 
@@ -27,9 +33,7 @@ class LatestBlockUtilsTests(unittest.TestCase):
             create_latest_block_json_if_not_exists(storage_home)
 
             latest_block = json.loads(
-                (storage_home / "__latest_block.json").read_text(
-                    encoding="utf-8"
-                )
+                (storage_home / "__latest_block.json").read_text(encoding="utf-8")
             )
 
         self.assertEqual(latest_block, LATEST_BLOCK_DEFAULT)
@@ -46,9 +50,7 @@ class LatestBlockUtilsTests(unittest.TestCase):
             )
 
             latest_block = json.loads(
-                (storage_home / "__latest_block.json").read_text(
-                    encoding="utf-8"
-                )
+                (storage_home / "__latest_block.json").read_text(encoding="utf-8")
             )
             self.assertEqual(latest_block["hash"], "ab" * 32)
             self.assertEqual(
@@ -102,6 +104,118 @@ class LatestBlockUtilsTests(unittest.TestCase):
                 self.assertEqual(get_latest_block_height(storage_home), 42)
             finally:
                 repair_thread.join()
+
+    def test_unapplied_commit_marker_does_not_advance_recovery_metadata(self):
+        with TemporaryDirectory() as tmpdir:
+            storage_home = Path(tmpdir)
+            driver = Driver(storage_home=storage_home)
+            old_block = stage_latest_block(
+                driver,
+                block_hash=bytes.fromhex("11" * 32),
+                height=4,
+                nanos=400,
+            )
+            driver.hard_apply("400")
+            write_latest_block(old_block, storage_home)
+
+            driver.apply_writes({"currency.balances:alice": 99})
+            stage_latest_block(
+                driver,
+                block_hash=bytes.fromhex("22" * 32),
+                height=5,
+                nanos=500,
+            )
+            driver.close()
+
+            recovered_driver = Driver(storage_home=storage_home)
+            try:
+                recovered = reconcile_latest_block(recovered_driver, storage_home)
+                self.assertEqual(recovered, old_block)
+                self.assertIsNone(recovered_driver.value_from_disk("currency.balances:alice"))
+            finally:
+                recovered_driver.close()
+
+    def test_reconcile_ignores_json_without_authoritative_commit_marker(self):
+        with TemporaryDirectory() as tmpdir:
+            storage_home = Path(tmpdir)
+            write_latest_block(
+                {
+                    "hash": "ff" * 32,
+                    "height": 99,
+                    "nanos": 9900,
+                },
+                storage_home,
+            )
+
+            driver = Driver(storage_home=storage_home)
+            try:
+                recovered = reconcile_latest_block(driver, storage_home)
+                self.assertEqual(recovered, LATEST_BLOCK_DEFAULT)
+                self.assertEqual(get_latest_block_height(storage_home), 0)
+                self.assertEqual(get_latest_block_hash(storage_home), b"")
+            finally:
+                driver.close()
+
+    def test_reconcile_repairs_mirror_after_state_commit(self):
+        with TemporaryDirectory() as tmpdir:
+            storage_home = Path(tmpdir)
+            old_block = {
+                "hash": "33" * 32,
+                "height": 7,
+                "nanos": 700,
+            }
+            write_latest_block(old_block, storage_home)
+
+            driver = Driver(storage_home=storage_home)
+            driver.apply_writes({"currency.balances:alice": 123})
+            committed_block = stage_latest_block(
+                driver,
+                block_hash=bytes.fromhex("44" * 32),
+                height=8,
+                nanos=800,
+            )
+            driver.hard_apply("800")
+            driver.close()
+
+            # This is the crash boundary: LMDB committed the state and marker,
+            # but the legacy JSON mirror still describes the prior block.
+            self.assertEqual(get_latest_block_height(storage_home), 7)
+
+            recovered_driver = Driver(storage_home=storage_home)
+            try:
+                recovered = reconcile_latest_block(recovered_driver, storage_home)
+                self.assertEqual(recovered, committed_block)
+                self.assertEqual(
+                    recovered_driver.value_from_disk("currency.balances:alice"),
+                    123,
+                )
+                self.assertEqual(get_latest_block_height(storage_home), 8)
+                self.assertEqual(
+                    get_latest_block_hash(storage_home),
+                    bytes.fromhex("44" * 32),
+                )
+            finally:
+                recovered_driver.close()
+
+    def test_reconcile_rejects_invalid_authoritative_marker(self):
+        with TemporaryDirectory() as tmpdir:
+            storage_home = Path(tmpdir)
+            driver = Driver(storage_home=storage_home)
+            driver.apply_writes(
+                {
+                    Constants.LATEST_BLOCK_KEY: {
+                        "hash": "not-hex",
+                        "height": 9,
+                        "nanos": 900,
+                    }
+                }
+            )
+            driver.hard_apply("900")
+            try:
+                with self.assertRaisesRegex(ValueError, "invalid app hash"):
+                    reconcile_latest_block(driver, storage_home)
+            finally:
+                driver.close()
 
     def test_apply_state_changes_does_not_materialize_runtime_artifacts(self):
         contract_source = """

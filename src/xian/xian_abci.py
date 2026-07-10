@@ -96,7 +96,7 @@ from xian.services.bds.config import BdsConfig
 from xian.services.state_sync import StateSnapshotManager
 from xian.simulator import QuerySimulationService
 from xian.state_root import StateRootCache
-from xian.utils.block import get_latest_block_height
+from xian.utils.block import get_latest_block_height, reconcile_latest_block
 from xian.utils.cometbft import (
     load_genesis_data,
     load_tendermint_config,
@@ -156,6 +156,10 @@ class Xian:
         self.execution_mode = self.execution_runtime.mode
         self.client = ContractingClient(
             storage_home=constants.STORAGE_HOME,
+        )
+        reconcile_latest_block(
+            self.client.raw_driver,
+            constants.STORAGE_HOME,
         )
         try:
             self.runtime_feature_resolution = resolve_runtime_features(

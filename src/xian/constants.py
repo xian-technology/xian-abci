@@ -11,6 +11,7 @@ class Constants:
     NONCE_FILENAME = "__n"
     PENDING_NONCE_FILENAME = "__pn"
 
+    LATEST_BLOCK_KEY = "__latest_block"
     LATEST_BLOCK_HASH_KEY = "__latest_block.hash"
     LATEST_BLOCK_HEIGHT_KEY = "__latest_block.height"
     DUST_EXPONENT = 8

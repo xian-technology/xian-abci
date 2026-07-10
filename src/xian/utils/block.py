@@ -5,6 +5,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from loguru import logger
 from xian_runtime_types.encoding import convert_dict
 
 from xian.constants import Constants as c
@@ -82,6 +83,92 @@ def _load_latest_block(storage_home: Path | None = None) -> dict:
     if isinstance(last_error, json.JSONDecodeError):
         raise Exception("Error decoding __latest_block.json") from last_error
     raise Exception("Error loading __latest_block.json")
+
+
+def _load_committed_latest_block(raw_driver) -> dict | None:
+    latest_block = raw_driver.value_from_disk(c.LATEST_BLOCK_KEY)
+    if latest_block is None:
+        return None
+    if not isinstance(latest_block, dict):
+        raise ValueError("committed latest-block marker must be a mapping")
+
+    normalized = _normalize_latest_block(latest_block)
+    try:
+        bytes.fromhex(normalized["hash"])
+    except ValueError as exc:
+        raise ValueError("committed latest-block marker has an invalid app hash") from exc
+    return normalized
+
+
+def stage_latest_block(
+    raw_driver,
+    *,
+    block_hash: bytes,
+    height: int,
+    nanos: int,
+) -> dict:
+    """Stage block metadata in the same durable transaction as block state."""
+    latest_block = _normalize_latest_block(
+        {
+            "hash": block_hash.hex(),
+            "height": height,
+            "nanos": nanos,
+        }
+    )
+    raw_driver.apply_writes({c.LATEST_BLOCK_KEY: latest_block})
+    return latest_block
+
+
+def write_latest_block(
+    latest_block: dict,
+    storage_home: Path | None = None,
+) -> None:
+    """Write the compatibility mirror for already-durable block metadata."""
+    _write_latest_block_json(
+        _latest_block_path(storage_home),
+        latest_block,
+        replace_existing=True,
+    )
+
+
+def try_write_latest_block(
+    latest_block: dict,
+    storage_home: Path | None = None,
+) -> bool:
+    """Best-effort update of the non-authoritative JSON compatibility mirror."""
+    try:
+        write_latest_block(latest_block, storage_home)
+    except OSError as exc:
+        logger.bind(
+            stage="latest_block_mirror",
+            block_height=latest_block.get("height"),
+            storage_home=str(Path(storage_home) if storage_home is not None else c.STORAGE_HOME),
+            error_type=type(exc).__name__,
+        ).warning("Failed to update latest-block JSON compatibility mirror: {}", exc)
+        return False
+    return True
+
+
+def reconcile_latest_block(raw_driver, storage_home: Path | None = None) -> dict:
+    """Repair the JSON mirror from the atomic LMDB commit marker.
+
+    Without a committed marker, the database is at the initial height. The
+    JSON file is never an authority because it is outside the LMDB transaction.
+    """
+    committed = _load_committed_latest_block(raw_driver)
+    if committed is None:
+        committed = dict(LATEST_BLOCK_DEFAULT)
+
+    latest_block_path = _latest_block_path(storage_home)
+    try:
+        with open(latest_block_path, "r", encoding="utf-8") as latest_block_file:
+            mirrored = _normalize_latest_block(json.load(latest_block_file))
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError):
+        mirrored = None
+
+    if mirrored != committed:
+        try_write_latest_block(committed, storage_home)
+    return committed
 
 
 def nanoseconds_to_utc_datetime(nanoseconds: int) -> datetime:

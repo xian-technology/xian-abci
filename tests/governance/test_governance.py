@@ -826,10 +826,17 @@ class MyTestCase(unittest.TestCase):
                     "kwargs": {
                         "type_of_vote": "change_types",
                         "arg": [
-                            "new_type1",
-                            "new_type2",
-                            "new_type3",
-                            "new_type4",
+                            "add_member",
+                            "remove_member",
+                            "jail_member",
+                            "unjail_member",
+                            "slash_member",
+                            "set_member_power",
+                            "change_registration_fee",
+                            "chi_cost_change",
+                            "change_types",
+                            "update_policy",
+                            "topic_vote",
                         ],
                     },
                     "chi_supplied": 1000,
@@ -1216,19 +1223,19 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(
             self.validators.types.get(),
             [
-            "add_member", 
-            "remove_member", 
-            "jail_member",
-            "unjail_member",
-            "slash_member",
-            "set_member_power",
-            "change_registration_fee", 
-            "reward_change", 
-            "dao_payout", 
-            "chi_cost_change", 
-            "change_types", 
-            "update_policy",
-            "topic_vote"
+                "add_member",
+                "remove_member",
+                "jail_member",
+                "unjail_member",
+                "slash_member",
+                "set_member_power",
+                "change_registration_fee",
+                "chi_cost_change",
+                "change_types",
+                "update_policy",
+                "reward_change",
+                "dao_payout",
+                "topic_vote",
             ],
         )
         self.vote_types_change()
@@ -1237,7 +1244,19 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(self.validators.votes[1]["finalized"], True)
         self.assertEqual(
             self.validators.types.get(),
-            ["new_type1", "new_type2", "new_type3", "new_type4"],
+            [
+                "add_member",
+                "remove_member",
+                "jail_member",
+                "unjail_member",
+                "slash_member",
+                "set_member_power",
+                "change_registration_fee",
+                "chi_cost_change",
+                "change_types",
+                "update_policy",
+                "topic_vote",
+            ],
         )
 
 

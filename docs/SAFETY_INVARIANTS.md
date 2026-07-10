@@ -17,6 +17,11 @@ This file records the runtime properties that must hold before an
 - Failed transactions must not persist contract writes or events.
 - Replay after failure must leave the same committed state on every node and in
   every execution engine.
+- A committed block's height and app hash must become durable in the same LMDB
+  transaction as its state writes. `Info` must never advertise metadata for
+  state that was not committed, and startup must repair the compatibility JSON
+  mirror from the authoritative LMDB commit marker after a crash. Mirror I/O
+  failure must be logged but must not invalidate an authoritative LMDB commit.
 - Fee-accounting balance writes may still apply on failure when the runtime
   policy intentionally charges failed execution, but they must remain
   deterministic across nodes and runtimes.

@@ -4,6 +4,11 @@ from unittest.mock import AsyncMock, Mock, patch
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
 
+from xian.utils.block import (
+    get_latest_block_height,
+    set_latest_block,
+    stage_latest_block,
+)
 from xian.xian_abci import (
     Xian,
     _require_zk_verifier_if_enabled,
@@ -69,12 +74,45 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
 
         await self.app.start_runtime()
 
-        fake_bds.initialize_storage.assert_awaited_once_with(
-            cometbft_genesis=self.app.genesis
-        )
+        fake_bds.initialize_storage.assert_awaited_once_with(cometbft_genesis=self.app.genesis)
         fake_bds.start.assert_awaited_once()
         fake_metrics.start.assert_awaited_once()
         self.assertTrue(self.app._bds_storage_initialized)
+
+    async def test_startup_uses_authoritative_marker_when_mirror_repair_fails(self):
+        storage_home = self.app.client.raw_driver.storage_home
+        set_latest_block(
+            block_hash=bytes.fromhex("99" * 32),
+            height=13,
+            nanos=1300,
+            storage_home=storage_home,
+        )
+        stage_latest_block(
+            self.app.client.raw_driver,
+            block_hash=bytes.fromhex("aa" * 32),
+            height=14,
+            nanos=1400,
+        )
+        self.app.client.raw_driver.hard_apply("1400")
+
+        with (
+            patch(
+                "xian.utils.block._write_latest_block_json",
+                side_effect=OSError("injected startup mirror repair failure"),
+            ),
+            patch("xian.utils.block.logger") as mirror_logger,
+        ):
+            restarted_app = await Xian.create(constants=MockConstants)
+
+        try:
+            self.assertEqual(get_latest_block_height(storage_home), 13)
+            self.assertEqual(
+                restarted_app.client.raw_driver.value_from_disk("__latest_block"),
+                {"hash": "aa" * 32, "height": 14, "nanos": 1400},
+            )
+            mirror_logger.bind.return_value.warning.assert_called_once()
+        finally:
+            await restarted_app.close()
 
     async def test_runtime_disables_debug_tx_traces_when_log_level_is_info(
         self,

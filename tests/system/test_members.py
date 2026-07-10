@@ -19,33 +19,37 @@ class TestMembersContract(unittest.TestCase):
 
         self.client = ContractingClient(environment=self.environment)
         self.client.flush()
-        
+
         # Set up paths and load contracts
         self.contracts_dir = str(resolve_contracts_dir())
-        
+
         # Deploy required contracts first with correct constructor args
         contract_args = {
             "currency": {"vk": self.deployer_vk},
             "chi_cost": {"initial_rate": 20},
             "rewards": None,
-            "dao": None
+            "dao": None,
         }
 
         for contract in ["currency.s.py", "dao.s.py", "rewards.s.py", "chi_cost.s.py"]:
             path = os.path.join(self.contracts_dir, contract)
             with open(path) as f:
                 code = f.read()
-                name = contract.split('.')[0]
+                name = contract.split(".")[0]
                 self.client.submit(code, name=name, constructor_args=contract_args[name])
-        
+
         # Deploy members contract
         members_path = os.path.join(self.contracts_dir, "validators.s.py")
         with open(members_path) as f:
             code = f.read()
-            self.client.submit(code, name="validators", constructor_args={
-                "genesis_nodes": ["node1", "node2", "node3"],
-                "genesis_registration_fee": 1000
-            })
+            self.client.submit(
+                code,
+                name="validators",
+                constructor_args={
+                    "genesis_nodes": ["node1", "node2", "node3"],
+                    "genesis_registration_fee": 1000,
+                },
+            )
 
         self.members = self.client.get_contract_proxy("validators")
         self.currency = self.client.get_contract_proxy("currency")
@@ -77,13 +81,23 @@ class TestMembersContract(unittest.TestCase):
         )
         return self.members.get_policy_config(signer="node1")
 
+    def assert_vote_payload_rejected(self, type_of_vote, arg):
+        proposal_count = self.members.total_votes.get()
+        with self.assertRaises(AssertionError):
+            self.members.propose_vote(
+                type_of_vote=type_of_vote,
+                arg=arg,
+                signer="node1",
+            )
+        self.assertEqual(self.members.total_votes.get(), proposal_count)
+
     def test_initial_setup(self):
         # GIVEN the initial setup from constructor
         # WHEN checking initial values
         nodes = self.members.active_validators.get()
         fee = self.members.registration_fee.get()
         types = self.members.types.get()
-        
+
         # THEN values should match constructor args
         self.assertEqual(len(nodes), 3)
         self.assertEqual(fee, 1000)
@@ -98,14 +112,12 @@ class TestMembersContract(unittest.TestCase):
         # GIVEN sufficient funds for registration
         self.currency.approve(amount=1000, to="validators", signer="new_member")
         self.currency.transfer(amount=1000, to="new_member", signer=self.deployer_vk)
-        
+
         # WHEN registering
         self.members.register(signer="new_member")
-        
+
         # THEN registration should be pending
-        validator = self.members.get_validator(
-            account="new_member", signer="new_member"
-        )
+        validator = self.members.get_validator(account="new_member", signer="new_member")
         self.assertTrue(self.members.pending_registrations["new_member"])
         self.assertEqual(self.members.holdings["new_member"], 1000)
         self.assertEqual(self.members.statuses["new_member"], "pending")
@@ -123,17 +135,13 @@ class TestMembersContract(unittest.TestCase):
             reward_key="reward-wallet",
             moniker="new-node",
         )
-        
+
         # WHEN proposing and voting
-        self.members.propose_vote(
-            type_of_vote="add_member",
-            arg="new_member",
-            signer="node1"
-        )
-        
+        self.members.propose_vote(type_of_vote="add_member", arg="new_member", signer="node1")
+
         self.members.vote(proposal_id=1, vote="yes", signer="node2")
         self.members.vote(proposal_id=1, vote="yes", signer="node3")
-        
+
         # THEN member should be added
         nodes = self.members.active_validators.get()
         self.assertTrue("new_member" in nodes)
@@ -190,16 +198,137 @@ class TestMembersContract(unittest.TestCase):
             ],
         )
 
+    def test_vote_payloads_are_validated_before_proposal_creation(self):
+        invalid_payloads = [
+            ("topic_vote", "free-form-string"),
+            ("topic_vote", {"topic": ""}),
+            ("topic_vote", {"topic": "ok", "unexpected": True}),
+            ("change_registration_fee", 0),
+            ("change_registration_fee", -1),
+            ("change_registration_fee", True),
+            ("reward_change", [0.5, 0.5]),
+            ("reward_change", [0.5, 0.25, 0.25, 0]),
+            ("dao_payout", {"amount": 10, "to": "recipient"}),
+            (
+                "dao_payout",
+                {"contract_name": "currency", "amount": -1, "to": "recipient"},
+            ),
+            (
+                "dao_payout",
+                {"contract_name": "missing", "amount": 1, "to": "recipient"},
+            ),
+            ("chi_cost_change", 0),
+            ("change_types", []),
+            ("change_types", ["topic_vote", "topic_vote"]),
+            ("update_policy", {}),
+            ("update_policy", {"unknown_policy": 1}),
+            ("update_policy", {"max_validators": True}),
+            ("update_policy", {"duplicate_vote_jail": "yes"}),
+            ("jail_member", {"reason": "missing member"}),
+            ("slash_member", {"member": "node1", "slash_bps": 1.5}),
+            ("set_member_power", {"member": "node1", "power": 1.5}),
+        ]
+
+        for type_of_vote, arg in invalid_payloads:
+            with self.subTest(type_of_vote=type_of_vote, arg=arg):
+                self.assert_vote_payload_rejected(type_of_vote, arg)
+
+    def test_remove_member_rejects_inactive_approved_validator(self):
+        self.approve_policy_update(
+            environment={"block_num": 0},
+            selection_mode="auto_top_n",
+            max_validators=2,
+        )
+
+        self.assertEqual(self.members.statuses["node3"], "approved")
+        self.assertNotIn("node3", self.members.active_validators.get())
+        with self.assertRaisesRegex(AssertionError, "Active only"):
+            self.members.propose_vote(
+                type_of_vote="remove_member",
+                arg="node3",
+                signer="node1",
+            )
+
+    def test_change_types_cannot_remove_recovery_vote_types(self):
+        recovery_types = self.members.get_recovery_vote_types(signer="node1")
+        self.assertEqual(
+            recovery_types,
+            [
+                "add_member",
+                "remove_member",
+                "jail_member",
+                "unjail_member",
+                "slash_member",
+                "set_member_power",
+                "change_registration_fee",
+                "chi_cost_change",
+                "change_types",
+                "update_policy",
+            ],
+        )
+
+        for recovery_type in recovery_types:
+            with self.subTest(recovery_type=recovery_type):
+                requested_types = [
+                    vote_type
+                    for vote_type in self.members.types.get()
+                    if vote_type != recovery_type
+                ]
+                proposal_count = self.members.total_votes.get()
+                with self.assertRaisesRegex(AssertionError, recovery_type):
+                    self.members.propose_vote(
+                        type_of_vote="change_types",
+                        arg=requested_types,
+                        signer="node1",
+                    )
+                self.assertEqual(self.members.total_votes.get(), proposal_count)
+
+    def test_change_types_can_replace_non_recovery_vote_types(self):
+        requested_types = self.members.get_recovery_vote_types(signer="node1") + ["topic_vote"]
+
+        self.members.propose_vote(
+            type_of_vote="change_types",
+            arg=requested_types,
+            signer="node1",
+        )
+        self.members.vote(proposal_id=1, vote="yes", signer="node2")
+        self.members.vote(proposal_id=1, vote="yes", signer="node3")
+
+        self.assertEqual(self.members.types.get(), requested_types)
+        self.members.propose_vote(
+            type_of_vote="topic_vote",
+            arg={"topic": "known optional vote types remain configurable"},
+            signer="node1",
+        )
+        self.assertEqual(self.members.votes[2]["type"], "topic_vote")
+
+    def test_positive_registration_fee_is_a_valid_governed_value(self):
+        self.members.propose_vote(
+            type_of_vote="change_registration_fee",
+            arg=2000,
+            signer="node1",
+        )
+        self.members.vote(proposal_id=1, vote="yes", signer="node2")
+        self.members.vote(proposal_id=1, vote="yes", signer="node3")
+
+        self.assertEqual(self.members.registration_fee.get(), 2000)
+
     def test_announce_and_leave(self):
         # GIVEN a node announcing leave
         current_time = Datetime(year=2024, month=1, day=1)
-        self.members.announce_leave(signer="node1", environment={"now": current_time})
-        
+        self.members.announce_leave(
+            signer="node1",
+            environment={"now": current_time, "block_num": 0},
+        )
+
         # WHEN time passes (7 days + 1 hour to be safe)
         future_time = Datetime(year=2024, month=1, day=8, hour=1)
-        
-        self.members.leave(signer="node1", environment={"now": future_time})
-        
+
+        self.members.leave(
+            signer="node1",
+            environment={"now": future_time, "block_num": 1},
+        )
+
         # THEN they should be removed from nodes
         nodes = self.members.active_validators.get()
         self.assertTrue("node1" not in nodes)
@@ -209,26 +338,21 @@ class TestMembersContract(unittest.TestCase):
         self.currency.approve(amount=1000, to="validators", signer="new_member")
         self.currency.transfer(amount=1000, to="new_member", signer=self.deployer_vk)
         self.members.register(signer="new_member")
-        
+
         self.members.propose_vote(
             type_of_vote="add_member",
             arg="new_member",
             signer="node1",
-            environment={"now": Datetime(year=2024, month=1, day=1)}
+            environment={"now": Datetime(year=2024, month=1, day=1)},
         )
-        
+
         # WHEN trying to vote after expiry
-        future_time = Datetime(
-            year=2024, month=1, day=8
-        )
-        
+        future_time = Datetime(year=2024, month=1, day=8)
+
         # THEN vote should fail
         with self.assertRaises(AssertionError):
             self.members.vote(
-                proposal_id=1,
-                vote="yes",
-                signer="node2",
-                environment={"now": future_time}
+                proposal_id=1, vote="yes", signer="node2", environment={"now": future_time}
             )
 
     def test_set_member_power_vote_updates_validator_power(self):
@@ -364,6 +488,19 @@ class TestMembersContract(unittest.TestCase):
         self.assertEqual(self.members.active_validators.get(), ["node2", "node3"])
         self.assertEqual(self.members.statuses["node1"], "leaving")
         self.assertFalse(self.members.get_validator(account="node1", signer="node1")["active"])
+
+        exited = self.members.leave(
+            signer="node1",
+            environment={
+                "block_num": 2,
+                "now": Datetime(year=2024, month=1, day=8, hour=13),
+            },
+        )
+
+        self.assertEqual(exited["status"], "left")
+        self.assertEqual(exited["self_bond"], 0)
+        self.assertEqual(exited["pending_unbond_count"], 1)
+        self.assertEqual(exited["pending_unbond_total"], 300)
 
     def test_hybrid_mode_requires_vote_approval_before_rebalance_can_activate_candidate(
         self,
@@ -738,6 +875,9 @@ class TestMembersContract(unittest.TestCase):
             self.members.get_validator(account="node1", signer="node1")["jail_reason"],
             "downtime",
         )
+        self.assertIsNotNone(
+            self.members.get_validator(account="node1", signer="node1")["last_jailed_at"]
+        )
 
         with self.assertRaises(AssertionError):
             self.members.delegate(
@@ -759,6 +899,9 @@ class TestMembersContract(unittest.TestCase):
         self.assertFalse(self.members.jailed["node1"])
         self.assertEqual(self.members.statuses["node1"], "approved")
         self.assertFalse("node1" in self.members.active_validators.get())
+        self.assertIsNotNone(
+            self.members.get_validator(account="node1", signer="node1")["last_unjailed_at"]
+        )
 
         self.members.propose_vote(
             type_of_vote="add_member",
@@ -846,13 +989,11 @@ class TestMembersContract(unittest.TestCase):
         before_balance = self.currency.balances["new_member"]
         current_time = Datetime(year=2024, month=1, day=1)
         self.members.announce_leave(
-            signer="new_member", environment={"now": current_time}
+            signer="new_member", environment={"now": current_time, "block_num": 0}
         )
 
         future_time = Datetime(year=2024, month=1, day=8, hour=1)
-        self.members.leave(
-            signer="new_member", environment={"now": future_time}
-        )
+        self.members.leave(signer="new_member", environment={"now": future_time, "block_num": 1})
 
         self.assertEqual(self.members.statuses["new_member"], "left")
         self.assertEqual(self.members.holdings["new_member"], 0)
@@ -868,7 +1009,10 @@ class TestMembersContract(unittest.TestCase):
         self.currency.approve(amount=2000, to="validators", signer="new_member")
         self.currency.approve(amount=500, to="validators", signer="delegator1")
 
-        self.members.register(signer="new_member", environment={"now": start_time})
+        self.members.register(
+            signer="new_member",
+            environment={"now": start_time, "block_num": 0},
+        )
         self.members.propose_vote(
             type_of_vote="add_member",
             arg="new_member",
@@ -890,7 +1034,7 @@ class TestMembersContract(unittest.TestCase):
 
         self.members.announce_leave(
             signer="new_member",
-            environment={"now": start_time},
+            environment={"now": start_time, "block_num": 0},
         )
         self.members.leave(
             signer="new_member",
@@ -1041,9 +1185,7 @@ class TestMembersContract(unittest.TestCase):
             signer="delegator1",
         )
 
-        reward_info = self.members.get_reward_distribution_info(
-            validator="node1", signer="node1"
-        )
+        reward_info = self.members.get_reward_distribution_info(validator="node1", signer="node1")
 
         self.assertEqual(self.members.self_bond["node1"], 300)
         self.assertEqual(self.members.total_delegated["node1"], 200)
@@ -1129,6 +1271,14 @@ class TestMembersContract(unittest.TestCase):
         self.assertEqual(unbond_after["created_block"], 7)
         self.assertEqual(unbond_after["amount"], 47.5)
         self.assertEqual(self.currency.balances["dao"], dao_balance_before + 10)
+        validator = self.members.get_validator(account="node1", signer="node1")
+        self.assertEqual(
+            validator["last_evidence_id"],
+            "duplicate-vote-prior-infraction",
+        )
+        self.assertEqual(validator["last_evidence_type"], "DUPLICATE_VOTE")
+        self.assertEqual(validator["last_evidence_height"], 6)
+        self.assertEqual(validator["last_evidence_at"], base_time)
 
         claimed = self.members.claim_unbond(
             unbond_id=unbond["id"],
@@ -1231,6 +1381,18 @@ class TestMembersContract(unittest.TestCase):
             )["reason"],
             "withdrawn",
         )
+
+        validators = self.members.get_validators(signer="node1")
+        withdrawn = next(
+            validator for validator in validators if validator["account"] == "new_member"
+        )
+        self.assertEqual(withdrawn["status"], "withdrawn")
+        self.assertFalse(withdrawn["active"])
+        self.assertEqual(withdrawn["pending_unbond_count"], 2)
+        self.assertEqual(withdrawn["pending_unbond_total"], 500)
+        self.assertIsNotNone(withdrawn["next_unbond_unlock_at"])
+        self.assertIn("last_rebalance_epoch", withdrawn)
+        self.assertIn("selection_eligible_at_last_rebalance", withdrawn)
 
     def test_vote_snapshot_excludes_members_added_after_proposal_creation(self):
         self.currency.approve(amount=1000, to="validators", signer="new_member")
