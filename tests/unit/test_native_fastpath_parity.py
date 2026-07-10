@@ -17,17 +17,13 @@ from xian.utils.encoding import encode_transaction_bytes
 from xian.utils.tx import format_dictionary
 
 xian_fastpath_core = pytest.importorskip("xian_fastpath_core")
-_native_decode_static = (
-    xian_fastpath_core.decode_and_validate_transaction_static
-)
+_native_decode_static = xian_fastpath_core.decode_and_validate_transaction_static
 _native_extract_payload = xian_fastpath_core.extract_payload_string
 
 CHAIN_ID = "xian-local"
 SEED = bytes(range(32))
 SIGNING_KEY = nacl.signing.SigningKey(SEED)
-SENDER = SIGNING_KEY.verify_key.encode(encoder=nacl.encoding.HexEncoder).decode(
-    "ascii"
-)
+SENDER = SIGNING_KEY.verify_key.encode(encoder=nacl.encoding.HexEncoder).decode("ascii")
 
 
 @dataclass(frozen=True)
@@ -62,9 +58,7 @@ def _signed_tx_bytes(
     if payload_overrides is not None:
         payload.update(payload_overrides)
 
-    signature = SIGNING_KEY.sign(
-        _canonical_json(payload).encode("utf-8")
-    ).signature.hex()
+    signature = SIGNING_KEY.sign(_canonical_json(payload).encode("utf-8")).signature.hex()
     if mutate_signature:
         signature = ("00" * 64)[: len(signature)]
 
@@ -91,24 +85,25 @@ def _duplicate_payload_tx_bytes() -> bytes:
     return encode_transaction_bytes(tx_json)
 
 
+def _nested_kwargs(depth: int) -> dict:
+    value: object = "leaf"
+    for _ in range(depth):
+        value = {"next": value}
+    return {"nested": value, "to": SENDER}
+
+
 @contextmanager
 def _validation_mode(*, native: bool):
-    original_decode_static = (
-        tx_utils._native_decode_and_validate_transaction_static
-    )
+    original_decode_static = tx_utils._native_decode_and_validate_transaction_static
     original_extract_payload = encoding._native_extract_payload_string
     tx_utils._native_decode_and_validate_transaction_static = (
         _native_decode_static if native else None
     )
-    encoding._native_extract_payload_string = (
-        _native_extract_payload if native else None
-    )
+    encoding._native_extract_payload_string = _native_extract_payload if native else None
     try:
         yield
     finally:
-        tx_utils._native_decode_and_validate_transaction_static = (
-            original_decode_static
-        )
+        tx_utils._native_decode_and_validate_transaction_static = original_decode_static
         encoding._native_extract_payload_string = original_extract_payload
 
 
@@ -218,9 +213,7 @@ def _validate(raw_tx: bytes, *, native: bool) -> ValidationResult:
         ),
         (
             "runtime_fixed_wrapper_is_accepted",
-            _signed_tx_bytes(
-                kwargs={"amount": {"__fixed__": "0.5"}, "to": SENDER}
-            ),
+            _signed_tx_bytes(kwargs={"amount": {"__fixed__": "0.5"}, "to": SENDER}),
             True,
         ),
         (
@@ -241,6 +234,11 @@ def _validate(raw_tx: bytes, *, native: bool) -> ValidationResult:
         (
             "wrong_chain_id",
             _signed_tx_bytes(payload_overrides={"chain_id": "wrong-chain"}),
+            False,
+        ),
+        (
+            "excessive_json_depth",
+            _signed_tx_bytes(kwargs=_nested_kwargs(129)),
             False,
         ),
         ("duplicate_payload_wire_format", _duplicate_payload_tx_bytes(), False),

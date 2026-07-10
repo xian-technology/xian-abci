@@ -19,6 +19,7 @@ except ImportError:  # pragma: no cover - exercised through fallback path
 
 MIN_CANONICAL_JSON_INTEGER = -(2**63)
 MAX_CANONICAL_JSON_INTEGER = 2**64 - 1
+MAX_CANONICAL_JSON_DEPTH = 128
 
 
 def _decimal_to_plain_string(value) -> str:
@@ -39,16 +40,18 @@ def encode_str(value):
     return value.encode("utf-8")
 
 
-def canonical_json_value(value: Any) -> Any:
+def canonical_json_value(value: Any, *, _depth: int = 0) -> Any:
+    if _depth > MAX_CANONICAL_JSON_DEPTH:
+        raise ValueError("recursion limit exceeded")
     if isinstance(value, dict):
         items = []
         for key, item in value.items():
             if not isinstance(key, str):
                 raise ValueError("Transaction JSON object keys must be strings")
-            items.append((key, canonical_json_value(item)))
+            items.append((key, canonical_json_value(item, _depth=_depth + 1)))
         return {key: item for key, item in sorted(items)}
     if isinstance(value, list):
-        return [canonical_json_value(item) for item in value]
+        return [canonical_json_value(item, _depth=_depth + 1) for item in value]
     if type(value) is int and not (
         MIN_CANONICAL_JSON_INTEGER <= value <= MAX_CANONICAL_JSON_INTEGER
     ):

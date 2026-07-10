@@ -46,9 +46,7 @@ def _signed_transaction_json(*, mutate_signature: bool = False) -> str:
         "chi_supplied": 10,
     }
     signing_key = nacl.signing.SigningKey(SEED)
-    signature = signing_key.sign(
-        _canonical_json(payload).encode("utf-8")
-    ).signature.hex()
+    signature = signing_key.sign(_canonical_json(payload).encode("utf-8")).signature.hex()
     if mutate_signature:
         signature = signature[:-1] + ("0" if signature[-1] != "0" else "1")
     tx = {
@@ -155,9 +153,7 @@ class TestPayloadStrExtraction(unittest.TestCase):
             ),
         ]
     )
-    def test_extract_payload(
-        self, name, tx_str, has_payload, should_match=True
-    ):
+    def test_extract_payload(self, name, tx_str, has_payload, should_match=True):
         complete_json = json.loads(tx_str)
         if has_payload:
             result = json.loads(extract_payload_string(tx_str))
@@ -201,9 +197,7 @@ class TestVerification(unittest.TestCase):
         tx_json = json.loads(tx_str)
         payload_str = extract_payload_string(tx_str)
         sender, signature, payload = unpack_transaction(tx_json)
-        self.assertEqual(
-            verify(sender, payload_str, signature), expected_result
-        )
+        self.assertEqual(verify(sender, payload_str, signature), expected_result)
         self.assertEqual(verify(sender, payload, signature), expected_result)
 
 
@@ -234,9 +228,7 @@ class TestEncoding(unittest.TestCase):
         tx_bytes = encode_transaction_bytes(tx_str)
         if should_raise:
             with self.assertRaises(ValueError) as context:
-                tx_json_decoded, payload_str = decode_transaction_bytes(
-                    tx_bytes
-                )
+                tx_json_decoded, payload_str = decode_transaction_bytes(tx_bytes)
             self.assertIn(expected_error, str(context.exception))
         else:
             tx_json_decoded, payload_str = decode_transaction_bytes(tx_bytes)
@@ -244,6 +236,14 @@ class TestEncoding(unittest.TestCase):
 
 
 class TestAbciJsonDecimalFormatting(unittest.TestCase):
+    def test_canonical_json_rejects_excessive_depth(self):
+        value = "leaf"
+        for _ in range(encoding.MAX_CANONICAL_JSON_DEPTH + 1):
+            value = {"next": value}
+
+        with self.assertRaisesRegex(ValueError, "recursion limit exceeded"):
+            encoding.canonical_json_text(value)
+
     def test_stringify_decimals_uses_plain_strings(self):
         value = {
             "amount": ContractingDecimal("5000"),
