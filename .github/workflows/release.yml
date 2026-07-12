@@ -59,7 +59,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-stack
-          ref: main
+          ref: 3d84b11e040da4c65aab7e3cee9fa00a9bc5afe1
           path: xian-stack
 
       - name: Set up Python
