@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -57,6 +58,14 @@ def dashboard_request(
 
 
 class DashboardTests(unittest.TestCase):
+    def test_address_history_uses_canonical_bds_transaction_hash(self) -> None:
+        dashboard_html = (
+            Path(__file__).parents[2] / "src/xian/dashboard/static/index.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("navAttrs('tx', item.tx_hash)", dashboard_html)
+        self.assertIn("txLink(item.tx_hash,{left:10,right:8})", dashboard_html)
+
     def test_normalize_rpc_url_accepts_http_and_laddr(self) -> None:
         self.assertEqual(
             normalize_rpc_url("http://127.0.0.1:26657/"),

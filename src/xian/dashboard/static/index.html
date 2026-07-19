@@ -2222,9 +2222,9 @@ async function viewAddress(address, opts){
   html += '<table><thead><tr><th>Time</th><th>Hash</th><th>Contract</th><th>Function</th><th>Block</th><th>Status</th></tr></thead><tbody>';
   transactions.forEach(item=>{
     const success = item.success === true || item.status_code === 0;
-    html += '<tr class="clickable"'+navAttrs('tx', item.hash)+'>'+
+    html += '<tr class="clickable"'+navAttrs('tx', item.tx_hash)+'>'+
       '<td>'+escHtml(item.created_at ? fmtTime(item.created_at) : "\u2014")+'</td>'+
-      '<td>'+txLink(item.hash,{left:10,right:8})+'</td>'+
+      '<td>'+txLink(item.tx_hash,{left:10,right:8})+'</td>'+
       '<td>'+(item.contract ? contractLink(item.contract) : "\u2014")+'</td>'+
       '<td>'+escHtml(item.function || "\u2014")+'</td>'+
       '<td>'+escHtml(String(item.block_height ?? "\u2014"))+'</td>'+
