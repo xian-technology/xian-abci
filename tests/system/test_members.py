@@ -207,7 +207,7 @@ class TestMembersContract(unittest.TestCase):
             ("change_registration_fee", -1),
             ("change_registration_fee", True),
             ("reward_change", [0.5, 0.5]),
-            ("reward_change", [0.5, 0.25, 0.25, 0]),
+            ("reward_change", [0.5, 0.6, -0.1, 0]),
             ("dao_payout", {"amount": 10, "to": "recipient"}),
             (
                 "dao_payout",
@@ -232,6 +232,20 @@ class TestMembersContract(unittest.TestCase):
         for type_of_vote, arg in invalid_payloads:
             with self.subTest(type_of_vote=type_of_vote, arg=arg):
                 self.assert_vote_payload_rejected(type_of_vote, arg)
+
+    def test_reward_change_allows_zero_value_buckets(self):
+        requested_split = [0.70, 0, 0, 0.30]
+        rewards = self.client.get_contract_proxy("rewards")
+
+        self.members.propose_vote(
+            type_of_vote="reward_change",
+            arg=requested_split,
+            signer="node1",
+        )
+        self.members.vote(proposal_id=1, vote="yes", signer="node2")
+        self.members.vote(proposal_id=1, vote="yes", signer="node3")
+
+        self.assertEqual(rewards.current_value(), requested_split)
 
     def test_remove_member_rejects_inactive_approved_validator(self):
         self.approve_policy_update(

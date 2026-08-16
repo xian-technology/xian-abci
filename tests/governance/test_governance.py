@@ -650,7 +650,7 @@ class MyTestCase(unittest.TestCase):
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "reward_change",
-                        "arg": [0.78, 0.11, 0.01, 0.1],
+                        "arg": [0.70, 0, 0, 0.30],
                     },
                     "chi_supplied": 1000,
                 },
@@ -1201,7 +1201,7 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(self.validators.votes[1]["yes"], 4)
         self.assertEqual(self.validators.votes[1]["no"], 0)
         self.assertEqual(self.validators.votes[1]["finalized"], True)
-        self.assertEqual(self.rewards.S["value"], [0.78, 0.11, 0.01, 0.1])
+        self.assertEqual(self.rewards.S["value"], [0.70, 0, 0, 0.30])
 
     def test_dao_payout(self):
         self.assertEqual(self.currency.balances["new_node"], 1000000)

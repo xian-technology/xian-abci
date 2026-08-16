@@ -209,8 +209,11 @@ class RewardsHandler:
         total_chi_to_split,
         participant_ratio,
         validators,
+        additional_chi_to_split=0,
     ):
-        validator_total = self._as_decimal(total_chi_to_split) * self._as_decimal(participant_ratio)
+        validator_total = (
+            self._as_decimal(total_chi_to_split) * self._as_decimal(participant_ratio)
+        ) + self._as_decimal(additional_chi_to_split)
 
         weighted_nodes = []
         for validator in validators:
@@ -254,7 +257,6 @@ class RewardsHandler:
         total_chi_to_split,
         contract,
         developer_ratio,
-        foundation_owner,
         contract_costs=None,
     ):
         developer_ratio = self._as_decimal(developer_ratio)
@@ -262,6 +264,7 @@ class RewardsHandler:
 
         send_map = defaultdict(lambda: ContractingDecimal("0"))
         developer_records = []
+        redirected_validator_reward = decimal.Decimal("0")
         weights = []
         if isinstance(contract_costs, dict):
             for source_contract, weight in sorted(contract_costs.items()):
@@ -284,7 +287,8 @@ class RewardsHandler:
 
             recipient = self.client.get_var(contract=source_contract, variable="__developer__")
             if not recipient or recipient == "sys":
-                recipient = foundation_owner
+                redirected_validator_reward += share
+                continue
 
             share_amount = ContractingDecimal(str(share))
             send_map[recipient] += share_amount
@@ -297,21 +301,20 @@ class RewardsHandler:
                 }
             )
 
-        return dict(send_map), developer_records
+        return dict(send_map), developer_records, redirected_validator_reward
 
     def calculate_tx_output_rewards(
         self,
         total_chi_to_split,
         contract,
         *,
-        foundation_owner=None,
         contract_costs=None,
     ):
         if not self.client.get_var(contract="rewards", variable="S", arguments=["value"]):
             logger.error("Rewards not set up.")
             return 0, 0, {}, []
         try:
-            validator_ratio, burn_ratio, foundation_ratio, developer_ratio = self.client.get_var(
+            validator_ratio, _burn_ratio, foundation_ratio, developer_ratio = self.client.get_var(
                 contract="rewards", variable="S", arguments=["value"]
             )
         except TypeError:
@@ -319,28 +322,29 @@ class RewardsHandler:
                 "Driver could not get value for key rewards.S:value. Try setting up rewards."
             )
 
-        if foundation_owner is None:
-            foundation_owner = self.client.get_var(contract="foundation", variable="owner")
-
-        validators = self.client.get_var(contract="validators", variable="active_validators") or []
-        validator_mapping, validator_records = self.build_validator_set_reward_outputs(
-            total_chi_to_split=total_chi_to_split,
-            participant_ratio=validator_ratio,
-            validators=validators,
-        )
-
         foundation_reward = self.calculate_participant_reward(
             participant_ratio=foundation_ratio,
             number_of_participants=1,
             total_chi_to_split=total_chi_to_split,
         )
 
-        developer_mapping, developer_records = self.find_developer_and_reward(
+        (
+            developer_mapping,
+            developer_records,
+            redirected_validator_reward,
+        ) = self.find_developer_and_reward(
             total_chi_to_split=total_chi_to_split,
             contract=contract,
             developer_ratio=developer_ratio,
-            foundation_owner=foundation_owner,
             contract_costs=contract_costs,
+        )
+
+        validators = self.client.get_var(contract="validators", variable="active_validators") or []
+        validator_mapping, validator_records = self.build_validator_set_reward_outputs(
+            total_chi_to_split=total_chi_to_split,
+            participant_ratio=validator_ratio,
+            validators=validators,
+            additional_chi_to_split=redirected_validator_reward,
         )
 
         return (
@@ -377,7 +381,6 @@ class RewardsHandler:
         ) = self.calculate_tx_output_rewards(
             total_chi_to_split=total_chi_to_split,
             contract=contract,
-            foundation_owner=foundation_owner,
             contract_costs=contract_costs,
         )
 
@@ -502,8 +505,6 @@ class RewardsHandler:
     def _distribute_developer_rewards(self, driver, developer_mapping, chi_cost):
         rewards = []
         for recipient, amount in developer_mapping.items():
-            if recipient == "sys" or recipient is None:
-                recipient = driver.get("foundation.owner")
             dev_reward = round(amount / chi_cost, c.DUST_EXPONENT)
             recipient_balance = driver.get(f"currency.balances:{recipient}") or 0
             recipient_balance_after = round(recipient_balance + dev_reward, c.DUST_EXPONENT)
