@@ -4,7 +4,7 @@ import os
 import unittest
 from datetime import UTC, datetime
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from contracting.storage.driver import SOURCE_KEY, XIAN_VM_V1_IR_KEY
 from fixtures.mock_constants import MockConstants
@@ -15,6 +15,7 @@ from abci.utils import read_messages
 from cometbft.abci.v1beta1.types_pb2 import RequestQuery
 from cometbft.abci.v1beta3.types_pb2 import Request, Response
 from xian.constants import Constants
+from xian.utils.block import set_latest_block, stage_latest_block
 from xian.xian_abci import Xian
 
 logging.disable(logging.CRITICAL)
@@ -487,6 +488,75 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             f"currency.balances:{ACCOUNT}".encode("utf-8"),
         )
         self.assertEqual(response.query.value, b"123.45")
+
+    async def test_query_height_uses_durable_marker_not_mirror_or_pending_block(self):
+        driver = self.app.client.raw_driver
+        stage_latest_block(driver, block_hash=b"\x11" * 32, height=12, nanos=1200)
+        driver.hard_apply("1200")
+        set_latest_block(
+            block_hash=b"\x22" * 32,
+            height=9,
+            nanos=900,
+            storage_home=driver.storage_home,
+        )
+        stage_latest_block(driver, block_hash=b"\x33" * 32, height=13, nanos=1300)
+        self.app.current_block_meta["height"] = 13
+
+        for requested_height in (0, 12):
+            with self.subTest(height=requested_height):
+                response = await self.process_request(
+                    Request(
+                        query=RequestQuery(
+                            path=f"/get/currency.balances:{ACCOUNT}",
+                            height=requested_height,
+                        )
+                    )
+                )
+                self.assertEqual(response.query.code, Constants.OkCode)
+                self.assertEqual(response.query.height, 12)
+                self.assertEqual(response.query.value, b"123.45")
+
+    async def test_query_rejects_unavailable_heights_and_proofs_before_dispatch(self):
+        driver = self.app.client.raw_driver
+        stage_latest_block(driver, block_hash=b"\x11" * 32, height=12, nanos=1200)
+        driver.hard_apply("1200")
+        for requested_height, prove, message in [
+            (-1, False, "Unsupported query height -1"),
+            (11, False, "Unsupported query height 11"),
+            (13, False, "Unsupported query height 13"),
+            (0, True, "Merkle proof queries are not supported"),
+        ]:
+            with self.subTest(height=requested_height, prove=prove):
+                with patch("xian.methods.query._execute_query", new_callable=AsyncMock) as dispatch:
+                    response = await self.process_request(
+                        Request(
+                            query=RequestQuery(
+                                path=f"/get/currency.balances:{ACCOUNT}",
+                                height=requested_height,
+                                prove=prove,
+                            )
+                        )
+                    )
+                dispatch.assert_not_awaited()
+                self.assertEqual(response.query.code, Constants.ErrorCode)
+                self.assertEqual(response.query.height, 12)
+                self.assertEqual(response.query.value, b"")
+                self.assertIn(message, response.query.log)
+
+    async def test_query_errors_include_committed_height(self):
+        driver = self.app.client.raw_driver
+        stage_latest_block(driver, block_hash=b"\x11" * 32, height=12, nanos=1200)
+        driver.hard_apply("1200")
+        for path in ("/unknown_route", "/get"):
+            with self.subTest(path=path):
+                response = await self.process_request(Request(query=RequestQuery(path=path)))
+                self.assertEqual(response.query.code, Constants.ErrorCode)
+                self.assertEqual(response.query.height, 12)
+
+    async def test_query_initial_height_is_zero(self):
+        response = await self.process_request(Request(query=RequestQuery(path="/health")))
+        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.height, 0)
 
     async def test_get_query_preserves_boolean_type(self):
         self.app.client.raw_driver.set(

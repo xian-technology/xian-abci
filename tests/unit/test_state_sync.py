@@ -1,5 +1,5 @@
-import tempfile
 import tarfile
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -33,14 +33,17 @@ def seed():
 def get():
     return value.get()
 """.strip()
-CANONICAL_CONTRACT_SOURCE = ContractingCompiler(
-    module_name="demo"
-).normalize_source(CONTRACT_SOURCE)
+CANONICAL_CONTRACT_SOURCE = ContractingCompiler(module_name="demo").normalize_source(
+    CONTRACT_SOURCE
+)
 
 
 class StateSyncTests(unittest.TestCase):
     def test_snapshot_export_and_import_round_trip(self):
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as target_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as target_dir,
+        ):
             source_home = Path(source_dir) / "xian"
             target_home = Path(target_dir) / "xian"
             self._seed_state(source_home)
@@ -93,7 +96,10 @@ class StateSyncTests(unittest.TestCase):
             )
 
     def test_snapshot_abci_chunk_flow_restores_target_state(self):
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as target_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as target_dir,
+        ):
             source_home = Path(source_dir) / "xian"
             target_home = Path(target_dir) / "xian"
             self._seed_state(source_home)
@@ -139,6 +145,59 @@ class StateSyncTests(unittest.TestCase):
             )
             self.assertEqual(get_latest_block_height(target_home), 42)
             self.assertTrue(target_manager.list_snapshot_records())
+
+    def test_import_reports_committed_height_to_an_already_running_application(self):
+        import asyncio
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        from xian.methods.info import info
+        from xian.state_root import StateRootCache
+        from xian.xian_abci import Xian
+
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as target_dir,
+        ):
+            source_home, target_home = Path(source_dir), Path(target_dir)
+            self._seed_state(source_home)
+            source = StateSnapshotManager(
+                storage_home=source_home, chain_id="xian-test-1", chunk_size=128
+            )
+            source.export_snapshot()
+            record = source.list_snapshot_records()[0]
+            live_driver = Driver(storage_home=target_home)
+            self.assertIsNone(live_driver.get("demo.count"))
+            target = StateSnapshotManager(storage_home=target_home, chain_id="xian-test-1")
+            app = SimpleNamespace(
+                client=SimpleNamespace(raw_driver=live_driver),
+                state_snapshot_manager=target,
+                nonce_storage=Mock(),
+                state_root_cache=StateRootCache(),
+                app_version=1,
+            )
+            target.offer_snapshot_response(
+                record.to_proto(), app_hash=bytes.fromhex(record.app_hash_hex), current_height=0
+            )
+            for index in range(record.chunks):
+                chunk = source.load_snapshot_chunk_response(
+                    height=record.height, format_version=record.format, chunk_index=index
+                )
+                response = asyncio.run(
+                    Xian.apply_snapshot_chunk(
+                        app, SimpleNamespace(index=index, chunk=chunk.chunk, sender="source")
+                    )
+                )
+                self.assertEqual(response.result, response.ACCEPT)
+            response = asyncio.run(info(app, None))
+            self.assertEqual(response.last_block_height, 42)
+            self.assertEqual(response.last_block_app_hash, bytes.fromhex(record.app_hash_hex))
+            self.assertEqual(live_driver.get("demo.count"), 7)
+            self.assertEqual(live_driver.get("__n.alice:"), 5)
+            # Another startup must retain the imported marker rather than reset to zero.
+            app.client.raw_driver = Driver(storage_home=target_home)
+            restarted = asyncio.run(info(app, None))
+            self.assertEqual(restarted.last_block_height, 42)
 
     def test_offer_snapshot_rejects_malformed_metadata_without_raising(self):
         with tempfile.TemporaryDirectory() as target_dir:
@@ -201,7 +260,10 @@ class StateSyncTests(unittest.TestCase):
             self.assertEqual(response.result, response.REJECT)
 
     def test_apply_snapshot_chunk_rejects_oversized_chunk(self):
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as target_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as target_dir,
+        ):
             source_home = Path(source_dir) / "xian"
             target_home = Path(target_dir) / "xian"
             self._seed_state(source_home)
@@ -235,7 +297,10 @@ class StateSyncTests(unittest.TestCase):
             self.assertEqual(response.result, response.REJECT_SNAPSHOT)
 
     def test_snapshot_import_rejects_tampered_exported_state(self):
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as target_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as target_dir,
+        ):
             source_home = Path(source_dir) / "xian"
             target_home = Path(target_dir) / "xian"
             self._seed_state(source_home)
@@ -285,9 +350,7 @@ class StateSyncTests(unittest.TestCase):
         driver.set("demo.count", 7)
         driver.set("demo.price", ContractingDecimal("1.25"))
         driver.set(
-            "__n"
-            f"{contracting_constants.INDEX_SEPARATOR}alice"
-            f"{contracting_constants.DELIMITER}",
+            f"__n{contracting_constants.INDEX_SEPARATOR}alice{contracting_constants.DELIMITER}",
             5,
         )
         driver.commit()

@@ -496,6 +496,9 @@ class Xian:
             sender=req.sender,
         )
         if response.result == response.ACCEPT:
+            # Import uses a separate driver over the same LMDB environment.
+            # Drop cached pre-import reads before serving Info/queries/execution.
+            self.client.raw_driver.flush_cache()
             self.nonce_storage.flush_pending()
             self.state_root_cache.rebuild(self.client.raw_driver.items().items())
         return response

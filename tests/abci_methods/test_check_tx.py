@@ -116,6 +116,24 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
             VALID_NONCE,
         )
 
+    async def test_check_tx_rejects_runtime_invalid_submission_names(self):
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+        for name in ("con_Uppercase", "con_" + "a" * 61, None, 123):
+            with self.subTest(name=name):
+                tx = make_signed_tx_bytes_for_payload({
+                    "chain_id": "xian-testnet-1",
+                    "contract": "submission",
+                    "function": "submit_contract",
+                    "kwargs": {"name": name, "code": "@export\ndef value():\n    return 1"},
+                    "nonce": VALID_NONCE,
+                    "sender": SENDER,
+                    "chi_supplied": 100,
+                })
+                response = await self.process_request(self.make_request(tx))
+                self.assertEqual(response.check_tx.code, c.ErrorCode)
+                self.assertIn("Transaction contract name is invalid", response.check_tx.log)
+                self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+
     async def test_check_tx_does_not_mark_consensus_driver_reads(self):
         self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
         driver = self.app.client.raw_driver

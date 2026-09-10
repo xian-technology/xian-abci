@@ -166,7 +166,7 @@ def check_contract_name(contract, function, name):
     if (
         contract == "submission"
         and function == "submit_contract"
-        and (len(name) > 255 or not contract_name_is_formatted(name))
+        and not contract_name_is_formatted(name)
     ):
         raise TransactionException("Transaction contract name is invalid")
 

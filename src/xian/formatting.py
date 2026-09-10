@@ -1,9 +1,10 @@
 import re
 
+from contracting.names import is_safe_contract_name
+
 MIN_JSON_INTEGER = -(2**63)
 MAX_JSON_INTEGER = 2**64 - 1
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
-_CONTRACT_NAME_RE = re.compile(r"^con_[a-zA-Z][a-zA-Z0-9_]*$")
 _VK_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 _SIGNATURE_RE = re.compile(r"^[0-9a-fA-F]{128}$")
 
@@ -54,7 +55,7 @@ def cid_id_formated(s: str) -> bool:
 
 
 def contract_name_is_formatted(s: str) -> bool:
-    return isinstance(s, str) and _CONTRACT_NAME_RE.fullmatch(s) is not None
+    return is_safe_contract_name(s) and s.startswith("con_")
 
 
 TRANSACTION_PAYLOAD_RULES = {

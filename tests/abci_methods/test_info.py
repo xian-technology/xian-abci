@@ -6,6 +6,7 @@ from unittest.mock import patch
 from fixtures.mock_constants import MockConstants
 from utils import setup_fixtures, teardown_fixtures
 
+from abci import __version__
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
 from cometbft.abci.v1beta1.types_pb2 import RequestCommit
@@ -55,11 +56,11 @@ class TestInfo(unittest.IsolatedAsyncioTestCase):
     async def test_info(self):
         commit_request = Request(commit=RequestCommit())
         await self.process_request("commit", commit_request)
-        request = Request(info=RequestInfo())
+        request = Request(info=RequestInfo(version="cometbft-test-version"))
         response = await self.process_request("info", request)
         self.assertEqual(response.info.app_version, 1)
         self.assertEqual(response.info.data, "")  # We don't use that
-        self.assertEqual(response.info.version, "")  # Not running CometBFT
+        self.assertEqual(response.info.version, __version__)
         self.assertEqual(response.info.last_block_height, 0)
         self.assertEqual(response.info.last_block_app_hash, b"")
 

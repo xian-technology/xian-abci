@@ -51,6 +51,7 @@ def make_signed_tx_bytes(
     chain_id: str = "xian-testnet-1",
     chi_supplied: int = 100,
     mutate_signature: bool = False,
+    memo: str | None = None,
 ) -> bytes:
     signing_key = nacl.signing.SigningKey(SEED)
     sender = signing_key.verify_key.encode(
@@ -66,6 +67,8 @@ def make_signed_tx_bytes(
         "sender": sender,
         "chi_supplied": chi_supplied,
     }
+    if memo is not None:
+        payload["kwargs"]["memo"] = memo
     payload_str = _canonical_json(payload)
     signature = signing_key.sign(payload_str.encode("utf-8")).signature.hex()
     if mutate_signature:
@@ -138,6 +141,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             "prepare_proposal",
             Request(
                 prepare_proposal=RequestPrepareProposal(
+                    max_tx_bytes=4 * 1024 * 1024,
                     txs=[valid_tx, invalid_tx]
                 )
             ),
@@ -160,6 +164,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             "prepare_proposal",
             Request(
                 prepare_proposal=RequestPrepareProposal(
+                    max_tx_bytes=4 * 1024 * 1024,
                     txs=[valid_tx, oversized_tx]
                 )
             ),
@@ -174,7 +179,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         response = await self.process_request(
             "prepare_proposal",
             Request(
-                prepare_proposal=RequestPrepareProposal(txs=[tx_one, tx_two])
+                prepare_proposal=RequestPrepareProposal(max_tx_bytes=4 * 1024 * 1024, txs=[tx_one, tx_two])
             ),
         )
 
@@ -187,7 +192,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(
             "prepare_proposal",
-            Request(prepare_proposal=RequestPrepareProposal(txs=[tx])),
+            Request(prepare_proposal=RequestPrepareProposal(max_tx_bytes=4 * 1024 * 1024, txs=[tx])),
         )
 
         self.assertEqual(list(response.prepare_proposal.txs), [])
@@ -207,6 +212,71 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             response.process_proposal.status,
             ResponseProcessProposal.ProposalStatus.REJECT,
         )
+
+    async def test_prepare_proposal_respects_total_byte_budget(self):
+        txs = [make_signed_tx_bytes(nonce=0), make_signed_tx_bytes(nonce=1)]
+        total = sum(map(len, txs))
+        for budget, expected in [
+            (0, []),
+            (len(txs[0]) - 1, []),
+            (len(txs[0]), txs[:1]),
+            (total - 1, txs[:1]),
+            (total, txs),
+        ]:
+            with self.subTest(budget=budget):
+                response = await self.process_request(
+                    "prepare_proposal",
+                    Request(
+                        prepare_proposal=RequestPrepareProposal(
+                            txs=txs,
+                            max_tx_bytes=budget,
+                        )
+                    ),
+                )
+                self.assertEqual(list(response.prepare_proposal.txs), expected)
+                self.assertLessEqual(sum(map(len, response.prepare_proposal.txs)), budget)
+
+    async def test_prepare_proposal_skipped_size_does_not_consume_nonce_or_chi(self):
+        self.app.tx_fee_policy = TxFeePolicy.free_metered(
+            max_tx_chi=100,
+            max_block_chi=100,
+        )
+        oversized = make_signed_tx_bytes(nonce=0, memo="x" * 100)
+        successor = make_signed_tx_bytes(nonce=1)
+        replacement = make_signed_tx_bytes(nonce=0)
+        response = await self.process_request(
+            "prepare_proposal",
+            Request(
+                prepare_proposal=RequestPrepareProposal(
+                    txs=[oversized, successor, replacement],
+                    max_tx_bytes=len(replacement),
+                )
+            ),
+        )
+        self.assertEqual(list(response.prepare_proposal.txs), [replacement])
+        accepted = await self.process_request(
+            "process_proposal",
+            Request(
+                process_proposal=RequestProcessProposal(
+                    txs=response.prepare_proposal.txs,
+                )
+            ),
+        )
+        self.assertEqual(accepted.process_proposal.status, ResponseProcessProposal.ACCEPT)
+
+    async def test_prepare_proposal_invalid_transaction_does_not_consume_bytes(self):
+        invalid = make_signed_tx_bytes(nonce=0, mutate_signature=True)
+        valid = make_signed_tx_bytes(nonce=0)
+        response = await self.process_request(
+            "prepare_proposal",
+            Request(
+                prepare_proposal=RequestPrepareProposal(
+                    txs=[invalid, valid],
+                    max_tx_bytes=len(valid),
+                )
+            ),
+        )
+        self.assertEqual(list(response.prepare_proposal.txs), [valid])
 
     async def test_process_proposal_rejects_default_json_wire_format(self):
         tx = make_signed_tx_bytes_with_raw_spacing(nonce=0)

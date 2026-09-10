@@ -335,7 +335,9 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):
-            await self.process_request(Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"])))
+            await self.process_request(
+                Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"], height=7))
+            )
 
         pre_commit_response = await deserialize(
             await self.handler.process(
@@ -344,6 +346,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             )
         )
         self.assertEqual(pre_commit_response.query.value, b"")
+        self.assertEqual(pre_commit_response.query.height, 0)
 
         await self.handler.process("commit", Request(commit=RequestCommit()))
         query_response = await deserialize(
@@ -354,6 +357,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(query_response.query.value, b"99")
+        self.assertEqual(query_response.query.height, 7)
 
     async def test_finalize_block_warms_shielded_proof_cache_on_serial_path(self):
         tx = {

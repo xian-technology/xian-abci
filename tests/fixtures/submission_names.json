@@ -1,0 +1,17 @@
+[
+  {"name": "con_token", "accepted": true},
+  {"name": "con_", "accepted": true},
+  {"name": "con_1", "accepted": true},
+  {"name": "con__token", "accepted": true},
+  {"name": "con_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "accepted": true},
+  {"name": "con_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "accepted": false},
+  {"name": "con_Uppercase", "accepted": false},
+  {"name": "con_café", "accepted": false},
+  {"name": "con_token\n", "accepted": false},
+  {"name": "con_token.part", "accepted": false},
+  {"name": "con_token:part", "accepted": false},
+  {"name": "currency", "accepted": false},
+  {"name": "", "accepted": false},
+  {"name": null, "accepted": false},
+  {"name": 123, "accepted": false}
+]

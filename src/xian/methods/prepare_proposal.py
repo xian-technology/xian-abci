@@ -13,8 +13,14 @@ async def prepare_proposal(self, req) -> ResponsePrepareProposal:
     nonce_tracker = SequentialNonceTracker(self.nonce_storage.get_nonce)
     txs = []
     block_chi_supplied = 0
+    block_tx_bytes = 0
 
     for raw_tx in req.txs:
+        next_block_tx_bytes = block_tx_bytes + len(raw_tx)
+        if next_block_tx_bytes > req.max_tx_bytes:
+            # Keep looking for a smaller transaction without advancing nonce
+            # or chi accounting for a transaction that cannot be included.
+            continue
         tx = None
         try:
             tx = decode_and_validate_transaction_static_bytes(
@@ -44,6 +50,7 @@ async def prepare_proposal(self, req) -> ResponsePrepareProposal:
             )
             continue
         txs.append(raw_tx)
+        block_tx_bytes = next_block_tx_bytes
 
     response = ResponsePrepareProposal(txs=txs)
     return response

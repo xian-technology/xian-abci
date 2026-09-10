@@ -18,7 +18,8 @@ from xian.utils.block import (
     get_latest_block_hash,
     get_latest_block_height,
     get_latest_block_nanos,
-    set_latest_block,
+    stage_latest_block,
+    try_write_latest_block,
 )
 
 
@@ -161,20 +162,21 @@ def import_state(
     for nonce in exported_state.get("nonces", []):
         writes[(f"__n{contracting_constants.INDEX_SEPARATOR}{nonce['key']}")] = nonce["value"]
 
-    if writes:
-        driver._store.batch_set(writes)
-    driver.flush_cache()
-    if compute_driver_state_root(driver) != state_root:
-        raise ValueError("imported state root mismatch")
-
     latest_block_height = int(exported_state.get("number", 0))
     latest_block_nanos = int(exported_state.get("nanos", 0))
-    set_latest_block(
+    latest_block = stage_latest_block(
+        driver,
         block_hash=state_root,
         height=latest_block_height,
         nanos=latest_block_nanos,
-        storage_home=resolved_storage_home,
     )
+    # State and its authoritative commit marker must become visible together.
+    # Info reconciles the JSON mirror from this marker after import/restart.
+    driver.apply_writes(writes)
+    driver.commit()
+    if compute_driver_state_root(driver) != state_root:
+        raise ValueError("imported state root mismatch")
+    try_write_latest_block(latest_block, resolved_storage_home)
 
     return {
         "height": latest_block_height,

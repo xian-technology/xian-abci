@@ -149,15 +149,19 @@ def try_write_latest_block(
     return True
 
 
+def get_committed_latest_block(raw_driver) -> dict:
+    """Read the durable block marker without pending writes or the JSON mirror."""
+    committed = _load_committed_latest_block(raw_driver)
+    return dict(LATEST_BLOCK_DEFAULT) if committed is None else committed
+
+
 def reconcile_latest_block(raw_driver, storage_home: Path | None = None) -> dict:
     """Repair the JSON mirror from the atomic LMDB commit marker.
 
     Without a committed marker, the database is at the initial height. The
     JSON file is never an authority because it is outside the LMDB transaction.
     """
-    committed = _load_committed_latest_block(raw_driver)
-    if committed is None:
-        committed = dict(LATEST_BLOCK_DEFAULT)
+    committed = get_committed_latest_block(raw_driver)
 
     latest_block_path = _latest_block_path(storage_home)
     try:

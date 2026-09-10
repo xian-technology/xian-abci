@@ -6,6 +6,7 @@ import json
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 
 import nacl.encoding
 import nacl.signing
@@ -24,6 +25,10 @@ CHAIN_ID = "xian-local"
 SEED = bytes(range(32))
 SIGNING_KEY = nacl.signing.SigningKey(SEED)
 SENDER = SIGNING_KEY.verify_key.encode(encoder=nacl.encoding.HexEncoder).decode("ascii")
+
+SUBMISSION_NAMES = json.loads(
+    (Path(__file__).parents[1] / "fixtures/submission_names.json").read_text()
+)
 
 
 @dataclass(frozen=True)
@@ -117,6 +122,18 @@ def _validate(raw_tx: bytes, *, native: bool) -> ValidationResult:
         except Exception as exc:
             return ValidationResult(accepted=False, error=str(exc))
     return ValidationResult(accepted=True, value=value)
+
+
+@pytest.mark.parametrize("case", SUBMISSION_NAMES, ids=lambda case: str(case["name"]))
+def test_submission_name_parity(case):
+    raw_tx = _signed_tx_bytes(
+        payload_overrides={"contract": "submission", "function": "submit_contract"},
+        kwargs={"name": case["name"], "code": "@export\ndef value():\n    return 1"},
+    )
+    python_result = _validate(raw_tx, native=False)
+    native_result = _validate(raw_tx, native=True)
+    assert python_result.accepted == case["accepted"]
+    assert native_result == python_result
 
 
 @pytest.mark.parametrize(

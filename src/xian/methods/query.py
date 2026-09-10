@@ -19,6 +19,7 @@ from xian.execution_engine import (
 )
 from xian.services.bds.candles import get_candle_source_spec
 from xian.utils.block import (
+    get_committed_latest_block,
     get_latest_block_height,
     get_latest_block_nanos,
     nanoseconds_to_utc_datetime,
@@ -1110,6 +1111,26 @@ async def query(self, req) -> ResponseQuery:
     (Yes you need to quote the path)
     """
 
+    # Xian.query holds the state-transition lock across this read and dispatch.
+    # Use the LMDB marker: current_block_meta may describe an uncommitted block,
+    # and the auxiliary JSON mirror can lag a successful commit.
+    height = get_committed_latest_block(self.client.raw_driver)["height"]
+    if req.height not in (0, height):
+        return ResponseQuery(
+            code=c.ErrorCode,
+            height=height,
+            log=(
+                f"Unsupported query height {req.height}; only latest committed "
+                f"height {height} is available (height=0 selects latest)"
+            ),
+        )
+    if req.prove:
+        return ResponseQuery(
+            code=c.ErrorCode,
+            height=height,
+            log="Merkle proof queries are not supported; use prove=false",
+        )
+
     logger.debug(req.path)
     path_parts = [part for part in req.path.split("/") if part]
     route = path_parts[0] if path_parts else ""
@@ -1130,16 +1151,18 @@ async def query(self, req) -> ResponseQuery:
         logger.error(error)
         return ResponseQuery(
             code=c.ErrorCode,
+            height=height,
             value=b"\x00",
             info=None,
             log=error,
         )
     except Exception as err:
         logger.error(err)
-        return ResponseQuery(code=c.ErrorCode)
+        return ResponseQuery(code=c.ErrorCode, height=height)
 
     return ResponseQuery(
         code=c.OkCode,
+        height=height,
         value=value,
         info=type_of_data,
         key=encode_str(outcome.key if outcome.key is not None else key),
