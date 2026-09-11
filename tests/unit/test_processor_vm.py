@@ -50,6 +50,20 @@ def _transaction(**payload_overrides):
 
 
 class ProcessorVmExecutionTests(unittest.TestCase):
+    def test_nested_runtime_wrappers_are_converted_before_vm_execution(self):
+        processor = _processor(_driver())
+        transaction = _transaction(
+            contract="con_probe",
+            function="run",
+            kwargs={"data": [[{"__big_int__": str(2**80)}, True]]},
+        )
+        with (
+            mock.patch("xian.processor.prepare_vm_contract"),
+            mock.patch.object(processor, "_execute_vm_tx", return_value={}) as execute,
+        ):
+            processor.execute_tx(transaction, chi_cost=20)
+        self.assertEqual(execute.call_args.kwargs["kwargs"], {"data": [[2**80, True]]})
+
     def test_estimate_access_for_token_transfer(self):
         processor = _processor(_driver())
 
@@ -70,9 +84,7 @@ class ProcessorVmExecutionTests(unittest.TestCase):
     def test_estimate_access_returns_none_for_unknown_function(self):
         processor = _processor(_driver())
 
-        access = processor.estimate_access(
-            _transaction(function="custom", kwargs={})
-        )
+        access = processor.estimate_access(_transaction(function="custom", kwargs={}))
 
         self.assertIsNone(access)
 
@@ -80,9 +92,7 @@ class ProcessorVmExecutionTests(unittest.TestCase):
         processor = _processor(_driver())
 
         access = processor.estimate_access(
-            _transaction(
-                contract="chi_cost", function="current_value", kwargs={}
-            )
+            _transaction(contract="chi_cost", function="current_value", kwargs={})
         )
 
         self.assertIsNotNone(access)
@@ -142,9 +152,7 @@ class ProcessorVmExecutionTests(unittest.TestCase):
     def test_get_environment_exposes_internal_execution_mode(self):
         processor = object.__new__(TxProcessor)
         processor.execution_runtime = SimpleNamespace(mode="xian_vm_v1")
-        processor.get_timestamp_hash_from_tx = lambda nanos, signature: (
-            f"{nanos}:{signature}"
-        )
+        processor.get_timestamp_hash_from_tx = lambda nanos, signature: f"{nanos}:{signature}"
         processor.get_now_from_nanos = lambda nanos: f"now:{nanos}"
 
         environment = processor.get_environment(
@@ -167,9 +175,7 @@ class ProcessorVmExecutionTests(unittest.TestCase):
 
         with (
             mock.patch("xian.processor.prepare_vm_contract") as prepare,
-            mock.patch(
-                "xian.processor.execute_vm_transaction"
-            ) as native_execute,
+            mock.patch("xian.processor.execute_vm_transaction") as native_execute,
         ):
             output = processor.execute_tx(
                 transaction=_transaction(

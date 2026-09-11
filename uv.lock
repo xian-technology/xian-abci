@@ -701,12 +701,12 @@ source = { editable = "../xian-contracting/packages/xian-fastpath-core" }
 
 [[package]]
 name = "xian-tech-runtime-types"
-version = "0.1.4"
+version = "0.1.5"
 source = { editable = "../xian-contracting/packages/xian-runtime-types" }
 
 [[package]]
 name = "xian-tech-vm-core"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "../xian-contracting/packages/xian-vm-core" }
 dependencies = [
     { name = "xian-tech-contracting" },
