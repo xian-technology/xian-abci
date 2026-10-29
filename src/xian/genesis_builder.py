@@ -75,12 +75,29 @@ def load_contract_bundle_config(
         return json.load(handle)
 
 
-def _genesis_submission_time() -> Datetime:
-    now = datetime.today()
-    return Datetime(now.year, now.month, now.day, hour=now.hour, minute=now.minute)
+def _normalize_genesis_time(value: str | None = None) -> str:
+    instant = datetime.now(timezone.utc) if value is None else datetime.fromisoformat(value)
+    if instant.tzinfo is None:
+        raise ValueError("genesis_time must include a timezone")
+    return (
+        instant.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    )
 
 
-def _stage_native_submission_contract(driver: Driver) -> None:
+def _genesis_submission_time(value: str | None = None) -> Datetime:
+    instant = datetime.fromisoformat(_normalize_genesis_time(value))
+    return Datetime(
+        instant.year,
+        instant.month,
+        instant.day,
+        hour=instant.hour,
+        minute=instant.minute,
+        second=instant.second,
+        microsecond=instant.microsecond,
+    )
+
+
+def _stage_native_submission_contract(driver: Driver, timestamp: Datetime) -> None:
     source = BUILTIN_SUBMISSION_SOURCE_PATH.read_text(encoding="utf-8")
     artifacts = build_contract_artifacts(
         module_name="submission",
@@ -92,6 +109,7 @@ def _stage_native_submission_contract(driver: Driver) -> None:
         name="submission",
         source=artifacts["source"],
         vm_ir_json=artifacts["vm_ir_json"],
+        timestamp=timestamp,
     )
 
 
@@ -103,6 +121,7 @@ def _deploy_native_genesis_contract(
     source: str,
     owner: str | None,
     constructor_args: dict[str, Any] | None,
+    submission_time: Datetime,
 ) -> None:
     output = execute_vm_contract(
         runtime,
@@ -116,7 +135,7 @@ def _deploy_native_genesis_contract(
             "owner": owner,
             "constructor_args": constructor_args or {},
         },
-        environment={"now": _genesis_submission_time()},
+        environment={"now": submission_time},
         meter=False,
     )
     if output.status_code != 0:
@@ -148,6 +167,13 @@ def render_template_values(value: Any, substitutions: dict[str, str]) -> Any:
     return value
 
 
+def _genesis_contract_name(contract: dict[str, Any], substitutions: dict[str, str]) -> str:
+    contract_name = render_template_values(contract["name"], substitutions)
+    if contract.get("submit_as") is not None:
+        contract_name = render_template_values(contract["submit_as"], substitutions)
+    return contract_name
+
+
 def _build_genesis_block(
     *,
     founder_private_key: str,
@@ -156,7 +182,9 @@ def _build_genesis_block(
     storage_home: Path,
     constructor_overrides: dict[str, dict[str, Any]] | None = None,
     runtime_features: dict[str, Any] | None = None,
+    genesis_time: str | None = None,
 ) -> dict[str, Any]:
+    submission_time = _genesis_submission_time(genesis_time)
     driver = Driver(storage_home=storage_home)
     resolved_runtime_features = normalize_runtime_features(runtime_features)
     install_driver_runtime_features(
@@ -167,7 +195,7 @@ def _build_genesis_block(
         ),
     )
     runtime = build_vm_runtime()
-    _stage_native_submission_contract(driver)
+    _stage_native_submission_contract(driver, submission_time)
 
     contract_config = load_contract_bundle_config(
         network,
@@ -183,10 +211,7 @@ def _build_genesis_block(
     extension = contract_config["extension"]
 
     for contract in contract_config["contracts"]:
-        contract_name = render_template_values(contract["name"], substitutions)
-        submit_as = contract.get("submit_as")
-        if submit_as is not None:
-            contract_name = render_template_values(submit_as, substitutions)
+        contract_name = _genesis_contract_name(contract, substitutions)
 
         contract_path = contracts_dir / (
             render_template_values(contract["name"], substitutions) + extension
@@ -212,6 +237,7 @@ def _build_genesis_block(
                 source=code,
                 owner=owner,
                 constructor_args=constructor_args,
+                submission_time=submission_time,
             )
 
     for entry in genesis_runtime_feature_entries(resolved_runtime_features):
@@ -251,6 +277,7 @@ def build_genesis_block(
     storage_home: Path | None = None,
     constructor_overrides: dict[str, dict[str, Any]] | None = None,
     runtime_features: dict[str, Any] | None = None,
+    genesis_time: str | None = None,
 ) -> dict[str, Any]:
     resolved_contracts_dir = resolve_contracts_dir(contracts_dir)
 
@@ -262,6 +289,7 @@ def build_genesis_block(
             storage_home=storage_home.resolve(),
             constructor_overrides=constructor_overrides,
             runtime_features=runtime_features,
+            genesis_time=genesis_time,
         )
 
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -272,6 +300,7 @@ def build_genesis_block(
             storage_home=Path(tmp_dir),
             constructor_overrides=constructor_overrides,
             runtime_features=runtime_features,
+            genesis_time=genesis_time,
         )
 
 
@@ -347,11 +376,7 @@ def build_cometbft_genesis(
     validators: list[dict[str, Any]] | None = None,
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
-    resolved_genesis_time = genesis_time
-    if resolved_genesis_time is None:
-        resolved_genesis_time = (
-            datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
-        )
+    resolved_genesis_time = _normalize_genesis_time(genesis_time)
 
     return {
         "genesis_time": resolved_genesis_time,
@@ -375,6 +400,7 @@ def build_single_validator_genesis(
     registration_fee: int = 100000,
     contracts_dir: Path | None = None,
     runtime_features: dict[str, Any] | None = None,
+    genesis_time: str | None = None,
 ) -> dict[str, Any]:
     founder_wallet = Ed25519Account(founder_private_key)
     return build_local_network_genesis(
@@ -392,6 +418,7 @@ def build_single_validator_genesis(
         registration_fee=registration_fee,
         contracts_dir=contracts_dir,
         runtime_features=runtime_features,
+        genesis_time=genesis_time,
     )
 
 
@@ -405,9 +432,11 @@ def build_local_network_genesis(
     contracts_dir: Path | None = None,
     runtime_features: dict[str, Any] | None = None,
     validator_constructor_overrides: dict[str, Any] | None = None,
+    genesis_time: str | None = None,
 ) -> dict[str, Any]:
     if not validators:
         raise ValueError("at least one validator is required")
+    resolved_genesis_time = _normalize_genesis_time(genesis_time)
 
     contract_config = load_contract_bundle_config(
         network,
@@ -446,6 +475,7 @@ def build_local_network_genesis(
             "validators": dict(validator_overrides),
         },
         runtime_features=runtime_features,
+        genesis_time=resolved_genesis_time,
     )
     validator_entries = [
         build_validator_genesis_entry(
@@ -459,6 +489,7 @@ def build_local_network_genesis(
         chain_id=chain_id,
         abci_genesis=abci_genesis,
         validators=validator_entries,
+        genesis_time=resolved_genesis_time,
     )
 
 
@@ -470,11 +501,13 @@ def build_bundle_network_genesis(
     genesis_time: str | None = None,
     runtime_features: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    resolved_genesis_time = _normalize_genesis_time(genesis_time)
     abci_genesis = build_genesis_block(
         founder_private_key=DEFAULT_PRESET_GENESIS_PRIVATE_KEY,
         network=network,
         contracts_dir=contracts_dir,
         runtime_features=runtime_features,
+        genesis_time=resolved_genesis_time,
     )
     abci_genesis["origin"] = {"sender": "", "signature": ""}
     return build_cometbft_genesis(
@@ -484,7 +517,7 @@ def build_bundle_network_genesis(
             network=network,
             contracts_dir=contracts_dir,
         ),
-        genesis_time=genesis_time,
+        genesis_time=resolved_genesis_time,
     )
 
 

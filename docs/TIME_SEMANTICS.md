@@ -62,6 +62,18 @@ Xian preserves CometBFT block timestamp precision up to Python `datetime`
 microseconds. Sub-microsecond nanoseconds are truncated because Python's
 `datetime` does not support nanosecond storage.
 
+## Genesis
+
+Genesis builders accept an optional timezone-aware ISO `genesis_time`. The
+combined bundle, local-network and single-validator builders normalize it to
+UTC and use that same instant for the CometBFT header, submission metadata and
+every contract constructor's `now`. Seconds and microseconds are preserved.
+
+When no time is supplied, the builder samples the current UTC time once for
+the entire genesis. For reproducible genesis bytes and application hashes,
+supply an explicit time and keep the other inputs and compiler/runtime versions
+identical. Naive timestamps without a timezone are rejected.
+
 ## Simulation
 
 Transaction simulation uses the latest known chain time when block metadata is
