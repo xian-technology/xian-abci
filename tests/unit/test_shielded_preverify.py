@@ -166,6 +166,28 @@ def test_warm_shielded_proof_cache_never_raises_on_rejected_requests():
     )
 
 
+def test_real_bridge_rejects_malformed_proof_without_failing_warmup():
+    field = "0x" + "11" * 32
+    bindings = {
+        "shielded_output_payload_hashes": lambda items: [field] * len(items),
+        "shielded_deposit_public_inputs": lambda *args: [field],
+        "ZkEncodingError": ValueError,
+        "ZkVerifierError": RuntimeError,
+    }
+    driver = _Driver({("con_token", "vk_ids", ("deposit",)): "demo"})
+    tx = _tx("deposit_shielded", {
+        "proof_hex": "0xzz", "amount": 1, "old_root": field,
+        "output_commitments": [field],
+    })
+    previous_driver = rt.env.get("__Driver")
+    # Only native field helpers are stubbed: request construction and the
+    # bridge's proof-encoding validation both run normally.
+    with patch("xian.shielded_preverify.zk_bridge._native_verifier_bindings", return_value=bindings):
+        stats = warm_shielded_proof_cache(driver=driver, txs=[tx])
+    assert stats == ShieldedPreverifyStats(candidate_count=1, failed_count=1)
+    assert rt.env.get("__Driver") is previous_driver
+
+
 def _tx(function, kwargs, *, contract="con_token", sender="sender", chain_id="xian-test"):
     return {
         "payload": {

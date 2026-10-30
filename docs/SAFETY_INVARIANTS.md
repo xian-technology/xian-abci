@@ -15,6 +15,18 @@ This file records the runtime properties that must hold before an
 ## Failure Semantics
 
 - Failed transactions must not persist contract writes or events.
+- Successful VM effects must be representable by the ABCI/state-root encoder,
+  with UTF-8 storage keys, before any contract writes or events are applied.
+  An incompatible effect fails the whole transaction and discards its contract
+  writes and events while retaining consumed chi for normal failure accounting.
+  This check does not restrict return-only values: transaction results continue
+  to render those values as text.
+- Paid and free metered transactions require a positive `chi_supplied` at
+  admission, proposal validation, and finalization. Internal system execution
+  retains its explicit unmetered policy. Changes to these consensus validation
+  rules require validators to upgrade together.
+- Shielded proof-cache warming is optional acceleration. Rejected warm-up
+  requests must not fail a block or bypass verification during execution.
 - Replay after failure must leave the same committed state on every node and in
   every execution engine.
 - A committed block's height and app hash must become durable in the same LMDB

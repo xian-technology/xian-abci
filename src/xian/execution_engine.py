@@ -4,7 +4,7 @@ import decimal
 import hashlib
 import json
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any
 
@@ -20,6 +20,7 @@ from xian.execution_policy import (
     VM_EXECUTION_MODE,
     VM_GAS_SCHEDULE,
 )
+from xian.utils.encoding import encode_abci_json
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,14 +253,37 @@ def execute_vm_contract(
             contract_costs={},
         )
 
-    return VmExecutionResult(
-        status_code=int(output.status_code),
-        result=output.result,
-        writes=dict(output.writes),
-        events=list(output.events),
-        chi_used=int(getattr(output, "chi_used", 0)),
-        contract_costs=dict(getattr(output, "contract_costs", {}) or {}),
+    return _validated_vm_result(
+        VmExecutionResult(
+            status_code=int(output.status_code),
+            result=output.result,
+            writes=dict(output.writes),
+            events=list(output.events),
+            chi_used=int(getattr(output, "chi_used", 0)),
+            contract_costs=dict(getattr(output, "contract_costs", {}) or {}),
+        )
     )
+
+
+def _validated_vm_result(output: VmExecutionResult) -> VmExecutionResult:
+    if output.status_code != 0:
+        return output
+    try:
+        # Both ABCI responses and state-root leaves use this encoder. Validate
+        # effects before the transaction can apply any of them; return values
+        # are deliberately excluded because the processor renders them as text.
+        encode_abci_json((output.writes, output.events))
+        for key in output.writes:
+            key.encode("utf-8")
+    except (AssertionError, TypeError, ValueError, RecursionError):
+        return replace(
+            output,
+            status_code=1,
+            result=ValueError("Contract writes or events cannot be encoded for consensus."),
+            writes={},
+            events=[],
+        )
+    return output
 
 
 def execute_vm_transaction(
