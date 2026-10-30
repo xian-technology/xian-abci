@@ -356,3 +356,54 @@ def test_configured_path_through_external_home_alias_is_preserved(home, tmp_path
         assert (alias / "data/custom.json").read_text() == "height123"
     finally:
         alias.unlink()
+
+
+@pytest.mark.parametrize("via_alias", [False, True])
+def test_external_identity_links_cannot_hide_internal_symlinks(home, tmp_path, via_alias):
+    internal = home / "data/custom.json"
+    internal.symlink_to("priv_validator_state.json")
+    alias = tmp_path.parent / (tmp_path.name + "-alias")
+    alias.symlink_to(home, target_is_directory=True)
+    try:
+        if via_alias:
+            value = str(alias / "data/custom.json")
+        else:
+            external = home / "config/state.json"
+            external.symlink_to("../data/custom.json")
+            value = str(external)
+        (home / "config/config.toml").write_text(f'priv_validator_state_file = "{value}"')
+        with pytest.raises(ValueError, match="symlinked"):
+            restore(home, [("data/new", "blocks")])
+        assert_original(home)
+        assert internal.read_text() == "height123"
+    finally:
+        alias.unlink()
+
+
+@pytest.mark.parametrize("internal_link", [False, True])
+def test_configured_home_case_alias_is_protected(home, internal_link):
+    alias = home.parent / home.name.upper()
+    if not alias.exists():
+        pytest.skip("filesystem is case-sensitive")
+    state = home / "data/custom.json"
+    if internal_link:
+        state.symlink_to("priv_validator_state.json")
+    else:
+        state.write_text("height123")
+    (home / "config/config.toml").write_text(
+        f'priv_validator_state_file = "{alias}/data/custom.json"'
+    )
+    if internal_link:
+        with pytest.raises(ValueError, match="symlinked"):
+            restore(home, [("data/new", "blocks")])
+    else:
+        restore(home, [("data/custom.json", "height1"), ("data/new", "blocks")])
+    assert state.read_text() == "height123"
+
+
+def test_cyclic_external_identity_links_fail_without_changing_data(home):
+    (home / "config/state.json").symlink_to("state.json")
+    (home / "config/config.toml").write_text('priv_validator_state_file = "config/state.json"')
+    with pytest.raises(ValueError, match="too many identity path symlinks"):
+        restore(home, [("data/new", "blocks")])
+    assert_original(home)

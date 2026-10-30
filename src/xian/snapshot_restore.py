@@ -49,30 +49,52 @@ def _protected_paths(home: Path) -> set[Path]:
 
 
 def _protected_relative_path(home: Path, value: str) -> Path | None:
-    path = Path(os.path.abspath(home / value))
-    _check_local_identity_path(path, home)
     # Config/external links survive publication, but their targets may not.
-    path = path.resolve()
+    path = _resolve_identity_path(home / value, home)
     if path.is_dir():
         raise ValueError(f"configured identity path must be a file: {path}")
-    if not path.is_relative_to(home):
+    relative = _home_relative_path(path, home)
+    if relative is None:
         return None
-    relative = path.relative_to(home)
     root = _application_root(home, relative.parts[0])
     if root is None:
         return None
-    _check_plain_path(path, home)
+    _check_plain_path(home / relative, home)
     if len(relative.parts) == 1:
         raise ValueError(f"configured identity path must be a file: {path}")
     return Path(root, *relative.parts[1:])
 
 
+def _resolve_identity_path(path: Path, home: Path, hops: int = 0) -> Path:
+    if hops > 40:
+        raise ValueError(f"too many identity path symlinks: {path}")
+    current = Path(path.anchor)
+    for index, part in enumerate(path.parts[1:]):
+        if part == "..":
+            current = current.parent
+            continue
+        current = current / part
+        if current.is_symlink():
+            _check_local_identity_path(current, home)
+            target = current.parent / os.readlink(current)
+            remainder = path.parts[index + 2 :]
+            return _resolve_identity_path(target.joinpath(*remainder), home, hops + 1)
+    return current
+
+
 def _check_local_identity_path(path: Path, home: Path) -> None:
-    if not path.is_relative_to(home):
+    relative = _home_relative_path(path, home)
+    if relative is None:
         return
-    relative = path.relative_to(home)
     if relative.parts and _application_root(home, relative.parts[0]) is not None:
-        _check_plain_path(path, home)
+        _check_plain_path(home / relative, home)
+
+
+def _home_relative_path(path: Path, home: Path) -> Path | None:
+    for parent in path.parents:
+        if parent.exists() and parent.samefile(home):
+            return path.relative_to(parent)
+    return None
 
 
 def _application_root(home: Path, name: str) -> str | None:
