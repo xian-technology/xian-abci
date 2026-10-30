@@ -118,8 +118,8 @@ class TxFeePolicy:
 
     def validate_tx(self, tx: dict) -> None:
         chi_supplied = self.tx_chi_supplied(tx)
-        # The VM treats a zero chi budget as "no limit", so a metered
-        # transaction must always carry a positive budget.
+        # Metered user transactions must supply an explicit positive budget;
+        # internal system transactions use a separate unmetered policy.
         if self.meter_execution and chi_supplied <= 0:
             raise TransactionException("Transaction chi_supplied must be greater than zero")
         if self.max_tx_chi is None:
