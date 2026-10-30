@@ -26,6 +26,22 @@ This file records the runtime properties that must hold before an
   policy intentionally charges failed execution, but they must remain
   deterministic across nodes and runtimes.
 
+## Validator Selection
+
+- Consensus identities are exactly 32-byte hexadecimal keys. Case variants
+  compare as one key without changing the spelling of contract account keys.
+  Equal-power aliases collapse to one validator; conflicting powers reject the
+  selection independently of list ordering.
+- Malformed identities are excluded. An empty or entirely invalid selection
+  retains the last effective nonempty consensus set, including across blocks,
+  restart, export, and state sync.
+- Node-managed `validators.__consensus__` records that effective set in the
+  same committed state and app hash as the block. Contracts cannot declare
+  this reserved metadata name or write it through foreign state access.
+- Existing state without this metadata bootstraps from its committed valid
+  active validators. This is an upgrade boundary, not recovery for a chain
+  whose previous contract state already disagrees with CometBFT.
+
 ## Native Runtime Rollout
 
 - Native-authoritative execution must continue to produce shadow-comparison data
