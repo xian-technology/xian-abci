@@ -27,6 +27,25 @@ Important properties:
 - does not require peer-served snapshot chunks
 - remote restore should use either an explicit archive SHA256 or a signed
   snapshot manifest validated against trusted signing keys
+- stop the node before restoring; concurrent restore commands are rejected
+- only regular files and directories under `data/` and `xian/` are restored;
+  other node-home entries are ignored, while traversal paths, links, special
+  files, duplicate file paths and conflicting layouts are rejected
+- the existing validator signing state and node/validator identity keys are
+  retained, using both default paths and configured paths in `config/config.toml`;
+  an archive cannot supply a missing local identity or signing-state file
+- symlinked application roots or protected paths inside those roots are rejected;
+  identity links outside the replaced roots are retained and their targets are protected
+- extraction and validation finish in staging before application data is replaced;
+  publication failures roll back both directories
+
+Restoring both directories is not a single filesystem transaction. If the
+process stops during publication, or rollback cannot complete, original data
+is retained under `.snapshot-restore-*/backup/`. Another restore is blocked
+while that recovery copy exists. Keep the node stopped, recover the original
+directories from the backup (including signing state), and remove the staging
+directory only after verifying recovery. Never reset the signing high-water
+mark to match an older snapshot.
 
 ## CometBFT State Sync Snapshots
 
