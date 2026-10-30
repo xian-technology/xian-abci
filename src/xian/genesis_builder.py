@@ -75,7 +75,8 @@ def load_contract_bundle_config(
         return json.load(handle)
 
 
-def _normalize_genesis_time(value: str | None = None) -> str:
+def normalize_genesis_time(value: str | None = None) -> str:
+    """Normalize an aware ISO timestamp to UTC, or sample the current UTC time."""
     instant = datetime.now(timezone.utc) if value is None else datetime.fromisoformat(value)
     if instant.tzinfo is None:
         raise ValueError("genesis_time must include a timezone")
@@ -84,8 +85,9 @@ def _normalize_genesis_time(value: str | None = None) -> str:
     )
 
 
-def _genesis_submission_time(value: str | None = None) -> Datetime:
-    instant = datetime.fromisoformat(_normalize_genesis_time(value))
+def parse_genesis_time(value: str | None = None) -> Datetime:
+    """Parse an aware ISO timestamp as the UTC time used by contract constructors."""
+    instant = datetime.fromisoformat(normalize_genesis_time(value))
     return Datetime(
         instant.year,
         instant.month,
@@ -97,7 +99,7 @@ def _genesis_submission_time(value: str | None = None) -> Datetime:
     )
 
 
-def _stage_native_submission_contract(driver: Driver, timestamp: Datetime) -> None:
+def _stage_native_submission_contract(driver: Driver, *, submission_time: Datetime) -> None:
     source = BUILTIN_SUBMISSION_SOURCE_PATH.read_text(encoding="utf-8")
     artifacts = build_contract_artifacts(
         module_name="submission",
@@ -109,7 +111,7 @@ def _stage_native_submission_contract(driver: Driver, timestamp: Datetime) -> No
         name="submission",
         source=artifacts["source"],
         vm_ir_json=artifacts["vm_ir_json"],
-        timestamp=timestamp,
+        timestamp=submission_time,
     )
 
 
@@ -174,18 +176,21 @@ def _genesis_contract_name(contract: dict[str, Any], substitutions: dict[str, st
     return contract_name
 
 
-def _build_genesis_block(
+def deploy_bundle_contracts(
+    driver: Driver,
     *,
     founder_private_key: str,
     network: str,
     contracts_dir: Path,
-    storage_home: Path,
     constructor_overrides: dict[str, dict[str, Any]] | None = None,
     runtime_features: dict[str, Any] | None = None,
-    genesis_time: str | None = None,
-) -> dict[str, Any]:
-    submission_time = _genesis_submission_time(genesis_time)
-    driver = Driver(storage_home=storage_home)
+    submission_time: Datetime | None = None,
+) -> None:
+    """Stage submission and deploy a network bundle's contracts into ``driver``.
+
+    The writes stay pending in the driver so callers can layer further state
+    on top before ``finalize_genesis_block`` hashes and signs the result.
+    """
     resolved_runtime_features = normalize_runtime_features(runtime_features)
     install_driver_runtime_features(
         driver,
@@ -195,7 +200,9 @@ def _build_genesis_block(
         ),
     )
     runtime = build_vm_runtime()
-    _stage_native_submission_contract(driver, submission_time)
+    if submission_time is None:
+        submission_time = parse_genesis_time()
+    _stage_native_submission_contract(driver, submission_time=submission_time)
 
     contract_config = load_contract_bundle_config(
         network,
@@ -243,9 +250,17 @@ def _build_genesis_block(
     for entry in genesis_runtime_feature_entries(resolved_runtime_features):
         driver.set(entry["key"], entry["value"])
 
+
+def finalize_genesis_block(
+    driver: Driver,
+    *,
+    founder_private_key: str | None,
+    number: int | str = "0",
+) -> dict[str, Any]:
+    """Commit the driver's pending writes and render them as a signed genesis block."""
     genesis_block = {
         "hash": "",
-        "number": "0",
+        "number": str(number),
         "genesis": [],
         "origin": {
             "signature": "",
@@ -262,11 +277,37 @@ def _build_genesis_block(
         key=lambda item: item["key"],
     )
     genesis_block["hash"] = StateRootCache.from_driver(driver).root_hash.hex()
-    genesis_block["origin"]["sender"] = wallet.public_key
-    genesis_block["origin"]["signature"] = wallet.sign_msg(
-        hash_state_changes(genesis_block["genesis"])
-    )
+    if founder_private_key:
+        wallet = Ed25519Account(founder_private_key)
+        genesis_block["origin"]["sender"] = wallet.public_key
+        genesis_block["origin"]["signature"] = wallet.sign_msg(
+            hash_state_changes(genesis_block["genesis"])
+        )
     return genesis_block
+
+
+def _build_genesis_block(
+    *,
+    founder_private_key: str,
+    network: str,
+    contracts_dir: Path,
+    storage_home: Path,
+    constructor_overrides: dict[str, dict[str, Any]] | None = None,
+    runtime_features: dict[str, Any] | None = None,
+    genesis_time: str | None = None,
+) -> dict[str, Any]:
+    submission_time = parse_genesis_time(genesis_time)
+    driver = Driver(storage_home=storage_home)
+    deploy_bundle_contracts(
+        driver,
+        founder_private_key=founder_private_key,
+        network=network,
+        contracts_dir=contracts_dir,
+        constructor_overrides=constructor_overrides,
+        runtime_features=runtime_features,
+        submission_time=submission_time,
+    )
+    return finalize_genesis_block(driver, founder_private_key=founder_private_key)
 
 
 def build_genesis_block(
@@ -376,7 +417,7 @@ def build_cometbft_genesis(
     validators: list[dict[str, Any]] | None = None,
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
-    resolved_genesis_time = _normalize_genesis_time(genesis_time)
+    resolved_genesis_time = normalize_genesis_time(genesis_time)
 
     return {
         "genesis_time": resolved_genesis_time,
@@ -436,7 +477,7 @@ def build_local_network_genesis(
 ) -> dict[str, Any]:
     if not validators:
         raise ValueError("at least one validator is required")
-    resolved_genesis_time = _normalize_genesis_time(genesis_time)
+    resolved_genesis_time = normalize_genesis_time(genesis_time)
 
     contract_config = load_contract_bundle_config(
         network,
@@ -501,7 +542,7 @@ def build_bundle_network_genesis(
     genesis_time: str | None = None,
     runtime_features: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    resolved_genesis_time = _normalize_genesis_time(genesis_time)
+    resolved_genesis_time = normalize_genesis_time(genesis_time)
     abci_genesis = build_genesis_block(
         founder_private_key=DEFAULT_PRESET_GENESIS_PRIVATE_KEY,
         network=network,

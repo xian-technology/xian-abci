@@ -107,6 +107,48 @@ Shielded and state-patch queries:
 - `/state_patch/<hash>`
 - `/state_changes_for_patch/<hash>`
 
+## Staged Genesis Construction
+
+`xian.genesis_builder.build_genesis_block()` builds and signs a complete bundle
+in one call. Tools that need to add state between deployment and signing can
+compose the same operations through the public helpers:
+
+```python
+from contracting.storage.driver import Driver
+from xian.genesis_builder import (
+    deploy_bundle_contracts,
+    finalize_genesis_block,
+    parse_genesis_time,
+)
+
+with Driver(storage_home=output_storage) as driver:
+    deploy_bundle_contracts(
+        driver,
+        founder_private_key=founder_key,
+        network=network,
+        contracts_dir=contracts_dir,
+        submission_time=parse_genesis_time(genesis_time),
+    )
+    driver.set("my_contract.initial_value", initial_value)
+    block = finalize_genesis_block(driver, founder_private_key=founder_key)
+```
+
+Use an isolated driver for genesis construction. Deployment leaves writes
+pending, including runtime feature flags, so callers can add or replace state.
+`constructor_overrides` and `runtime_features` have the same meanings as in
+`build_genesis_block()`. Finalization commits pending writes, exports sorted
+state, computes its state root, and signs the exported state. Its optional
+`number` argument defaults to `"0"`; explicitly passing
+`founder_private_key=None` leaves the origin sender and signature empty.
+The caller owns the driver's lifetime.
+
+`normalize_genesis_time()` returns an ISO timestamp in UTC;
+`parse_genesis_time()` returns the corresponding contract `Datetime`. Both
+accept timezone-aware ISO text, reject naive timestamps, and sample the current
+UTC time when passed `None`. Supply one explicit instant to all construction
+stages for reproducible output. Contract metadata and constructors receive the
+same `submission_time`.
+
 ## Notes
 
 - The live source of truth is `src/xian/methods/query.py`.

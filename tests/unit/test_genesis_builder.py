@@ -198,7 +198,7 @@ class GenesisBuilderTests(unittest.TestCase):
             )
 
             with mock.patch(
-                "xian.genesis_builder._genesis_submission_time",
+                "xian.genesis_builder.parse_genesis_time",
                 return_value=fixed_now,
             ), mock.patch(
                 "xian.genesis_builder.execute_vm_contract",
