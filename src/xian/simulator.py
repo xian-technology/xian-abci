@@ -8,7 +8,7 @@ from pathlib import Path
 
 from contracting.local import ContractingClient
 from loguru import logger
-from xian_runtime_types.encoding import convert_dict
+from xian_runtime_types.encoding import convert_dict, safe_repr
 from xian_runtime_types.time import Datetime
 
 from xian import simulator_ipc
@@ -26,6 +26,16 @@ from xian.utils.block import (
 )
 from xian.utils.encoding import normalize_for_abci_json, stringify_decimals
 from xian.utils.tx import canonical_transaction_size_bytes, format_dictionary
+
+
+def _simulation_result(value):
+    """Keep structured JSON results and safely represent other VM return values."""
+    try:
+        normalized = normalize_for_abci_json(value)
+        json.dumps(normalized, allow_nan=False)
+    except (AssertionError, TypeError, ValueError):
+        return safe_repr(value)
+    return normalized
 
 
 def _simulation_error_result(
@@ -209,7 +219,7 @@ class TransactionSimulator:
             "status": outcome.output.status_code,
             "state": writes,
             "chi_used": outcome.chi_used,
-            "result": normalize_for_abci_json(outcome.output.result),
+            "result": _simulation_result(outcome.output.result),
         }
         return stringify_decimals(format_dictionary(result))
 

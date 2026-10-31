@@ -1,5 +1,6 @@
 import asyncio
 import decimal
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -8,6 +9,7 @@ from unittest import mock
 
 from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
+from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.time import Datetime
 
@@ -69,6 +71,83 @@ class SimulatorIpcTests(unittest.TestCase):
                 value = decimal.Decimal(text)
                 decoded = simulator_ipc.loads(simulator_ipc.dumps({"result": [value]}))
                 self.assertEqual(decoded["result"][0].as_tuple(), value.as_tuple())
+
+    def test_round_trips_decimal_tuple_type_fields_and_nested_values(self):
+        for text in ("2.500", "-0.00", "Infinity", "-NaN42", "sNaN5"):
+            with self.subTest(value=text):
+                value = decimal.Decimal(text).as_tuple()
+                decoded = simulator_ipc.loads(simulator_ipc.dumps({"result": [value]}))
+                actual = decoded["result"][0]
+                self.assertIs(type(actual), decimal.DecimalTuple)
+                self.assertEqual(actual, value)
+                self.assertEqual(repr(actual), repr(value))
+                self.assertEqual((actual.sign, actual.digits, actual.exponent), value)
+
+    def test_round_trips_dictionary_key_types_order_and_distinct_nans(self):
+        first_nan = decimal.Decimal("NaN")
+        second_nan = decimal.Decimal("NaN")
+        payload = {
+            7: "integer",
+            "7": "string",
+            decimal.Decimal("1.20"): "decimal",
+            first_nan: "first nan",
+            second_nan: "second nan",
+            (2, b"x"): "tuple",
+        }
+        decoded = simulator_ipc.loads(simulator_ipc.dumps({"result": payload}))["result"]
+        self.assertEqual(list(decoded.values()), list(payload.values()))
+        keys = list(decoded)
+        self.assertEqual([type(key) for key in keys], [type(key) for key in payload])
+        self.assertEqual(keys[:3], list(payload)[:3])
+        self.assertEqual(keys[2].as_tuple(), decimal.Decimal("1.20").as_tuple())
+        self.assertTrue(keys[3].is_qnan())
+        self.assertTrue(keys[4].is_qnan())
+        self.assertIsNot(keys[3], keys[4])
+        self.assertEqual(keys[5], (2, b"x"))
+
+    def test_user_dictionaries_cannot_collide_with_ipc_type_markers(self):
+        for payload in (
+            {"__xian_ipc_type__": "decimal", "value": "1.20"},
+            {"__xian_ipc_type__": "dict", "items": [["fake", 1]]},
+            {"__xian_ipc_type__": "decimal_tuple", "items": [0, [1], 0]},
+            {"__xian_ipc_type__": "unknown", "nested": {7: "number"}},
+        ):
+            with self.subTest(payload=payload):
+                decoded = simulator_ipc.loads(simulator_ipc.dumps(payload))
+                self.assertIs(type(decoded), dict)
+                self.assertEqual(decoded, payload)
+        ordinary = {"status": 0, "result": {"value": 3}}
+        self.assertEqual(json.loads(simulator_ipc.dumps(ordinary)), ordinary)
+
+    def test_loads_only_interprets_exact_known_tag_shapes(self):
+        # Preserve the existing decoder behavior for untagged/older worker data.
+        for payload in (
+            {"__xian_ipc_type__": "decimal", "value": "1", "extra": 2},
+            {"__xian_ipc_type__": "tuple", "items": [1], "extra": 2},
+            {"__xian_ipc_type__": "unknown", "value": "1"},
+            {"__xian_ipc_type__": "unknown", "items": [1]},
+        ):
+            with self.subTest(payload=payload):
+                decoded = simulator_ipc.loads(json.dumps(payload).encode())
+                self.assertEqual(decoded, payload)
+
+    def test_round_trips_contract_sets_with_special_decimal_values(self):
+        for collection_type in (ContractingSet, ContractingFrozenSet):
+            with self.subTest(collection_type=collection_type):
+                values = [
+                    decimal.Decimal("Infinity"),
+                    decimal.Decimal("NaN"),
+                    decimal.Decimal("NaN"),
+                ]
+                payload = collection_type(values)
+                decoded = simulator_ipc.loads(simulator_ipc.dumps(payload))
+                self.assertIs(type(decoded), collection_type)
+                actual = list(decoded)
+                self.assertEqual(len(actual), 3)
+                self.assertTrue(actual[0].is_infinite())
+                self.assertTrue(actual[1].is_qnan())
+                self.assertTrue(actual[2].is_qnan())
+                self.assertIsNot(actual[1], actual[2])
 
     def test_round_trips_supported_runtime_values(self):
         payload = {
@@ -220,6 +299,41 @@ class SimulatorTests(unittest.TestCase):
                 "left_at": None,
             },
         )
+
+    def test_execute_represents_non_json_results_without_losing_success(self):
+        results = [
+            {decimal.Decimal("NaN"): "first", decimal.Decimal("NaN"): "second"},
+            {7: "integer", "7": "string"},
+            ContractingSet([decimal.Decimal("Infinity"), decimal.Decimal("NaN")]),
+            {"nested": ContractingFrozenSet([decimal.Decimal("NaN")])},
+            {1: "x" * 2000},
+            float("nan"),
+        ]
+        for original in results:
+            with self.subTest(result_type=type(original)):
+                simulator = _simulator()
+                simulator._make_environment = lambda payload, block_meta=None: {}
+                native = _native_result(original, chi_used=987)
+                native.writes = {"con_example.counter": 4}
+                with (
+                    mock.patch("xian.simulator.prepare_vm_contract"),
+                    mock.patch("xian.simulator.execute_vm_transaction", return_value=native),
+                ):
+                    result = simulator._execute(
+                        {
+                            "sender": "alice",
+                            "contract": "con_example",
+                            "function": "example",
+                            "kwargs": {},
+                        }
+                    )
+                self.assertEqual(result["status"], 0)
+                self.assertEqual(result["chi_used"], 987)
+                self.assertEqual(result["state"], [{"key": "con_example.counter", "value": 4}])
+                self.assertEqual(result["result"], repr(original)[:1024])
+                transported = simulator_ipc.loads(simulator_ipc.dumps(result))
+                self.assertEqual(transported, result)
+                json.dumps(result, allow_nan=False)
 
     def test_execute_normalizes_tuple_result_for_abci(self):
         simulator = _simulator()
