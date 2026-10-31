@@ -63,6 +63,13 @@ def _native_result(result, *, status_code=0, chi_used=255):
 
 
 class SimulatorIpcTests(unittest.TestCase):
+    def test_round_trips_raw_decimal_quantum_and_signed_zero(self):
+        for text in ("1E+2", "0E+3", "-0E+2", "-0.00", "1.2300", "1E-190"):
+            with self.subTest(value=text):
+                value = decimal.Decimal(text)
+                decoded = simulator_ipc.loads(simulator_ipc.dumps({"result": [value]}))
+                self.assertEqual(decoded["result"][0].as_tuple(), value.as_tuple())
+
     def test_round_trips_supported_runtime_values(self):
         payload = {
             "decimal": decimal.Decimal("1.2300"),

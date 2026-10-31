@@ -13,7 +13,7 @@ def _encode_value(value):
     if isinstance(value, ContractingDecimal):
         return {_TYPE_KEY: "contracting_decimal", "value": str(value)}
     if isinstance(value, decimal.Decimal):
-        return {_TYPE_KEY: "decimal", "value": format(value, "f")}
+        return {_TYPE_KEY: "decimal", "value": str(value)}
     if isinstance(value, Datetime):
         return {_TYPE_KEY: "datetime", "value": str(value)}
     if isinstance(value, bytes):
