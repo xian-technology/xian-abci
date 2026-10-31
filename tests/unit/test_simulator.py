@@ -12,9 +12,10 @@ from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.time import Datetime
 
 from xian import simulator_ipc
-from xian.execution_engine import build_vm_runtime
+from xian.execution_engine import build_vm_runtime, execute_vm_transaction
 from xian.simulator import QuerySimulationService, TransactionSimulator
 from xian.utils.block import set_latest_block_nanos
+from xian.utils.tx import canonical_transaction_size_bytes
 
 
 class _FakeDriver(SimpleNamespace):
@@ -390,6 +391,50 @@ class SimulatorTests(unittest.TestCase):
             self.assertIn("con_simulated_deploy_probe.__source__", writes)
             self.assertIn("con_simulated_deploy_probe.__xian_ir_v1__", writes)
             self.assertIsNone(client.raw_driver.get_contract_source("con_simulated_deploy_probe"))
+        finally:
+            client.flush()
+
+    def test_large_deployment_estimate_funds_actual_transaction_bytes(self):
+        source = "# " + "padding" * 3000 + "\n@export\ndef ping():\n    return True\n"
+        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client.flush()
+        try:
+            simulator = TransactionSimulator(
+                client=client, execution_runtime=build_vm_runtime(), chain_id="test-chain"
+            )
+            payload = {
+                "sender": "sys",
+                "contract": "submission",
+                "function": "submit_contract",
+                "kwargs": {"name": "con_large_estimate", "code": source},
+            }
+            estimate = simulator.simulate(payload)
+            self.assertEqual(estimate["status"], 0, estimate)
+            transaction = {
+                "metadata": {"signature": "a" * 128},
+                "payload": {
+                    **payload,
+                    "chain_id": "test-chain",
+                    "nonce": 17,
+                    "chi_supplied": estimate["chi_used"],
+                },
+            }
+            actual = execute_vm_transaction(
+                simulator.execution_runtime,
+                client.raw_driver,
+                sender=payload["sender"],
+                contract_name=payload["contract"],
+                function_name=payload["function"],
+                kwargs=payload["kwargs"],
+                environment=simulator._make_environment(payload),
+                chi_budget=estimate["chi_used"],
+                chi_cost=20,
+                meter=True,
+                transaction_size_bytes=canonical_transaction_size_bytes(transaction),
+                apply_metering_writes=False,
+            )
+            self.assertEqual(actual.output.status_code, 0, actual.output.result)
+            self.assertIn("con_large_estimate.__source__", actual.writes)
         finally:
             client.flush()
 

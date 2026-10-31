@@ -25,7 +25,7 @@ from xian.utils.block import (
     nanoseconds_to_utc_datetime,
 )
 from xian.utils.encoding import normalize_for_abci_json, stringify_decimals
-from xian.utils.tx import format_dictionary
+from xian.utils.tx import canonical_transaction_size_bytes, format_dictionary
 
 
 def _simulation_error_result(
@@ -40,6 +40,23 @@ def _simulation_error_result(
         "chi_used": 0,
         "result": message,
     }
+
+
+def _estimated_transaction_size(payload: dict, *, chain_id: str | None, max_chi: int | None) -> int:
+    # Simulation precedes nonce reservation/signing. Include the real argument
+    # bytes and a standard signature/envelope rather than charging zero bytes.
+    # The final nonce/budget and state can change; this remains an estimate.
+    return canonical_transaction_size_bytes(
+        {
+            "metadata": {"signature": "0" * 128},
+            "payload": {
+                **payload,
+                "chain_id": chain_id or "",
+                "nonce": 0,
+                "chi_supplied": max(int(max_chi or 1_000_000), 1),
+            },
+        }
+    )
 
 
 class TransactionSimulator:
@@ -177,6 +194,9 @@ class TransactionSimulator:
             kwargs=kwargs,
             environment=environment,
             chi_budget=max(int(max_chi or 1_000_000), 1),
+            transaction_size_bytes=_estimated_transaction_size(
+                payload, chain_id=environment.get("chain_id"), max_chi=max_chi
+            ),
             chi_cost=chi_cost,
             meter=True,
             apply_metering_on_success_only=False,
