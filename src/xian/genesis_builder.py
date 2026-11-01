@@ -15,7 +15,7 @@ from contracting.local import BUILTIN_SUBMISSION_SOURCE_PATH
 from contracting.runtime_features import normalize_runtime_features
 from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
-from xian_runtime_types.encoding import encode
+from xian_runtime_types.encoding import encode, encode_wire
 from xian_runtime_types.time import Datetime
 
 from xian.config_paths import (
@@ -574,7 +574,7 @@ def build_bundle_network_genesis(
 def write_genesis_block(path: Path, genesis_block: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
-        handle.write(encode(genesis_block))
+        handle.write(encode_wire(genesis_block))
 
 
 def update_cometbft_genesis(genesis_path: Path, *, abci_genesis: dict[str, Any]) -> None:
@@ -586,4 +586,4 @@ def update_cometbft_genesis(genesis_path: Path, *, abci_genesis: dict[str, Any])
     cometbft_genesis["app_hash"] = str(abci_genesis.get("hash", ""))
 
     with open(genesis_path, "w", encoding="utf-8") as handle:
-        handle.write(encode(cometbft_genesis))
+        handle.write(encode_wire(cometbft_genesis))

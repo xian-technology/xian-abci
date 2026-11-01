@@ -9,6 +9,7 @@ from typing import Any, Sequence
 
 from nacl.encoding import Base64Encoder, HexEncoder
 from nacl.signing import SigningKey
+from xian_runtime_types.encoding import encode_wire
 
 from xian import toml_utils
 from xian.fee_policy import (
@@ -17,7 +18,6 @@ from xian.fee_policy import (
     DEFAULT_TX_FEE_MODE,
     normalize_tx_fee_mode,
 )
-from xian.utils._wire_json import encode_wire_document
 
 DEFAULT_COMETBFT_CONFIG_TOML = """
 version = "0.39.3"
@@ -673,7 +673,7 @@ def write_json(path: Path, payload: dict[str, Any], *, overwrite: bool = False) 
         raise FileExistsError(f"{path} already exists")
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        f.write(encode_wire_document(payload))
+        f.write(encode_wire(payload))
         f.write("\n")
 
 

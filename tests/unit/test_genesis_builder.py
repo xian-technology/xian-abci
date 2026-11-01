@@ -295,6 +295,35 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertEqual(updated["initial_height"], "7")
         self.assertEqual(updated["app_hash"], "abc")
 
+    def test_write_genesis_block_preserves_existing_wire_tags(self):
+        genesis = {
+            "genesis": [{"key": "currency.balances:alice", "value": {"__fixed__": "1.2300"}}]
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "genesis_block.json"
+            write_genesis_block(path, genesis)
+            self.assertEqual(json.loads(path.read_text()), genesis)
+
+    def test_update_loaded_genesis_preserves_tagged_wire_fields(self):
+        original = {
+            "chain_id": "xian-local-1",
+            "initial_height": "0",
+            "app_state": {"balance": {"__fixed__": "2.000"}},
+        }
+        replacement = {
+            "hash": "abc",
+            "number": "7",
+            "genesis": [{"key": "currency.balances:alice", "value": {"__fixed__": "1.2300"}}],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "genesis.json"
+            path.write_text(json.dumps(original), encoding="utf-8")
+            update_cometbft_genesis(path, abci_genesis=replacement)
+            saved = json.loads(path.read_text())
+        self.assertEqual(saved["app_state"], original["app_state"])
+        self.assertEqual(saved["abci_genesis"], replacement)
+        self.assertEqual(saved["initial_height"], "7")
+        self.assertEqual(saved["app_hash"], "abc")
     def test_build_genesis_block_applies_constructor_overrides(self):
         founder_private_key = (
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
