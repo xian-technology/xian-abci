@@ -1,9 +1,11 @@
 from cometbft.abci.v1beta3.types_pb2 import ResponseInitChain
+from xian.execution_policy import validate_genesis_execution_policy
 from xian.utils.block import set_latest_block, store_genesis_block
 
 
 async def init_chain(self, req) -> ResponseInitChain:
     abci_genesis_state = self.genesis["abci_genesis"]
+    validate_genesis_execution_policy(abci_genesis_state)
     # ContractingClient may initialize local helper state before genesis. The
     # consensus state root must be derived only from the declared genesis state.
     self.client.raw_driver.flush_full()

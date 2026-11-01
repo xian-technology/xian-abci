@@ -38,9 +38,7 @@ def augment_execution_output_with_driver_state(
 ) -> dict:
     augmented = dict(output)
     merged_writes = dict(augmented.get("writes", {}))
-    previous_pending = (
-        {} if before_state is None else before_state["pending_writes"]
-    )
+    previous_pending = {} if before_state is None else before_state["pending_writes"]
     for key, value in after_state["pending_writes"].items():
         if key not in previous_pending or _normalize_value(
             previous_pending[key]
@@ -107,7 +105,11 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_build_runtime_for_vm_requires_supported_native_constants(self):
         fake_bindings = types.SimpleNamespace(
-            runtime_info=lambda: {"vm_profile": "xian_vm_v1"},
+            runtime_info=lambda: {
+                "vm_profile": "xian_vm_v1",
+                "execution_revision": "xvm-execution-2",
+                "set_codec": "xian-set-1",
+            },
             supports_execution_policy=lambda *_args: False,
         )
 
@@ -123,6 +125,8 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             runtime_info=lambda: {
                 "vm_profile": "xian_vm_v1",
                 "host_catalog_version": "xian_vm_v1_host_v1",
+                "execution_revision": "xvm-execution-2",
+                "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
         )
@@ -158,6 +162,8 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             runtime_info=lambda: {
                 "vm_profile": "xian_vm_v1",
                 "host_catalog_version": "xian_vm_v1_host_v1",
+                "execution_revision": "xvm-execution-2",
+                "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
             validate_module_ir=mock.Mock(),
@@ -169,30 +175,24 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         ):
             built_runtime = build_vm_runtime()
             driver = mock.Mock()
-            driver.get_contract_ir.side_effect = (
-                lambda name, vm_profile="xian_vm_v1": {
-                    "con_parent": (
-                        ContractingCompiler(
-                            module_name="con_parent"
-                        ).lower_to_ir_json(
-                            "import con_child\n\n@export\ndef ping():\n    return con_child.ping()\n",
-                            vm_profile="xian_vm_v1",
-                            indent=None,
-                            sort_keys=True,
-                        )
-                    ),
-                    "con_child": (
-                        ContractingCompiler(
-                            module_name="con_child"
-                        ).lower_to_ir_json(
-                            "@export\ndef ping():\n    return 'pong'\n",
-                            vm_profile="xian_vm_v1",
-                            indent=None,
-                            sort_keys=True,
-                        )
-                    ),
-                }.get(name)
-            )
+            driver.get_contract_ir.side_effect = lambda name, vm_profile="xian_vm_v1": {
+                "con_parent": (
+                    ContractingCompiler(module_name="con_parent").lower_to_ir_json(
+                        "import con_child\n\n@export\ndef ping():\n    return con_child.ping()\n",
+                        vm_profile="xian_vm_v1",
+                        indent=None,
+                        sort_keys=True,
+                    )
+                ),
+                "con_child": (
+                    ContractingCompiler(module_name="con_child").lower_to_ir_json(
+                        "@export\ndef ping():\n    return 'pong'\n",
+                        vm_profile="xian_vm_v1",
+                        indent=None,
+                        sort_keys=True,
+                    )
+                ),
+            }.get(name)
             driver.get_contract_source.return_value = None
             prepared = prepare_vm_contract(
                 built_runtime,
@@ -210,6 +210,8 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             runtime_info=lambda: {
                 "vm_profile": "xian_vm_v1",
                 "host_catalog_version": "xian_vm_v1_host_v1",
+                "execution_revision": "xvm-execution-2",
+                "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
             validate_module_ir=mock.Mock(),
@@ -222,28 +224,22 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             runtime = build_vm_runtime()
 
             driver = mock.Mock()
-            parent_ir = ContractingCompiler(
-                module_name="con_parent"
-            ).lower_to_ir_json(
+            parent_ir = ContractingCompiler(module_name="con_parent").lower_to_ir_json(
                 "import con_child\n\n@export\ndef ping():\n    return con_child.ping()\n",
                 vm_profile="xian_vm_v1",
                 indent=None,
                 sort_keys=True,
             )
-            child_ir = ContractingCompiler(
-                module_name="con_child"
-            ).lower_to_ir_json(
+            child_ir = ContractingCompiler(module_name="con_child").lower_to_ir_json(
                 "@export\ndef ping():\n    return 'pong'\n",
                 vm_profile="xian_vm_v1",
                 indent=None,
                 sort_keys=True,
             )
-            driver.get_contract_ir.side_effect = (
-                lambda name, vm_profile="xian_vm_v1": {
-                    "con_parent": parent_ir,
-                    "con_child": child_ir,
-                }.get(name)
-            )
+            driver.get_contract_ir.side_effect = lambda name, vm_profile="xian_vm_v1": {
+                "con_parent": parent_ir,
+                "con_child": child_ir,
+            }.get(name)
             driver.get_contract_source.return_value = None
 
             prepared = prepare_vm_contract(
@@ -295,16 +291,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
         self.assertEqual(output.status_code, 0)
         self.assertIn("con_native_submission_probe.__source__", output.writes)
-        self.assertIn(
-            "con_native_submission_probe.__xian_ir_v1__", output.writes
-        )
+        self.assertIn("con_native_submission_probe.__xian_ir_v1__", output.writes)
         self.assertEqual(output.writes["con_native_submission_probe.v"], 9)
-        self.assertTrue(
-            any(
-                event.get("event") == "ContractDeployed"
-                for event in output.events
-            )
-        )
+        self.assertTrue(any(event.get("event") == "ContractDeployed" for event in output.events))
         self.assertGreater(output.chi_used, 0)
         self.assertIn("submission", output.contract_costs)
         driver.flush_full()
@@ -354,11 +343,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         driver.flush_full()
         ContractingClient(driver=driver)
         set_driver_runtime_features(driver, {"zk": False})
-        code = (
-            "@export\n"
-            "def check():\n"
-            "    return zk.is_available()\n"
-        )
+        code = "@export\ndef check():\n    return zk.is_available()\n"
         output = execute_vm_contract(
             runtime,
             driver,
@@ -387,11 +372,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         driver = Driver()
         driver.flush_full()
         set_driver_runtime_features(driver, {"zk": False})
-        code = (
-            "@export\n"
-            "def check():\n"
-            "    return zk.is_available()\n"
-        )
+        code = "@export\ndef check():\n    return zk.is_available()\n"
         artifacts = build_contract_artifacts(
             module_name="con_zk_probe",
             source=code,
@@ -440,10 +421,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self.assertEqual(output.status_code, 0)
         self.assertEqual(output.writes["con_owned.__owner__"], "bob")
         self.assertTrue(
-            any(
-                event.get("event") == "ContractOwnerChanged"
-                for event in output.events
-            )
+            any(event.get("event") == "ContractOwnerChanged" for event in output.events)
         )
         driver.flush_full()
 
@@ -501,15 +479,8 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             "DEMO",
         )
         self.assertEqual(output.writes["con_demo_token.operator"], "carol")
-        self.assertTrue(
-            any(
-                event.get("event") == "ContractDeployed"
-                for event in output.events
-            )
-        )
-        self.assertTrue(
-            any(event.get("event") == "TokenCreated" for event in output.events)
-        )
+        self.assertTrue(any(event.get("event") == "ContractDeployed" for event in output.events))
+        self.assertTrue(any(event.get("event") == "TokenCreated" for event in output.events))
         self.assertIn("token_factory", output.contract_costs)
         self.assertIn("submission", output.contract_costs)
         driver.flush_full()
@@ -517,9 +488,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_execute_native_members_reregister_after_removal_matches_python_runtime(
         self,
     ):
-        contracts_dir = (
-            Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
-        )
+        contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
         client = ContractingClient(environment={"chain_id": "test-chain"})
         client.flush()
         try:
@@ -664,9 +633,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             client.flush()
 
     def test_execute_native_permit_authorizer_matches_python_runtime(self):
-        contracts_dir = (
-            Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
-        )
+        contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
         client = ContractingClient(environment={"chain_id": "test-chain"})
         client.flush()
         try:
@@ -681,9 +648,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
             client.get_contract_proxy("currency").balances["sys"] = 100_000
 
-            owner = (
-                "ddd326fddb5d1677595311f298b744a4e9f415b577ac179a6afbf38483dc0791"
-            )
+            owner = "ddd326fddb5d1677595311f298b744a4e9f415b577ac179a6afbf38483dc0791"
             deadline = str(Datetime(2026, 4, 12, 12, 1))
             permit_msg = "\n".join(
                 [
@@ -698,9 +663,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     "nonce:0",
                 ]
             )
-            permit_hash = hashlib.sha3_256(
-                permit_msg.encode("utf-8")
-            ).hexdigest()
+            permit_hash = hashlib.sha3_256(permit_msg.encode("utf-8")).hexdigest()
 
             runtime = build_vm_runtime()
             outcome = execute_vm_transaction(
@@ -741,9 +704,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 ],
                 100,
             )
-            self.assertTrue(
-                outcome.output.writes[f"permit_authorizer.permits:{permit_hash}"]
-            )
+            self.assertTrue(outcome.output.writes[f"permit_authorizer.permits:{permit_hash}"])
             self.assertEqual(
                 outcome.output.writes[
                     "permit_authorizer.nonces:"
@@ -753,8 +714,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(
                 any(
-                    event.get("contract") == "currency"
-                    and event.get("event") == "Approve"
+                    event.get("contract") == "currency" and event.get("event") == "Approve"
                     for event in outcome.output.events
                 )
             )
@@ -764,9 +724,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_execute_native_currency_transfer_coerces_float_kwargs_like_python(
         self,
     ):
-        contracts_dir = (
-            Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
-        )
+        contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
         client = ContractingClient(environment={"chain_id": "test-chain"})
         client.flush()
         try:
@@ -810,10 +768,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             self.assertEqual(
                 outcome.writes["currency.balances:worker0"],
                 ContractingDecimal("4999")
-                - (
-                    ContractingDecimal(outcome.chi_used)
-                    / ContractingDecimal(20)
-                ),
+                - (ContractingDecimal(outcome.chi_used) / ContractingDecimal(20)),
             )
             self.assertEqual(
                 outcome.output.writes["currency.balances:worker1"],
@@ -823,8 +778,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 any(
                     event.get("contract") == "currency"
                     and event.get("event") == "Transfer"
-                    and event.get("data", {}).get("amount")
-                    == ContractingDecimal("1")
+                    and event.get("data", {}).get("amount") == ContractingDecimal("1")
                     for event in outcome.output.events
                 )
             )
@@ -834,11 +788,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_execute_native_submission_coerces_constructor_arg_floats(self):
         root_dir = Path(__file__).resolve().parents[3]
         source = (
-            root_dir
-            / "xian-stack"
-            / "workloads"
-            / "dex_mixed"
-            / "token_fixture.py"
+            root_dir / "xian-stack" / "workloads" / "dex_mixed" / "token_fixture.py"
         ).read_text()
         contract_name = "con_tokena_probe"
         client = ContractingClient(environment={"chain_id": "test-chain"})
@@ -886,9 +836,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_execute_native_submission_large_artifact_deployment_succeeds(self):
         root_dir = Path(__file__).resolve().parents[3]
-        source = (
-            root_dir / "xian-stack" / "workloads" / "dex_mixed" / "con_pairs.py"
-        ).read_text()
+        source = (root_dir / "xian-stack" / "workloads" / "dex_mixed" / "con_pairs.py").read_text()
         contract_name = "con_pairs_probe"
         client = ContractingClient(environment={"chain_id": "test-chain"})
         client.flush()
@@ -921,9 +869,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
 
             self.assertEqual(outcome.output.status_code, 0)
-            self.assertIn(
-                f"{contract_name}.__xian_ir_v1__", outcome.output.writes
-            )
+            self.assertIn(f"{contract_name}.__xian_ir_v1__", outcome.output.writes)
         finally:
             client.flush()
 
@@ -984,18 +930,13 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
 
             self.assertEqual(outcome.output.status_code, 0)
-            self.assertIn(
-                f"{contract_name}.__xian_ir_v1__", outcome.output.writes
-            )
+            self.assertIn(f"{contract_name}.__xian_ir_v1__", outcome.output.writes)
             self.assertEqual(
                 outcome.output.writes[f"{contract_name}.metadata:token_symbol"],
                 "lpUSD",
             )
             self.assertTrue(
-                any(
-                    event.get("event") == "ContractDeployed"
-                    for event in outcome.output.events
-                )
+                any(event.get("event") == "ContractDeployed" for event in outcome.output.events)
             )
         finally:
             client.flush()
@@ -1096,11 +1037,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_execute_native_hash_prefix_scan_matches_python_runtime(self):
         root_dir = Path(__file__).resolve().parents[3]
         source = (
-            root_dir
-            / "xian-stack"
-            / "workloads"
-            / "parallel_probe"
-            / "con_parallel_probe.py"
+            root_dir / "xian-stack" / "workloads" / "parallel_probe" / "con_parallel_probe.py"
         ).read_text()
 
         client = ContractingClient(environment={"chain_id": "test-chain"})
@@ -1323,8 +1260,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(
                 any(
-                    event.get("contract") == "con_pairs_probe"
-                    and event.get("event") == "Mint"
+                    event.get("contract") == "con_pairs_probe" and event.get("event") == "Mint"
                     for event in outcome.output.events
                 )
             )
@@ -1338,6 +1274,8 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             runtime_info=lambda: {
                 "vm_profile": "xian_vm_v1",
                 "host_catalog_version": "xian_vm_v1_host_v1",
+                "execution_revision": "xvm-execution-2",
+                "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
         )
@@ -1350,9 +1288,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
         driver = mock.Mock()
         driver.get_contract_ir.return_value = None
-        driver.get_contract_source.return_value = (
-            "@export\ndef ping():\n    return 'source only'\n"
-        )
+        driver.get_contract_source.return_value = "@export\ndef ping():\n    return 'source only'\n"
 
         with self.assertRaisesRegex(
             ValueError,
@@ -1444,9 +1380,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 contract_costs={},
             )
 
-        fake_bindings = types.SimpleNamespace(
-            execute_contract=fake_execute_contract
-        )
+        fake_bindings = types.SimpleNamespace(execute_contract=fake_execute_contract)
 
         with mock.patch(
             "xian.execution_engine._load_vm_runtime_bindings",
@@ -1569,9 +1503,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         driver = Driver()
         driver.flush_full()
         ContractingClient(driver=driver)
-        driver.set(
-            driver.make_key("currency", "balances", ["alice"]), 1_000_000
-        )
+        driver.set(driver.make_key("currency", "balances", ["alice"]), 1_000_000)
 
         environment = {
             "now": Datetime(2026, 4, 12, 12, 0),
@@ -1641,9 +1573,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             for key, value in output["writes"].items():
                 driver.set(key, value)
             driver.commit()
-            driver.set(
-                driver.make_key("currency", "balances", ["alice"]), 1_000_000
-            )
+            driver.set(driver.make_key("currency", "balances", ["alice"]), 1_000_000)
             driver.commit()
 
         call_kwargs = {

@@ -4,11 +4,14 @@ import fcntl
 import hashlib
 import io
 import tarfile
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import lmdb
 import pytest
 
+from xian.execution_policy import initialize_execution_policy
 from xian.node_admin import apply_snapshot_archive
 
 
@@ -21,13 +24,19 @@ def archive_bytes(entries):
                 member.type, member.linkname = value
                 archive.addfile(member)
             else:
-                payload = value.encode()
+                payload = value if isinstance(value, bytes) else value.encode()
                 member.size = len(payload)
                 archive.addfile(member, io.BytesIO(payload))
     return stream.getvalue()
 
 
-def restore(home, entries):
+def restore(home, entries, *, include_policy=True):
+    if include_policy:
+        with tempfile.TemporaryDirectory() as source:
+            initialize_execution_policy(Path(source))
+            entries = list(entries) + [
+                ("xian/lmdb/data.mdb", (Path(source) / "lmdb/data.mdb").read_bytes())
+            ]
     payload = archive_bytes(entries)
     with patch("xian.node_admin._download_binary_url", return_value=payload):
         return apply_snapshot_archive(
@@ -196,7 +205,7 @@ def test_restore_keeps_recovery_copy_if_publication_and_rollback_fail(home):
 def test_invalid_application_layout_leaves_original_data(home, entries):
     (home / "config/config.toml").write_text('node_key_file = "data/identity/node.json"')
     with pytest.raises(ValueError):
-        restore(home, entries)
+        restore(home, entries, include_policy=False)
     assert_original(home)
 
 
@@ -406,4 +415,24 @@ def test_cyclic_external_identity_links_fail_without_changing_data(home):
     (home / "config/config.toml").write_text('priv_validator_state_file = "config/state.json"')
     with pytest.raises(ValueError, match="too many identity path symlinks"):
         restore(home, [("data/new", "blocks")])
+    assert_original(home)
+
+
+def test_missing_snapshot_revision_leaves_destination_unchanged(home):
+    with pytest.raises(ValueError, match="execution policy"):
+        restore(home, [("data/new", "new blocks"), ("xian/new", "new state")], include_policy=False)
+    assert_original(home)
+    assert not (home / "data/new").exists()
+
+
+def test_current_snapshot_rejects_legacy_destination_without_mutation(home):
+    path = home / "xian/lmdb"
+    path.mkdir()
+    with lmdb.open(str(path)) as env:
+        with env.begin(write=True) as tx:
+            tx.put(b"con_old.value", b"7")
+    before = (path / "data.mdb").read_bytes()
+    with pytest.raises(ValueError, match="execution policy"):
+        restore(home, [("data/new", "new blocks")])
+    assert (path / "data.mdb").read_bytes() == before
     assert_original(home)

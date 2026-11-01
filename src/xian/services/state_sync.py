@@ -20,6 +20,7 @@ from cometbft.abci.v1beta1.types_pb2 import (
     ResponseOfferSnapshot,
     Snapshot,
 )
+from xian.execution_policy import current_execution_policy, validate_execution_policy
 from xian.state_export import (
     export_state,
     import_state,
@@ -27,7 +28,7 @@ from xian.state_export import (
 )
 from xian.state_root import compute_exported_state_root
 
-SNAPSHOT_FORMAT_VERSION = 1
+SNAPSHOT_FORMAT_VERSION = 2
 DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024
 SNAPSHOT_METADATA_FILENAME = "metadata.json"
 SNAPSHOT_STATE_FILENAME = "exported_state.json"
@@ -167,6 +168,7 @@ class StateSnapshotManager:
         return _json_bytes(
             {
                 "snapshot_format_version": SNAPSHOT_FORMAT_VERSION,
+                "execution_policy": current_execution_policy(),
                 "chain_id": self.chain_id,
                 "height": height,
                 "app_hash": app_hash_hex,
@@ -303,6 +305,7 @@ class StateSnapshotManager:
                 _json_bytes(
                     {
                         "snapshot_format_version": SNAPSHOT_FORMAT_VERSION,
+                        "execution_policy": current_execution_policy(),
                         "chain_id": self.chain_id,
                         "height": height,
                         "app_hash": app_hash_hex,
@@ -357,6 +360,7 @@ class StateSnapshotManager:
             metadata = json.loads(
                 (extract_dir / SNAPSHOT_METADATA_FILENAME).read_text(encoding="utf-8")
             )
+            validate_execution_policy(metadata.get("execution_policy"))
             exported_state = load_exported_state(extract_dir / SNAPSHOT_STATE_FILENAME)
             exported_state_sha256 = _sha256_file(extract_dir / SNAPSHOT_STATE_FILENAME)
             if int(metadata["snapshot_format_version"]) != SNAPSHOT_FORMAT_VERSION:
@@ -426,6 +430,7 @@ class StateSnapshotManager:
             metadata = json.loads(req_snapshot.metadata.decode("utf-8"))
             if not isinstance(metadata, dict):
                 raise ValueError("snapshot metadata must be an object")
+            validate_execution_policy(metadata.get("execution_policy"))
             metadata_height = int(metadata.get("height", -1))
             metadata_chunk_size = int(metadata.get("chunk_size", 0))
         except Exception:

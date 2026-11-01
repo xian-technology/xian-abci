@@ -7,6 +7,7 @@ from typing import Any
 
 from contracting import constants as contracting_constants
 
+from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.utils.encoding import encode_abci_json
 
 STATE_ROOT_VERSION = "xian-state-root-v2"
@@ -17,7 +18,11 @@ PRIORITY_PREFIX = f"{STATE_ROOT_VERSION}:priority:".encode("utf-8")
 
 
 def is_consensus_state_key(key: str) -> bool:
-    return not key.startswith("__") or key.startswith(f"__n{contracting_constants.INDEX_SEPARATOR}")
+    return (
+        key == EXECUTION_POLICY_KEY
+        or not key.startswith("__")
+        or key.startswith(f"__n{contracting_constants.INDEX_SEPARATOR}")
+    )
 
 
 def _length_prefixed(payload: bytes) -> bytes:

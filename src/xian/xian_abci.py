@@ -58,7 +58,12 @@ from xian.app_logging import (
 )
 from xian.constants import Constants
 from xian.execution_engine import build_vm_runtime
-from xian.execution_policy import validate_vm_execution_config
+from xian.execution_policy import (
+    initialize_execution_policy,
+    validate_genesis_execution_policy,
+    validate_persisted_execution_policy,
+    validate_vm_execution_config,
+)
 from xian.fee_policy import TxFeePolicy
 from xian.methods import (
     check_tx,
@@ -152,8 +157,11 @@ class Xian:
 
         xian_config = self.xian_config
         validate_vm_execution_config(xian_config)
+        validate_genesis_execution_policy(self.genesis)
+        validate_persisted_execution_policy(constants.STORAGE_HOME)
         self.execution_runtime = build_vm_runtime()
         self.execution_mode = self.execution_runtime.mode
+        initialize_execution_policy(constants.STORAGE_HOME)
         self.client = ContractingClient(
             storage_home=constants.STORAGE_HOME,
         )

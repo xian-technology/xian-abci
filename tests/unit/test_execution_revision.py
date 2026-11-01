@@ -1,0 +1,159 @@
+import json
+from unittest.mock import patch
+
+import lmdb
+import pytest
+
+from xian import execution_policy as policy
+from xian.state_export import import_state
+from xian.state_root import merkle_root_from_items
+
+
+def policy_state(value=None):
+    return {
+        "genesis": [
+            {"key": "__execution_policy", "value": value or policy.current_execution_policy()}
+        ]
+    }
+
+
+def test_policy_requires_exact_current_identifiers():
+    expected = {
+        "execution_revision": "xvm-execution-2",
+        "gas_schedule": "xvm-gas-2",
+        "bytecode_version": "xvm-1",
+        "set_codec": "xian-set-1",
+    }
+    assert policy.current_execution_policy() == expected
+    policy.validate_execution_policy(expected)
+    for invalid in (None, {}, expected | {"gas_schedule": "xvm-gas-1"}, expected | {"extra": 1}):
+        with pytest.raises(ValueError, match="execution policy"):
+            policy.validate_execution_policy(invalid)
+
+
+def test_genesis_requires_one_protected_policy():
+    policy.validate_genesis_execution_policy({"abci_genesis": policy_state()})
+    for invalid in ({"genesis": []}, {"genesis": policy_state()["genesis"] * 2}):
+        with pytest.raises(ValueError, match="execution policy"):
+            policy.validate_genesis_execution_policy(invalid)
+
+
+def test_policy_is_part_of_the_state_commitment():
+    old = {"execution_revision": "old"}
+    assert merkle_root_from_items([("__execution_policy", old)]) != merkle_root_from_items([])
+    assert merkle_root_from_items([("__execution_policy", old)]) != merkle_root_from_items(
+        [("__execution_policy", policy.current_execution_policy())]
+    )
+
+
+@pytest.mark.parametrize("stored_policy", [None, {"execution_revision": "old"}])
+def test_legacy_storage_is_rejected_without_mutation(tmp_path, stored_policy):
+    path = tmp_path / "lmdb"
+    path.mkdir()
+    with lmdb.open(str(path)) as env:
+        with env.begin(write=True) as tx:
+            tx.put(b"con_demo.value", b"7")
+            if stored_policy is not None:
+                tx.put(b"__execution_policy", json.dumps(stored_policy).encode())
+    before = (path / "data.mdb").read_bytes()
+    with pytest.raises(ValueError, match="execution policy"):
+        policy.validate_persisted_execution_policy(tmp_path)
+    assert (path / "data.mdb").read_bytes() == before
+
+
+def test_empty_storage_preflight_does_not_create_files(tmp_path):
+    home = tmp_path / "absent"
+    policy.validate_persisted_execution_policy(home)
+    assert not home.exists()
+
+
+def test_fresh_bootstrap_records_policy_before_contract_helpers(tmp_path):
+    policy.initialize_execution_policy(tmp_path)
+    assert policy.validate_persisted_execution_policy(tmp_path)
+    before = (tmp_path / "lmdb/data.mdb").read_bytes()
+    policy.initialize_execution_policy(tmp_path)
+    assert (tmp_path / "lmdb/data.mdb").read_bytes() == before
+
+
+def test_state_patch_cannot_change_execution_policy(tmp_path):
+    from xian.utils.state_patches import StatePatchManager
+
+    path = tmp_path / "patch.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "patch_id": "policy-change",
+                "activation_height": 5,
+                "changes": [{"key": "__execution_policy", "value": {}}],
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="execution policy"):
+        StatePatchManager(None)._load_bundle_file(path)
+
+
+def test_incompatible_import_is_rejected_before_opening_driver():
+    with patch("xian.state_export.Driver") as driver:
+        with pytest.raises(ValueError, match="execution policy"):
+            import_state(exported_state={"genesis": [], "hash": ""})
+    driver.assert_not_called()
+
+
+@pytest.mark.parametrize("valid", [True, False])
+def test_open_driver_policy_check_preserves_bytes_and_cache(tmp_path, valid):
+    from contracting.storage.driver import Driver
+
+    driver = Driver(storage_home=tmp_path)
+    try:
+        driver.set(
+            "__execution_policy", policy.current_execution_policy() if valid else {"old": True}
+        )
+        driver.commit()
+        driver.set("con_demo.pending", 9)
+        before = (tmp_path / "lmdb/data.mdb").read_bytes()
+        if valid:
+            assert policy.validate_persisted_execution_policy(tmp_path)
+        else:
+            with pytest.raises(ValueError, match="execution policy"):
+                policy.validate_persisted_execution_policy(tmp_path)
+        assert (tmp_path / "lmdb/data.mdb").read_bytes() == before
+        assert driver.get("con_demo.pending") == 9
+    finally:
+        driver.close()
+
+
+def test_current_import_rejects_legacy_destination_before_flush(tmp_path):
+    from contracting.storage.driver import Driver
+
+    from xian.state_root import compute_exported_state_root
+
+    exported = policy_state()
+    exported["hash"] = compute_exported_state_root(exported).hex()
+    driver = Driver(storage_home=tmp_path)
+    try:
+        driver.set("con_old.value", 7)
+        driver.commit()
+        before = (tmp_path / "lmdb/data.mdb").read_bytes()
+        with pytest.raises(ValueError, match="execution policy"):
+            import_state(exported_state=exported, storage_home=tmp_path)
+        assert (tmp_path / "lmdb/data.mdb").read_bytes() == before
+        assert driver.get("con_old.value") == 7
+    finally:
+        driver.close()
+
+
+def test_fresh_bootstrap_creates_missing_ancestors(tmp_path):
+    home = tmp_path / "missing" / "child"
+    policy.initialize_execution_policy(home)
+    assert policy.validate_persisted_execution_policy(home)
+
+
+def test_fresh_bootstrap_accepts_existing_empty_database(tmp_path):
+    path = tmp_path / "lmdb"
+    path.mkdir()
+    with lmdb.open(str(path)):
+        pass
+    assert policy.validate_persisted_execution_policy(tmp_path) is False
+    policy.initialize_execution_policy(tmp_path)
+    assert policy.validate_persisted_execution_policy(tmp_path)

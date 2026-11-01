@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from nacl.signing import SigningKey
+from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
 
 from cometbft.abci.v1beta2.types_pb2 import ResponseProcessProposal
 from cometbft.abci.v1beta3.types_pb2 import (
@@ -74,8 +75,6 @@ def signed_tx(app, *, function, nonce, chi=2_000):
     "expression",
     [
         "{1: 2}",
-        "set([1, 2])",
-        "frozenset([1, 2])",
         "bytearray(b'abc')",
         "datetime.timedelta(days=1)",
     ],
@@ -106,6 +105,47 @@ def test_finalize_rejects_invalid_state_and_commits_following_transaction(tmp_pa
             assert app.client.raw_driver.get("con_boundary.value") is None
             assert app.client.raw_driver.get("con_boundary.valid") == 7
             assert app.state_root_cache.root_hash == result.app_hash
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("kind", ["set", "frozenset"])
+def test_finalize_persists_wrapper_sets_and_reads_typed_members_next_block(tmp_path, kind):
+    source = (
+        "value = Variable()\n"
+        "@export\ndef store():\n"
+        f"    value.set({kind}([(1, 2), frozenset([3])]))\n"
+        "@export\ndef read():\n"
+        "    stored = value.get()\n"
+        "    return [(1, 2) in stored, frozenset([3]) in stored]\n"
+    )
+
+    async def run():
+        async with isolated_app(tmp_path, source) as app:
+            first = await app.finalize_block(
+                RequestFinalizeBlock(
+                    height=1,
+                    hash=b"1" * 32,
+                    txs=[signed_tx(app, function="store", nonce=0)],
+                )
+            )
+            assert first.tx_results[0].code == 0
+            await app.commit()
+            app.client.raw_driver.flush_cache()
+            stored = app.client.raw_driver.get("con_boundary.value")
+            assert type(stored) is (ContractingSet if kind == "set" else ContractingFrozenSet)
+            assert (1, 2) in stored and ContractingFrozenSet([3]) in stored
+            assert StateRootCache.from_driver(app.client.raw_driver).root_hash == first.app_hash
+            second = await app.finalize_block(
+                RequestFinalizeBlock(
+                    height=2,
+                    hash=b"2" * 32,
+                    txs=[signed_tx(app, function="read", nonce=1)],
+                )
+            )
+            assert second.tx_results[0].code == 0
+            assert json.loads(second.tx_results[0].data)["result"] == "[True, True]"
+            await app.commit()
 
     asyncio.run(run())
 

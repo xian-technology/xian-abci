@@ -15,6 +15,7 @@ import tempfile
 import unicodedata
 from pathlib import Path, PurePosixPath
 
+from xian.execution_policy import validate_persisted_execution_policy
 from xian.toml_utils import load as load_toml
 
 _ROOTS = ("data", "xian")
@@ -230,6 +231,7 @@ def _check_home(home: Path) -> None:
 
 def _restore_application_archive(archive_path: Path, home: Path) -> None:
     _check_home(home)
+    validate_persisted_execution_policy(home / "xian")
     protected = _protected_paths(home)
     workspace = Path(tempfile.mkdtemp(prefix=_WORK_PREFIX, dir=home))
     staged, backup = workspace / "staged", workspace / "backup"
@@ -238,6 +240,8 @@ def _restore_application_archive(archive_path: Path, home: Path) -> None:
         (staged / name).mkdir(parents=True)
     try:
         _extract_application_data(archive_path, staged, protected)
+        if not validate_persisted_execution_policy(staged / "xian"):
+            raise ValueError("snapshot is missing its execution policy")
         _preserve_identity(home, staged, protected)
         _publish(home, staged, backup)
     except BaseException:

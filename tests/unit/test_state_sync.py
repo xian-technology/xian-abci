@@ -1,3 +1,4 @@
+import json
 import tarfile
 import tempfile
 import unittest
@@ -6,11 +7,13 @@ from pathlib import Path
 from contracting import constants as contracting_constants
 from contracting.compilation.compiler import ContractingCompiler
 from contracting.storage.driver import Driver
+from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import encode
 
 from cometbft.abci.v1beta1.types_pb2 import Snapshot
-from xian.services.state_sync import StateSnapshotManager
+from xian.execution_policy import EXECUTION_POLICY_KEY, current_execution_policy
+from xian.services.state_sync import SNAPSHOT_FORMAT_VERSION, StateSnapshotManager
 from xian.state_export import load_exported_state
 from xian.state_root import compute_driver_state_root
 from xian.utils.block import (
@@ -36,6 +39,21 @@ def get():
 CANONICAL_CONTRACT_SOURCE = ContractingCompiler(module_name="demo").normalize_source(
     CONTRACT_SOURCE
 )
+
+
+def snapshot_metadata(**changes):
+    return json.dumps(
+        {
+            "snapshot_format_version": SNAPSHOT_FORMAT_VERSION,
+            "execution_policy": current_execution_policy(),
+            "chain_id": "xian-test-1",
+            "height": 43,
+            "app_hash": "cd" * 32,
+            "archive_sha256": "ab" * 32,
+            "chunk_size": 64,
+            **changes,
+        }
+    ).encode()
 
 
 class StateSyncTests(unittest.TestCase):
@@ -77,6 +95,10 @@ class StateSyncTests(unittest.TestCase):
             )
             self.assertIsNotNone(target_driver.get("demo.__xian_ir_v1__"))
             self.assertEqual(target_driver.get("demo.count"), 7)
+            self.assertEqual(
+                target_driver.get("demo.set"),
+                ContractingSet([(1, "a"), ContractingFrozenSet([b"x"])]),
+            )
             self.assertEqual(
                 target_driver.get("demo.price"),
                 ContractingDecimal("1.25"),
@@ -139,6 +161,10 @@ class StateSyncTests(unittest.TestCase):
 
             target_driver = Driver(storage_home=target_home)
             self.assertEqual(target_driver.get("demo.count"), 7)
+            self.assertEqual(
+                target_driver.get("demo.set"),
+                ContractingSet([(1, "a"), ContractingFrozenSet([b"x"])]),
+            )
             self.assertEqual(
                 target_driver.get("demo.price"),
                 ContractingDecimal("1.25"),
@@ -211,17 +237,10 @@ class StateSyncTests(unittest.TestCase):
             response = manager.offer_snapshot_response(
                 Snapshot(
                     height=43,
-                    format=1,
+                    format=SNAPSHOT_FORMAT_VERSION,
                     chunks=1,
                     hash=bytes.fromhex("ab" * 32),
-                    metadata=(
-                        b'{"snapshot_format_version":1,"chain_id":"xian-test-1",'
-                        b'"height":"not-an-int","app_hash":"'
-                        + ("cd" * 32).encode("ascii")
-                        + b'","archive_sha256":"'
-                        + ("ab" * 32).encode("ascii")
-                        + b'","chunk_size":64}'
-                    ),
+                    metadata=snapshot_metadata(height="not-an-int"),
                 ),
                 app_hash=bytes.fromhex("cd" * 32),
                 current_height=0,
@@ -241,17 +260,10 @@ class StateSyncTests(unittest.TestCase):
             response = manager.offer_snapshot_response(
                 Snapshot(
                     height=43,
-                    format=1,
+                    format=SNAPSHOT_FORMAT_VERSION,
                     chunks=1,
                     hash=bytes.fromhex("ab" * 32),
-                    metadata=(
-                        b'{"snapshot_format_version":1,"chain_id":"xian-test-1",'
-                        b'"height":43,"app_hash":"'
-                        + ("cd" * 32).encode("ascii")
-                        + b'","archive_sha256":"'
-                        + ("ab" * 32).encode("ascii")
-                        + b'","chunk_size":65}'
-                    ),
+                    metadata=snapshot_metadata(chunk_size=65),
                 ),
                 app_hash=bytes.fromhex("cd" * 32),
                 current_height=0,
@@ -346,7 +358,9 @@ class StateSyncTests(unittest.TestCase):
     @staticmethod
     def _seed_state(storage_home: Path) -> None:
         driver = Driver(storage_home=storage_home)
+        driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
         driver.set_contract_from_source("demo", CONTRACT_SOURCE, owner="alice")
+        driver.set("demo.set", ContractingSet([(1, "a"), ContractingFrozenSet([b"x"])]))
         driver.set("demo.count", 7)
         driver.set("demo.price", ContractingDecimal("1.25"))
         driver.set(

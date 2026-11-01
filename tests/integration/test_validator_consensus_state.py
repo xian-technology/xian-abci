@@ -5,6 +5,7 @@ from contracting.compilation.linter import LintingError
 from contracting.execution.executor import Executor
 from contracting.storage.driver import Driver
 
+from xian.execution_policy import EXECUTION_POLICY_KEY, current_execution_policy
 from xian.state_export import build_exported_state, import_state
 from xian.state_root import StateRootCache, compute_exported_state_root
 from xian.validators import CONSENSUS_VALIDATORS_KEY, ValidatorHandler
@@ -20,6 +21,7 @@ def handler(driver):
 def test_effective_set_survives_commit_restart_and_state_export_import(tmp_path):
     original = tmp_path / "original"
     with Driver(storage_home=original) as driver:
+        driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
         driver.set("validators.active_validators", [INCUMBENT])
         driver.commit()
         state_root = StateRootCache.from_driver(driver)

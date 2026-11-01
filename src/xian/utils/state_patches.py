@@ -11,6 +11,7 @@ from contracting.storage.driver import XIAN_VM_V1_IR_KEY
 from loguru import logger
 from xian_runtime_types.encoding import convert_dict
 
+from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.utils.encoding import hash_bytes
 
 STATE_PATCH_BUNDLE_VERSION = 1
@@ -266,6 +267,8 @@ class StatePatchManager:
                 raise ValueError(f"{bundle_file} contains a patch change with no key")
             if key in seen_keys:
                 raise ValueError(f"{bundle_file} contains duplicate key {key!r}")
+            if key == EXECUTION_POLICY_KEY:
+                raise ValueError(f"{bundle_file} cannot patch the protected execution policy")
             if key.endswith(".__code__"):
                 raise ValueError(f"{bundle_file} cannot patch __code__ directly; use __source__")
             if key.endswith(f".{XIAN_VM_V1_IR_KEY}"):

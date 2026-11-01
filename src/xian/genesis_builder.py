@@ -22,6 +22,11 @@ from xian.config_paths import (
     resolve_contracts_dir as resolve_configs_contracts_dir,
 )
 from xian.execution_engine import VmRuntime, build_vm_runtime, execute_vm_contract
+from xian.execution_policy import (
+    EXECUTION_POLICY_KEY,
+    current_execution_policy,
+    validate_execution_policy,
+)
 from xian.runtime_features import (
     RuntimeFeatureResolution,
     genesis_runtime_feature_entries,
@@ -258,6 +263,10 @@ def finalize_genesis_block(
     number: int | str = "0",
 ) -> dict[str, Any]:
     """Commit the driver's pending writes and render them as a signed genesis block."""
+    previous_policy = driver.get(EXECUTION_POLICY_KEY)
+    if previous_policy is not None:
+        validate_execution_policy(previous_policy)
+    driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
     genesis_block = {
         "hash": "",
         "number": str(number),

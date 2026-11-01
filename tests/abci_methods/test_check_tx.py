@@ -34,7 +34,7 @@ def _sort_keys_deep(value):
 
 
 def _canonical_json(payload: dict) -> str:
-    return encode(decode(encode(_sort_keys_deep(payload))))
+    return encode(decode(json.dumps(_sort_keys_deep(payload))))
 
 
 def make_signed_tx_bytes(*, nonce: int) -> bytes:
@@ -76,9 +76,11 @@ def make_signed_tx_bytes_with_raw_spacing(*, nonce: int) -> bytes:
     return encode_transaction_bytes(json.dumps(tx))
 
 
-SENDER = nacl.signing.SigningKey(SEED).verify_key.encode(
-    encoder=nacl.encoding.HexEncoder
-).decode("ascii")
+SENDER = (
+    nacl.signing.SigningKey(SEED)
+    .verify_key.encode(encoder=nacl.encoding.HexEncoder)
+    .decode("ascii")
+)
 VALID_TX_BYTES = make_signed_tx_bytes(nonce=VALID_NONCE)
 
 
@@ -120,15 +122,17 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
         for name in ("con_Uppercase", "con_" + "a" * 61, None, 123):
             with self.subTest(name=name):
-                tx = make_signed_tx_bytes_for_payload({
-                    "chain_id": "xian-testnet-1",
-                    "contract": "submission",
-                    "function": "submit_contract",
-                    "kwargs": {"name": name, "code": "@export\ndef value():\n    return 1"},
-                    "nonce": VALID_NONCE,
-                    "sender": SENDER,
-                    "chi_supplied": 100,
-                })
+                tx = make_signed_tx_bytes_for_payload(
+                    {
+                        "chain_id": "xian-testnet-1",
+                        "contract": "submission",
+                        "function": "submit_contract",
+                        "kwargs": {"name": name, "code": "@export\ndef value():\n    return 1"},
+                        "nonce": VALID_NONCE,
+                        "sender": SENDER,
+                        "chi_supplied": 100,
+                    }
+                )
                 response = await self.process_request(self.make_request(tx))
                 self.assertEqual(response.check_tx.code, c.ErrorCode)
                 self.assertIn("Transaction contract name is invalid", response.check_tx.log)
@@ -208,9 +212,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
             self.app.nonce_storage,
             "_now",
             return_value=(
-                reservation.reserved_at
-                + self.app.nonce_storage.reservation_ttl_seconds
-                + 1.0
+                reservation.reserved_at + self.app.nonce_storage.reservation_ttl_seconds + 1.0
             ),
         ):
             self.assertEqual(
@@ -348,6 +350,8 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
             }
         )
 
+        wire = json.loads(bytes.fromhex(tx_bytes.decode()).decode())
+        self.assertEqual(wire["payload"]["kwargs"]["amount"], {"__big_int__": str(2**64)})
         response = await self.process_request(self.make_request(tx_bytes))
 
         self.assertEqual(response.check_tx.code, c.OkCode)

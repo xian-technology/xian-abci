@@ -14,10 +14,14 @@ from contracting.runtime_features import (
     runtime_feature_enabled,
 )
 from xian_runtime_types.decimal import ContractingDecimal
+from xian_runtime_types.encoding import validate_persistent_value
 
 from xian.execution_policy import (
+    EXECUTION_POLICY_KEY,
+    SET_CODEC,
     VM_BYTECODE_VERSION,
     VM_EXECUTION_MODE,
+    VM_EXECUTION_REVISION,
     VM_GAS_SCHEDULE,
 )
 from xian.utils.encoding import encode_abci_json
@@ -161,6 +165,11 @@ def _load_vm_runtime_bindings():
 def build_vm_runtime() -> VmRuntime:
     bindings = _load_vm_runtime_bindings()
     runtime_info = bindings.runtime_info()
+    if (
+        runtime_info.get("execution_revision") != VM_EXECUTION_REVISION
+        or runtime_info.get("set_codec") != SET_CODEC
+    ):
+        raise ValueError("native runtime execution policy does not match the node")
     if runtime_info.get("vm_profile") != VM_EXECUTION_MODE:
         raise ValueError(
             "xian_vm_v1 native runtime reported an unexpected vm_profile: "
@@ -269,6 +278,9 @@ def _validated_vm_result(output: VmExecutionResult) -> VmExecutionResult:
     if output.status_code != 0:
         return output
     try:
+        if EXECUTION_POLICY_KEY in output.writes:
+            raise ValueError("contract effects cannot change the protected execution policy")
+        validate_persistent_value((output.writes, output.events))
         # Both ABCI responses and state-root leaves use this encoder. Validate
         # effects before the transaction can apply any of them; return values
         # are deliberately excluded because the processor renders them as text.

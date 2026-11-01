@@ -133,10 +133,7 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "xian.xian_abci.load_genesis_data",
-                return_value={
-                    "chain_id": "xian-testnet-1",
-                    "abci_genesis": {},
-                },
+                return_value=self.app.genesis,
             ),
         ):
             app = Xian(constants=MockConstants)
@@ -164,10 +161,7 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "xian.xian_abci.load_genesis_data",
-                return_value={
-                    "chain_id": "xian-testnet-1",
-                    "abci_genesis": {},
-                },
+                return_value=self.app.genesis,
             ),
         ):
             app = Xian(constants=MockConstants)

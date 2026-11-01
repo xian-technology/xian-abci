@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from xian_accounts import Ed25519Account
 
+from xian.execution_policy import initialize_execution_policy, validate_persisted_execution_policy
 from xian.node_admin import (
     ExistingHomeOptions,
     apply_snapshot_archive,
@@ -24,6 +25,19 @@ from xian.node_setup import (
 )
 from xian.toml_utils import load as load_toml
 from xian.toml_utils import loads as load_toml_string
+
+
+def _current_application_archive() -> bytes:
+    stream = io.BytesIO()
+    with tempfile.TemporaryDirectory() as storage_home:
+        initialize_execution_policy(Path(storage_home))
+        with tarfile.open(fileobj=stream, mode="w:gz") as archive:
+            payload = b"new state"
+            info = tarfile.TarInfo("data/new.txt")
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+            archive.add(Path(storage_home) / "lmdb/data.mdb", arcname="xian/lmdb/data.mdb")
+    return stream.getvalue()
 
 
 def _signed_snapshot_manifest(
@@ -121,13 +135,7 @@ class NodeAdminTests(unittest.TestCase):
             (home / "xian").mkdir()
             (home / "xian" / "old.txt").write_text("old", encoding="utf-8")
 
-            archive_stream = io.BytesIO()
-            with tarfile.open(fileobj=archive_stream, mode="w:gz") as archive:
-                payload = b"new state"
-                info = tarfile.TarInfo("data/new.txt")
-                info.size = len(payload)
-                archive.addfile(info, io.BytesIO(payload))
-            archive_bytes = archive_stream.getvalue()
+            archive_bytes = _current_application_archive()
             manifest, account = _signed_snapshot_manifest(
                 archive_url="https://example.invalid/snapshot.tar.gz",
                 archive_bytes=archive_bytes,
@@ -151,6 +159,7 @@ class NodeAdminTests(unittest.TestCase):
                 )
 
             self.assertTrue((home / "data" / "new.txt").exists())
+            self.assertTrue(validate_persisted_execution_policy(home / "xian"))
             self.assertFalse((home / "data" / "old.txt").exists())
             self.assertFalse((home / "xian" / "old.txt").exists())
             self.assertEqual(archive_path, "snapshot.tar.gz")
@@ -200,14 +209,7 @@ class NodeAdminTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             home = Path(tmp_dir)
 
-            archive_stream = io.BytesIO()
-            with tarfile.open(fileobj=archive_stream, mode="w:gz") as archive:
-                payload = b"new state"
-                info = tarfile.TarInfo("data/new.txt")
-                info.size = len(payload)
-                archive.addfile(info, io.BytesIO(payload))
-
-            archive_bytes = archive_stream.getvalue()
+            archive_bytes = _current_application_archive()
             expected_sha256 = hashlib.sha256(archive_bytes).hexdigest()
 
             with patch(
@@ -222,6 +224,7 @@ class NodeAdminTests(unittest.TestCase):
 
             self.assertEqual(archive_path, "snapshot.tar.gz")
             self.assertTrue((home / "data" / "new.txt").exists())
+            self.assertTrue(validate_persisted_execution_policy(home / "xian"))
 
     def test_apply_snapshot_archive_rejects_wrong_sha256(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

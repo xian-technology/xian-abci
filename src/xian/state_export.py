@@ -8,8 +8,14 @@ from typing import Any
 from contracting import constants as contracting_constants
 from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
-from xian_runtime_types.encoding import decode, encode
+from xian_runtime_types.encoding import decode, encode, encode_set_value, is_wrapper_set
 
+from xian.execution_policy import (
+    EXECUTION_POLICY_KEY,
+    validate_execution_policy,
+    validate_genesis_execution_policy,
+    validate_persisted_execution_policy,
+)
 from xian.state_root import (
     compute_driver_state_root,
     compute_exported_state_root,
@@ -24,7 +30,9 @@ from xian.utils.block import (
 
 
 def hash_state_changes(state_changes: list[dict[str, Any]]) -> str:
-    def serialize(obj: Any) -> str:
+    def serialize(obj: Any) -> Any:
+        if is_wrapper_set(obj):
+            return encode_set_value(obj)
         if isinstance(obj, bytes):
             return obj.hex()
         raise TypeError(f"object of type {type(obj)!r} is not JSON serializable")
@@ -54,6 +62,8 @@ def build_exported_state(
     latest_block_nanos: int | None = None,
     storage_home: Path | None = None,
 ) -> dict[str, Any]:
+    execution_policy = run_state.get(EXECUTION_POLICY_KEY)
+    validate_execution_policy(execution_policy)
     latest_app_hash = (
         latest_block_hash if latest_block_hash is not None else get_latest_block_hash(storage_home)
     )
@@ -89,6 +99,7 @@ def build_exported_state(
     for key, value in contract_state.items():
         if value is not None:
             exported_state["genesis"].append({"key": key, "value": value})
+    exported_state["genesis"].append({"key": EXECUTION_POLICY_KEY, "value": execution_policy})
 
     exported_state["genesis"] = sorted(
         exported_state["genesis"],
@@ -140,7 +151,9 @@ def import_state(
     exported_state: dict[str, Any],
     storage_home: Path | None = None,
 ) -> dict[str, Any]:
+    validate_genesis_execution_policy(exported_state)
     resolved_storage_home = Path(storage_home) if storage_home else None
+    validate_persisted_execution_policy(resolved_storage_home or contracting_constants.STORAGE_HOME)
     state_root = compute_exported_state_root(exported_state)
     advertised_hash = bytes.fromhex(exported_state.get("hash", ""))
     if advertised_hash != state_root:

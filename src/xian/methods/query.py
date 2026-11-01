@@ -9,6 +9,7 @@ from typing import Any
 from contracting.compilation import parser
 from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal
+from xian_runtime_types.encoding import is_wrapper_set
 from xian_runtime_types.time import Datetime
 
 from cometbft.abci.v1beta1.types_pb2 import ResponseQuery
@@ -1089,6 +1090,8 @@ async def _execute_query(ctx: QueryContext) -> QueryResult:
 def _encode_query_value(result: Any) -> tuple[bytes | None, str | None]:
     if result is None:
         return None, None
+    if is_wrapper_set(result):
+        return encode_abci_json(result), "dict"
     if isinstance(result, bool):
         return encode_str("True" if result else "False"), "bool"
     if isinstance(result, str):

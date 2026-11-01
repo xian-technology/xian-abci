@@ -1,4 +1,3 @@
-from datetime import datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -45,8 +44,6 @@ def execute_output(**fields):
     [
         {1: 2},
         [{"nested": {5: 1}}],
-        ContractingSet([1, 2]),
-        ContractingFrozenSet([1, 2]),
         bytearray(b"abc"),
         Timedelta(days=1),
     ],
@@ -86,10 +83,10 @@ def test_cyclic_effect_is_a_transaction_failure():
 def test_supported_effects_and_return_only_dict_keep_their_original_values():
     value = {
         "values": [None, True, 2**128, 1.5, "text", b"\xff", (1, 2)],
+        "sets": [ContractingSet([1, 2]), ContractingFrozenSet([1, 2])],
         "decimal": Decimal("1.25"),
         "fixed": ContractingDecimal("2.5"),
         "time": Datetime(2026, 10, 30),
-        "datetime": datetime(2026, 10, 30),
     }
     output = execute_output(
         writes={"con_demo.value": value}, events=[{"data": value}], result={1: 2}
@@ -148,10 +145,20 @@ def test_processor_preserves_return_values_but_rejects_unencodable_state(
         }
         output = processor.process_tx(tx, fee_policy=TxFeePolicy.paid_metered())["tx_result"]
         assert output is not None
-        assert output["status"] == int(store)
+        wrapper = expression.startswith(("set(", "frozenset("))
+        failed = store and not wrapper
+        assert output["status"] == int(failed)
         assert output["chi_used"] > 0
         assert client.raw_driver.get("currency.balances:alice") < 100_000
-        assert client.raw_driver.get("con_boundary.valid") == (None if store else 7)
-        assert client.raw_driver.get("con_boundary.invalid") is None
+        assert client.raw_driver.get("con_boundary.valid") == (None if failed else 7)
+        stored = client.raw_driver.get("con_boundary.invalid")
+        if store and wrapper:
+            assert sorted(stored) == [1, 2]
+            assert isinstance(
+                stored,
+                ContractingFrozenSet if expression.startswith("frozenset") else ContractingSet,
+            )
+        else:
+            assert stored is None
         assert isinstance(output["result"], str)
         encode_abci_json(output)
