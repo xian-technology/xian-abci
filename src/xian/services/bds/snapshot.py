@@ -9,11 +9,19 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from xian_runtime_types.encoding import convert_dict
+
+from xian.execution_policy import (
+    EXECUTION_POLICY_KEY,
+    current_execution_policy,
+    validate_execution_policy,
+)
 from xian.services.bds import sql
 from xian.services.bds.bds import BDS
 from xian.services.bds.reindex import RpcBlockSource
+from xian.services.bds.serializer import canonical_json_text
 
-SNAPSHOT_FORMAT_VERSION = 1
+SNAPSHOT_FORMAT_VERSION = 2
 IMPORT_BATCH_SIZE = 1000
 
 
@@ -294,7 +302,63 @@ def serialize_snapshot_row(spec: TableSpec, row: dict[str, Any]) -> dict[str, An
 
 
 def deserialize_snapshot_row(spec: TableSpec, payload: dict[str, Any]) -> tuple[Any, ...]:
-    return tuple(_decode_row_value(spec, column, payload.get(column)) for column in spec.columns)
+    if set(payload) != set(spec.columns):
+        raise ValueError(f"invalid BDS snapshot row columns: {spec.name}")
+    return tuple(_decode_row_value(spec, column, payload[column]) for column in spec.columns)
+
+
+_RUNTIME_JSON_COLUMNS = {
+    "transactions": {"result"},
+    "state": {"value"},
+    "state_changes": {"new_value"},
+    "events": {"data", "data_indexed"},
+    "state_patches": {"patches"},
+}
+
+
+def _validate_snapshot_value(spec: TableSpec, row: dict[str, Any]) -> None:
+    for column in _RUNTIME_JSON_COLUMNS.get(spec.name, ()):
+        value = row[column]
+        wire = json.loads(value) if isinstance(value, str) else value
+        typed = convert_dict(wire)
+        canonical_json_text(typed)
+        if spec.name in {"state", "state_changes"} and row["key"] == EXECUTION_POLICY_KEY:
+            validate_execution_policy(typed)
+
+
+def _snapshot_rows(path: Path):
+    if not path.is_file():
+        raise FileNotFoundError(f"snapshot table file missing: {path.name}")
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                yield json.loads(line)
+
+
+def _snapshot_meta_values(path: Path) -> dict[str, str]:
+    values = {}
+    for row in _snapshot_rows(path):
+        if row["key"] in values:
+            raise ValueError("duplicate BDS snapshot metadata key")
+        values[row["key"]] = row["value"]
+    return values
+
+
+def _preflight_snapshot(root: Path, metadata: dict[str, Any]) -> None:
+    validate_execution_policy(metadata.get("execution_policy"))
+    for spec in TABLE_SPECS:
+        count = 0
+        for row in _snapshot_rows(root / f"{spec.name}.jsonl"):
+            deserialize_snapshot_row(spec, row)
+            _validate_snapshot_value(spec, row)
+            count += 1
+        if metadata.get("tables", {}).get(spec.name, {}).get("row_count") != count:
+            raise ValueError(f"BDS snapshot row count mismatch: {spec.name}")
+    meta_rows = _snapshot_meta_values(root / "bds_meta.jsonl")
+    if meta_rows.get("schema_version") != str(sql.SCHEMA_VERSION):
+        raise ValueError("BDS snapshot schema metadata mismatch")
+    raw = meta_rows.get("execution_policy")
+    validate_execution_policy(json.loads(raw) if raw is not None else None)
 
 
 def _safe_extract_snapshot(archive: tarfile.TarFile, destination: Path) -> None:
@@ -322,6 +386,7 @@ async def export_bds_snapshot(
         metadata: dict[str, Any] = {
             "snapshot_format_version": SNAPSHOT_FORMAT_VERSION,
             "schema_version": sql.SCHEMA_VERSION,
+            "execution_policy": current_execution_policy(),
             "exported_at": datetime.now(UTC).isoformat(),
             "indexed": status["indexed"],
             "spool_pending_count": status["spool_pending_count"],
@@ -347,6 +412,7 @@ async def export_bds_snapshot(
                             row_count += 1
                     metadata["tables"][spec.name] = {"row_count": row_count}
 
+        _preflight_snapshot(temp_root, metadata)
         metadata_path = temp_root / "metadata.json"
         metadata_path.write_text(
             json.dumps(metadata, indent=2, sort_keys=True),
@@ -389,11 +455,13 @@ async def import_bds_snapshot(
             raise ValueError("unsupported BDS snapshot format version")
         if metadata.get("schema_version") != sql.SCHEMA_VERSION:
             raise ValueError("BDS snapshot schema version mismatch")
+        validate_execution_policy(metadata.get("execution_policy"))
         await _verify_snapshot_indexed_chain_state(
             metadata=metadata,
             trusted_block_source=trusted_block_source,
         )
 
+        _preflight_snapshot(temp_root, metadata)
         await bds.reset_schema()
         if clear_spool:
             bds.clear_spool()
@@ -402,18 +470,12 @@ async def import_bds_snapshot(
             async with connection.transaction():
                 for spec in TABLE_SPECS:
                     table_path = temp_root / f"{spec.name}.jsonl"
-                    if not table_path.exists():
-                        raise FileNotFoundError(f"snapshot table file missing: {table_path.name}")
                     batch: list[tuple[Any, ...]] = []
-                    with table_path.open("r", encoding="utf-8") as handle:
-                        for line in handle:
-                            line = line.strip()
-                            if not line:
-                                continue
-                            batch.append(deserialize_snapshot_row(spec, json.loads(line)))
-                            if len(batch) >= IMPORT_BATCH_SIZE:
-                                await connection.executemany(spec.insert_query, batch)
-                                batch.clear()
+                    for row in _snapshot_rows(table_path):
+                        batch.append(deserialize_snapshot_row(spec, row))
+                        if len(batch) >= IMPORT_BATCH_SIZE:
+                            await connection.executemany(spec.insert_query, batch)
+                            batch.clear()
                     if batch:
                         await connection.executemany(spec.insert_query, batch)
 

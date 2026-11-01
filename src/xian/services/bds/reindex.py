@@ -9,8 +9,10 @@ from typing import Any, Protocol
 import aiohttp
 from contracting.storage.driver import Driver
 from loguru import logger
+from xian_runtime_types.encoding import convert_dict
 
 from xian.constants import Constants
+from xian.execution_policy import validate_genesis_execution_policy
 from xian.services.bds.bds import BDS
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.services.bds.runtime import resolve_bds_config
@@ -26,6 +28,8 @@ from xian.utils.state_patches import StatePatchManager, resolve_state_patch_dir
 
 
 class RpcBlockSource(Protocol):
+    async def genesis(self) -> dict[str, Any]: ...
+
     async def latest_height(self) -> int: ...
 
     async def block(self, height: int) -> dict[str, Any]: ...
@@ -33,6 +37,14 @@ class RpcBlockSource(Protocol):
     async def block_results(self, height: int) -> dict[str, Any]: ...
 
     async def close(self) -> None: ...
+
+
+async def _validate_source_policies(
+    block_source: RpcBlockSource, trusted_block_source: RpcBlockSource | None
+) -> None:
+    validate_genesis_execution_policy(await block_source.genesis())
+    if trusted_block_source is not None:
+        validate_genesis_execution_policy(await trusted_block_source.genesis())
 
 
 def parse_rfc3339_nano(value: str) -> datetime:
@@ -95,6 +107,9 @@ class CometBftRpcClient:
             payload = await response.json()
         return payload.get("result", payload)
 
+    async def genesis(self) -> dict[str, Any]:
+        return (await self._get("genesis"))["genesis"]
+
     async def latest_height(self) -> int:
         status = await self._get("status")
         return int(status["sync_info"]["latest_block_height"])
@@ -138,6 +153,12 @@ class BdsReindexer:
         self.block_source = block_source
         self.state_patch_manager = state_patch_manager
         self.trusted_block_source = trusted_block_source
+        self._policy_validated = False
+
+    async def _validate_source_policy(self) -> None:
+        if not self._policy_validated:
+            await _validate_source_policies(self.block_source, self.trusted_block_source)
+            self._policy_validated = True
 
     async def build_plan(
         self,
@@ -145,6 +166,7 @@ class BdsReindexer:
         start_height: int | None = None,
         end_height: int | None = None,
     ) -> ReindexPlan:
+        await self._validate_source_policy()
         latest_height = await self.block_source.latest_height()
         status = await self.bds.get_status(current_block_height=latest_height)
         indexed_height = status["indexed"]["indexed_height"]
@@ -179,6 +201,7 @@ class BdsReindexer:
         return persisted
 
     async def build_payload(self, height: int) -> BdsBlockPayload:
+        await self._validate_source_policy()
         block_response = await self.block_source.block(height)
         await self._verify_block_against_trusted_source(
             height=height,
@@ -266,7 +289,7 @@ class BdsReindexer:
         if not data_b64:
             return None
         decoded = base64.b64decode(data_b64).decode("utf-8")
-        parsed = json.loads(decoded)
+        parsed = convert_dict(json.loads(decoded))
         return parsed if isinstance(parsed, dict) else None
 
     def _build_transaction_payload(
@@ -322,25 +345,25 @@ async def run_bds_reindex(
     cometbft_genesis = load_genesis_data(constants)
     bds_config = resolve_bds_config(constants)
     bds = BDS(config=bds_config)
-    await bds.initialize_storage(cometbft_genesis, reset=reset)
-
-    state_patch_manager = StatePatchManager(Driver(storage_home=constants.STORAGE_HOME))
-    patch_dir_path = resolve_state_patch_dir(constants)
-    state_patch_manager.load_patches(str(patch_dir_path))
-
     source_rpc_url = resolve_rpc_url(constants, rpc_url)
     trusted_rpc_url = resolve_rpc_url(constants)
     block_source = CometBftRpcClient(source_rpc_url)
     trusted_block_source = (
         None if source_rpc_url == trusted_rpc_url else CometBftRpcClient(trusted_rpc_url)
     )
-    reindexer = BdsReindexer(
-        bds=bds,
-        block_source=block_source,
-        state_patch_manager=state_patch_manager,
-        trusted_block_source=trusted_block_source,
-    )
     try:
+        validate_genesis_execution_policy(cometbft_genesis)
+        await _validate_source_policies(block_source, trusted_block_source)
+        await bds.initialize_storage(cometbft_genesis, reset=reset)
+        state_patch_manager = StatePatchManager(Driver(storage_home=constants.STORAGE_HOME))
+        patch_dir_path = resolve_state_patch_dir(constants)
+        state_patch_manager.load_patches(str(patch_dir_path))
+        reindexer = BdsReindexer(
+            bds=bds,
+            block_source=block_source,
+            state_patch_manager=state_patch_manager,
+            trusted_block_source=trusted_block_source,
+        )
         plan = await reindexer.build_plan(
             start_height=start_height,
             end_height=end_height,

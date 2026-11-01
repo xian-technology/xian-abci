@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+from xian.execution_policy import current_execution_policy
 from xian.services.bds.reindex import (
     BdsReindexer,
     CometBftRpcClient,
@@ -20,6 +21,13 @@ class _FakeBlockSource:
         self._latest_height = latest_height
         self.blocks = {}
         self.block_results_map = {}
+
+    async def genesis(self):
+        return {
+            "abci_genesis": {
+                "genesis": [{"key": "__execution_policy", "value": current_execution_policy()}]
+            }
+        }
 
     async def latest_height(self) -> int:
         return self._latest_height
@@ -69,9 +77,9 @@ def _noncanonical_tx_b64(tx: dict) -> str:
 
 
 def _tx_result_b64(tx_result: dict) -> str:
-    return base64.b64encode(
-        json.dumps(tx_result, separators=(",", ":")).encode("utf-8")
-    ).decode("utf-8")
+    return base64.b64encode(json.dumps(tx_result, separators=(",", ":")).encode("utf-8")).decode(
+        "utf-8"
+    )
 
 
 class BdsReindexerTests(unittest.IsolatedAsyncioTestCase):
@@ -376,9 +384,7 @@ class BdsReindexerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(is_indexable(None))
         self.assertFalse(is_indexable({"status": 0}))
-        self.assertTrue(
-            is_indexable({"status": 0, "state": [], "chi_used": 0})
-        )
+        self.assertTrue(is_indexable({"status": 0, "state": [], "chi_used": 0}))
 
 
 class ParseRfc3339NanoTests(unittest.TestCase):
@@ -456,6 +462,7 @@ class RunBdsReindexTests(unittest.IsolatedAsyncioTestCase):
         bds = mock.AsyncMock()
         block_source = mock.AsyncMock()
         block_source.rpc_url = "http://127.0.0.1:26657"
+        block_source.genesis.return_value = await _FakeBlockSource().genesis()
         plan = ReindexPlan(
             latest_height=10,
             indexed_height=10,
@@ -466,7 +473,10 @@ class RunBdsReindexTests(unittest.IsolatedAsyncioTestCase):
         reindexer.build_plan.return_value = plan
 
         with (
-            mock.patch("xian.services.bds.reindex.load_genesis_data", return_value={}),
+            mock.patch(
+                "xian.services.bds.reindex.load_genesis_data",
+                return_value=await _FakeBlockSource().genesis(),
+            ),
             mock.patch("xian.services.bds.reindex.resolve_bds_config"),
             mock.patch("xian.services.bds.reindex.BDS", return_value=bds),
             mock.patch("xian.services.bds.reindex.Driver"),
@@ -503,8 +513,10 @@ class RunBdsReindexTests(unittest.IsolatedAsyncioTestCase):
         bds = mock.AsyncMock()
         source_client = mock.AsyncMock()
         source_client.rpc_url = "http://remote:26657"
+        source_client.genesis.return_value = await _FakeBlockSource().genesis()
         trusted_client = mock.AsyncMock()
         trusted_client.rpc_url = "http://127.0.0.1:26657"
+        trusted_client.genesis.return_value = await _FakeBlockSource().genesis()
         plan = ReindexPlan(
             latest_height=10,
             indexed_height=2,
@@ -515,7 +527,10 @@ class RunBdsReindexTests(unittest.IsolatedAsyncioTestCase):
         reindexer.build_plan.return_value = plan
 
         with (
-            mock.patch("xian.services.bds.reindex.load_genesis_data", return_value={}),
+            mock.patch(
+                "xian.services.bds.reindex.load_genesis_data",
+                return_value=await _FakeBlockSource().genesis(),
+            ),
             mock.patch("xian.services.bds.reindex.resolve_bds_config"),
             mock.patch("xian.services.bds.reindex.BDS", return_value=bds),
             mock.patch("xian.services.bds.reindex.Driver"),

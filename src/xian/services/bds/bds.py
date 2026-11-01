@@ -12,8 +12,14 @@ from timeit import default_timer as timer
 from typing import Any
 
 from loguru import logger
+from xian_runtime_types.encoding import convert_dict
 
 from xian.constants import Constants
+from xian.execution_policy import (
+    current_execution_policy,
+    validate_execution_policy,
+    validate_genesis_execution_policy,
+)
 from xian.services.bds import sql
 from xian.services.bds.candles import CandleSourceSpec, get_candle_source_spec
 from xian.services.bds.config import BdsConfig
@@ -23,7 +29,6 @@ from xian.services.bds.serializer import (
     canonical_decimal,
     canonical_json_text,
     canonical_json_value,
-    canonical_result_value,
     utc_datetime,
 )
 from xian.services.bds.shielded import collect_shielded_outputs, extract_payload_tags
@@ -177,6 +182,7 @@ class BDS:
         *,
         reset: bool = False,
     ) -> None:
+        validate_genesis_execution_policy(cometbft_genesis)
         await self.open_storage()
         if reset:
             self.clear_spool()
@@ -237,6 +243,7 @@ class BDS:
                     self._pending_event.clear()
 
     async def enqueue_block(self, payload: BdsBlockPayload) -> None:
+        validate_execution_policy(payload.execution_policy)
         if self._worker_task is None:
             raise RuntimeError("BDS worker is not initialized")
         if self._is_stale_payload(payload):
@@ -249,7 +256,7 @@ class BDS:
             )
 
     async def _replay_spool(self) -> None:
-        for spool_path in self._pending_spool_files():
+        for spool_path in self._validated_spool_files():
             payload = self._read_spool_file(spool_path)
             if self._is_stale_payload(payload):
                 spool_path.unlink(missing_ok=True)
@@ -340,6 +347,7 @@ class BDS:
         self._last_enqueue_error = None
 
     def _enqueue_pending_payload(self, payload: BdsBlockPayload) -> bool:
+        validate_execution_policy(payload.execution_policy)
         height = int(payload.block_meta["height"])
         if self._is_stale_payload(payload):
             return True
@@ -372,18 +380,15 @@ class BDS:
     def _pop_next_pending_payload(self) -> BdsBlockPayload | None:
         return self._pending_payloads.pop(self._next_expected_height(), None)
 
-    def _spool_file_height(self, spool_path: Path) -> int | None:
-        prefix, _, _ = spool_path.name.partition("-")
-        try:
-            return int(prefix)
-        except ValueError:
-            try:
-                return int(self._read_spool_file(spool_path).block_meta["height"])
-            except Exception:
-                return None
+    def _validated_spool_files(self) -> list[Path]:
+        paths = self._pending_spool_files()
+        for path in paths:
+            self._read_spool_file(path)
+        return paths
 
     async def compact_spool(self) -> dict[str, Any]:
         self.spool_dir.mkdir(parents=True, exist_ok=True)
+        paths = self._validated_spool_files()
         indexed_height = await self.db.fetchval("SELECT MAX(height) FROM blocks")
         removed_files = 0
         removed_bytes = 0
@@ -402,9 +407,9 @@ class BDS:
                 "kept_files": len(self._pending_spool_files()),
             }
 
-        for spool_path in self._pending_spool_files():
-            spool_height = self._spool_file_height(spool_path)
-            if spool_height is None or spool_height > int(indexed_height):
+        for spool_path in paths:
+            spool_height = int(self._read_spool_file(spool_path).block_meta["height"])
+            if spool_height > int(indexed_height):
                 continue
             removed_bytes += spool_path.stat().st_size
             removed_files += 1
@@ -677,8 +682,8 @@ class BDS:
         return [self._spool_entry_metadata(spool_file) for spool_file in selected]
 
     async def _prepare_schema(self) -> None:
-        await self.db.execute(sql.create_meta())
-        current_version = await self.db.fetchval(sql.select_schema_version())
+        has_meta = await self.db.fetchval("SELECT to_regclass('public.bds_meta')")
+        current_version = await self.db.fetchval(sql.select_schema_version()) if has_meta else None
         if current_version is None:
             if await self._managed_tables_present():
                 raise RuntimeError(
@@ -692,13 +697,28 @@ class BDS:
                 "a compatible BDS snapshot before starting the current runtime"
             )
 
-        for statement in self._schema_statements():
-            await self.db.execute(statement)
+        if has_meta:
+            await self.validate_storage_policy()
+        async with self.db.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute(sql.create_meta())
+                for statement in self._schema_statements():
+                    await connection.execute(statement)
+                now = utc_datetime(datetime.now())
+                await connection.execute(sql.upsert_schema_version(), str(sql.SCHEMA_VERSION), now)
+                await connection.execute(
+                    sql.upsert_execution_policy(),
+                    json.dumps(current_execution_policy(), sort_keys=True),
+                    now,
+                )
 
-        await self.db.execute(
-            sql.upsert_schema_version(),
-            [str(sql.SCHEMA_VERSION), utc_datetime(datetime.now())],
-        )
+    async def validate_storage_policy(self) -> None:
+        raw = await self.db.fetchval(sql.select_execution_policy())
+        try:
+            policy = json.loads(raw) if raw is not None else None
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid BDS execution policy") from exc
+        validate_execution_policy(policy)
 
     @staticmethod
     def _schema_statements() -> tuple[str, ...]:
@@ -743,8 +763,10 @@ class BDS:
         )
 
     async def process_genesis_block(self, cometbft_genesis: dict):
+        validate_genesis_execution_policy(cometbft_genesis)
+        await self.validate_storage_policy()
         start_time = timer()
-        genesis_state = cometbft_genesis["abci_genesis"]["genesis"]
+        genesis_state = convert_dict(cometbft_genesis["abci_genesis"]["genesis"])
         block_time = GENESIS_CREATED_AT
 
         async with self.db.acquire() as connection:
@@ -778,7 +800,7 @@ class BDS:
                     _jsonb_param(
                         {
                             "kind": "genesis",
-                            "genesis": canonical_json_value(genesis_state),
+                            "genesis": genesis_state,
                         }
                     ),
                     block_time,
@@ -846,6 +868,8 @@ class BDS:
         logger.debug(f"Saved genesis block to BDS in {timer() - start_time:.3f} seconds")
 
     async def persist_block(self, payload: BdsBlockPayload) -> bool:
+        validate_execution_policy(payload.execution_policy)
+        await self.validate_storage_policy()
         start_time = timer()
         created_at = utc_datetime(payload.block_time)
         state_patches = payload.state_patches or []
@@ -954,9 +978,11 @@ class BDS:
             tx_result["status"] == 0,
             tx_result["status"],
             tx_result["chi_used"],
-            _nullable_jsonb_param(canonical_result_value(tx_result.get("result"))),
-            _jsonb_param(payload),
-            _jsonb_param(tx.envelope),
+            _nullable_jsonb_param(
+                None if tx_result.get("result") == "None" else tx_result.get("result")
+            ),
+            json.dumps(payload, separators=(",", ":")),
+            json.dumps(tx.envelope, separators=(",", ":")),
             block_time,
         )
         await connection.execute(
@@ -1172,7 +1198,7 @@ class BDS:
             _jsonb_param(
                 {
                     "kind": "state_patch",
-                    "executions": canonical_json_value(state_patches),
+                    "executions": state_patches,
                 }
             ),
             block_time,

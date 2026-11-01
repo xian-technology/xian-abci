@@ -1371,3 +1371,15 @@ def select_developer_rewards_summary():
     WHERE r.type = 'developer_reward'
       AND r.recipient_key = $1;
     """
+
+
+def select_execution_policy():
+    return "SELECT value FROM bds_meta WHERE key = 'execution_policy';"
+
+
+def upsert_execution_policy():
+    return """
+    INSERT INTO bds_meta (key, value, updated_at)
+    VALUES ('execution_policy', $1, $2)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
+    """

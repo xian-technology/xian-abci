@@ -6,8 +6,10 @@ from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from xian.execution_policy import current_execution_policy
 from xian.services.bds import sql
 from xian.services.bds.snapshot import (
+    SNAPSHOT_FORMAT_VERSION,
     TABLE_SPECS,
     default_snapshot_output_path,
     deserialize_snapshot_row,
@@ -137,9 +139,7 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
         restored = deserialize_snapshot_row(rewards_spec, serialized)
 
         self.assertEqual(serialized["value"], "12.34")
-        self.assertEqual(
-            serialized["created_at"], "2026-01-01T00:00:00+00:00"
-        )
+        self.assertEqual(serialized["created_at"], "2026-01-01T00:00:00+00:00")
         self.assertEqual(restored[8], Decimal("12.34"))
         self.assertEqual(restored[9], datetime(2026, 1, 1, tzinfo=UTC))
 
@@ -147,10 +147,15 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
         rows_by_table = {
             "bds_meta": [
                 {
+                    "key": "execution_policy",
+                    "value": json.dumps(current_execution_policy()),
+                    "updated_at": datetime(2026, 1, 1, tzinfo=UTC),
+                },
+                {
                     "key": "schema_version",
                     "value": str(sql.SCHEMA_VERSION),
                     "updated_at": datetime(2026, 1, 1, tzinfo=UTC),
-                }
+                },
             ],
             "blocks": [
                 {
@@ -290,17 +295,11 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(snapshot_path.exists())
 
             with tarfile.open(snapshot_path, "r:gz") as archive:
-                metadata = json.loads(
-                    archive.extractfile("metadata.json").read().decode("utf-8")
-                )
+                metadata = json.loads(archive.extractfile("metadata.json").read().decode("utf-8"))
             self.assertEqual(metadata["tables"]["blocks"]["row_count"], 1)
-            self.assertEqual(
-                metadata["tables"]["state_changes"]["row_count"], 1
-            )
+            self.assertEqual(metadata["tables"]["state_changes"]["row_count"], 1)
             self.assertEqual(metadata["tables"]["addresses"]["row_count"], 1)
-            self.assertEqual(
-                metadata["tables"]["shielded_outputs"]["row_count"], 1
-            )
+            self.assertEqual(metadata["tables"]["shielded_outputs"]["row_count"], 1)
 
             import_connection = _FakeConnection({})
             import_bds = _FakeBds(import_connection, status)
@@ -320,12 +319,8 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(import_bds.clear_spool_count, 1)
             self.assertEqual(import_connection.sequence_resets, 5)
             self.assertEqual(import_connection.inserted["addresses"][0][0], "alice")
-            self.assertEqual(
-                import_connection.inserted["state_changes"][0][0], 5
-            )
-            self.assertEqual(
-                import_connection.inserted["rewards"][0][8], Decimal("12.34")
-            )
+            self.assertEqual(import_connection.inserted["state_changes"][0][0], 5)
+            self.assertEqual(import_connection.inserted["rewards"][0][8], Decimal("12.34"))
             self.assertEqual(import_connection.inserted["shielded_outputs"][0][0], 2)
             self.assertEqual(
                 import_connection.inserted["shielded_output_tags"][0][12],
@@ -350,7 +345,8 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
             metadata_path.write_text(
                 json.dumps(
                     {
-                        "snapshot_format_version": 1,
+                        "snapshot_format_version": SNAPSHOT_FORMAT_VERSION,
+                        "execution_policy": current_execution_policy(),
                         "schema_version": sql.SCHEMA_VERSION,
                         "tables": {},
                     }
@@ -394,7 +390,8 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
             metadata_path.write_text(
                 json.dumps(
                     {
-                        "snapshot_format_version": 1,
+                        "snapshot_format_version": SNAPSHOT_FORMAT_VERSION,
+                        "execution_policy": current_execution_policy(),
                         "schema_version": sql.SCHEMA_VERSION,
                         "indexed": status["indexed"],
                         "tables": {},

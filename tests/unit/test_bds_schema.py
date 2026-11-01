@@ -1,7 +1,6 @@
 import unittest
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock
 
-from xian.services.bds import sql
 from xian.services.bds.bds import BDS
 from xian.services.bds.config import BdsConfig
 
@@ -15,10 +14,7 @@ class BdsSchemaTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "metadata is missing"):
             await bds._prepare_schema()
 
-        self.assertEqual(
-            bds.db.execute.await_args_list,
-            [call(sql.create_meta())],
-        )
+        bds.db.execute.assert_not_awaited()
 
     async def test_prepare_schema_rejects_version_mismatch(self):
         bds = BDS(BdsConfig())
@@ -28,10 +24,7 @@ class BdsSchemaTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "does not match runtime schema"):
             await bds._prepare_schema()
 
-        self.assertEqual(
-            bds.db.execute.await_args_list,
-            [call(sql.create_meta())],
-        )
+        bds.db.execute.assert_not_awaited()
 
     async def test_prepare_schema_rejects_unsupported_version_mismatch(self):
         bds = BDS(BdsConfig())
@@ -41,7 +34,4 @@ class BdsSchemaTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "does not match runtime schema"):
             await bds._prepare_schema()
 
-        self.assertEqual(
-            bds.db.execute.await_args_list,
-            [call(sql.create_meta())],
-        )
+        bds.db.execute.assert_not_awaited()

@@ -5,6 +5,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from xian_runtime_types.time import Datetime
+
+from xian.execution_policy import current_execution_policy
 from xian.services.bds import sql
 from xian.services.bds.bds import BDS
 from xian.services.bds.config import BdsConfig
@@ -32,6 +35,8 @@ class _FakeConnection:
         return "OK"
 
     async def fetchval(self, query: str, *args):
+        if query == sql.select_execution_policy():
+            return json.dumps(current_execution_policy())
         self.fetchval_calls.append((query, args))
         return len(self.fetchval_calls)
 
@@ -74,6 +79,9 @@ class _ExistingBlockDb:
     def __init__(self, row):
         self.row = row
         self.fetchrow_calls: list[tuple[str, list[object]]] = []
+
+    async def fetchval(self, query: str, *args):
+        return json.dumps(current_execution_policy())
 
     async def fetchrow(self, query: str, args: list[object]):
         self.fetchrow_calls.append((query, args))
@@ -237,21 +245,20 @@ def balance_of(address: str):
                         {
                             "key": "currency.balances:alice",
                             "value": {"nested": True, "amount": "10"},
-                        }
+                        },
+                        {"key": "__execution_policy", "value": current_execution_policy()},
                     ]
                 }
             }
         )
 
         tx_insert = next(
-            args
-            for query, args in connection.execute_calls
-            if query == sql.insert_transaction()
+            args for query, args in connection.execute_calls if query == sql.insert_transaction()
         )
         self.assertIsInstance(tx_insert[12], str)
         self.assertEqual(
             json.loads(tx_insert[12]),
-            {"status": "ok", "genesis_entries": 1},
+            {"status": "ok", "genesis_entries": 2},
         )
         self.assertIsInstance(tx_insert[13], str)
         self.assertEqual(json.loads(tx_insert[13]), {"kind": "genesis"})
@@ -338,9 +345,7 @@ def balance_of(address: str):
         )
 
         tx_insert = next(
-            args
-            for query, args in connection.execute_calls
-            if query == sql.insert_transaction()
+            args for query, args in connection.execute_calls if query == sql.insert_transaction()
         )
         self.assertIsInstance(tx_insert[12], str)
         self.assertEqual(
@@ -371,9 +376,7 @@ def balance_of(address: str):
         self.assertEqual(json.loads(state_change[7]), {"balance": "95"})
 
         event_insert = next(
-            args
-            for query, args in connection.execute_calls
-            if query == sql.insert_event()
+            args for query, args in connection.execute_calls if query == sql.insert_event()
         )
         self.assertIsInstance(event_insert[8], str)
         self.assertEqual(json.loads(event_insert[8]), {"to": "bob"})
@@ -400,15 +403,9 @@ def balance_of(address: str):
         self.assertEqual(len(shielded_inserts), 2)
         self.assertEqual({insert[0] for insert in shielded_inserts}, {1})
         self.assertEqual({insert[1] for insert in shielded_inserts}, {"TX-1"})
-        self.assertEqual(
-            {insert[3] for insert in shielded_inserts}, {"currency"}
-        )
-        self.assertEqual(
-            {insert[5] for insert in shielded_inserts}, {"deposit"}
-        )
-        self.assertEqual(
-            {insert[8] for insert in shielded_inserts}, {"0x" + "11" * 32}
-        )
+        self.assertEqual({insert[3] for insert in shielded_inserts}, {"currency"})
+        self.assertEqual({insert[5] for insert in shielded_inserts}, {"deposit"})
+        self.assertEqual({insert[8] for insert in shielded_inserts}, {"0x" + "11" * 32})
         self.assertEqual(
             {(insert[11], insert[12]) for insert in shielded_inserts},
             {
@@ -486,9 +483,7 @@ def balance_of(address: str):
         )
 
         reward_queries = [
-            query
-            for query, _ in connection.execute_calls
-            if query == sql.insert_reward()
+            query for query, _ in connection.execute_calls if query == sql.insert_reward()
         ]
         self.assertEqual(reward_queries, [])
 
@@ -545,9 +540,7 @@ def balance_of(address: str):
         )
 
         reward_inserts = [
-            args
-            for query, args in connection.execute_calls
-            if query == sql.insert_reward()
+            args for query, args in connection.execute_calls if query == sql.insert_reward()
         ]
         self.assertEqual(len(reward_inserts), 2)
         self.assertEqual(reward_inserts[0][5], "alice")
@@ -585,7 +578,7 @@ def balance_of(address: str):
                     {"key": "con_child_a.__source__", "value": "source-a"},
                     {
                         "key": "con_child_a.__submitted__",
-                        "value": {"__time__": [2026, 1, 1, 12, 30, 15]},
+                        "value": Datetime(2026, 1, 1, 12, 30, 15),
                     },
                 ],
                 "events": [],
@@ -602,9 +595,7 @@ def balance_of(address: str):
         )
 
         contract_upserts = [
-            args
-            for query, args in connection.execute_calls
-            if query == sql.upsert_contract()
+            args for query, args in connection.execute_calls if query == sql.upsert_contract()
         ]
         self.assertEqual(len(contract_upserts), 1)
         self.assertEqual(contract_upserts[0][0], "con_child_a")
@@ -631,15 +622,14 @@ def balance_of(address: str):
                             "key": "con_token.__submitted__",
                             "value": {"__time__": [2026, 1, 2, 3, 4, 5]},
                         },
+                        {"key": "__execution_policy", "value": current_execution_policy()},
                     ]
                 }
             }
         )
 
         contract_upserts = [
-            args
-            for query, args in connection.execute_calls
-            if query == sql.upsert_contract()
+            args for query, args in connection.execute_calls if query == sql.upsert_contract()
         ]
         self.assertEqual(len(contract_upserts), 1)
         self.assertEqual(contract_upserts[0][0], "con_token")
