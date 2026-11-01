@@ -19,7 +19,7 @@ def policy_state(value=None):
 
 def test_policy_requires_exact_current_identifiers():
     expected = {
-        "execution_revision": "xvm-execution-2",
+        "execution_revision": "xvm-execution-3",
         "gas_schedule": "xvm-gas-2",
         "bytecode_version": "xvm-1",
         "set_codec": "xian-set-1",
@@ -157,3 +157,52 @@ def test_fresh_bootstrap_accepts_existing_empty_database(tmp_path):
     assert policy.validate_persisted_execution_policy(tmp_path) is False
     policy.initialize_execution_policy(tmp_path)
     assert policy.validate_persisted_execution_policy(tmp_path)
+
+
+PREVIOUS_POLICY = {
+    "execution_revision": "xvm-execution-2",
+    "gas_schedule": "xvm-gas-2",
+    "bytecode_version": "xvm-1",
+    "set_codec": "xian-set-1",
+}
+
+
+def test_previous_revision_is_rejected_even_with_matching_gas_and_codec():
+    with pytest.raises(ValueError, match="execution policy"):
+        policy.validate_execution_policy(PREVIOUS_POLICY)
+    with pytest.raises(ValueError, match="execution policy"):
+        policy.validate_genesis_execution_policy({"abci_genesis": policy_state(PREVIOUS_POLICY)})
+
+
+def test_previous_revision_database_is_rejected_without_mutation(tmp_path):
+    path = tmp_path / "lmdb"
+    path.mkdir()
+    with lmdb.open(str(path)) as env:
+        with env.begin(write=True) as transaction:
+            transaction.put(b"con_demo.value", b"7")
+            transaction.put(b"__execution_policy", json.dumps(PREVIOUS_POLICY).encode())
+    before = (path / "data.mdb").read_bytes()
+    with pytest.raises(ValueError, match="execution policy"):
+        policy.initialize_execution_policy(tmp_path)
+    assert (path / "data.mdb").read_bytes() == before
+
+
+def test_previous_revision_import_is_rejected_before_driver_open():
+    with patch("xian.state_export.Driver") as driver:
+        with pytest.raises(ValueError, match="execution policy"):
+            import_state(exported_state=policy_state(PREVIOUS_POLICY))
+    driver.assert_not_called()
+
+
+def test_previous_native_revision_is_rejected_even_when_gas_is_supported():
+    from types import SimpleNamespace
+
+    from xian.execution_engine import build_vm_runtime
+
+    bindings = SimpleNamespace(
+        runtime_info=lambda: {"vm_profile": "xian_vm_v1", **PREVIOUS_POLICY},
+        supports_execution_policy=lambda *_args: True,
+    )
+    with patch("xian.execution_engine._load_vm_runtime_bindings", return_value=bindings):
+        with pytest.raises(ValueError, match="execution policy"):
+            build_vm_runtime()
