@@ -12,7 +12,7 @@ from loguru import logger
 from xian_runtime_types.encoding import convert_dict
 
 from xian.constants import Constants
-from xian.execution_policy import validate_genesis_execution_policy
+from xian.execution_policy import validate_execution_policy, validate_genesis_execution_policy
 from xian.services.bds.bds import BDS
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.services.bds.runtime import resolve_bds_config
@@ -28,7 +28,7 @@ from xian.utils.state_patches import StatePatchManager, resolve_state_patch_dir
 
 
 class RpcBlockSource(Protocol):
-    async def genesis(self) -> dict[str, Any]: ...
+    async def execution_policy(self) -> dict[str, Any]: ...
 
     async def latest_height(self) -> int: ...
 
@@ -42,9 +42,9 @@ class RpcBlockSource(Protocol):
 async def _validate_source_policies(
     block_source: RpcBlockSource, trusted_block_source: RpcBlockSource | None
 ) -> None:
-    validate_genesis_execution_policy(await block_source.genesis())
+    validate_execution_policy(await block_source.execution_policy())
     if trusted_block_source is not None:
-        validate_genesis_execution_policy(await trusted_block_source.genesis())
+        validate_execution_policy(await trusted_block_source.execution_policy())
 
 
 def parse_rfc3339_nano(value: str) -> datetime:
@@ -107,8 +107,17 @@ class CometBftRpcClient:
             payload = await response.json()
         return payload.get("result", payload)
 
-    async def genesis(self) -> dict[str, Any]:
-        return (await self._get("genesis"))["genesis"]
+    async def execution_policy(self) -> dict[str, Any]:
+        result = await self._get("abci_query", {"path": '"/get/__execution_policy"'})
+        response = result.get("response")
+        if not isinstance(response, dict) or response.get("code") != 0:
+            raise ValueError("RPC execution policy query failed")
+        value = response.get("value")
+        if not isinstance(value, str) or not value:
+            raise ValueError("RPC execution policy is missing")
+        policy = json.loads(base64.b64decode(value, validate=True))
+        validate_execution_policy(policy)
+        return policy
 
     async def latest_height(self) -> int:
         status = await self._get("status")

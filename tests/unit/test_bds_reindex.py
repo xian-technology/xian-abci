@@ -22,12 +22,8 @@ class _FakeBlockSource:
         self.blocks = {}
         self.block_results_map = {}
 
-    async def genesis(self):
-        return {
-            "abci_genesis": {
-                "genesis": [{"key": "__execution_policy", "value": current_execution_policy()}]
-            }
-        }
+    async def execution_policy(self):
+        return current_execution_policy()
 
     async def latest_height(self) -> int:
         return self._latest_height
@@ -462,7 +458,7 @@ class RunBdsReindexTests(unittest.IsolatedAsyncioTestCase):
         bds = mock.AsyncMock()
         block_source = mock.AsyncMock()
         block_source.rpc_url = "http://127.0.0.1:26657"
-        block_source.genesis.return_value = await _FakeBlockSource().genesis()
+        block_source.execution_policy.return_value = current_execution_policy()
         plan = ReindexPlan(
             latest_height=10,
             indexed_height=10,
@@ -475,7 +471,13 @@ class RunBdsReindexTests(unittest.IsolatedAsyncioTestCase):
         with (
             mock.patch(
                 "xian.services.bds.reindex.load_genesis_data",
-                return_value=await _FakeBlockSource().genesis(),
+                return_value={
+                    "abci_genesis": {
+                        "genesis": [
+                            {"key": "__execution_policy", "value": current_execution_policy()}
+                        ]
+                    }
+                },
             ),
             mock.patch("xian.services.bds.reindex.resolve_bds_config"),
             mock.patch("xian.services.bds.reindex.BDS", return_value=bds),
@@ -513,10 +515,10 @@ class RunBdsReindexTests(unittest.IsolatedAsyncioTestCase):
         bds = mock.AsyncMock()
         source_client = mock.AsyncMock()
         source_client.rpc_url = "http://remote:26657"
-        source_client.genesis.return_value = await _FakeBlockSource().genesis()
+        source_client.execution_policy.return_value = current_execution_policy()
         trusted_client = mock.AsyncMock()
         trusted_client.rpc_url = "http://127.0.0.1:26657"
-        trusted_client.genesis.return_value = await _FakeBlockSource().genesis()
+        trusted_client.execution_policy.return_value = current_execution_policy()
         plan = ReindexPlan(
             latest_height=10,
             indexed_height=2,
@@ -529,7 +531,13 @@ class RunBdsReindexTests(unittest.IsolatedAsyncioTestCase):
         with (
             mock.patch(
                 "xian.services.bds.reindex.load_genesis_data",
-                return_value=await _FakeBlockSource().genesis(),
+                return_value={
+                    "abci_genesis": {
+                        "genesis": [
+                            {"key": "__execution_policy", "value": current_execution_policy()}
+                        ]
+                    }
+                },
             ),
             mock.patch("xian.services.bds.reindex.resolve_bds_config"),
             mock.patch("xian.services.bds.reindex.BDS", return_value=bds),

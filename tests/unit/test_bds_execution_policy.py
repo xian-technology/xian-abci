@@ -161,9 +161,7 @@ def test_reindex_rejects_legacy_source_before_reading_blocks():
 
     from xian.services.bds.reindex import BdsReindexer
 
-    source = SimpleNamespace(
-        genesis=AsyncMock(return_value={"abci_genesis": {"genesis": []}}), block=AsyncMock()
-    )
+    source = SimpleNamespace(execution_policy=AsyncMock(return_value=None), block=AsyncMock())
     indexer = BdsReindexer(bds=None, block_source=source, state_patch_manager=None)
     with pytest.raises(ValueError, match="execution policy"):
         asyncio.run(indexer.build_payload(1))
@@ -313,7 +311,7 @@ def test_reindex_reset_rejects_legacy_rpc_before_storage_initialization():
     from xian.services.bds.reindex import run_bds_reindex
 
     source = AsyncMock()
-    source.genesis.return_value = {"abci_genesis": {"genesis": []}}
+    source.execution_policy.return_value = None
     bds = AsyncMock()
     genesis = {
         "abci_genesis": {
@@ -345,3 +343,44 @@ def test_reindex_malformed_json_is_rejected_instead_of_skipping_transaction():
 
     with pytest.raises(ValueError):
         BdsReindexer._decode_tx_result_data(base64.b64encode(b"{broken").decode())
+
+
+def test_rpc_policy_reads_committed_abci_value_when_genesis_omits_application_fields():
+    import base64
+
+    from xian.services.bds.reindex import CometBftRpcClient
+
+    # Actual five-node RPC shape: /genesis contains no custom abci_genesis,
+    # while /abci_query exposes the protected policy in committed state.
+    response = {
+        "response": {
+            "code": 0,
+            "height": "272",
+            "info": "dict",
+            "value": base64.b64encode(json.dumps(current_execution_policy()).encode()).decode(),
+        }
+    }
+    client = CometBftRpcClient("http://127.0.0.1:26657")
+    client._get = AsyncMock(return_value=response)
+    assert asyncio.run(client.execution_policy()) == current_execution_policy()
+    client._get.assert_awaited_once_with("abci_query", {"path": '"/get/__execution_policy"'})
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {},
+        {"response": {"code": 1, "value": "e30="}},
+        {"response": {"code": 0, "value": ""}},
+        {"response": {"code": 0, "value": "not base64!"}},
+        {"response": {"code": 0, "value": "bnVsbA=="}},
+        {"response": {"code": 0, "value": "e30="}},
+    ],
+)
+def test_rpc_policy_fails_closed_on_absent_invalid_or_failed_response(response):
+    from xian.services.bds.reindex import CometBftRpcClient
+
+    client = CometBftRpcClient("http://127.0.0.1:26657")
+    client._get = AsyncMock(return_value=response)
+    with pytest.raises(ValueError):
+        asyncio.run(client.execution_policy())
