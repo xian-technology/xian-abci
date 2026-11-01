@@ -64,6 +64,48 @@ class ProcessorVmExecutionTests(unittest.TestCase):
             processor.execute_tx(transaction, chi_cost=20)
         self.assertEqual(execute.call_args.kwargs["kwargs"], {"data": [[2**80, True]]})
 
+    def test_x402_nested_wire_tags_reach_vm_without_reencoding_the_envelope(self):
+        from copy import deepcopy
+
+        from xian_runtime_types.decimal import ContractingDecimal
+
+        processor = _processor(_driver())
+        transaction = _transaction(
+            contract="con_x402",
+            function="settle",
+            kwargs={
+                "amount": {"__fixed__": "0.00100"},
+                "nested": [{"fee": {"__fixed__": "2.00"}}, {"__bytes__": "00ff"}],
+            },
+        )
+        original = deepcopy(transaction)
+        outcome = SimpleNamespace(
+            output=SimpleNamespace(status_code=0, result="settled", events=[]),
+            writes={},
+            chi_used=1,
+            reads={},
+            prefix_reads=frozenset(),
+            contract_costs={},
+        )
+        with (
+            mock.patch("xian.processor.prepare_vm_contract"),
+            mock.patch("xian.processor.execute_vm_transaction", return_value=outcome) as execute,
+        ):
+            result = processor.execute_tx(
+                transaction, chi_cost=20, metering=True, charge_fees=False
+            )
+        self.assertIsNotNone(result)
+        self.assertEqual(result["status_code"], 0)
+        self.assertEqual(
+            execute.call_args.kwargs["kwargs"],
+            {
+                "amount": ContractingDecimal("0.001"),
+                "nested": [{"fee": ContractingDecimal("2")}, b"\x00\xff"],
+            },
+        )
+        self.assertGreater(execute.call_args.kwargs["transaction_size_bytes"], 0)
+        self.assertEqual(transaction, original)
+
     def test_estimate_access_for_token_transfer(self):
         processor = _processor(_driver())
 

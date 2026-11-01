@@ -5,7 +5,7 @@ from copy import deepcopy
 
 from loguru import logger
 from xian_accounts import verify_message
-from xian_runtime_types.encoding import convert_dict, encode
+from xian_runtime_types.encoding import convert_dict
 
 from xian.exceptions import TransactionException
 from xian.formatting import (
@@ -13,6 +13,7 @@ from xian.formatting import (
     TRANSACTION_RULES,
     contract_name_is_formatted,
 )
+from xian.utils._wire_json import encode_wire_document
 from xian.utils.encoding import decode_transaction_bytes
 
 try:
@@ -61,7 +62,7 @@ def unpack_transaction(tx):
 def tx_hash_from_tx(tx):
     h = hashlib.sha3_256()
     tx_dict = format_dictionary(tx)
-    encoded_tx = encode(tx_dict).encode()
+    encoded_tx = encode_wire_document(tx_dict).encode("utf-8")
     h.update(encoded_tx)
     return h.hexdigest()
 
@@ -73,7 +74,7 @@ def canonical_transaction_size_bytes(tx: dict) -> int:
             "payload": deepcopy(tx.get("payload", {})),
         }
     )
-    return len(encode(tx_dict).encode())
+    return len(encode_wire_document(tx_dict).encode("utf-8"))
 
 
 def recurse_rules(d: dict, rule: dict | Callable):

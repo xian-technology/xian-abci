@@ -15,6 +15,7 @@ from xian.node_setup import (
     StateSyncOptions,
     build_priv_validator_key,
     generate_validator_material,
+    load_genesis,
     materialize_cometbft_home,
     render_cometbft_config,
     render_node_configs,
@@ -502,6 +503,32 @@ class NodeSetupTests(unittest.TestCase):
             )
             self.assertIn("address", rendered_validator)
             self.assertNotIn("_private_key_hex", rendered_validator)
+
+    def test_materialize_home_preserves_loaded_tagged_genesis(self):
+        genesis = {
+            "chain_id": "xian-local-1",
+            "validators": [],
+            "initial_height": "1",
+            "abci_genesis": {
+                "genesis": [
+                    {"key": "currency.balances:alice", "value": {"__fixed__": "1.2300"}},
+                    {"key": "con_bytes.data", "value": {"__bytes__": "00ff"}},
+                    {"key": "con_values.nested", "value": [{"__big_int__": str(2**80)}]},
+                ]
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source = Path(tmp_dir) / "source.json"
+            source.write_text(json.dumps(genesis), encoding="utf-8")
+            result = materialize_cometbft_home(
+                home=Path(tmp_dir) / "node",
+                config={},
+                xian_config={},
+                genesis=load_genesis(source),
+                priv_validator_key=build_priv_validator_key("01" * 32),
+            )
+            saved = json.loads(Path(result["genesis_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(saved, genesis)
 
     def test_build_priv_validator_key_rejects_invalid_hex(self):
         with self.assertRaisesRegex(
