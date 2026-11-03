@@ -19,7 +19,7 @@ def policy_state(value=None):
 
 def test_policy_requires_exact_current_identifiers():
     expected = {
-        "execution_revision": "xvm-execution-4",
+        "execution_revision": "xvm-execution-5",
         "gas_schedule": "xvm-gas-2",
         "bytecode_version": "xvm-1",
         "set_codec": "xian-set-1",
@@ -159,7 +159,7 @@ def test_fresh_bootstrap_accepts_existing_empty_database(tmp_path):
     assert policy.validate_persisted_execution_policy(tmp_path)
 
 
-@pytest.fixture(params=["xvm-execution-2", "xvm-execution-3"])
+@pytest.fixture(params=["xvm-execution-2", "xvm-execution-3", "xvm-execution-4"])
 def previous_policy(request):
     return {
         "execution_revision": request.param,

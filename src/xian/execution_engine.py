@@ -239,6 +239,7 @@ def execute_vm_contract(
         "block_num": environment.get("block_num"),
         "block_hash": environment.get("block_hash"),
         "chain_id": environment.get("chain_id"),
+        "__input_hash": environment.get("__input_hash"),
     }
     try:
         output = bindings.execute_contract(
