@@ -15,6 +15,7 @@ from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
 from loguru import logger
 
+from xian.app_logging import configure_worker_logging
 from xian.execution_engine import VmRuntime
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
@@ -266,6 +267,7 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
             self._executor = ProcessPoolExecutor(
                 max_workers=self.workers,
                 mp_context=self._mp_context,
+                initializer=configure_worker_logging,
             )
         return self._executor
 

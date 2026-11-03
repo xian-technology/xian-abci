@@ -106,7 +106,7 @@ class TransactionSimulator:
                     payload=normalized_payload,
                     extra={"error_type": type(exc).__name__},
                 )
-            ).error("Simulation failed: {}", exc)
+            ).error("Simulation failed")
             return _simulation_error_result(
                 payload=normalized_payload,
                 message=f"Simulation error: {exc}",
@@ -408,7 +408,7 @@ class QuerySimulationService:
                     payload=payload,
                     extra={"error_type": type(exc).__name__},
                 )
-            ).error("Simulation worker failed: {}", exc)
+            ).error("Simulation worker failed")
             return _simulation_error_result(
                 payload=payload,
                 message=f"Simulation error: {exc}",

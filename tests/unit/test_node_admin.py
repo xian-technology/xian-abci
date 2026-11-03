@@ -332,6 +332,8 @@ prometheus = false
                     app_log_json=True,
                     app_log_rotation_hours=4,
                     app_log_retention_days=12,
+                    app_log_max_file_mb=20,
+                    app_log_max_total_mb=100,
                     simulation_enabled=False,
                     simulation_max_concurrency=4,
                     simulation_timeout_ms=4500,
@@ -403,6 +405,8 @@ prometheus = false
             self.assertTrue(rendered_xian_config["app_log_json"])
             self.assertEqual(rendered_xian_config["app_log_rotation_hours"], 4)
             self.assertEqual(rendered_xian_config["app_log_retention_days"], 12)
+            self.assertEqual(rendered_xian_config["app_log_max_file_mb"], 20)
+            self.assertEqual(rendered_xian_config["app_log_max_total_mb"], 100)
             self.assertFalse(rendered_xian_config["simulation_enabled"])
             self.assertEqual(rendered_xian_config["simulation_max_concurrency"], 4)
             self.assertEqual(rendered_xian_config["simulation_timeout_ms"], 4500)

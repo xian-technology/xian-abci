@@ -5,6 +5,7 @@ from loguru import logger
 from cometbft.abci.v1beta3.types_pb2 import ResponseCheckTx
 from xian.app_logging import build_log_fields
 from xian.constants import Constants as c
+from xian.log_safety import error_fields
 from xian.utils.tx import (
     decode_and_validate_transaction_static_bytes,
     validate_transaction_after_static,
@@ -17,12 +18,10 @@ def _rejected_check_tx(
     raw_tx: bytes,
     tx: dict | None = None,
 ) -> ResponseCheckTx:
-    log_fields = {"stage": "check_tx", "raw_tx": raw_tx}
+    log_fields = {"stage": "check_tx", "raw_tx": raw_tx, "extra": error_fields(error)}
     if tx is not None:
         log_fields["tx"] = tx
-    logger.bind(**build_log_fields(**log_fields)).warning(
-        "Rejected transaction during CheckTx: {}", error
-    )
+    logger.bind(**build_log_fields(**log_fields)).warning("Rejected transaction during CheckTx")
     return ResponseCheckTx(
         code=c.ErrorCode,
         log=f"{type(error).__name__}: {error}",

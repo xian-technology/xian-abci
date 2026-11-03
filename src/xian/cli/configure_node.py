@@ -274,6 +274,18 @@ def build_parser() -> ArgumentParser:
         default=7,
     )
     parser.add_argument(
+        "--app-log-max-file-mb",
+        type=int,
+        default=50,
+        help="maximum application log segment size in MiB",
+    )
+    parser.add_argument(
+        "--app-log-max-total-mb",
+        type=int,
+        default=250,
+        help="maximum total application log size in MiB",
+    )
+    parser.add_argument(
         "--simulation-enabled",
         action=BooleanOptionalAction,
         help="enable readonly transaction simulation on this node",
@@ -590,6 +602,8 @@ def main(argv: list[str] | None = None) -> int:
                     json_logging=args.app_log_json,
                     rotation_hours=args.app_log_rotation_hours,
                     retention_days=args.app_log_retention_days,
+                    max_file_mb=args.app_log_max_file_mb,
+                    max_total_mb=args.app_log_max_total_mb,
                 ),
                 simulation=SimulationOptions(
                     enabled=args.simulation_enabled,

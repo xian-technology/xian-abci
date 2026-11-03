@@ -21,6 +21,7 @@ from cometbft.abci.v1beta1.types_pb2 import (
     Snapshot,
 )
 from xian.execution_policy import current_execution_policy, validate_execution_policy
+from xian.log_safety import error_fields
 from xian.state_export import (
     export_state,
     import_state,
@@ -518,7 +519,7 @@ class StateSnapshotManager:
             if result["app_hash"] != session.expected_app_hash_hex:
                 raise ValueError("snapshot app hash mismatch")
         except Exception as exc:
-            logger.error("Failed to apply state sync snapshot: {}", exc)
+            logger.bind(**error_fields(exc)).error("Failed to apply state sync snapshot")
             self._reset_incoming_session()
             return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.REJECT_SNAPSHOT)
 

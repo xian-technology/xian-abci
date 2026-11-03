@@ -10,6 +10,8 @@ from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import encode_set_value, is_wrapper_set, safe_repr
 from xian_runtime_types.time import Datetime
 
+from xian.log_safety import error_fields
+
 try:
     from xian_fastpath_core import (
         extract_payload_string as _native_extract_payload_string,
@@ -133,7 +135,7 @@ def extract_payload_string(json_str):
 
         raise ValueError("Malformed JSON: No matching closing brace for 'payload'.")
     except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
+        logger.bind(**error_fields(e)).error("Transaction encoding failed")
         raise
 
 
@@ -154,10 +156,10 @@ def convert_binary_to_hex(binary_data):
     try:
         return binascii.hexlify(binary_data).decode()
     except UnicodeDecodeError as e:
-        logger.error(f"The binary data could not be decoded with UTF-8 encoding: {e}")
+        logger.bind(**error_fields(e)).error("Transaction is not valid UTF-8")
         raise
     except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
+        logger.bind(**error_fields(e)).error("Transaction encoding failed")
         raise
 
 

@@ -49,6 +49,7 @@ _refuse_optimized_python()
 from contracting.local import ContractingClient
 from loguru import logger
 
+from abci import __version__ as software_version
 from abci.server import ABCIServer
 from abci.utils import get_logger
 from xian.app_logging import (
@@ -59,12 +60,14 @@ from xian.app_logging import (
 from xian.constants import Constants
 from xian.execution_engine import build_vm_runtime
 from xian.execution_policy import (
+    current_execution_policy,
     initialize_execution_policy,
     validate_genesis_execution_policy,
     validate_persisted_execution_policy,
     validate_vm_execution_config,
 )
 from xian.fee_policy import TxFeePolicy
+from xian.log_safety import error_fields
 from xian.methods import (
     check_tx,
     commit,
@@ -152,7 +155,7 @@ class Xian:
             self.xian_config = load_xian_config(constants)
             self.genesis = load_genesis_data(constants)
         except Exception as e:
-            logger.error(e)
+            logger.bind(**error_fields(e)).error("Failed to load node configuration or genesis")
             raise SystemExit()
 
         xian_config = self.xian_config
@@ -175,7 +178,7 @@ class Xian:
                 genesis=self.genesis,
             )
         except ValueError as exc:
-            logger.error(str(exc))
+            logger.bind(**error_fields(exc)).error("Runtime feature resolution failed")
             raise SystemExit() from exc
         self.runtime_features = install_driver_runtime_features(
             self.client.raw_driver,
@@ -330,10 +333,13 @@ class Xian:
                 stage="startup",
                 extra={
                     "chain_id": self.chain_id,
+                    "node_name": self.cometbft_config.get("moniker", ""),
+                    "software_version": software_version,
+                    **current_execution_policy(),
                     "execution_mode": self.execution_mode,
                     "bds_enabled": self.bds_enabled,
                     "tx_fee_mode": self.tx_fee_policy.mode,
-                    "runtime_features": self.runtime_features,
+                    "runtime_features": ",".join(sorted(self.runtime_features)),
                     "runtime_features_source": self.runtime_feature_resolution.source,
                     "simulation_enabled": self.simulator.enabled,
                     "parallel_execution_enabled": (self.parallel_block_executor.enabled),

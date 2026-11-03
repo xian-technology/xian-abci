@@ -10,6 +10,7 @@ from loguru import logger
 from prometheus_client import CollectorRegistry, start_http_server
 from prometheus_client.core import GaugeMetricFamily, InfoMetricFamily
 
+from xian.log_safety import error_fields
 from xian.utils.block import get_latest_block_height
 
 
@@ -417,7 +418,7 @@ class MetricsService:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.warning("Failed to refresh BDS metrics snapshot: {}", exc)
+            logger.bind(**error_fields(exc)).warning("Failed to refresh BDS metrics snapshot")
             self.last_bds_refresh_success = False
         finally:
             self.last_bds_refresh_at_unix = time()

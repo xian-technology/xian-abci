@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import sys
-from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
 from xian.constants import Constants
+from xian.log_retention import BoundedLogSink
+from xian.log_safety import context_text, sanitize_record
 from xian.node_setup import resolve_app_logging_settings
 from xian.utils.cometbft import load_xian_config
 from xian.utils.tx import tx_hash_from_tx
@@ -25,21 +26,8 @@ SUPPORTED_APP_LOG_LEVELS = (
 _APP_LOG_LEVEL_ORDER = {level: index for index, level in enumerate(SUPPORTED_APP_LOG_LEVELS)}
 
 _PLAIN_LOG_FORMAT = (
-    "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | "
-    "{name}:{function}:{line} | {message}{extra[context]}"
-)
-_CONTEXT_ORDER = (
-    "stage",
-    "block_height",
-    "block_hash",
-    "tx_index",
-    "tx_hash",
-    "raw_tx_hash",
-    "sender",
-    "contract",
-    "function",
-    "nonce",
-    "status",
+    "{time:YYYY-MM-DDTHH:mm:ss.SSS}Z | {level:<8} | "
+    "xian-abci/{name}:{function}:{line} | {message}{extra[context]}"
 )
 
 
@@ -47,33 +35,8 @@ def default_logs_directory(constants: Constants = Constants()) -> Path:
     return constants.STORAGE_HOME / "logs"
 
 
-def _format_log_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return str(value).lower()
-    return str(value)
-
-
 def format_log_context(fields: dict[str, Any]) -> str:
-    items: list[str] = []
-    seen: set[str] = set()
-    for key in _CONTEXT_ORDER:
-        value = fields.get(key)
-        if value is None:
-            continue
-        items.append(f"{key}={_format_log_value(value)}")
-        seen.add(key)
-
-    for key in sorted(fields):
-        if key in seen or key == "context":
-            continue
-        value = fields[key]
-        if value is None:
-            continue
-        items.append(f"{key}={_format_log_value(value)}")
-
-    if not items:
-        return ""
-    return " | " + " ".join(items)
+    return context_text(fields)
 
 
 def build_log_fields(
@@ -165,26 +128,32 @@ def configure_logging(
         json_logging=xian_config.get("app_log_json", False),
         rotation_hours=xian_config.get("app_log_rotation_hours", 1),
         retention_days=xian_config.get("app_log_retention_days", 7),
+        max_file_mb=xian_config.get("app_log_max_file_mb", 50),
+        max_total_mb=xian_config.get("app_log_max_total_mb", 250),
     )
     logs_dir = default_logs_directory(constants)
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     logger.remove()
-    logger.configure(extra={"context": ""})
+    logger.configure(extra={"context": ""}, patcher=sanitize_record)
 
     sink_kwargs: dict[str, Any] = {
         "level": settings["level"],
         "serialize": settings["json"],
+        "diagnose": False,
+        "backtrace": False,
+        "format": _PLAIN_LOG_FORMAT,
     }
-    if not settings["json"]:
-        sink_kwargs["format"] = _PLAIN_LOG_FORMAT
 
     logger.add(sys.stderr, enqueue=True, **sink_kwargs)
     logger.add(
-        logs_dir / "xian-abci-{time:YYYY-MM-DD_HH-mm-ss}.log",
-        rotation=timedelta(hours=settings["rotation_hours"]),
-        retention=timedelta(days=settings["retention_days"]),
-        compression="zip",
+        BoundedLogSink(
+            logs_dir,
+            max_file_bytes=settings["max_file_mb"] * 1024**2,
+            max_total_bytes=settings["max_total_mb"] * 1024**2,
+            rotation_seconds=settings["rotation_hours"] * 3600,
+            retention_seconds=settings["retention_days"] * 86400,
+        ),
         enqueue=True,
         **sink_kwargs,
     )
@@ -197,6 +166,8 @@ def configure_logging(
                 "app_log_json": settings["json"],
                 "app_log_rotation_hours": settings["rotation_hours"],
                 "app_log_retention_days": settings["retention_days"],
+                "app_log_max_file_mb": settings["max_file_mb"],
+                "app_log_max_total_mb": settings["max_total_mb"],
             },
         )
     ).info("Configured Xian application logging")
@@ -204,3 +175,17 @@ def configure_logging(
         **settings,
         "logs_dir": str(logs_dir),
     }
+
+
+def configure_worker_logging() -> None:
+    """Spawned speculative workers own stderr only; parent owns node log files."""
+    logger.remove()
+    logger.configure(extra={"context": ""}, patcher=sanitize_record)
+    logger.add(
+        sys.stderr,
+        level="WARNING",
+        format=_PLAIN_LOG_FORMAT,
+        diagnose=False,
+        backtrace=False,
+        enqueue=True,
+    )

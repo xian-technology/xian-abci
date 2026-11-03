@@ -405,6 +405,8 @@ def configure_existing_home(
     app_log_json: bool = False,
     app_log_rotation_hours: int = 1,
     app_log_retention_days: int = 7,
+    app_log_max_file_mb: int = 50,
+    app_log_max_total_mb: int = 250,
     simulation_enabled: bool = True,
     simulation_max_concurrency: int = 2,
     simulation_timeout_ms: int = 3000,
@@ -480,6 +482,8 @@ def configure_existing_home(
                 json_logging=app_log_json,
                 rotation_hours=app_log_rotation_hours,
                 retention_days=app_log_retention_days,
+                max_file_mb=app_log_max_file_mb,
+                max_total_mb=app_log_max_total_mb,
             ),
             simulation=SimulationOptions(
                 enabled=simulation_enabled,

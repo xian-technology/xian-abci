@@ -5,6 +5,7 @@ from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.constants import Constants as c
+from xian.log_safety import error_fields
 
 
 class RewardsHandler:
@@ -31,7 +32,7 @@ class RewardsHandler:
             ) * decimal.Decimal(str(total_chi_to_split))
             rounded_reward = round(reward, c.DUST_EXPONENT)
         except Exception as e:
-            logger.error(f"Error in calculating reward: {e}")
+            logger.bind(**error_fields(e)).error("Reward calculation failed")
             rounded_reward = 0
         return ContractingDecimal(str(rounded_reward))
 

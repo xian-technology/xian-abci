@@ -150,7 +150,12 @@ class ABCIServer:
         except asyncio.exceptions.CancelledError:
             pass
         except Exception as e:
-            logger.error(f" ... error: {e}")
+            errno = getattr(e, "errno", None)
+            logger.bind(
+                stage="abci_start",
+                error_type=type(e).__name__,
+                errno=errno if type(errno) is int else None,
+            ).error("ABCI server startup failed")
             logger.warning(" ... shutting down")
             if on_windows:
                 loop.run_until_complete(_stop())

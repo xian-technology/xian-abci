@@ -330,7 +330,7 @@ class TxProcessor:
                         extra={
                             "chi_used": output["chi_used"],
                             "write_count": len(output["writes"]),
-                            "result": safe_repr(output["result"]),
+                            "error_type": type(output["result"]).__name__,
                         },
                     )
                 ).warning("Transaction execution returned a non-zero status")

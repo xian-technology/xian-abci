@@ -7,6 +7,7 @@ from cometbft.abci.v1beta3.types_pb2 import ExecTxResult, ResponseFinalizeBlock
 from xian.app_logging import build_log_fields
 from xian.constants import Constants as c
 from xian.fee_policy import TxFeePolicy
+from xian.log_safety import error_fields
 from xian.methods._evidence import maybe_apply_evidence_penalties
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.shielded_preverify import warm_shielded_proof_cache
@@ -31,7 +32,7 @@ SYSTEM_REBALANCE_SENDER = "__validator_epoch_driver__"
 
 
 def _error_tx_result(message: str, **log_context) -> ExecTxResult:
-    logger.bind(**build_log_fields(**log_context)).error(message)
+    logger.bind(**build_log_fields(**log_context)).error("Transaction rejected during finalization")
     return ExecTxResult(
         code=c.ErrorCode,
         data=json.dumps({"error": message}).encode(),
@@ -219,6 +220,7 @@ def _decode_block_transactions(self, req, *, height: int, block_hash: str):
                         "tx_bytes": tx_bytes,
                         "error": _error_tx_result(
                             f"Error decoding transaction: {e}",
+                            extra=error_fields(e),
                             stage="finalize_decode",
                             raw_tx=tx_bytes,
                             block_height=height,
@@ -245,6 +247,7 @@ def _decode_block_transactions(self, req, *, height: int, block_hash: str):
                         "tx_bytes": tx_bytes,
                         "error": _error_tx_result(
                             f"Invalid transaction in block: {e}",
+                            extra=error_fields(e),
                             stage="finalize_decode",
                             tx=tx,
                             raw_tx=tx_bytes,
@@ -388,6 +391,7 @@ def _execute_block_transactions(
                     {
                         "error": _error_tx_result(
                             f"Error processing tx: {e}",
+                            extra=error_fields(e),
                             stage="finalize_execute",
                             tx=tx,
                             raw_tx=tx_bytes,
@@ -405,6 +409,7 @@ def _execute_block_transactions(
                     {
                         "error": _error_tx_result(
                             "Transaction processor returned no tx_result",
+                            extra={"reason_code": "missing_tx_result"},
                             stage="finalize_execute",
                             tx=tx,
                             raw_tx=tx_bytes,
@@ -452,6 +457,7 @@ def _assemble_tx_results(
                 tx_results.append(
                     _error_tx_result(
                         "Transaction processor returned no tx hash",
+                        extra={"reason_code": "missing_tx_hash"},
                         stage="finalize_result_assembly",
                         tx=tx,
                         raw_tx=tx_bytes,
@@ -492,10 +498,10 @@ def _assemble_tx_results(
                         tx_index=block_tx_index,
                         status=tx_result["status"],
                         extra={
-                            "payload_bytes": len(parsed_tx_result),
+                            "receipt_bytes": len(parsed_tx_result),
                         },
                     )
-                ).trace(parsed_tx_result.decode())
+                ).trace("Encoded finalized transaction receipt")
 
             tx_results.append(
                 ExecTxResult(

@@ -154,6 +154,8 @@ app_log_level = "INFO"
 app_log_json = false
 app_log_rotation_hours = 1
 app_log_retention_days = 7
+app_log_max_file_mb = 50
+app_log_max_total_mb = 250
 simulation_enabled = true
 simulation_max_concurrency = 2
 simulation_timeout_ms = 3000
@@ -238,6 +240,8 @@ class AppLoggingOptions:
     json_logging: bool = False
     rotation_hours: int = 1
     retention_days: int = 7
+    max_file_mb: int = 50
+    max_total_mb: int = 250
 
 
 @dataclass(frozen=True, slots=True)
@@ -418,21 +422,32 @@ def resolve_app_logging_settings(
     json_logging: bool = False,
     rotation_hours: int = 1,
     retention_days: int = 7,
+    max_file_mb: int = 50,
+    max_total_mb: int = 250,
 ) -> dict[str, Any]:
     if not isinstance(level, str):
         raise ValueError("app_log_level must be a string")
     normalized_level = level.upper()
     if normalized_level not in SUPPORTED_APP_LOG_LEVELS:
         raise ValueError(f"app_log_level must be one of {sorted(SUPPORTED_APP_LOG_LEVELS)}")
-    if rotation_hours <= 0:
-        raise ValueError("app_log_rotation_hours must be greater than zero")
-    if retention_days <= 0:
-        raise ValueError("app_log_retention_days must be greater than zero")
+    limits = {
+        "rotation_hours": rotation_hours,
+        "retention_days": retention_days,
+        "max_file_mb": max_file_mb,
+        "max_total_mb": max_total_mb,
+    }
+    for name, value in limits.items():
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"app_log_{name} must be a positive integer")
+    if max_total_mb < max_file_mb:
+        raise ValueError("app_log_max_total_mb must cover app_log_max_file_mb")
     return {
         "level": normalized_level,
         "json": bool(json_logging),
         "rotation_hours": rotation_hours,
         "retention_days": retention_days,
+        "max_file_mb": max_file_mb,
+        "max_total_mb": max_total_mb,
     }
 
 
@@ -571,6 +586,8 @@ def render_node_configs(
         json_logging=options.app_logging.json_logging,
         rotation_hours=options.app_logging.rotation_hours,
         retention_days=options.app_logging.retention_days,
+        max_file_mb=options.app_logging.max_file_mb,
+        max_total_mb=options.app_logging.max_total_mb,
     )
     resolved_simulation = resolve_simulation_settings(
         enabled=options.simulation.enabled,
@@ -604,6 +621,8 @@ def render_node_configs(
     xian_config["app_log_json"] = resolved_app_logging["json"]
     xian_config["app_log_rotation_hours"] = resolved_app_logging["rotation_hours"]
     xian_config["app_log_retention_days"] = resolved_app_logging["retention_days"]
+    xian_config["app_log_max_file_mb"] = resolved_app_logging["max_file_mb"]
+    xian_config["app_log_max_total_mb"] = resolved_app_logging["max_total_mb"]
     xian_config["simulation_enabled"] = resolved_simulation["enabled"]
     xian_config["simulation_max_concurrency"] = resolved_simulation["max_concurrency"]
     xian_config["simulation_timeout_ms"] = resolved_simulation["timeout_ms"]

@@ -2,6 +2,7 @@ from loguru import logger
 
 from cometbft.abci.v1beta2.types_pb2 import ResponseProcessProposal
 from xian.app_logging import build_log_fields
+from xian.log_safety import error_fields
 from xian.utils.tx import (
     SequentialNonceTracker,
     decode_and_validate_transaction_static_bytes,
@@ -37,8 +38,9 @@ async def process_proposal(self, req) -> ResponseProcessProposal:
                     tx=tx,
                     raw_tx=raw_tx,
                     block_height=getattr(req, "height", None),
+                    extra=error_fields(exc),
                 )
-            ).warning("Rejecting invalid proposal transaction: {}", exc)
+            ).warning("Rejecting invalid proposal transaction")
             response.status = ResponseProcessProposal.ProposalStatus.REJECT
             return response
 

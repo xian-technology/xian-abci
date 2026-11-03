@@ -1,4 +1,4 @@
-import logging
+from loguru import logger
 
 from cometbft.abci.v1beta1.types_pb2 import ValidatorUpdate
 from cometbft.crypto.v1.keys_pb2 import PublicKey
@@ -19,19 +19,29 @@ class ValidatorHandler:
         read = self.client.raw_driver.value_from_disk if committed else self.client.raw_driver.get
         validators = read("validators.active_validators") or []
         if not isinstance(validators, list):
-            logging.warning("Ignoring invalid active validator list")
+            logger.bind(stage="validator_selection", reason_code="invalid_validator_list").warning(
+                "Ignoring invalid active validator list"
+            )
             return None
         desired = {}
         for validator in validators:
             if not vk_is_formatted(validator):
-                logging.warning("Ignoring invalid validator key in state: %r", validator)
+                logger.bind(
+                    stage="validator_selection",
+                    reason_code="invalid_validator_key",
+                    value_type=type(validator).__name__,
+                ).warning("Ignoring invalid validator key in state")
                 continue
             power = self.validator_power(read(f"validators.powers:{validator}"))
             key = validator.lower()
             if key in desired and desired[key] != power:
                 # Aliases identify one consensus key, never two validators.
                 # Conflicting power must not depend on list ordering.
-                logging.warning("Ignoring validator selection with conflicting powers for %s", key)
+                logger.bind(
+                    stage="validator_selection",
+                    reason_code="conflicting_validator_powers",
+                    validator=key,
+                ).warning("Ignoring validator selection with conflicting powers")
                 return None
             desired[key] = power
         return desired
@@ -52,11 +62,14 @@ class ValidatorHandler:
         return bytes.fromhex(data)
 
     def build_validator_updates(self, height) -> list[ValidatorUpdate]:
-        del height
         validators_state = self.get_validators_from_state() or {}
         validators_committed = self.committed_validators()
         if not validators_state:
-            logging.warning("Retaining effective validator set because no valid selection remains")
+            logger.bind(
+                stage="validator_selection",
+                reason_code="empty_validator_selection",
+                block_height=height,
+            ).warning("Retaining effective validator set because no valid selection remains")
             validators_state = validators_committed
         if validators_state:
             # Stage this with the block's writes, so rejected selections still
@@ -72,7 +85,9 @@ class ValidatorHandler:
                         power=power,
                     )
                 )
-                logging.info(f"Updating {validator} in validator set to power {power}")
+                logger.bind(
+                    stage="validator_update", validator=validator, power=power, block_height=height
+                ).info("Updating validator voting power")
         for validator in validators_committed:
             if validator not in validators_state:
                 updates.append(
@@ -81,6 +96,8 @@ class ValidatorHandler:
                         power=0,
                     )
                 )
-                logging.info(f"Removing {validator} from validator set")
+                logger.bind(
+                    stage="validator_update", validator=validator, block_height=height
+                ).info("Removing validator from effective set")
 
         return updates

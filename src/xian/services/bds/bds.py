@@ -229,8 +229,11 @@ class BDS:
                         await asyncio.sleep(self.WORKER_RETRY_DELAY_SECONDS)
                     except asyncio.CancelledError:
                         raise
-                    except Exception as exc:
-                        logger.exception(f"BDS worker failed to persist block: {exc}")
+                    except Exception:
+                        logger.bind(
+                            block_height=payload.block_meta["height"],
+                            retry_seconds=self.WORKER_RETRY_DELAY_SECONDS,
+                        ).exception("BDS worker failed to persist block; retrying")
                         await asyncio.sleep(self.WORKER_RETRY_DELAY_SECONDS)
             except asyncio.CancelledError:
                 raise
@@ -527,7 +530,7 @@ class BDS:
                     "utilization": utilization,
                 }
             except Exception as exc:  # asyncpg API quirks — don't fail status
-                logger.debug(f"Unable to collect pool stats: {exc}")
+                logger.bind(error_type=type(exc).__name__).debug("Unable to collect pool stats")
 
         alerts: list[dict[str, Any]] = []
         if db_status != "ok":
@@ -651,8 +654,10 @@ class BDS:
                 await asyncio.sleep(self.config.catchup_poll_seconds)
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:
-                logger.exception(f"BDS catch-up failed: {exc}")
+            except Exception:
+                logger.bind(retry_seconds=self.CATCHUP_RETRY_DELAY_SECONDS).exception(
+                    "BDS catch-up failed; retrying"
+                )
                 await asyncio.sleep(self.CATCHUP_RETRY_DELAY_SECONDS)
 
     async def _catch_up_once(self) -> None:
@@ -939,8 +944,10 @@ class BDS:
                             or f"STATE_PATCH_{payload.block_meta['height']}",
                             tx_index=len(payload.transactions),
                         )
-        except Exception as exc:
-            logger.exception(f"Failed to persist block to BDS: {exc}")
+        except Exception:
+            logger.bind(block_height=payload.block_meta["height"]).exception(
+                "Failed to persist block to BDS"
+            )
             return False
 
         logger.debug(

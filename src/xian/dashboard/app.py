@@ -722,7 +722,7 @@ async def _cometbft_subscriber(app: web.Application) -> None:
 
     while True:
         try:
-            logger.info(f"Connecting to CometBFT WebSocket: {ws_url}")
+            logger.info("Connecting to CometBFT WebSocket")
             async with session.ws_connect(ws_url, heartbeat=20.0) as ws:
                 delay_idx = 0
                 logger.info("CometBFT WebSocket connected, subscribing to NewBlock and Tx")
@@ -738,7 +738,7 @@ async def _cometbft_subscriber(app: web.Application) -> None:
                         except Exception:
                             logger.exception("Error handling CometBFT WS message")
                     elif msg.type == aiohttp.WSMsgType.ERROR:
-                        logger.warning(f"CometBFT WS error: {ws.exception()}")
+                        logger.warning("CometBFT websocket error")
                         break
                     elif msg.type in (
                         aiohttp.WSMsgType.CLOSE,

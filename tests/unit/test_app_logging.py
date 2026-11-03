@@ -50,7 +50,7 @@ class AppLoggingTests(unittest.TestCase):
         self.assertEqual(fields["status"], 1)
         self.assertIn("raw_tx_hash", fields)
         self.assertIn("tx_hash", fields)
-        self.assertIn("reason=Bad signature", fields["context"])
+        self.assertIn('reason="Bad signature"', fields["context"])
         self.assertIn("sender=alice", fields["context"])
 
     def test_log_level_includes_respects_verbosity(self):

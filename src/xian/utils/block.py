@@ -9,6 +9,7 @@ from loguru import logger
 from xian_runtime_types.encoding import convert_dict
 
 from xian.constants import Constants as c
+from xian.log_safety import error_fields
 
 LATEST_BLOCK_DEFAULT = {"hash": "", "height": 0, "nanos": 0}
 LATEST_BLOCK_READ_RETRIES = 8
@@ -143,8 +144,8 @@ def try_write_latest_block(
             stage="latest_block_mirror",
             block_height=latest_block.get("height"),
             storage_home=str(Path(storage_home) if storage_home is not None else c.STORAGE_HOME),
-            error_type=type(exc).__name__,
-        ).warning("Failed to update latest-block JSON compatibility mirror: {}", exc)
+            **error_fields(exc),
+        ).warning("Failed to update latest-block JSON compatibility mirror")
         return False
     return True
 

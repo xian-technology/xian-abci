@@ -18,6 +18,7 @@ from xian.execution_engine import (
     execute_vm_contract,
     prepare_vm_contract,
 )
+from xian.log_safety import error_fields
 from xian.services.bds.candles import get_candle_source_spec
 from xian.utils.block import (
     get_committed_latest_block,
@@ -321,7 +322,12 @@ def _call_contract_view(
             meter=False,
         )
         if output.status_code != 0:
-            logger.error(f"VM query failed for {contract_name}.{function_name}: {output.result!r}")
+            logger.bind(
+                contract=contract_name,
+                function=function_name,
+                status=output.status_code,
+                error_type=type(output.result).__name__,
+            ).error("VM query failed")
             return None
         return output.result
     finally:
@@ -1134,7 +1140,7 @@ async def query(self, req) -> ResponseQuery:
             log="Merkle proof queries are not supported; use prove=false",
         )
 
-    logger.debug(req.path)
+    logger.debug("Processing ABCI query")
     path_parts = [part for part in req.path.split("/") if part]
     route = path_parts[0] if path_parts else ""
     key = path_parts[1] if len(path_parts) > 1 else ""
@@ -1151,7 +1157,7 @@ async def query(self, req) -> ResponseQuery:
         value, type_of_data = _encode_query_value(outcome.result)
     except UnknownQueryPath as err:
         error = str(err)
-        logger.error(error)
+        logger.bind(**error_fields(err)).warning("Unknown ABCI query route")
         return ResponseQuery(
             code=c.ErrorCode,
             height=height,
@@ -1160,7 +1166,7 @@ async def query(self, req) -> ResponseQuery:
             log=error,
         )
     except Exception as err:
-        logger.error(err)
+        logger.bind(**error_fields(err)).error("ABCI query failed")
         return ResponseQuery(code=c.ErrorCode, height=height)
 
     return ResponseQuery(

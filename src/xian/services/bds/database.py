@@ -104,7 +104,7 @@ class DB:
                 result = await connection.execute(query, *bound_params)
                 return result
             except Exception as e:
-                logger.exception(f"Error while executing SQL: {e}")
+                logger.exception("Database operation failed")
                 raise e
 
     async def fetch(self, query: str, params: Sequence[object] | None = None):
@@ -117,7 +117,7 @@ class DB:
                 result = await connection.fetch(query, *bound_params)
                 return result
             except Exception as e:
-                logger.exception(f"Error while executing SQL: {e}")
+                logger.exception("Database operation failed")
                 raise e
 
     async def fetchrow(self, query: str, params: Sequence[object] | None = None):
@@ -126,7 +126,7 @@ class DB:
             try:
                 return await connection.fetchrow(query, *bound_params)
             except Exception as e:
-                logger.exception(f"Error while executing SQL: {e}")
+                logger.exception("Database operation failed")
                 raise e
 
     async def fetchval(self, query: str, params: Sequence[object] | None = None):
@@ -135,7 +135,7 @@ class DB:
             try:
                 return await connection.fetchval(query, *bound_params)
             except Exception as e:
-                logger.exception(f"Error while executing SQL: {e}")
+                logger.exception("Database operation failed")
                 raise e
 
     # Tables whose presence may be probed by has_entries(). Gating a bootstrap

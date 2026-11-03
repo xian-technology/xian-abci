@@ -2,6 +2,7 @@ from loguru import logger
 
 from cometbft.abci.v1beta2.types_pb2 import ResponsePrepareProposal
 from xian.app_logging import build_log_fields
+from xian.log_safety import error_fields
 from xian.utils.tx import (
     SequentialNonceTracker,
     decode_and_validate_transaction_static_bytes,
@@ -43,10 +44,10 @@ async def prepare_proposal(self, req) -> ResponsePrepareProposal:
                     tx=tx,
                     raw_tx=raw_tx,
                     block_height=getattr(req, "height", None),
+                    extra=error_fields(exc),
                 )
             ).warning(
-                "Dropping invalid transaction from proposal preparation: {}",
-                exc,
+                "Dropping invalid transaction from proposal preparation",
             )
             continue
         txs.append(raw_tx)
