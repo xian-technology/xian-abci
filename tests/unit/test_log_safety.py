@@ -265,7 +265,7 @@ def test_oversized_record_truncates_on_utf8_boundary(tmp_path):
         sink.stop()
 
 
-def test_sink_preserves_symlink_target(tmp_path):
+def test_sink_preserves_symlink_target(tmp_path, capsys):
     from xian.log_retention import BoundedLogSink
 
     target = tmp_path / "operator-evidence"
@@ -275,8 +275,8 @@ def test_sink_preserves_symlink_target(tmp_path):
         tmp_path, max_file_bytes=100, max_total_bytes=500, rotation_seconds=10, retention_seconds=60
     )
     try:
-        with pytest.raises(OSError, match="symlink"):
-            sink.write("should not reach target")
+        sink.write("should not reach target")
+        assert "error_type=OSError" in capsys.readouterr().err
         assert target.read_text() == "evidence"
     finally:
         sink.stop()

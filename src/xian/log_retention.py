@@ -10,12 +10,35 @@ from __future__ import annotations
 import fcntl
 import os
 import re
+import sys
 import threading
 import time
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
+from xian.log_safety import safe_text
+
 _OWNED = re.compile(r"xian-abci(?:-[0-9][0-9_.-]*)?\.log(?:\.zip)?\Z")
+
+
+def _report_failure(operation: str, error: OSError) -> None:
+    """Last-resort diagnostics must never recurse through a failing log sink."""
+    timestamp = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    error_type = safe_text(type(error).__name__, 64)
+    errno = error.errno
+    errno = errno if type(errno) is int and errno.bit_length() <= 32 else "unknown"
+    message = (
+        f"{timestamp} | ERROR | xian-abci/log_retention | Log file operation failed"
+        f" | operation={operation} error_type={error_type} errno={errno} pid={os.getpid()}\n"
+    )
+    try:
+        sys.stderr.write(message)
+        sys.stderr.flush()
+    except Exception:
+        # Stderr may itself be closed, broken, or unavailable. Retry normal file
+        # work on the next call; a diagnostic failure must not stop the node.
+        pass
 
 
 class BoundedLogSink:
@@ -52,6 +75,7 @@ class BoundedLogSink:
         self.cleanup_seconds = cleanup_seconds
         self._opened_at = time.monotonic()
         self._mutex = threading.Lock()
+        self._last_write_warning: float | None = None
         self._stopped = threading.Event()
         with self._locked():
             self._rotate()
@@ -106,6 +130,20 @@ class BoundedLogSink:
                 data[: self.max_file_bytes - 1].decode("utf-8", errors="ignore").encode("utf-8")
                 + b"\n"
             )
+        try:
+            self._write_data(data)
+        except OSError as error:
+            self._report_write_failure(error)
+
+    def _report_write_failure(self, error: OSError) -> None:
+        with self._mutex:
+            now = time.monotonic()
+            if self._last_write_warning is not None and now - self._last_write_warning < 60:
+                return
+            self._last_write_warning = now
+        _report_failure("write", error)
+
+    def _write_data(self, data: bytes) -> None:
         with self._locked():
             if self.active.is_symlink():
                 raise OSError("refusing symlink as active application log")
@@ -124,10 +162,8 @@ class BoundedLogSink:
             try:
                 with self._locked():
                     self._cleanup()
-            except OSError:
-                # A missing/inaccessible directory must not spin or kill cleanup.
-                # Subsequent writes retain Loguru's own sink error reporting.
-                continue
+            except OSError as error:
+                _report_failure("cleanup", error)
 
     def stop(self):
         self._stopped.set()
