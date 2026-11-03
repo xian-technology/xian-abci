@@ -107,7 +107,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         fake_bindings = types.SimpleNamespace(
             runtime_info=lambda: {
                 "vm_profile": "xian_vm_v1",
-                "execution_revision": "xvm-execution-3",
+                "execution_revision": "xvm-execution-4",
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: False,
@@ -125,7 +125,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             runtime_info=lambda: {
                 "vm_profile": "xian_vm_v1",
                 "host_catalog_version": "xian_vm_v1_host_v1",
-                "execution_revision": "xvm-execution-3",
+                "execution_revision": "xvm-execution-4",
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
@@ -162,7 +162,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             runtime_info=lambda: {
                 "vm_profile": "xian_vm_v1",
                 "host_catalog_version": "xian_vm_v1_host_v1",
-                "execution_revision": "xvm-execution-3",
+                "execution_revision": "xvm-execution-4",
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
@@ -210,7 +210,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             runtime_info=lambda: {
                 "vm_profile": "xian_vm_v1",
                 "host_catalog_version": "xian_vm_v1_host_v1",
-                "execution_revision": "xvm-execution-3",
+                "execution_revision": "xvm-execution-4",
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
@@ -1274,7 +1274,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             runtime_info=lambda: {
                 "vm_profile": "xian_vm_v1",
                 "host_catalog_version": "xian_vm_v1_host_v1",
-                "execution_revision": "xvm-execution-3",
+                "execution_revision": "xvm-execution-4",
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,

@@ -10,7 +10,7 @@ from contracting.storage.lmdb_environment import DEFAULT_ENVIRONMENT_POOL
 VM_EXECUTION_MODE = "xian_vm_v1"
 VM_BYTECODE_VERSION = "xvm-1"
 VM_GAS_SCHEDULE = "xvm-gas-2"
-VM_EXECUTION_REVISION = "xvm-execution-3"
+VM_EXECUTION_REVISION = "xvm-execution-4"
 SET_CODEC = "xian-set-1"
 EXECUTION_POLICY_KEY = "__execution_policy"
 
