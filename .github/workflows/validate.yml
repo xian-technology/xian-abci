@@ -44,21 +44,21 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-contracting
-          ref: 39f533980f0ae482ea1a9819f0b961311a020ad1
+          ref: 2b0e58fe641bce0f554857a9c703644fa2fd61e1
           path: xian-contracting
 
       - name: Check out xian-configs
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-configs
-          ref: eb5b028950877839e4b3615b0dd9f06bc2196f2a
+          ref: 1b724c66eb981d2b47947b3266ac8977b21a7456
           path: xian-configs
 
       - name: Check out xian-contracts
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-contracts
-          ref: ec018123e1f98052113d81d7306da2114a4ae5e2
+          ref: ac8bd779374501ddd7f89a7346d93d0744e7d1ff
           path: xian-contracts
 
       - name: Check out xian-stack
