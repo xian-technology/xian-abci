@@ -19,7 +19,7 @@ def policy_state(value=None):
 
 def test_policy_requires_exact_current_identifiers():
     expected = {
-        "execution_revision": "xvm-execution-8",
+        "execution_revision": "xvm-execution-9",
         "gas_schedule": "xvm-gas-3",
         "bytecode_version": "xvm-2",
         "set_codec": "xian-set-1",
@@ -167,6 +167,7 @@ def test_fresh_bootstrap_accepts_existing_empty_database(tmp_path):
         "xvm-execution-5",
         "xvm-execution-6",
         "xvm-execution-7",
+        "xvm-execution-8",
     ]
 )
 def previous_policy(request):
