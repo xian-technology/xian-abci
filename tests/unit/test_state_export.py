@@ -296,3 +296,23 @@ def test_import_defaults_missing_block_metadata_to_initial_height_and_time(tmp_p
         assert get_committed_latest_block(driver) == {
             "hash": exported["hash"], "height": 0, "nanos": 0,
         }
+
+
+def test_prepare_rejects_duplicate_keys_with_null_values_and_nonce_collisions():
+    import pytest
+    from xian.state_export import prepare_state_import
+
+    cases = [
+        ([{"key": "con_import.value", "value": None}], []),
+        ([{"key": "con_null.value", "value": None}] * 2, []),
+        ([], [{"key": "alice:", "value": 5}, {"key": "alice:", "value": None}]),
+        ([{"key": "__n.alice:", "value": 5}], [{"key": "alice:", "value": None}]),
+        ([{"key": "__n.alice:", "value": None}], [{"key": "alice:", "value": 5}]),
+    ]
+    for genesis, nonces in cases:
+        exported = _valid_import_payload()
+        exported["genesis"].extend(genesis)
+        exported["nonces"] = nonces
+        exported["hash"] = compute_exported_state_root(exported).hex()
+        with pytest.raises(ValueError, match="duplicate"):
+            prepare_state_import(exported)

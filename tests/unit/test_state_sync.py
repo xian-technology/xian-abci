@@ -216,6 +216,43 @@ class StateSyncTests(unittest.TestCase):
                 )
                 self.assertEqual(set(target.snapshot_dir.glob("*.tar.gz")), {previous})
 
+    def test_duplicate_null_entry_is_rejected_before_catalog_publication(self):
+        from xian.utils.block import get_committed_latest_block
+
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as target_dir,
+        ):
+            source_home, target_home = Path(source_dir), Path(target_dir)
+            self._seed_state(source_home)
+            source = StateSnapshotManager(storage_home=source_home, chain_id="local")
+            original = Path(source.export_snapshot()["output_path"])
+            extract_dir = source_home / "duplicate"
+            with tarfile.open(original) as archive:
+                archive.extractall(extract_dir, filter="data")
+            state_path = extract_dir / "exported_state.json"
+            exported = load_exported_state(state_path)
+            exported["genesis"].append({"key": "demo.count", "value": None})
+            state_path.write_text(encode(exported, vm_profile="xian_vm_v2"))
+            forged = source_home / "duplicate.tar.gz"
+            with tarfile.open(forged, "w:gz") as archive:
+                archive.add(extract_dir / "metadata.json", arcname="metadata.json")
+                archive.add(state_path, arcname="exported_state.json")
+
+            target = StateSnapshotManager(storage_home=target_home, chain_id="local")
+            with Driver(vm_profile="xian_vm_v2", storage_home=target_home) as driver:
+                driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
+                driver.set("local.value", "preserve me")
+                driver.commit()
+                with self.assertRaises(ValueError):
+                    target.import_snapshot_archive(forged)
+                self.assertEqual(target.list_snapshot_records(), [])
+                self.assertEqual(list(target.snapshot_dir.glob("*.tar.gz")), [])
+                driver.flush_cache()
+                self.assertEqual(driver.get("local.value"), "preserve me")
+                self.assertIsNone(driver.get("demo.count"))
+                self.assertEqual(get_committed_latest_block(driver)["height"], 0)
+
     def test_post_import_cleanup_failure_still_accepts_and_reconciles_live_state(self):
         import asyncio
         from types import SimpleNamespace

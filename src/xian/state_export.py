@@ -21,6 +21,7 @@ from xian.genesis_builder import hash_state_changes
 from xian.state_root import (
     compute_driver_state_root,
     compute_exported_state_root,
+    exported_state_items,
     is_consensus_state_key,
 )
 from xian.utils.block import (
@@ -145,14 +146,12 @@ def load_exported_state(path: Path) -> dict[str, Any]:
 
 def _import_state_writes(exported_state: dict[str, Any]) -> dict[str, Any]:
     writes: dict[str, Any] = {}
-    for entry in exported_state.get("genesis", []):
-        key = entry["key"]
+    for key, value in exported_state_items(exported_state):
+        if key in writes:
+            raise ValueError(f"exported state contains duplicate key: {key}")
         if not is_consensus_state_key(key):
             raise ValueError(f"exported state contains non-consensus key: {key}")
-        writes[key] = entry["value"]
-    nonce_prefix = f"__n{contracting_constants.INDEX_SEPARATOR}"
-    for nonce in exported_state.get("nonces", []):
-        writes[f"{nonce_prefix}{nonce['key']}"] = nonce["value"]
+        writes[key] = value
     return writes
 
 
