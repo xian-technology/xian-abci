@@ -133,6 +133,7 @@ class TestVmReplayParity(unittest.TestCase):
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory(prefix="xian-vm-parity-")
+        self.addCleanup(self._tmpdir.cleanup)
         root = Path(self._tmpdir.name)
         self.python_home = root / "python"
         self.native_home = root / "native"
@@ -142,9 +143,11 @@ class TestVmReplayParity(unittest.TestCase):
         self.python_client = ContractingClient(
             vm_profile="xian_vm_v2", storage_home=self.python_home
         )
+        self.addCleanup(self.python_client.close)
         self.native_client = ContractingClient(
             vm_profile="xian_vm_v2", storage_home=self.native_home
         )
+        self.addCleanup(self.native_client.close)
         self.python_client.submit(PARITY_PROBE_SOURCE, name="con_vm_parity_probe")
         self.native_client.submit(PARITY_PROBE_SOURCE, name="con_vm_parity_probe")
         self.python_client.raw_driver.hard_apply(0)
@@ -159,7 +162,6 @@ class TestVmReplayParity(unittest.TestCase):
     def tearDown(self):
         self.python_client.flush()
         self.native_client.flush()
-        self._tmpdir.cleanup()
 
     def test_python_and_native_processors_replay_the_same_tx_sequence(self):
         txs = [

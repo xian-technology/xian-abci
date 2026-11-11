@@ -3,8 +3,7 @@ import unittest
 from io import BytesIO
 from unittest.mock import AsyncMock, patch
 
-from fixtures.mock_constants import MockConstants
-from utils import setup_fixtures, teardown_fixtures
+import pytest
 from xian_runtime_types.decimal import ContractingDecimal
 
 from abci.server import ProtocolHandler
@@ -15,7 +14,6 @@ from cometbft.abci.v1beta3.types_pb2 import (
     RequestFinalizeBlock,
     Response,
 )
-from xian.constants import Constants as c
 from xian.xian_abci import Xian
 
 logging.disable(logging.CRITICAL)
@@ -25,15 +23,15 @@ async def deserialize(raw: bytes) -> Response:
     return next(read_messages(BytesIO(raw), Response))
 
 
+@pytest.mark.usefixtures("node_fixture")
 class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        setup_fixtures()
-        self.app = await Xian.create(constants=MockConstants)
+        self.app = await Xian.create(constants=self.constants)
+        self.addCleanup(self.app.client.close)
+        self.addAsyncCleanup(self.app.close)
         self.app.current_block_meta = {"height": 0, "nanos": 0}
         self.handler = ProtocolHandler(self.app)
 
-    async def asyncTearDown(self):
-        teardown_fixtures()
 
     async def process_request(self, req):
         raw = await self.handler.process("finalize_block", req)
@@ -202,7 +200,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(len(response.finalize_block.tx_results), 1)
-        self.assertEqual(response.finalize_block.tx_results[0].code, c.ErrorCode)
+        self.assertEqual(response.finalize_block.tx_results[0].code, self.constants.ErrorCode)
         set_nonce.assert_not_called()
 
     async def test_finalize_block_missing_tx_hash_does_not_set_nonce(self):
@@ -240,7 +238,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                 Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
             )
 
-        self.assertEqual(response.finalize_block.tx_results[0].code, c.ErrorCode)
+        self.assertEqual(response.finalize_block.tx_results[0].code, self.constants.ErrorCode)
         set_nonce.assert_not_called()
 
     async def test_finalize_block_app_hash_commits_state_writes(self):
@@ -428,7 +426,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             "result": "ok",
         }
         self.app.bds_enabled = True
-        self.app.bds = type("FakeBDS", (), {"enqueue_block": AsyncMock()})()
+        self.app.bds = type("FakeBDS", (), {"enqueue_block": AsyncMock(), "close": AsyncMock()})()
 
         with (
             patch(
@@ -473,7 +471,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         self.app.bds = type(
             "FakeBDS",
             (),
-            {"enqueue_block": AsyncMock(side_effect=RuntimeError("bds down"))},
+            {"enqueue_block": AsyncMock(side_effect=RuntimeError("bds down")), "close": AsyncMock()},
         )()
 
         with (
@@ -503,5 +501,5 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(len(response.finalize_block.tx_results), 1)
-        self.assertEqual(response.finalize_block.tx_results[0].code, c.OkCode)
+        self.assertEqual(response.finalize_block.tx_results[0].code, self.constants.OkCode)
         self.app.bds.enqueue_block.assert_awaited_once()

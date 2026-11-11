@@ -1,9 +1,8 @@
 import unittest
 from io import BytesIO
 
-from fixtures.mock_constants import MockConstants
+import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
-from utils import setup_fixtures, teardown_fixtures
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
@@ -26,10 +25,12 @@ async def deserialize(raw: bytes) -> Response:
     return next(read_messages(BytesIO(raw), Response))
 
 
+@pytest.mark.usefixtures("node_fixture")
 class ValidatorEpochRebalanceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        setup_fixtures()
-        self.app = await Xian.create(constants=MockConstants)
+        self.app = await Xian.create(constants=self.constants)
+        self.addCleanup(self.app.client.close)
+        self.addAsyncCleanup(self.app.close)
         self.handler = ProtocolHandler(self.app)
         self.driver = self.app.client.raw_driver
         contracts_dir = resolve_contracts_dir()
@@ -66,8 +67,6 @@ class ValidatorEpochRebalanceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.membership = self.app.client.get_contract_proxy("validators")
 
-    async def asyncTearDown(self):
-        teardown_fixtures()
 
     def create_finalize_block_request(self, height: int) -> Request:
         timestamp = Timestamp()

@@ -22,6 +22,7 @@ class TestCurrencyContract(unittest.TestCase):
         self.deployer_vk = "xian-deployer"
 
         self.client = ContractingClient(vm_profile="xian_vm_v2", environment=self.environment)
+        self.addCleanup(self.client.close)
         self.client.flush()
 
         self.contracts_dir = str(resolve_contracts_dir())

@@ -483,6 +483,7 @@ class SimulatorTests(unittest.TestCase):
             "    return v.get()\n"
         )
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
+        self.addCleanup(client.close)
         client.flush()
         try:
             simulator = TransactionSimulator(
@@ -517,6 +518,7 @@ class SimulatorTests(unittest.TestCase):
     def test_large_deployment_estimate_funds_actual_transaction_bytes(self):
         source = "# " + "padding" * 3000 + "\n@export\ndef ping():\n    return True\n"
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
+        self.addCleanup(client.close)
         client.flush()
         try:
             simulator = TransactionSimulator(

@@ -6,8 +6,7 @@ from unittest.mock import patch
 
 import nacl.encoding
 import nacl.signing
-from fixtures.mock_constants import MockConstants
-from utils import setup_fixtures, teardown_fixtures
+import pytest
 from xian_runtime_types.encoding import decode, encode
 
 from abci.server import ProtocolHandler
@@ -23,7 +22,6 @@ from cometbft.abci.v1beta3.types_pb2 import (
     RequestProcessProposal,
     Response,
 )
-from xian.constants import Constants as c
 from xian.fee_policy import TxFeePolicy
 from xian.utils.encoding import encode_transaction_bytes
 from xian.xian_abci import Xian
@@ -113,10 +111,12 @@ async def deserialize(raw: bytes) -> Response:
     return next(read_messages(BytesIO(raw), Response))
 
 
+@pytest.mark.usefixtures("node_fixture")
 class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        setup_fixtures()
-        self.app = await Xian.create(constants=MockConstants)
+        self.app = await Xian.create(constants=self.constants)
+        self.addCleanup(self.app.client.close)
+        self.addAsyncCleanup(self.app.close)
         self.app.current_block_meta = {
             "height": 1,
             "nanos": 0,
@@ -126,8 +126,6 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         self.app.chain_id = "xian-testnet-1"
         self.handler = ProtocolHandler(self.app)
 
-    async def asyncTearDown(self):
-        teardown_fixtures()
 
     async def process_request(self, request_type, req):
         raw = await self.handler.process(request_type, req)
@@ -343,7 +341,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(response.finalize_block.tx_results), 1)
         tx_result = response.finalize_block.tx_results[0]
-        self.assertEqual(tx_result.code, c.ErrorCode)
+        self.assertEqual(tx_result.code, self.constants.ErrorCode)
         error_payload = json.loads(tx_result.data.decode("utf-8"))
         self.assertIn("Error decoding transaction", error_payload["error"])
         self.assertIn("Bad signature", error_payload["error"])
@@ -362,7 +360,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(response.finalize_block.tx_results), 1)
         tx_result = response.finalize_block.tx_results[0]
-        self.assertEqual(tx_result.code, c.ErrorCode)
+        self.assertEqual(tx_result.code, self.constants.ErrorCode)
         error_payload = json.loads(tx_result.data.decode("utf-8"))
         self.assertIn("Transaction bytes are not canonical", error_payload["error"])
 
@@ -399,9 +397,9 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(len(response.finalize_block.tx_results), 2)
-        self.assertEqual(response.finalize_block.tx_results[0].code, c.OkCode)
+        self.assertEqual(response.finalize_block.tx_results[0].code, self.constants.OkCode)
         second_result = response.finalize_block.tx_results[1]
-        self.assertEqual(second_result.code, c.ErrorCode)
+        self.assertEqual(second_result.code, self.constants.ErrorCode)
         error_payload = json.loads(second_result.data.decode("utf-8"))
         self.assertIn("Expected 1, got 0", error_payload["error"])
         process_tx.assert_called_once()

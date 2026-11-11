@@ -4,9 +4,8 @@ import unittest
 from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
+import pytest
 from contracting.local import ContractingClient
-from fixtures.mock_constants import MockConstants
-from utils import setup_fixtures, teardown_fixtures
 
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
@@ -24,10 +23,11 @@ def create_block_meta(dt: datetime = datetime.now()):
     }
 
 
+@pytest.mark.usefixtures("node_fixture")
 class TestProcessor(unittest.TestCase):
     def setUp(self):
-        setup_fixtures()
-        self.c = ContractingClient(vm_profile="xian_vm_v2", storage_home=MockConstants.STORAGE_HOME)
+        self.c = ContractingClient(vm_profile="xian_vm_v2", storage_home=self.constants.STORAGE_HOME)
+        self.addCleanup(self.c.close)
         self.d = self.c.raw_driver
         self.c.flush()
         self.tx_processor = TxProcessor(client=self.c)
@@ -50,7 +50,6 @@ class TestProcessor(unittest.TestCase):
         self.proxy = self.c.get_contract_proxy("proxy")
 
     def tearDown(self):
-        teardown_fixtures()
         # Called after every test, ensures each test starts with a clean slate and is isolated from others
         self.c.flush()
 

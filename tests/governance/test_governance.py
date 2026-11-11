@@ -1,23 +1,15 @@
-import os
 import time
 import unittest
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+import pytest
 from contracting.local import ContractingClient
-from fixtures.mock_constants import MockConstants
-from utils import setup_fixtures, teardown_fixtures
 
 from xian.config_paths import resolve_contracts_dir
 from xian.processor import TxProcessor
 
-# Get the directory where the script is located
-script_dir = os.path.dirname(os.path.abspath(__file__))
-
 CONTRACTS_DIR = resolve_contracts_dir()
-
-# Change the current working directory
-os.chdir(script_dir)
 
 
 def submission_kwargs_for_file(f):
@@ -63,10 +55,11 @@ def create_block_meta(dt: datetime = datetime.now()):
     }
 
 
+@pytest.mark.usefixtures("node_fixture")
 class MyTestCase(unittest.TestCase):
     def setUp(self):
-        setup_fixtures()
-        self.c = ContractingClient(vm_profile="xian_vm_v2", storage_home=MockConstants.STORAGE_HOME)
+        self.c = ContractingClient(vm_profile="xian_vm_v2", storage_home=self.constants.STORAGE_HOME)
+        self.addCleanup(self.c.close)
         self.tx_processor = TxProcessor(client=self.c)
         self.c.flush()
         self.d = self.c.raw_driver
@@ -158,7 +151,6 @@ class MyTestCase(unittest.TestCase):
         self.validators = self.c.get_contract_proxy("validators")
 
     def tearDown(self):
-        teardown_fixtures()
         self.d.flush_full()
 
     def register(self):

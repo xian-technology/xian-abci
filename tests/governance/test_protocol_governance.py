@@ -97,6 +97,7 @@ class ProtocolGovernanceContractTests(unittest.TestCase):
         self.client = ContractingClient(
             vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"}
         )
+        self.addCleanup(self.client.close)
         self.client.flush()
         self.client.submit(
             MEMBERSHIP_CONTRACT,

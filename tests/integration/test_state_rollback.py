@@ -2,10 +2,9 @@ import datetime
 import unittest
 from pathlib import Path
 
-import utils
+import pytest
 from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
-from fixtures.mock_constants import MockConstants
 from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.fee_policy import TxFeePolicy
@@ -24,34 +23,16 @@ def create_block_meta(dt: datetime.datetime = datetime.datetime.now()):
     }
 
 
-def _resolve_contracts_dir() -> Path:
-    # Primary: alongside this test file
-    here = Path(__file__).resolve().parent
-    p = here / "contracts" / "rollback"
-    if p.is_dir():
-        return p
-    # Fallback: repository-style path from CWD (e.g. in CI)
-    cwd = Path.cwd()
-    q = cwd / "tests" / "integration" / "contracts" / "rollback"
-    if q.is_dir():
-        return q
-    # Walk up from test file to find a tests root
-    for parent in here.parents:
-        candidate = parent / "tests" / "integration" / "contracts" / "rollback"
-        if candidate.is_dir():
-            return candidate
-    # As a last resort, return the first constructed path (will raise later)
-    return p
-
-
+@pytest.mark.usefixtures("node_fixture")
 class TestStateRollback(unittest.TestCase):
     def setUp(self):
-        utils.setup_fixtures()
-        self.driver = Driver(vm_profile="xian_vm_v2", storage_home=MockConstants.STORAGE_HOME)
+        self.driver = Driver(vm_profile="xian_vm_v2", storage_home=self.constants.STORAGE_HOME)
+        self.addCleanup(self.driver.close)
         self.client = ContractingClient(vm_profile="xian_vm_v2", driver=self.driver)
+        self.addCleanup(self.client.close)
         self.client.flush()
         self.txp = TxProcessor(client=self.client)
-        base_dir = str(_resolve_contracts_dir())
+        base_dir = Path(__file__).resolve().parent / "contracts/rollback"
         with open(f"{base_dir}/con_mutable_map.py") as f:
             code = f.read()
         self.client.submit(code, name="con_mutable_map")
@@ -76,7 +57,6 @@ class TestStateRollback(unittest.TestCase):
         self.driver.hard_apply(0)
 
     def tearDown(self):
-        utils.teardown_fixtures()
         self.client.flush()
 
     def assert_no_driver_writes(self, where: str = ""):

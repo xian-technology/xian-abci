@@ -16,6 +16,7 @@ class TestVaultContract(unittest.TestCase):
         self.deployer_vk = "xian-deployer"
 
         self.client = ContractingClient(vm_profile="xian_vm_v2", environment=self.environment)
+        self.addCleanup(self.client.close)
         self.client.flush()
 
         # Set up paths and load contracts
@@ -58,7 +59,7 @@ class TestVaultContract(unittest.TestCase):
     def test_submit_transaction(self):
         # GIVEN an owner submitting a transaction
         # WHEN submitting a new transaction
-        result = self.vault.submit_transaction(
+        self.vault.submit_transaction(
             to="receiver",
             amount=100,
             tx_type="transfer",

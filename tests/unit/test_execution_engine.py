@@ -7,7 +7,6 @@ from unittest import mock
 
 from contracting.artifacts import build_contract_artifacts
 from contracting.compilation.compiler import ContractingCompiler
-from contracting.execution.executor import Executor
 from contracting.local import ContractingClient
 from contracting.runtime_features import set_driver_runtime_features
 from contracting.storage.driver import Driver
@@ -256,6 +255,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_execute_native_submission_deploy_stages_contract_artifacts(self):
         runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
+        self.addCleanup(driver.close)
         driver.flush_full()
         ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         code = (
@@ -301,6 +301,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_execute_native_submission_rejects_submitted_ir_artifacts(self):
         runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
+        self.addCleanup(driver.close)
         driver.flush_full()
         ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         source = "@export\ndef ping():\n    return 'pong'\n"
@@ -340,6 +341,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_execute_native_submission_rejects_zk_contract_when_feature_disabled(self):
         runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
+        self.addCleanup(driver.close)
         driver.flush_full()
         ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         set_driver_runtime_features(driver, {"zk": False})
@@ -370,6 +372,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_prepare_vm_contract_rejects_zk_contract_when_feature_disabled(self):
         runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
+        self.addCleanup(driver.close)
         driver.flush_full()
         set_driver_runtime_features(driver, {"zk": False})
         code = "@export\ndef check():\n    return zk.is_available()\n"
@@ -392,6 +395,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_execute_native_submission_change_owner_stages_metadata_write(self):
         runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
+        self.addCleanup(driver.close)
         driver.flush_full()
         ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         driver.set_contract_from_source(
@@ -428,6 +432,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_execute_native_token_factory_deploys_child_contract(self):
         runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
+        self.addCleanup(driver.close)
         driver.flush_full()
         ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         token_factory_source = (
@@ -490,6 +495,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     ):
         contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
+        self.addCleanup(client.close)
         client.flush()
         try:
             for name, constructor_args in (
@@ -635,6 +641,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_execute_native_permit_authorizer_matches_python_runtime(self):
         contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
+        self.addCleanup(client.close)
         client.flush()
         try:
             client.submit(
@@ -726,6 +733,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     ):
         contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
+        self.addCleanup(client.close)
         client.flush()
         try:
             client.submit(
@@ -792,6 +800,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         ).read_text()
         contract_name = "con_tokena_probe"
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
+        self.addCleanup(client.close)
         client.flush()
         try:
             client.raw_driver.set("currency.balances:sys", 100_000)
@@ -839,6 +848,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         source = (root_dir / "xian-stack" / "workloads" / "dex_mixed" / "con_pairs.py").read_text()
         contract_name = "con_pairs_probe"
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
+        self.addCleanup(client.close)
         client.flush()
         try:
             client.raw_driver.set("currency.balances:sys", 250_000)
@@ -890,6 +900,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         ).read_text()
         contract_name = "con_shielded_note_probe"
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
+        self.addCleanup(client.close)
         client.flush()
         try:
             client.raw_driver.set("currency.balances:sys", 100_000_000)
@@ -956,6 +967,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         ).read_text()
         contract_name = "con_shielded_note_probe"
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
+        self.addCleanup(client.close)
         client.flush()
         try:
             driver = client.raw_driver
@@ -1041,6 +1053,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         ).read_text()
 
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
+        self.addCleanup(client.close)
         client.flush()
         try:
             driver = client.raw_driver
@@ -1098,6 +1111,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         )
 
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
+        self.addCleanup(client.close)
         client.flush()
         driver = client.raw_driver
         runtime = build_vm_runtime()
@@ -1332,6 +1346,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_execute_vm_contract_rejects_source_only_contracts(self):
         runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
+        self.addCleanup(driver.close)
         driver.flush_full()
         driver.set_contract_from_source(
             "con_source_only",
@@ -1359,6 +1374,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_execute_native_submission_requires_deterministic_now(self):
         runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
+        self.addCleanup(driver.close)
         driver.flush_full()
         ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         source = "@export\ndef ping():\n    return 'pong'\n"
@@ -1384,6 +1400,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     ):
         runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
+        self.addCleanup(driver.close)
         driver.flush_full()
         ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         source = (
@@ -1426,8 +1443,10 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
     def test_dynamic_importlib_call_preserves_context_and_writes(self):
         runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
+        self.addCleanup(driver.close)
         driver.flush_full()
         client = ContractingClient(vm_profile="xian_vm_v2", driver=driver)
+        self.addCleanup(client.close)
         driver.set(driver.make_key("currency", "balances", ["alice"]), 1_000_000)
 
         environment = {

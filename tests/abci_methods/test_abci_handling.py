@@ -2,8 +2,7 @@ import logging
 import unittest
 from io import BytesIO
 
-from fixtures.mock_constants import MockConstants
-from utils import setup_fixtures, teardown_fixtures
+import pytest
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
@@ -46,17 +45,17 @@ async def deserialize(raw: bytes) -> Response:
         logging.error("Deserialization error: %s", e)
         raise
 
+@pytest.mark.usefixtures("node_fixture")
 class TestXianHandler(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
-        setup_fixtures()
-        self.app = await Xian.create(constants=MockConstants)
+        self.app = await Xian.create(constants=self.constants)
+        self.addCleanup(self.app.client.close)
+        self.addAsyncCleanup(self.app.close)
         self.app.current_block_meta = {"height": 0, "nanos": 0}
         self.app.merkle_root_hash = b''
         self.handler = ProtocolHandler(self.app)
         
-    async def asyncTearDown(self):
-        teardown_fixtures()
 
     async def process_request(self, request_type, req):
         raw = await self.handler.process(request_type, req)

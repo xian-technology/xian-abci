@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import xian_compiler_core
 from contracting.local import ContractingClient
-from contracting.storage.driver import Driver, SOURCE_KEY, XIAN_VM_V1_IR_KEY
+from contracting.storage.driver import SOURCE_KEY, XIAN_VM_V1_IR_KEY, Driver
 from xian_runtime_types.time import Datetime
 
 from xian.execution_engine import (
@@ -27,6 +27,7 @@ COMPILER_FIXTURE_DIR = (
 
 
 def _deploy(
+    request,
     module_name: str,
     source: str,
     *,
@@ -35,6 +36,7 @@ def _deploy(
     _load_vm_runtime_bindings.cache_clear()
     clear_prepared_contract_cache()
     driver = Driver(vm_profile="xian_vm_v2")
+    request.addfinalizer(driver.close)
     driver.flush_full()
     ContractingClient(driver=driver, vm_profile="xian_vm_v2")
     output = execute_vm_contract(
@@ -63,7 +65,7 @@ def _deploy(
     "fixture_path",
     sorted(COMPILER_FIXTURE_DIR.glob("*.json")),
 )
-def test_node_admission_matches_shared_compiler_fixture(fixture_path: Path) -> None:
+def test_node_admission_matches_shared_compiler_fixture(fixture_path: Path, request) -> None:
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
     if fixture["vm_profile"] != "xian_vm_v2" and fixture["expected"]["accepted"]:
         # The active node compiles the same source with its V2 numeric rules.
@@ -80,6 +82,7 @@ def test_node_admission_matches_shared_compiler_fixture(fixture_path: Path) -> N
         {"supply": 1} if fixture["module_name"] == "con_complex_ledger" else {}
     )
     driver, output = _deploy(
+        request,
         fixture["module_name"],
         fixture["input_source"],
         constructor_args=constructor_args,
@@ -135,8 +138,9 @@ def _limit_sources() -> list[tuple[str, str]]:
 def test_node_admission_enforces_compiler_limits(
     expected_code: str,
     source: str,
+    request,
 ) -> None:
-    driver, output = _deploy(f"con_{expected_code.rsplit('.', 1)[-1]}", source)
+    driver, output = _deploy(request, f"con_{expected_code.rsplit('.', 1)[-1]}", source)
     try:
         assert output.status_code == 1
         assert output.writes == {}

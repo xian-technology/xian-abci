@@ -6,15 +6,13 @@ from unittest.mock import patch
 
 import nacl.encoding
 import nacl.signing
-from fixtures.mock_constants import MockConstants
-from utils import setup_fixtures, teardown_fixtures
+import pytest
 from xian_runtime_types.encoding import decode, encode
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
 from cometbft.abci.v1beta1.types_pb2 import RequestCheckTx
 from cometbft.abci.v1beta3.types_pb2 import Request, Response
-from xian.constants import Constants as c
 from xian.fee_policy import TxFeePolicy
 from xian.utils.encoding import encode_transaction_bytes
 from xian.xian_abci import Xian
@@ -88,17 +86,17 @@ async def deserialize(raw: bytes) -> Response:
     return next(read_messages(BytesIO(raw), Response))
 
 
+@pytest.mark.usefixtures("node_fixture")
 class TestCheckTx(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        setup_fixtures()
-        self.app = await Xian.create(constants=MockConstants)
+        self.app = await Xian.create(constants=self.constants)
+        self.addCleanup(self.app.client.close)
+        self.addAsyncCleanup(self.app.close)
         self.app.current_block_meta = {"height": 0, "nanos": 0}
         self.app.chain_id = "xian-testnet-1"
         self.app.client.raw_driver.set(f"currency.balances:{SENDER}", 100000)
         self.handler = ProtocolHandler(self.app)
 
-    async def asyncTearDown(self):
-        teardown_fixtures()
 
     async def process_request(self, req):
         raw = await self.handler.process("check_tx", req)
@@ -112,7 +110,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(self.make_request())
 
-        self.assertEqual(response.check_tx.code, c.OkCode)
+        self.assertEqual(response.check_tx.code, self.constants.OkCode)
         self.assertEqual(
             self.app.nonce_storage.get_pending_nonce(SENDER),
             VALID_NONCE,
@@ -134,7 +132,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
                     }
                 )
                 response = await self.process_request(self.make_request(tx))
-                self.assertEqual(response.check_tx.code, c.ErrorCode)
+                self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
                 self.assertIn("Transaction contract name is invalid", response.check_tx.log)
                 self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 
@@ -147,7 +145,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(self.make_request())
 
-        self.assertEqual(response.check_tx.code, c.OkCode)
+        self.assertEqual(response.check_tx.code, self.constants.OkCode)
         self.assertIn(VALID_NONCE, self.app.nonce_storage.pending_nonces[SENDER])
         self.assertFalse(driver.pending_reads)
         self.assertFalse(driver.transaction_reads)
@@ -158,7 +156,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(self.make_request())
 
-        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
         self.assertIn("Expected 5, got 6", response.check_tx.log)
         self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 
@@ -169,8 +167,8 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         first_response = await self.process_request(self.make_request())
         second_response = await self.process_request(self.make_request(next_tx))
 
-        self.assertEqual(first_response.check_tx.code, c.OkCode)
-        self.assertEqual(second_response.check_tx.code, c.OkCode)
+        self.assertEqual(first_response.check_tx.code, self.constants.OkCode)
+        self.assertEqual(second_response.check_tx.code, self.constants.OkCode)
         self.assertEqual(
             self.app.nonce_storage.get_pending_nonce(SENDER),
             VALID_NONCE + 1,
@@ -182,8 +180,8 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         first_response = await self.process_request(self.make_request())
         second_response = await self.process_request(self.make_request())
 
-        self.assertEqual(first_response.check_tx.code, c.OkCode)
-        self.assertEqual(second_response.check_tx.code, c.OkCode)
+        self.assertEqual(first_response.check_tx.code, self.constants.OkCode)
+        self.assertEqual(second_response.check_tx.code, self.constants.OkCode)
         self.assertEqual(
             self.app.nonce_storage.get_pending_nonce(SENDER),
             VALID_NONCE,
@@ -197,7 +195,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(self.make_request(tx_bytes))
 
-        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
         self.assertIn("Transaction bytes are not canonical", response.check_tx.log)
         self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 
@@ -205,7 +203,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
 
         response = await self.process_request(self.make_request())
-        self.assertEqual(response.check_tx.code, c.OkCode)
+        self.assertEqual(response.check_tx.code, self.constants.OkCode)
         reservation = self.app.nonce_storage.pending_nonces[SENDER][VALID_NONCE]
 
         with patch.object(
@@ -239,7 +237,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(self.make_request(tampered))
 
-        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
         self.assertIn("Bad signature", response.check_tx.log)
         self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 
@@ -258,7 +256,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(self.make_request(tx_bytes))
 
-        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
         self.assertIn("Wrong chain_id", response.check_tx.log)
         self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 
@@ -268,7 +266,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(self.make_request())
 
-        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
         self.assertIn("maximum configured size", response.check_tx.log)
         self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 
@@ -280,8 +278,8 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         first_response = await self.process_request(self.make_request())
         second_response = await self.process_request(self.make_request(next_tx))
 
-        self.assertEqual(first_response.check_tx.code, c.OkCode)
-        self.assertEqual(second_response.check_tx.code, c.ErrorCode)
+        self.assertEqual(first_response.check_tx.code, self.constants.OkCode)
+        self.assertEqual(second_response.check_tx.code, self.constants.ErrorCode)
         self.assertIn(
             "Too many pending transactions reserved for sender",
             second_response.check_tx.log,
@@ -297,7 +295,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(self.make_request())
 
-        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
         self.assertIn("too few chi", response.check_tx.log)
         self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 
@@ -312,7 +310,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(self.make_request())
 
-        self.assertEqual(response.check_tx.code, c.OkCode)
+        self.assertEqual(response.check_tx.code, self.constants.OkCode)
         self.assertEqual(
             self.app.nonce_storage.get_pending_nonce(SENDER),
             VALID_NONCE,
@@ -328,7 +326,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(self.make_request())
 
-        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
         self.assertIn("maximum configured limit of 99", response.check_tx.log)
         self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 
@@ -354,7 +352,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(wire["payload"]["kwargs"]["amount"], {"__big_int__": str(2**64)})
         response = await self.process_request(self.make_request(tx_bytes))
 
-        self.assertEqual(response.check_tx.code, c.OkCode)
+        self.assertEqual(response.check_tx.code, self.constants.OkCode)
         self.assertEqual(
             self.app.nonce_storage.get_pending_nonce(SENDER),
             VALID_NONCE,
@@ -381,7 +379,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
             self.make_request(encode_transaction_bytes(malicious_tx))
         )
 
-        self.assertEqual(response.check_tx.code, c.ErrorCode)
+        self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
         self.assertIn("Transaction bytes are not canonical", response.check_tx.log)
         self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
 

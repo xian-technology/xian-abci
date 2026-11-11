@@ -4,9 +4,8 @@ import unittest
 from io import BytesIO
 from pathlib import Path
 
-from fixtures.mock_constants import MockConstants
+import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
-from utils import setup_fixtures, teardown_fixtures
 from xian_runtime_types.time import Datetime
 
 from abci.server import ProtocolHandler
@@ -57,15 +56,17 @@ async def deserialize(raw: bytes) -> Response:
     return next(read_messages(BytesIO(raw), Response))
 
 
+@pytest.mark.usefixtures("node_fixture")
 class GovernedStatePatchTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        setup_fixtures()
-        self.patch_dir = resolve_state_patch_dir(MockConstants)
+        self.patch_dir = resolve_state_patch_dir(self.constants)
         if self.patch_dir.exists():
             shutil.rmtree(self.patch_dir)
         self.patch_dir.mkdir(parents=True, exist_ok=True)
 
-        self.app = await Xian.create(constants=MockConstants)
+        self.app = await Xian.create(constants=self.constants)
+        self.addCleanup(self.app.client.close)
+        self.addAsyncCleanup(self.app.close)
         self.handler = ProtocolHandler(self.app)
         self.app.state_patch_manager.load_patches(self.patch_dir)
 
@@ -89,8 +90,6 @@ class GovernedStatePatchTests(unittest.IsolatedAsyncioTestCase):
 
         self.governance = self.app.client.get_contract_proxy("governance")
 
-    async def asyncTearDown(self):
-        teardown_fixtures()
 
     def create_finalize_block_request(self, height: int) -> Request:
         timestamp = Timestamp()

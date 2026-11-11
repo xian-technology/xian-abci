@@ -1,8 +1,7 @@
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
-from fixtures.mock_constants import MockConstants
-from utils import setup_fixtures, teardown_fixtures
+import pytest
 
 from xian.utils.block import (
     get_latest_block_height,
@@ -39,14 +38,12 @@ class AbciSocketPathTests(unittest.TestCase):
                 _require_zk_verifier_if_enabled({"zk": True})
 
 
+@pytest.mark.usefixtures("node_fixture")
 class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        setup_fixtures()
-        self.app = await Xian.create(constants=MockConstants)
-
-    async def asyncTearDown(self):
-        await self.app.close()
-        teardown_fixtures()
+        self.app = await Xian.create(constants=self.constants)
+        self.addCleanup(self.app.client.close)
+        self.addAsyncCleanup(self.app.close)
 
     async def test_start_runtime_initializes_bds_on_runtime_loop(self):
         fake_bds = type(
@@ -102,7 +99,7 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch("xian.utils.block.logger") as mirror_logger,
         ):
-            restarted_app = await Xian.create(constants=MockConstants)
+            restarted_app = await Xian.create(constants=self.constants)
 
         try:
             self.assertEqual(get_latest_block_height(storage_home), 13)
@@ -113,6 +110,7 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
             mirror_logger.bind.return_value.warning.assert_called_once()
         finally:
             await restarted_app.close()
+            restarted_app.client.close()
 
     async def test_runtime_disables_debug_tx_traces_when_log_level_is_info(
         self,
@@ -136,13 +134,14 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
                 return_value=self.app.genesis,
             ),
         ):
-            app = Xian(constants=MockConstants)
+            app = Xian(constants=self.constants)
 
+        self.addCleanup(app.client.close)
+        self.addAsyncCleanup(app.close)
         self.assertTrue(app.transaction_trace_logging)
         self.assertFalse(app.transaction_trace_debug_logging)
         self.assertFalse(app.transaction_trace_full_logging)
         self.assertFalse(app.tx_processor.trace_logging)
-        await app.close()
 
     async def test_runtime_enables_full_tx_traces_only_at_trace_level(self):
         with (
@@ -164,13 +163,14 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
                 return_value=self.app.genesis,
             ),
         ):
-            app = Xian(constants=MockConstants)
+            app = Xian(constants=self.constants)
 
+        self.addCleanup(app.client.close)
+        self.addAsyncCleanup(app.close)
         self.assertTrue(app.transaction_trace_logging)
         self.assertTrue(app.transaction_trace_debug_logging)
         self.assertTrue(app.transaction_trace_full_logging)
         self.assertTrue(app.tx_processor.trace_logging)
-        await app.close()
 
 
 if __name__ == "__main__":

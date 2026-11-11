@@ -172,6 +172,7 @@ def test_worker_logging_is_safe_without_creating_file_sink(tmp_path, monkeypatch
 
     stream = io.StringIO()
     monkeypatch.setattr("sys.stderr", stream)
+    existing_paths = set(tmp_path.rglob("*"))
     configure_worker_logging()
     try:
         try:
@@ -185,7 +186,7 @@ def test_worker_logging_is_safe_without_creating_file_sink(tmp_path, monkeypatch
     assert "secret-file-path" not in text
     assert "errno=28" in text
     assert "error_type=OSError" in text
-    assert not list(tmp_path.iterdir())
+    assert set(tmp_path.rglob("*")) == existing_paths
 
 
 def test_required_failure_fields_survive_context_limit(tmp_path):

@@ -2,21 +2,18 @@ import json
 import logging
 import os
 import unittest
-
-from xian_runtime_types.decimal import ContractingDecimal
 from datetime import UTC, datetime
 from io import BytesIO
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from contracting.storage.driver import SOURCE_KEY, XIAN_VM_V1_IR_KEY
-from fixtures.mock_constants import MockConstants
-from utils import setup_fixtures, teardown_fixtures
+from xian_runtime_types.decimal import ContractingDecimal
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
 from cometbft.abci.v1beta1.types_pb2 import RequestQuery
 from cometbft.abci.v1beta3.types_pb2 import Request, Response
-from xian.constants import Constants
 from xian.utils.block import set_latest_block, stage_latest_block
 from xian.xian_abci import Xian
 
@@ -118,6 +115,9 @@ ACCOUNT = "c93dee52d7dc6cc43af44007c3b1dae5b730ccf18a9e6fb43521f8e4064561e6"
 
 
 class _FakeBDS:
+    async def close(self):
+        pass
+
     async def get_status(self, current_block_height=None):
         return {
             "worker_running": True,
@@ -430,9 +430,9 @@ async def deserialize(raw: bytes) -> Response:
     return next(read_messages(BytesIO(raw), Response))
 
 
+@pytest.mark.usefixtures("node_fixture")
 class TestQuery(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        setup_fixtures()
         self._perf_env = patch.dict(
             os.environ,
             {
@@ -440,7 +440,9 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             },
         )
         self._perf_env.start()
-        self.app = await Xian.create(constants=MockConstants)
+        self.app = await Xian.create(constants=self.constants)
+        self.addCleanup(self.app.client.close)
+        self.addAsyncCleanup(self.app.close)
         self.app.current_block_meta = {
             "height": 0,
             "nanos": 0,
@@ -463,7 +465,6 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         self._perf_env.stop()
-        teardown_fixtures()
 
     async def process_request(self, req):
         raw = await self.handler.process("query", req)
@@ -473,7 +474,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         response = await self.process_request(
             Request(query=RequestQuery(path=f"/get/currency.balances:{ACCOUNT}"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "decimal")
         self.assertEqual(
             response.query.key,
@@ -504,7 +505,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
                         )
                     )
                 )
-                self.assertEqual(response.query.code, Constants.OkCode)
+                self.assertEqual(response.query.code, self.constants.OkCode)
                 self.assertEqual(response.query.height, 12)
                 self.assertEqual(response.query.value, b"123.45")
 
@@ -530,7 +531,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
                         )
                     )
                 dispatch.assert_not_awaited()
-                self.assertEqual(response.query.code, Constants.ErrorCode)
+                self.assertEqual(response.query.code, self.constants.ErrorCode)
                 self.assertEqual(response.query.height, 12)
                 self.assertEqual(response.query.value, b"")
                 self.assertIn(message, response.query.log)
@@ -542,12 +543,12 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         for path in ("/unknown_route", "/get"):
             with self.subTest(path=path):
                 response = await self.process_request(Request(query=RequestQuery(path=path)))
-                self.assertEqual(response.query.code, Constants.ErrorCode)
+                self.assertEqual(response.query.code, self.constants.ErrorCode)
                 self.assertEqual(response.query.height, 12)
 
     async def test_query_initial_height_is_zero(self):
         response = await self.process_request(Request(query=RequestQuery(path="/health")))
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.height, 0)
 
     async def test_get_query_preserves_boolean_type(self):
@@ -559,7 +560,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         response = await self.process_request(
             Request(query=RequestQuery(path=f"/get/currency.signers:{ACCOUNT}"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "bool")
         self.assertEqual(
             response.query.key,
@@ -586,7 +587,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         first_payload = json.loads(first_page.query.value)
         second_payload = json.loads(second_page.query.value)
 
-        self.assertEqual(first_page.query.code, Constants.OkCode)
+        self.assertEqual(first_page.query.code, self.constants.OkCode)
         self.assertEqual(first_page.query.info, "dict")
         self.assertEqual(first_payload["prefix"], prefix)
         self.assertEqual(first_payload["items"], ["alice", "bob"])
@@ -610,10 +611,10 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
         result = json.loads(response.query.value)
 
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "dict")
         self.assertEqual(response.query.key, encoded_payload.encode("utf-8"))
-        self.assertEqual(result["status"], Constants.OkCode)
+        self.assertEqual(result["status"], self.constants.OkCode)
         self.assertEqual(result["payload"], payload)
         self.assertEqual(result["result"], {"__fixed__": "123.45"})
         self.assertEqual(
@@ -642,13 +643,13 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
         result = json.loads(response.query.value)
 
-        self.assertEqual(response.query.code, Constants.OkCode)
-        self.assertEqual(result["status"], Constants.ErrorCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
+        self.assertEqual(result["status"], self.constants.ErrorCode)
         self.assertIn("disabled", result["result"])
 
     async def test_health_query(self):
         response = await self.process_request(Request(query=RequestQuery(path="/health")))
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "str")
         self.assertEqual(response.query.key, b"")
         self.assertEqual(response.query.value, b"OK")
@@ -657,7 +658,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         response = await self.process_request(Request(query=RequestQuery(path="/perf_status")))
         payload = json.loads(response.query.value)
 
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "json")
         self.assertEqual(payload["enabled"], False)
         self.assertEqual(payload["recent_blocks"], [])
@@ -785,7 +786,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         response = await self.process_request(
             Request(query=RequestQuery(path=f"/get_next_nonce/{ACCOUNT}"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "int")
         self.assertEqual(response.query.key, ACCOUNT.encode("utf-8"))
         self.assertEqual(response.query.value, b"0")
@@ -797,14 +798,14 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             Request(query=RequestQuery(path=f"/get_next_nonce/{ACCOUNT}"))
         )
 
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.value, b"10")
 
     async def test_contract_source_query(self):
         response = await self.process_request(
             Request(query=RequestQuery(path="/contract_source/currency"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "str")
         source = response.query.value.decode("utf-8")
         self.assertIn("@export", source)
@@ -815,7 +816,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             Request(query=RequestQuery(path="/contract_info/currency"))
         )
 
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "dict")
         payload = json.loads(response.query.value)
         self.assertEqual(payload["name"], "currency")
@@ -827,19 +828,19 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         response = await self.process_request(
             Request(query=RequestQuery(path="/contract_code/currency"))
         )
-        self.assertEqual(response.query.code, Constants.ErrorCode)
+        self.assertEqual(response.query.code, self.constants.ErrorCode)
 
     async def test_contract_query_alias_is_removed(self):
         response = await self.process_request(
             Request(query=RequestQuery(path="/contract/currency"))
         )
-        self.assertEqual(response.query.code, Constants.ErrorCode)
+        self.assertEqual(response.query.code, self.constants.ErrorCode)
 
     async def test_contract_ir_query(self):
         response = await self.process_request(
             Request(query=RequestQuery(path="/contract_ir/currency"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "str")
         vm_ir = json.loads(response.query.value.decode("utf-8"))
         self.assertEqual(vm_ir["vm_profile"], "xian_vm_v2")
@@ -854,7 +855,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         response = await self.process_request(
             Request(query=RequestQuery(path="/contract_methods/currency"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "dict")
         self.assertEqual(
             json.loads(response.query.value),
@@ -882,7 +883,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         response = await self.process_request(
             Request(query=RequestQuery(path="/contract_vars/currency"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "dict")
         self.assertEqual(
             json.loads(response.query.value),
@@ -916,7 +917,7 @@ def fallback(value: list[int]):
             Request(query=RequestQuery(path="/contract_vars/currency"))
         )
 
-        self.assertEqual(methods_response.query.code, Constants.OkCode)
+        self.assertEqual(methods_response.query.code, self.constants.OkCode)
         self.assertEqual(methods_response.query.info, "dict")
         self.assertEqual(
             json.loads(methods_response.query.value),
@@ -929,7 +930,7 @@ def fallback(value: list[int]):
                 ]
             },
         )
-        self.assertEqual(vars_response.query.code, Constants.OkCode)
+        self.assertEqual(vars_response.query.code, self.constants.OkCode)
         self.assertEqual(vars_response.query.info, "dict")
         self.assertEqual(
             json.loads(vars_response.query.value),
@@ -1000,7 +1001,7 @@ def fallback(value: list[int]):
             source_methods_response,
             source_vars_response,
         ):
-            self.assertEqual(response.query.code, Constants.OkCode)
+            self.assertEqual(response.query.code, self.constants.OkCode)
             self.assertEqual(response.query.info, "dict")
 
         self.assertEqual(
@@ -1025,7 +1026,7 @@ def fallback(value: list[int]):
         self.app.bds = _FakeBDS()
         response = await self.process_request(Request(query=RequestQuery(path="/state_patches")))
 
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "list")
 
         result = json.loads(response.query.value)
@@ -1039,7 +1040,7 @@ def fallback(value: list[int]):
         self.app.current_block_meta = {"height": 12, "nanos": 0}
 
         response = await self.process_request(Request(query=RequestQuery(path="/bds_status")))
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         status = json.loads(response.query.value)
         self.assertTrue(status["worker_running"])
         self.assertEqual(status["spool_pending_count"], 2)
@@ -1053,7 +1054,7 @@ def fallback(value: list[int]):
         response = await self.process_request(
             Request(query=RequestQuery(path="/bds_spool/limit=10/offset=0"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
 
     async def test_bds_status_falls_back_to_latest_committed_height(self):
         self.app.bds_enabled = True
@@ -1063,7 +1064,7 @@ def fallback(value: list[int]):
         with patch("xian.methods.query.get_latest_block_height", return_value=14):
             response = await self.process_request(Request(query=RequestQuery(path="/bds_status")))
 
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         status = json.loads(response.query.value)
         self.assertEqual(status["current_block_height"], 14)
         self.assertEqual(status["height_lag"], 4)
@@ -1075,37 +1076,37 @@ def fallback(value: list[int]):
         response = await self.process_request(
             Request(query=RequestQuery(path="/blocks/limit=5/offset=0"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)[0]["height"], 12)
 
         response = await self.process_request(Request(query=RequestQuery(path="/block/12")))
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)["block_hash"], "BLOCK-12")
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/block_by_hash/BLOCK-12"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)["height"], 12)
 
         response = await self.process_request(Request(query=RequestQuery(path="/tx/TX-1")))
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)["tx_hash"], "TX-1")
 
         response = await self.process_request(Request(query=RequestQuery(path="/txs_for_block/12")))
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)[0]["tx_hash"], "TX-12")
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/txs_by_sender/alice"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)[0]["sender"], "alice")
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/addresses/limit=10/offset=0"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         payload = json.loads(response.query.value)
         self.assertTrue(payload["available"])
         self.assertEqual(payload["items"][0]["address"], "alice")
@@ -1113,7 +1114,7 @@ def fallback(value: list[int]):
         response = await self.process_request(
             Request(query=RequestQuery(path="/txs_by_contract/currency"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)[0]["contract"], "currency")
 
         response = await self.process_request(
@@ -1121,7 +1122,7 @@ def fallback(value: list[int]):
                 query=RequestQuery(path="/token_balances/alice/limit=10/offset=0/include_zero=true")
             )
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         payload = json.loads(response.query.value)
         self.assertTrue(payload["available"])
         self.assertEqual(payload["address"], "alice")
@@ -1131,7 +1132,7 @@ def fallback(value: list[int]):
         response = await self.process_request(
             Request(query=RequestQuery(path="/token_contracts/limit=10/offset=0"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         payload = json.loads(response.query.value)
         self.assertTrue(payload["available"])
         self.assertEqual(payload["items"][0]["contract"], "currency")
@@ -1144,19 +1145,19 @@ def fallback(value: list[int]):
         response = await self.process_request(
             Request(query=RequestQuery(path="/state/currency/limit=10/offset=0"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)[0]["value"], "42")
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/state_history/currency.balances:alice"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)[0]["previous_change_id"], 6)
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/state_previous/currency.balances:alice"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         payload = json.loads(response.query.value)
         self.assertEqual(payload["current_value"], "42")
         self.assertEqual(payload["previous_value"], "40")
@@ -1164,13 +1165,13 @@ def fallback(value: list[int]):
         response = await self.process_request(
             Request(query=RequestQuery(path="/state_for_tx/TX-CURRENT"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)[0]["tx_hash"], "TX-CURRENT")
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/state_for_block/12"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)[0]["block_height"], 12)
 
     async def test_event_queries_use_bds(self):
@@ -1181,19 +1182,19 @@ def fallback(value: list[int]):
         response = await self.process_request(
             Request(query=RequestQuery(path="/events_for_tx/TX-1"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)[0]["event"], "Transfer")
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/events/currency/Transfer"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)[0]["contract"], "currency")
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/events/currency/Transfer/after_id=41/limit=10"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         payload = json.loads(response.query.value)
         self.assertEqual(payload[0]["id"], 42)
         self.assertEqual(payload[0]["event"], "Transfer")
@@ -1201,7 +1202,7 @@ def fallback(value: list[int]):
         response = await self.process_request(
             Request(query=RequestQuery(path="/recent_events/limit=25"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         payload = json.loads(response.query.value)
         self.assertTrue(payload["available"])
         self.assertEqual(payload["items"][0]["tx_hash"], "TX-RECENT")
@@ -1216,7 +1217,7 @@ def fallback(value: list[int]):
                 )
             )
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         payload = json.loads(response.query.value)
         self.assertTrue(payload["available"])
         self.assertEqual(payload["source"], "xian_pairs_v1")
@@ -1243,7 +1244,7 @@ def fallback(value: list[int]):
         response = await self.process_request(
             Request(query=RequestQuery(path="/shielded_output_tags/0x1234/limit=25/offset=5"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         payload = json.loads(response.query.value)
         self.assertTrue(payload["available"])
         self.assertEqual(payload["limit"], 25)
@@ -1258,7 +1259,7 @@ def fallback(value: list[int]):
                 )
             )
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         payload = json.loads(response.query.value)
         self.assertTrue(payload["available"])
         self.assertEqual(payload["limit"], 25)
@@ -1276,7 +1277,7 @@ def fallback(value: list[int]):
         response = await self.process_request(
             Request(query=RequestQuery(path="/contracts/limit=10/offset=0/sort=name/order=asc"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         payload = json.loads(response.query.value)
         contract_names = [item["name"] for item in payload["items"]]
         self.assertIn("currency", contract_names)
@@ -1291,19 +1292,19 @@ def fallback(value: list[int]):
         response = await self.process_request(
             Request(query=RequestQuery(path="/state_patches_for_block/12"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)[0]["hash"], "PATCH-12")
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/state_patch/PATCH-1"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value)["hash"], "PATCH-1")
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/state_changes_for_patch/PATCH-1"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(
             json.loads(response.query.value)[0]["key"],
             "currency.balances:alice",
@@ -1316,7 +1317,7 @@ def fallback(value: list[int]):
         response = await self.process_request(
             Request(query=RequestQuery(path=f"/developer_rewards/{ACCOUNT}"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "dict")
         payload = json.loads(response.query.value)
         self.assertEqual(payload["recipient_key"], ACCOUNT)
@@ -1330,7 +1331,7 @@ def fallback(value: list[int]):
         response = await self.process_request(
             Request(query=RequestQuery(path="/contract_summary/currency"))
         )
-        self.assertEqual(response.query.code, Constants.OkCode)
+        self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(response.query.info, "dict")
         payload = json.loads(response.query.value)
         self.assertEqual(payload["name"], "currency")

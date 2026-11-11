@@ -3,8 +3,7 @@ import unittest
 from io import BytesIO
 from unittest.mock import patch
 
-from fixtures.mock_constants import MockConstants
-from utils import setup_fixtures, teardown_fixtures
+import pytest
 
 from abci import __version__
 from abci.server import ProtocolHandler
@@ -37,16 +36,16 @@ async def deserialize(raw: bytes) -> Response:
         raise
 
 
+@pytest.mark.usefixtures("node_fixture")
 class TestInfo(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        setup_fixtures()
-        self.app = await Xian.create(constants=MockConstants)
+        self.app = await Xian.create(constants=self.constants)
+        self.addCleanup(self.app.client.close)
+        self.addAsyncCleanup(self.app.close)
         self.app.current_block_meta = {"height": 0, "nanos": 0}
         self.handler = ProtocolHandler(self.app)
         self.app.merkle_root_hash = b""
 
-    async def asyncTearDown(self):
-        teardown_fixtures()
 
     async def process_request(self, request_type, req):
         raw = await self.handler.process(request_type, req)

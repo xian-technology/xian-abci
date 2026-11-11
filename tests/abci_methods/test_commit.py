@@ -3,14 +3,12 @@ import unittest
 from io import BytesIO
 from unittest.mock import patch
 
-from fixtures.mock_constants import MockConstants
-from utils import setup_fixtures, teardown_fixtures
+import pytest
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
 from cometbft.abci.v1beta1.types_pb2 import RequestCommit
 from cometbft.abci.v1beta3.types_pb2 import Request, Response
-from xian.constants import Constants
 from xian.utils.block import (
     get_latest_block_height,
     set_latest_block,
@@ -24,18 +22,18 @@ async def deserialize(raw: bytes) -> Response:
     return next(read_messages(BytesIO(raw), Response))
 
 
+@pytest.mark.usefixtures("node_fixture")
 class TestCommit(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        setup_fixtures()
-        self.app = await Xian.create(constants=MockConstants)
+        self.app = await Xian.create(constants=self.constants)
+        self.addCleanup(self.app.client.close)
+        self.addAsyncCleanup(self.app.close)
         self.app.current_block_meta = {"height": 0, "nanos": 0}
         self.app.merkle_root_hash = b"abc123"
         self.app.chain_id = "xian-testnet-1"
         self.app.current_block_rewards = {}
         self.handler = ProtocolHandler(self.app)
 
-    async def asyncTearDown(self):
-        teardown_fixtures()
 
     async def process_request(self, req):
         raw = await self.handler.process("commit", req)
@@ -91,7 +89,7 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(get_latest_block_height(storage_home), 4)
         self.assertEqual(
-            self.app.client.raw_driver.value_from_disk(Constants.LATEST_BLOCK_KEY),
+            self.app.client.raw_driver.value_from_disk(self.constants.LATEST_BLOCK_KEY),
             {"hash": "22" * 32, "height": 4, "nanos": 400},
         )
 
@@ -123,10 +121,10 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
             10,
         )
         self.assertEqual(
-            self.app.client.raw_driver.pending_writes[Constants.LATEST_BLOCK_KEY],
+            self.app.client.raw_driver.pending_writes[self.constants.LATEST_BLOCK_KEY],
             {"hash": "44" * 32, "height": 6, "nanos": 600},
         )
-        self.assertIsNone(self.app.client.raw_driver.value_from_disk(Constants.LATEST_BLOCK_KEY))
+        self.assertIsNone(self.app.client.raw_driver.value_from_disk(self.constants.LATEST_BLOCK_KEY))
 
         response = await self.process_request(Request(commit=RequestCommit()))
         self.assertEqual(response.commit.retain_height, 0)
@@ -135,7 +133,7 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
             10,
         )
         self.assertEqual(
-            self.app.client.raw_driver.value_from_disk(Constants.LATEST_BLOCK_KEY),
+            self.app.client.raw_driver.value_from_disk(self.constants.LATEST_BLOCK_KEY),
             {"hash": "44" * 32, "height": 6, "nanos": 600},
         )
 
@@ -167,7 +165,7 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
             20,
         )
         self.assertEqual(
-            self.app.client.raw_driver.value_from_disk(Constants.LATEST_BLOCK_KEY),
+            self.app.client.raw_driver.value_from_disk(self.constants.LATEST_BLOCK_KEY),
             {"hash": "66" * 32, "height": 8, "nanos": 800},
         )
         mirror_logger.bind.return_value.warning.assert_called_once()
