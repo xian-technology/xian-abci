@@ -387,6 +387,9 @@ async def export_bds_snapshot(
         raise FileExistsError(f"snapshot already exists: {output_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     status = await bds.get_status()
+    indexed = dict(status["indexed"])
+    if isinstance(block_time := indexed.get("indexed_block_time_iso"), datetime):
+        indexed["indexed_block_time_iso"] = block_time.isoformat()
 
     with TemporaryDirectory() as temp_dir:
         temp_root = Path(temp_dir)
@@ -395,7 +398,7 @@ async def export_bds_snapshot(
             "schema_version": sql.SCHEMA_VERSION,
             "execution_policy": current_execution_policy(),
             "exported_at": datetime.now(UTC).isoformat(),
-            "indexed": status["indexed"],
+            "indexed": indexed,
             "spool_pending_count": status["spool_pending_count"],
             "tables": {},
         }

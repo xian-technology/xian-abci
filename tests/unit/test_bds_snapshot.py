@@ -275,6 +275,7 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
             "indexed": {
                 "indexed_height": 12,
                 "indexed_block_hash": "BLOCK-12",
+                "indexed_block_time_iso": datetime(2026, 1, 1, tzinfo=UTC),
                 "indexed_app_hash": "APP-12",
             },
             "spool_pending_count": 0,
@@ -296,6 +297,9 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
 
             with tarfile.open(snapshot_path, "r:gz") as archive:
                 metadata = json.loads(archive.extractfile("metadata.json").read().decode("utf-8"))
+            self.assertEqual(
+                metadata["indexed"]["indexed_block_time_iso"], "2026-01-01T00:00:00+00:00"
+            )
             self.assertEqual(metadata["tables"]["blocks"]["row_count"], 1)
             self.assertEqual(metadata["tables"]["state_changes"]["row_count"], 1)
             self.assertEqual(metadata["tables"]["addresses"]["row_count"], 1)
