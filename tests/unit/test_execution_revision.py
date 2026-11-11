@@ -19,7 +19,7 @@ def policy_state(value=None):
 
 def test_policy_requires_exact_current_identifiers():
     expected = {
-        "execution_revision": "xvm-execution-7",
+        "execution_revision": "xvm-execution-8",
         "gas_schedule": "xvm-gas-3",
         "bytecode_version": "xvm-2",
         "set_codec": "xian-set-1",
@@ -159,14 +159,18 @@ def test_fresh_bootstrap_accepts_existing_empty_database(tmp_path):
     assert policy.validate_persisted_execution_policy(tmp_path)
 
 
-@pytest.fixture(params=["xvm-execution-2", "xvm-execution-3", "xvm-execution-4", "xvm-execution-5", "xvm-execution-6"])
+@pytest.fixture(
+    params=[
+        "xvm-execution-2",
+        "xvm-execution-3",
+        "xvm-execution-4",
+        "xvm-execution-5",
+        "xvm-execution-6",
+        "xvm-execution-7",
+    ]
+)
 def previous_policy(request):
-    return {
-        "execution_revision": request.param,
-        "gas_schedule": "xvm-gas-2",
-        "bytecode_version": "xvm-1",
-        "set_codec": "xian-set-1",
-    }
+    return policy.current_execution_policy() | {"execution_revision": request.param}
 
 
 def test_previous_revision_is_rejected_even_with_matching_gas_and_codec(previous_policy):

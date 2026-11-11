@@ -1,5 +1,6 @@
 import hashlib
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -24,9 +25,12 @@ from xian.execution_engine import (
     prepare_vm_contract,
     vm_metering_writes,
 )
+from xian.execution_policy import VM_EXECUTION_REVISION
 from xian.fee_policy import TxFeePolicy
+from xian.nonce import NonceStorage
 from xian.processor import TxProcessor
 from xian.utils.encoding import normalize_for_abci_json, stringify_decimals
+from xian.utils.tx import canonical_json, tx_hash_from_tx, validate_transaction
 
 
 def augment_execution_output_with_driver_state(
@@ -97,6 +101,71 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         _load_vm_runtime_bindings.cache_clear()
         clear_prepared_contract_cache()
 
+    def test_native_transactions_reject_private_functions_and_constructor_entrypoints(self):
+        source = """counter = Variable()
+
+@construct
+def seed():
+    counter.set(7)
+
+@export
+def bump():
+    counter.set(counter.get() + 1)
+    return counter.get()
+
+def hidden():
+    counter.set(999)
+    return 'private entry executed'
+"""
+        account = Ed25519Account("11" * 32)
+        policy = TxFeePolicy.free_metered()
+        for function in ("hidden", "seed"):
+            with (
+                self.subTest(function=function),
+                tempfile.TemporaryDirectory(prefix="native-entry-", dir=Path.home()) as home,
+            ):
+                with ContractingClient(storage_home=home, metering=False) as client:
+                    client.submit(source, name="con_private_node", signer=account.public_key)
+                    contract = client.get_contract_proxy("con_private_node")
+                    self.assertEqual(contract.bump(signer=account.public_key), 8)
+                    client.raw_driver.commit()
+                    payload = {
+                        "sender": account.public_key,
+                        "contract": "con_private_node",
+                        "function": function,
+                        "kwargs": {},
+                        "nonce": 0,
+                        "chi_supplied": 10_000,
+                        "chain_id": "xian-local",
+                    }
+                    tx = {
+                        "payload": payload,
+                        "metadata": {"signature": account.sign_msg(canonical_json(payload))},
+                    }
+                    validate_transaction(
+                        client,
+                        NonceStorage(client),
+                        tx,
+                        tx_hash=tx_hash_from_tx(tx),
+                        chain_id="xian-local",
+                        fee_policy=policy,
+                    )
+                    tx["b_meta"] = {
+                        "nanos": 1_000_000_000,
+                        "hash": "ab" * 32,
+                        "height": 1,
+                        "chain_id": "xian-local",
+                    }
+                    result = TxProcessor(
+                        client=client, execution_runtime=build_vm_runtime()
+                    ).process_tx(tx, fee_policy=policy)
+                    self.assertIsNotNone(result["tx_result"])
+                    self.assertEqual(result["tx_result"]["status"], 1)
+                    self.assertEqual(result["tx_result"]["state"], [])
+                    self.assertEqual(result["tx_result"]["events"], [])
+                    self.assertEqual(client.raw_driver.get("con_private_node.counter"), 8)
+                    self.assertEqual(contract.bump(signer=account.public_key), 9)
+
     def test_build_runtime_for_vm_requires_native_package(self):
         with mock.patch.dict(sys.modules, {"xian_vm_core": None}):
             with self.assertRaisesRegex(ValueError, "xian-tech-vm-core"):
@@ -106,7 +175,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         fake_bindings = types.SimpleNamespace(
             runtime_info=lambda _profile: {
                 "vm_profile": "xian_vm_v2",
-                "execution_revision": "xvm-execution-7",
+                "execution_revision": VM_EXECUTION_REVISION,
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: False,
@@ -124,7 +193,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             runtime_info=lambda _profile: {
                 "vm_profile": "xian_vm_v2",
                 "host_catalog_version": "xian_vm_v2_host_v1",
-                "execution_revision": "xvm-execution-7",
+                "execution_revision": VM_EXECUTION_REVISION,
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
@@ -161,7 +230,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             runtime_info=lambda _profile: {
                 "vm_profile": "xian_vm_v2",
                 "host_catalog_version": "xian_vm_v2_host_v1",
-                "execution_revision": "xvm-execution-7",
+                "execution_revision": VM_EXECUTION_REVISION,
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
@@ -209,7 +278,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             runtime_info=lambda _profile: {
                 "vm_profile": "xian_vm_v2",
                 "host_catalog_version": "xian_vm_v2_host_v1",
-                "execution_revision": "xvm-execution-7",
+                "execution_revision": VM_EXECUTION_REVISION,
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
@@ -490,7 +559,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self.assertIn("submission", output.contract_costs)
         driver.flush_full()
 
-    def test_execute_native_members_reregister_after_removal_matches_python_runtime(
+    def test_execute_native_members_reregister_after_removal_resets_membership_dates(
         self,
     ):
         contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
@@ -516,7 +585,10 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     client.raw_driver.make_key("currency", "balances", [node]),
                     1_000_000,
                 )
-            client.raw_driver.set("rewards.S:value", [ContractingDecimal(text) for text in ("0.88", "0.01", "0.01", "0.1")])
+            client.raw_driver.set(
+                "rewards.S:value",
+                [ContractingDecimal(text) for text in ("0.88", "0.01", "0.01", "0.1")],
+            )
 
             client.submit(
                 (contracts_dir / "validators.s.py").read_text(),
@@ -638,7 +710,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         finally:
             client.flush()
 
-    def test_execute_native_permit_authorizer_matches_python_runtime(self):
+    def test_execute_native_permit_authorizer_consumes_nonce_and_emits_approval(self):
         contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         self.addCleanup(client.close)
@@ -883,7 +955,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         finally:
             client.flush()
 
-    def test_execute_native_submission_compact_shielded_artifacts_match_python_runtime(
+    def test_execute_native_submission_persists_compact_shielded_artifacts(
         self,
     ):
         root_dir = Path(__file__).resolve().parents[3]
@@ -952,7 +1024,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         finally:
             client.flush()
 
-    def test_execute_native_shielded_configure_vk_matches_python_runtime(self):
+    def test_execute_native_shielded_configure_vk_updates_key_and_emits_event(self):
         root_dir = Path(__file__).resolve().parents[3]
         source = (
             root_dir
@@ -1046,7 +1118,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         finally:
             client.flush()
 
-    def test_execute_native_hash_prefix_scan_matches_python_runtime(self):
+    def test_execute_native_hash_prefix_scan_tracks_reads_and_writes(self):
         root_dir = Path(__file__).resolve().parents[3]
         source = (
             root_dir / "xian-stack" / "workloads" / "parallel_probe" / "con_parallel_probe.py"
@@ -1154,7 +1226,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 "chain_id": "test-chain",
             }
             for token_name in ("con_tokena_probe", "con_tokenb_probe"):
-                client.get_contract_proxy(token_name).approve(amount=500_000, to=dex_name, signer="sys")
+                client.get_contract_proxy(token_name).approve(
+                    amount=500_000, to=dex_name, signer="sys"
+                )
                 driver.commit()
 
             outcome = execute_vm_transaction(
@@ -1213,7 +1287,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             runtime_info=lambda _profile: {
                 "vm_profile": "xian_vm_v2",
                 "host_catalog_version": "xian_vm_v2_host_v1",
-                "execution_revision": "xvm-execution-7",
+                "execution_revision": VM_EXECUTION_REVISION,
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,

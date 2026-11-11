@@ -1,9 +1,8 @@
 from types import SimpleNamespace
 
 import pytest
-from xian_compiler_core import CompilerError
-from contracting.execution.executor import Executor
 from contracting.storage.driver import Driver
+from xian_compiler_core import CompilerError
 
 from xian.execution_policy import EXECUTION_POLICY_KEY, current_execution_policy
 from xian.state_export import build_exported_state, import_state
@@ -82,9 +81,7 @@ def test_consensus_metadata_name_cannot_be_declared_by_contracts(tmp_path):
             )
 
 
-@pytest.mark.parametrize(
-    "vm_profile", ["xian_vm_v1", "xian_vm_v2"], ids=["archived-cpython", "native"]
-)
+@pytest.mark.parametrize("vm_profile", ["xian_vm_v1", "xian_vm_v2"], ids=["native-v1", "native-v2"])
 def test_foreign_contract_cannot_write_effective_consensus_metadata(tmp_path, vm_profile):
     with Driver(vm_profile=vm_profile, storage_home=tmp_path) as driver:
         driver.set_contract_from_source(
@@ -98,33 +95,22 @@ def test_foreign_contract_cannot_write_effective_consensus_metadata(tmp_path, vm
             owner=None,
         )
         driver.commit()
-        if vm_profile == "xian_vm_v2":
-            vm = pytest.importorskip("xian_vm_core")
-            result = vm.execute_contract(
-                vm_profile=vm_profile,
-                driver=driver,
-                contract_name="con_forgery",
-                function_name="write",
-                kwargs={},
-                context={
-                    "signer": "alice",
-                    "caller": "alice",
-                    "this": "con_forgery",
-                    "owner": None,
-                },
-                meter=False,
-                chi_budget_raw=1_000_000,
-            )
-            assert result.status_code == 1
-            assert result.writes == {}
-        else:
-            result = Executor(driver=driver, metering=False).execute(
-                sender="alice",
-                contract_name="con_forgery",
-                function_name="write",
-                kwargs={},
-                metering=False,
-            )
-            assert result["status_code"] == 1
-            assert result["writes"] == {}
+        vm = pytest.importorskip("xian_vm_core")
+        result = vm.execute_contract(
+            vm_profile=vm_profile,
+            driver=driver,
+            contract_name="con_forgery",
+            function_name="write",
+            kwargs={},
+            context={
+                "signer": "alice",
+                "caller": "alice",
+                "this": "con_forgery",
+                "owner": None,
+            },
+            meter=False,
+            chi_budget_raw=1_000_000,
+        )
+        assert result.status_code == 1
+        assert result.writes == {}
         assert driver.get(CONSENSUS_VALIDATORS_KEY) == {INCUMBENT: 10}
