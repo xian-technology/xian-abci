@@ -1,4 +1,6 @@
 import json
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,6 +25,8 @@ from xian.node_setup import (
     resolve_app_logging_settings,
     resolve_simulation_settings,
     resolve_statesync_settings,
+    write_json,
+    write_toml,
 )
 from xian.toml_utils import load as load_toml
 
@@ -120,22 +124,12 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(xian_config["pruning_enabled"])
         self.assertEqual(xian_config["metrics_port"], 9208)
         self.assertNotIn("execution", xian_config)
-        self.assertEqual(
-            xian_config["parallel_execution_max_speculative_waves"], 3
-        )
-        self.assertEqual(
-            xian_config["parallel_execution_min_wave_acceptance_ratio"], 0.4
-        )
-        self.assertEqual(
-            xian_config["parallel_execution_low_acceptance_min_wave_size"], 6
-        )
+        self.assertEqual(xian_config["parallel_execution_max_speculative_waves"], 3)
+        self.assertEqual(xian_config["parallel_execution_min_wave_acceptance_ratio"], 0.4)
+        self.assertEqual(xian_config["parallel_execution_low_acceptance_min_wave_size"], 6)
         self.assertFalse(xian_config["parallel_execution_warm_workers"])
-        self.assertFalse(
-            xian_config["parallel_execution_access_estimates_enabled"]
-        )
-        self.assertEqual(
-            xian_config["bds"]["application_name"], "xian-bds-test"
-        )
+        self.assertFalse(xian_config["parallel_execution_access_estimates_enabled"])
+        self.assertEqual(xian_config["bds"]["application_name"], "xian-bds-test")
 
     def test_render_config_applies_xian_settings(self):
         configs = render_node_configs(
@@ -178,9 +172,7 @@ class NodeSetupTests(unittest.TestCase):
         )
         self.assertEqual(config["rpc"]["cors_allowed_origins"], [])
         self.assertFalse(config["consensus"]["create_empty_blocks"])
-        self.assertEqual(
-            config["consensus"]["create_empty_blocks_interval"], "0s"
-        )
+        self.assertEqual(config["consensus"]["create_empty_blocks_interval"], "0s")
         self.assertNotIn("xian", config)
         self.assertTrue(xian_config["bds_enabled"])
         self.assertTrue(xian_config["pruning_enabled"])
@@ -202,19 +194,11 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(xian_config["parallel_execution_enabled"])
         self.assertEqual(xian_config["parallel_execution_workers"], 4)
         self.assertEqual(xian_config["parallel_execution_min_transactions"], 12)
-        self.assertEqual(
-            xian_config["parallel_execution_max_speculative_waves"], 4
-        )
-        self.assertEqual(
-            xian_config["parallel_execution_min_wave_acceptance_ratio"], 0.25
-        )
-        self.assertEqual(
-            xian_config["parallel_execution_low_acceptance_min_wave_size"], 8
-        )
+        self.assertEqual(xian_config["parallel_execution_max_speculative_waves"], 4)
+        self.assertEqual(xian_config["parallel_execution_min_wave_acceptance_ratio"], 0.25)
+        self.assertEqual(xian_config["parallel_execution_low_acceptance_min_wave_size"], 8)
         self.assertTrue(xian_config["parallel_execution_warm_workers"])
-        self.assertTrue(
-            xian_config["parallel_execution_access_estimates_enabled"]
-        )
+        self.assertTrue(xian_config["parallel_execution_access_estimates_enabled"])
         self.assertEqual(xian_config["bds"]["database"], "xian")
         self.assertEqual(xian_config["bds"]["application_name"], "xian-bds")
         self.assertEqual(xian_config["bds"]["acquire_timeout_ms"], 10000)
@@ -224,9 +208,7 @@ class NodeSetupTests(unittest.TestCase):
         self.assertEqual(xian_config["bds"]["rpc_url"], "")
         self.assertEqual(xian_config["bds"]["spool_warn_entries"], 256)
         self.assertEqual(xian_config["bds"]["spool_warn_bytes"], 536_870_912)
-        self.assertEqual(
-            xian_config["bds"]["disk_free_warn_bytes"], 2_147_483_648
-        )
+        self.assertEqual(xian_config["bds"]["disk_free_warn_bytes"], 2_147_483_648)
 
     def test_render_config_applies_bds_settings(self):
         xian_config = render_xian_config(
@@ -263,23 +245,15 @@ class NodeSetupTests(unittest.TestCase):
         self.assertEqual(xian_config["bds"]["pool_max_size"], 6)
         self.assertEqual(xian_config["bds"]["statement_timeout_ms"], 5000)
         self.assertEqual(xian_config["bds"]["acquire_timeout_ms"], 15000)
-        self.assertEqual(
-            xian_config["bds"]["application_name"], "xian-bds-test"
-        )
+        self.assertEqual(xian_config["bds"]["application_name"], "xian-bds-test")
         self.assertEqual(xian_config["bds"]["queue_max_size"], 321)
         self.assertFalse(xian_config["bds"]["catchup_enabled"])
         self.assertEqual(xian_config["bds"]["catchup_poll_seconds"], 2.5)
-        self.assertEqual(
-            xian_config["bds"]["rpc_url"], "http://rpc.internal:26657"
-        )
-        self.assertEqual(
-            xian_config["bds"]["spool_dir"], "/var/lib/xian/bds-spool"
-        )
+        self.assertEqual(xian_config["bds"]["rpc_url"], "http://rpc.internal:26657")
+        self.assertEqual(xian_config["bds"]["spool_dir"], "/var/lib/xian/bds-spool")
         self.assertEqual(xian_config["bds"]["spool_warn_entries"], 512)
         self.assertEqual(xian_config["bds"]["spool_warn_bytes"], 1_073_741_824)
-        self.assertEqual(
-            xian_config["bds"]["disk_free_warn_bytes"], 4_294_967_296
-        )
+        self.assertEqual(xian_config["bds"]["disk_free_warn_bytes"], 4_294_967_296)
 
     def test_render_config_keeps_vm_execution_internal(self):
         xian_config = render_xian_config(options=_node_options())
@@ -420,9 +394,7 @@ class NodeSetupTests(unittest.TestCase):
         )
 
         self.assertTrue(config["consensus"]["create_empty_blocks"])
-        self.assertEqual(
-            config["consensus"]["create_empty_blocks_interval"], "10s"
-        )
+        self.assertEqual(config["consensus"]["create_empty_blocks_interval"], "10s")
 
     def test_render_config_supports_idle_interval_block_policy(self):
         config = render_cometbft_config(
@@ -433,9 +405,7 @@ class NodeSetupTests(unittest.TestCase):
         )
 
         self.assertFalse(config["consensus"]["create_empty_blocks"])
-        self.assertEqual(
-            config["consensus"]["create_empty_blocks_interval"], "10s"
-        )
+        self.assertEqual(config["consensus"]["create_empty_blocks_interval"], "10s")
 
     def test_render_config_rejects_zero_interval_for_periodic_modes(self):
         with self.assertRaisesRegex(ValueError, "non-zero"):
@@ -493,16 +463,55 @@ class NodeSetupTests(unittest.TestCase):
             self.assertNotIn("xian", rendered_config)
             self.assertNotIn("tracer_mode", rendered_xian_config)
 
-            rendered_genesis = json.loads(
-                genesis_path.read_text(encoding="utf-8")
-            )
+            rendered_genesis = json.loads(genesis_path.read_text(encoding="utf-8"))
             self.assertEqual(rendered_genesis["chain_id"], "xian-local-1")
 
-            rendered_validator = json.loads(
-                priv_validator_key_path.read_text(encoding="utf-8")
-            )
+            rendered_validator = json.loads(priv_validator_key_path.read_text(encoding="utf-8"))
             self.assertIn("address", rendered_validator)
             self.assertNotIn("_private_key_hex", rendered_validator)
+
+    def test_materialize_home_writes_secret_files_owner_only(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = Path(tmp_dir) / ".cometbft"
+            previous_umask = os.umask(0o022)
+            try:
+                result = materialize_cometbft_home(
+                    home=home,
+                    config=render_cometbft_config(options=_node_options()),
+                    xian_config=render_xian_config(options=_node_options()),
+                    genesis={"chain_id": "xian-local-1", "validators": [], "abci_genesis": {}},
+                    priv_validator_key=build_priv_validator_key("01" * 32),
+                )
+            finally:
+                os.umask(previous_umask)
+
+            for name in (
+                "priv_validator_key_path",
+                "node_key_path",
+                "priv_validator_state_path",
+                "xian_config_path",
+            ):
+                with self.subTest(name=name):
+                    mode = stat.S_IMODE(Path(result[name]).stat().st_mode)
+                    self.assertEqual(mode, 0o600)
+            for directory in (home / "config", home / "data"):
+                with self.subTest(directory=directory.name):
+                    self.assertEqual(stat.S_IMODE(directory.stat().st_mode) & 0o077, 0)
+            # Public node files keep the operator's umask, as CometBFT does.
+            for name in ("config_path", "genesis_path"):
+                with self.subTest(name=name):
+                    mode = stat.S_IMODE(Path(result[name]).stat().st_mode)
+                    self.assertEqual(mode, 0o644)
+
+    def test_write_helpers_refuse_to_replace_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "existing"
+            path.write_text("keep", encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                write_json(path, {"a": 1})
+            with self.assertRaises(FileExistsError):
+                write_toml(path, {"a": 1})
+            self.assertEqual(path.read_text(encoding="utf-8"), "keep")
 
     def test_materialize_home_preserves_loaded_tagged_genesis(self):
         genesis = {
@@ -531,14 +540,10 @@ class NodeSetupTests(unittest.TestCase):
         self.assertEqual(saved, genesis)
 
     def test_build_priv_validator_key_rejects_invalid_hex(self):
-        with self.assertRaisesRegex(
-            ValueError, "private key must be a 64-character hex string"
-        ):
+        with self.assertRaisesRegex(ValueError, "private key must be a 64-character hex string"):
             build_priv_validator_key("abcd")
 
-        with self.assertRaisesRegex(
-            ValueError, "private key must be valid hex"
-        ):
+        with self.assertRaisesRegex(ValueError, "private key must be valid hex"):
             build_priv_validator_key("z" * 64)
 
     def test_generate_validator_material_returns_expected_shape(self):
@@ -558,13 +563,9 @@ class NodeSetupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             home = Path(tmp_dir) / ".cometbft"
             initial_config = render_cometbft_config(options=_node_options())
-            updated_config = render_cometbft_config(
-                options=_node_options("validator-2")
-            )
+            updated_config = render_cometbft_config(options=_node_options("validator-2"))
             initial_xian_config = render_xian_config(options=_node_options())
-            updated_xian_config = render_xian_config(
-                options=_node_options("validator-2")
-            )
+            updated_xian_config = render_xian_config(options=_node_options("validator-2"))
             initial_genesis = {
                 "chain_id": "xian-local-1",
                 "validators": [],
@@ -603,21 +604,15 @@ class NodeSetupTests(unittest.TestCase):
                 overwrite=True,
             )
 
-            self.assertEqual(
-                node_key_path.read_text(encoding="utf-8"), original_node_key
-            )
-            self.assertEqual(
-                state_path.read_text(encoding="utf-8"), original_state
-            )
+            self.assertEqual(node_key_path.read_text(encoding="utf-8"), original_node_key)
+            self.assertEqual(state_path.read_text(encoding="utf-8"), original_state)
 
             rendered_config = load_toml(second_result["config_path"])
             rendered_genesis = json.loads(
                 Path(second_result["genesis_path"]).read_text(encoding="utf-8")
             )
             rendered_validator = json.loads(
-                Path(second_result["priv_validator_key_path"]).read_text(
-                    encoding="utf-8"
-                )
+                Path(second_result["priv_validator_key_path"]).read_text(encoding="utf-8")
             )
 
             self.assertEqual(rendered_config["moniker"], "validator-2")

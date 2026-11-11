@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -686,21 +687,52 @@ def load_genesis(path: Path) -> dict[str, Any]:
     return loads_wire_json(path.read_bytes())
 
 
-def write_json(path: Path, payload: dict[str, Any], *, overwrite: bool = False) -> None:
-    if path.exists() and not overwrite:
-        raise FileExistsError(f"{path} already exists")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(encode_wire(payload, vm_profile=VM_EXECUTION_MODE))
-        f.write("\n")
+# CometBFT keeps key material owner-only; xian.toml can hold the BDS password.
+SECRET_FILE_MODE = 0o600
+PRIVATE_DIR_MODE = 0o700
 
 
-def write_toml(path: Path, payload: dict[str, Any], *, overwrite: bool = False) -> None:
+def _write_text(path: Path, text: str, *, overwrite: bool, private: bool) -> None:
     if path.exists() and not overwrite:
         raise FileExistsError(f"{path} already exists")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(toml_utils.dumps(payload))
+    if not private:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIR_MODE)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, SECRET_FILE_MODE)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        # An existing file keeps its old mode; restrict it before writing.
+        os.fchmod(fd, SECRET_FILE_MODE)
+        f.write(text)
+
+
+def write_json(
+    path: Path,
+    payload: dict[str, Any],
+    *,
+    overwrite: bool = False,
+    private: bool = False,
+) -> None:
+    _write_text(
+        path,
+        encode_wire(payload, vm_profile=VM_EXECUTION_MODE) + "\n",
+        overwrite=overwrite,
+        private=private,
+    )
+
+
+def write_toml(
+    path: Path,
+    payload: dict[str, Any],
+    *,
+    overwrite: bool = False,
+    private: bool = False,
+) -> None:
+    _write_text(path, toml_utils.dumps(payload), overwrite=overwrite, private=private)
 
 
 def materialize_cometbft_home(
@@ -717,8 +749,8 @@ def materialize_cometbft_home(
     data_dir = home / "data"
     storage_dir = home / "xian"
 
-    config_dir.mkdir(parents=True, exist_ok=True)
-    data_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIR_MODE)
+    data_dir.mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIR_MODE)
     storage_dir.mkdir(parents=True, exist_ok=True)
 
     config_path = config_dir / "config.toml"
@@ -729,7 +761,7 @@ def materialize_cometbft_home(
     priv_validator_state_path = data_dir / "priv_validator_state.json"
 
     write_toml(config_path, config, overwrite=overwrite)
-    write_toml(xian_config_path, xian_config, overwrite=overwrite)
+    write_toml(xian_config_path, xian_config, overwrite=overwrite, private=True)
     write_json(genesis_path, genesis, overwrite=overwrite)
 
     validator_payload = {
@@ -739,6 +771,7 @@ def materialize_cometbft_home(
         priv_validator_key_path,
         validator_payload,
         overwrite=overwrite,
+        private=True,
     )
 
     if not node_key_path.exists():
@@ -747,6 +780,7 @@ def materialize_cometbft_home(
             node_key_path,
             {"priv_key": node_key_payload["priv_key"]},
             overwrite=False,
+            private=True,
         )
 
     if not priv_validator_state_path.exists():
@@ -754,6 +788,7 @@ def materialize_cometbft_home(
             priv_validator_state_path,
             build_priv_validator_state(),
             overwrite=False,
+            private=True,
         )
 
     return {

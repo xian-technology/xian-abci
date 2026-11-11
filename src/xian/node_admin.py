@@ -623,11 +623,12 @@ def configure_existing_home(
             priv_validator_key_path,
             priv_validator_key,
             overwrite=True,
+            private=True,
         )
 
     xian_config_path = request.home / "config" / "xian.toml"
     write_toml(config_path, config, overwrite=True)
-    write_toml(xian_config_path, xian_config, overwrite=True)
+    write_toml(xian_config_path, xian_config, overwrite=True, private=True)
     return {
         "config_path": str(config_path),
         "xian_config_path": str(xian_config_path),

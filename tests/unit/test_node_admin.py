@@ -1,6 +1,8 @@
 import hashlib
 import io
 import json
+import os
+import stat
 import tarfile
 import tempfile
 import unittest
@@ -531,6 +533,66 @@ seeds = ""
                 "xian-bds-test",
             )
             self.assertEqual(result["p2p_seeds"], ["seed-1@127.0.0.1:26656"])
+
+    def test_configure_existing_home_rewrites_secret_files_owner_only(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = Path(tmp_dir) / ".cometbft"
+            config_path = home / "config" / "config.toml"
+            config_path.parent.mkdir(parents=True)
+            write_toml(
+                config_path,
+                load_toml_string(
+                    """
+version = "0.39.3"
+proxy_app = "unix:///tmp/abci.sock"
+moniker = "initial-node"
+db_backend = "goleveldb"
+db_dir = "data"
+log_level = "info"
+log_format = "plain"
+genesis_file = "config/genesis.json"
+priv_validator_key_file = "config/priv_validator_key.json"
+priv_validator_state_file = "data/priv_validator_state.json"
+node_key_file = "config/node_key.json"
+abci = "socket"
+filter_peers = false
+
+[rpc]
+laddr = "tcp://127.0.0.1:26657"
+cors_allowed_origins = ["*"]
+
+[p2p]
+laddr = "tcp://0.0.0.0:26656"
+seeds = ""
+""".strip()
+                ),
+            )
+            # Homes written by older releases kept secrets world-readable.
+            for name in ("priv_validator_key.json", "xian.toml"):
+                legacy = home / "config" / name
+                legacy.write_text("{}", encoding="utf-8")
+                legacy.chmod(0o644)
+
+            previous_umask = os.umask(0o022)
+            try:
+                result = configure_existing_home(
+                    options=ExistingHomeOptions(
+                        moniker="updated-node",
+                        validator_private_key_hex="01" * 32,
+                        home=home,
+                        p2p_seeds=["seed-1@127.0.0.1:26656"],
+                        node_config=NodeConfigOptions(
+                            moniker="updated-node",
+                            bds=BdsOptions(password="secret-password"),
+                        ),
+                    )
+                )
+            finally:
+                os.umask(previous_umask)
+
+            for path in (result["priv_validator_key_path"], result["xian_config_path"]):
+                with self.subTest(path=path):
+                    self.assertEqual(stat.S_IMODE(Path(path).stat().st_mode), 0o600)
 
     def test_configure_existing_home_accepts_network_first_genesis_source(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
