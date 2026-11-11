@@ -466,7 +466,7 @@ class TestMembersContract(unittest.TestCase):
         self.assertEqual(self.members.powers["node3"], 10)
         self.assertEqual(self.members.powers["node2"], 0)
 
-    def test_rebalance_excludes_validator_with_pending_leave(self):
+    def test_pending_leave_survives_rebalance_and_ranked_displacement(self):
         current_time = Datetime(year=2024, month=1, day=1, hour=12)
         self.approve_policy_update(
             selection_mode="auto_top_n",
@@ -500,6 +500,24 @@ class TestMembersContract(unittest.TestCase):
             environment={"block_num": 2, "now": current_time},
         )
 
+        self.assertEqual(self.members.active_validators.get(), ["node1", "node2"])
+        self.assertEqual(self.members.statuses["node1"], "leaving")
+        self.assertTrue(self.members.get_validator(account="node1", signer="node1")["active"])
+        with self.assertRaises(AssertionError):
+            self.members.leave(
+                signer="node1",
+                environment={"block_num": 2, "now": current_time},
+            )
+
+        # Announced validators retain ordinary eligibility, not a reserved seat.
+        self.members.bond_self(amount=100, signer="node2")
+        self.currency.transfer(amount=100, to="node3", signer=self.deployer_vk)
+        self.currency.approve(amount=150, to="validators", signer="node3")
+        self.members.bond_self(amount=150, signer="node3")
+        self.members.rebalance(
+            signer="node2",
+            environment={"block_num": 3, "now": current_time},
+        )
         self.assertEqual(self.members.active_validators.get(), ["node2", "node3"])
         self.assertEqual(self.members.statuses["node1"], "leaving")
         self.assertFalse(self.members.get_validator(account="node1", signer="node1")["active"])
@@ -507,7 +525,7 @@ class TestMembersContract(unittest.TestCase):
         exited = self.members.leave(
             signer="node1",
             environment={
-                "block_num": 2,
+                "block_num": 4,
                 "now": Datetime(year=2024, month=1, day=8, hour=13),
             },
         )
