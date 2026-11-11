@@ -63,6 +63,24 @@ class VmTransactionResult:
     prefix_reads: frozenset[str]
 
 
+class _InsufficientFeeBalance(AssertionError):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class _VmFeeReservation:
+    balance_key: str
+    amount: ContractingDecimal
+    spendable_balance: object
+
+    def refund_writes(self, writes: dict[str, Any], *, chi_used: int, chi_cost: int) -> dict:
+        balance = _coerce_balance_value(writes.get(self.balance_key, self.spendable_balance))
+        fee = ContractingDecimal(chi_used) / ContractingDecimal(chi_cost)
+        # Subtract the actual charge from the reserved amount, rather than
+        # independently rounding a second chi-to-token conversion for the refund.
+        return {self.balance_key: balance + (self.amount - fee)}
+
+
 _VM_PREPARED_CONTRACTS: dict[tuple[str, str], VmPreparedContract] = {}
 
 
@@ -144,6 +162,39 @@ def _coerce_balance_value(balance):
     if isinstance(balance, str | float | decimal.Decimal):
         return ContractingDecimal(str(balance))
     return balance
+
+
+def _reserve_vm_fee_budget(
+    driver,
+    *,
+    sender: str,
+    chi_budget: int,
+    chi_cost: int,
+    currency_contract: str,
+    balances_hash: str,
+) -> _VmFeeReservation:
+    balance_key = next(
+        iter(
+            metering_write_keys(
+                driver,
+                sender=sender,
+                currency_contract=currency_contract,
+                balances_hash=balances_hash,
+            )
+        )
+    )
+    balance = _coerce_balance_value(driver.get(balance_key))
+    # Compare exact ratios before fixed-point division truncates the reservation.
+    balance_numerator, balance_denominator = decimal.Decimal(str(balance)).as_integer_ratio()
+    rate_numerator, rate_denominator = decimal.Decimal(str(chi_cost)).as_integer_ratio()
+    if chi_budget <= 0 or balance_numerator * rate_numerator < (
+        chi_budget * balance_denominator * rate_denominator
+    ):
+        raise _InsufficientFeeBalance("Sender does not have enough chi for the submitted budget.")
+    amount = ContractingDecimal(chi_budget) / ContractingDecimal(chi_cost)
+    reservation = _VmFeeReservation(balance_key, amount, balance - amount)
+    driver.apply_writes({balance_key: reservation.spendable_balance})
+    return reservation
 
 
 def clear_prepared_contract_cache() -> None:
@@ -314,43 +365,56 @@ def execute_vm_transaction(
     transaction_size_bytes: int = 0,
     apply_metering_on_success_only: bool = True,
     apply_metering_writes: bool = True,
+    reserve_fee_budget: bool = True,
     currency_contract: str = "currency",
     balances_hash: str = "balances",
 ) -> VmTransactionResult:
     base_driver_state = driver.snapshot_state()
-    vm_output = execute_vm_contract(
-        runtime,
-        driver,
-        sender=sender,
-        contract_name=contract_name,
-        function_name=function_name,
-        kwargs=kwargs,
-        environment=environment,
-        meter=meter,
-        chi_budget=chi_budget,
-        transaction_size_bytes=transaction_size_bytes,
-    )
-    vm_reads = deepcopy(driver.transaction_reads)
-    vm_prefix_reads = frozenset(deepcopy(getattr(driver, "transaction_read_prefixes", set())))
+    reservation = None
+    try:
+        if meter and apply_metering_writes and reserve_fee_budget:
+            reservation = _reserve_vm_fee_budget(
+                driver,
+                sender=sender,
+                chi_budget=chi_budget,
+                chi_cost=chi_cost,
+                currency_contract=currency_contract,
+                balances_hash=balances_hash,
+            )
+        vm_output = execute_vm_contract(
+            runtime,
+            driver,
+            sender=sender,
+            contract_name=contract_name,
+            function_name=function_name,
+            kwargs=kwargs,
+            environment=environment,
+            meter=meter,
+            chi_budget=chi_budget,
+            transaction_size_bytes=transaction_size_bytes,
+        )
+    except _InsufficientFeeBalance as exc:
+        vm_output = VmExecutionResult(
+            status_code=1, result=AssertionError(str(exc)), writes={}, events=[]
+        )
+    finally:
+        vm_reads = deepcopy(driver.transaction_reads)
+        vm_prefix_reads = frozenset(getattr(driver, "transaction_read_prefixes", set()))
+        driver.restore_state(base_driver_state)
 
     chi_used = int(vm_output.chi_used or 0)
     contract_costs = dict(vm_output.contract_costs or {})
-    merged_writes = dict(vm_output.writes)
-    driver.restore_state(base_driver_state)
-
-    if apply_metering_writes and (vm_output.status_code == 0 or not apply_metering_on_success_only):
-        if meter and chi_used > 0:
-            merged_writes.update(
-                vm_metering_writes(
-                    driver,
-                    sender=sender,
-                    chi_used=chi_used,
-                    chi_cost=chi_cost,
-                    base_writes=merged_writes,
-                    currency_contract=currency_contract,
-                    balances_hash=balances_hash,
-                )
-            )
+    merged_writes = _settle_vm_transaction_writes(
+        driver,
+        vm_output,
+        reservation=reservation,
+        sender=sender,
+        chi_cost=chi_cost,
+        charge_fees=meter and apply_metering_writes,
+        charge_failure=not apply_metering_on_success_only,
+        currency_contract=currency_contract,
+        balances_hash=balances_hash,
+    )
 
     return VmTransactionResult(
         output=vm_output,
@@ -360,6 +424,40 @@ def execute_vm_transaction(
         reads=vm_reads,
         prefix_reads=vm_prefix_reads,
     )
+
+
+def _settle_vm_transaction_writes(
+    driver,
+    output: VmExecutionResult,
+    *,
+    reservation: _VmFeeReservation | None,
+    sender: str,
+    chi_cost: int,
+    charge_fees: bool,
+    charge_failure: bool,
+    currency_contract: str,
+    balances_hash: str,
+) -> dict[str, Any]:
+    writes = dict(output.writes) if output.status_code == 0 else {}
+    if not charge_fees or (output.status_code != 0 and not charge_failure):
+        return writes
+    if reservation is not None:
+        writes.update(
+            reservation.refund_writes(writes, chi_used=output.chi_used, chi_cost=chi_cost)
+        )
+    else:
+        writes.update(
+            vm_metering_writes(
+                driver,
+                sender=sender,
+                chi_used=output.chi_used,
+                chi_cost=chi_cost,
+                base_writes=writes,
+                currency_contract=currency_contract,
+                balances_hash=balances_hash,
+            )
+        )
+    return writes
 
 
 def _prepare_vm_contract_bundle(

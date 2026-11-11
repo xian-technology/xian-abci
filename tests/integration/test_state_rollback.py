@@ -6,6 +6,7 @@ import utils
 from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
 from fixtures.mock_constants import MockConstants
+from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
@@ -556,6 +557,10 @@ class TestStateRollback(unittest.TestCase):
     def test_fees_enabled_failing_tx_rollback(self):
         bm1 = create_block_meta(datetime.datetime.now())
         bm2 = create_block_meta(datetime.datetime.now())
+        # Cover the submitted fee budget so execution reaches the deliberate
+        # post-mutation failure rather than rejecting an unfunded transaction.
+        self.driver.set("currency.balances:alice", 1000)
+        self.driver.set("chi_cost.S:value", 100)
 
         # init simple
         self.txp.process_tx(
@@ -593,6 +598,10 @@ class TestStateRollback(unittest.TestCase):
             fee_policy=TxFeePolicy.paid_metered(),
         )
         self.assertNotEqual(res.get("tx_result", {}).get("status"), 0)
+        self.assertIn("Forced failure after in-place mutation", res["tx_result"]["result"])
+        self.assertGreater(res["tx_result"]["chi_used"], 0)
+        balance_after_first = 1000 - ContractingDecimal(res["tx_result"]["chi_used"]) / 100
+        self.assertEqual(self.driver.get("currency.balances:alice"), balance_after_first)
         # Fees enabled: expect only currency chi write; no contract writes
         self.assert_currency_write_present(where="after fees-enabled mutate_in_place_and_fail failure")
         self.assert_no_contract_writes("after fees-enabled mutate_in_place_and_fail failure")
@@ -611,9 +620,16 @@ class TestStateRollback(unittest.TestCase):
                 },
                 "metadata": {"signature": "abc"},
                 "b_meta": bm2,
-            }
+            },
+            fee_policy=TxFeePolicy.paid_metered(),
         )
         self.assertNotEqual(res.get("tx_result", {}).get("status"), 0)
+        self.assertIn("Forced failure after reassign", res["tx_result"]["result"])
+        self.assertGreater(res["tx_result"]["chi_used"], 0)
+        self.assertEqual(
+            self.driver.get("currency.balances:alice"),
+            balance_after_first - ContractingDecimal(res["tx_result"]["chi_used"]) / 100,
+        )
         self.assert_currency_write_present(where="after fees-enabled mutate_then_reassign_and_fail failure")
         self.assert_no_contract_writes("after fees-enabled mutate_then_reassign_and_fail failure")
         self.assertEqual(self.contract.nested["k_fees"]["count"], 1)

@@ -201,6 +201,8 @@ class TransactionSimulator:
             meter=True,
             apply_metering_on_success_only=False,
             apply_metering_writes=bool(getattr(self, "charge_fees", True)),
+            # This is a cost estimate, not a transaction with a submitted budget.
+            reserve_fee_budget=False,
         )
 
         writes = [{"key": key, "value": value} for key, value in outcome.writes.items()]
