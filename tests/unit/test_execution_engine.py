@@ -461,6 +461,82 @@ def hidden():
             prepare_vm_contract(runtime, driver, "con_zk_probe")
         driver.flush_full()
 
+    def _store_contract(self, driver, name, code):
+        artifacts = build_contract_artifacts(
+            module_name=name,
+            source=code,
+            lint=False,
+            vm_profile="xian_vm_v2",
+        )
+        driver.set_contract(
+            name=name,
+            source=artifacts["source"],
+            vm_ir_json=artifacts["vm_ir_json"],
+        )
+
+    def test_prepare_vm_contract_rejects_dangling_import_on_warm_process(self):
+        # A warm process must reach the same verdict as a restarted one.
+        runtime = build_vm_runtime()
+        driver = Driver(vm_profile="xian_vm_v2")
+        self.addCleanup(driver.close)
+        driver.flush_full()
+        self._store_contract(
+            driver,
+            "con_parent",
+            "import con_missing\n\n@export\ndef ping():\n    return 1\n",
+        )
+
+        for _attempt in range(2):
+            with self.assertRaisesRegex(ValueError, "con_missing"):
+                prepare_vm_contract(runtime, driver, "con_parent")
+        driver.flush_full()
+
+    def test_prepare_vm_contract_rejects_import_cycle_on_warm_process(self):
+        runtime = build_vm_runtime()
+        driver = Driver(vm_profile="xian_vm_v2")
+        self.addCleanup(driver.close)
+        driver.flush_full()
+        self._store_contract(
+            driver,
+            "con_cycle_a",
+            "import con_cycle_b\n\n@export\ndef ping():\n    return 1\n",
+        )
+        self._store_contract(
+            driver,
+            "con_cycle_b",
+            "import con_cycle_a\n\n@export\ndef ping():\n    return 2\n",
+        )
+
+        for _attempt in range(2):
+            with self.assertRaisesRegex(
+                ValueError, "cycle: con_cycle_a -> con_cycle_b -> con_cycle_a"
+            ):
+                prepare_vm_contract(runtime, driver, "con_cycle_a")
+        driver.flush_full()
+
+    def test_prepare_vm_contract_rechecks_imported_runtime_features(self):
+        runtime = build_vm_runtime()
+        driver = Driver(vm_profile="xian_vm_v2")
+        self.addCleanup(driver.close)
+        driver.flush_full()
+        self._store_contract(
+            driver,
+            "con_zk_child",
+            "@export\ndef check():\n    return zk.is_available()\n",
+        )
+        self._store_contract(
+            driver,
+            "con_zk_parent",
+            "import con_zk_child\n\n@export\ndef ping():\n    return 1\n",
+        )
+        set_driver_runtime_features(driver, {"zk": True})
+        prepare_vm_contract(runtime, driver, "con_zk_parent")
+
+        set_driver_runtime_features(driver, {"zk": False})
+        with self.assertRaisesRegex(ValueError, "zk runtime feature is disabled"):
+            prepare_vm_contract(runtime, driver, "con_zk_parent")
+        driver.flush_full()
+
     def test_execute_native_submission_change_owner_stages_metadata_write(self):
         runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")

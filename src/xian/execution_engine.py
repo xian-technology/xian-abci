@@ -41,6 +41,7 @@ class VmPreparedContract:
     contract_name: str
     artifact_hash: str
     imported_contracts: tuple[str, ...]
+    uses_zk: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -465,24 +466,56 @@ def _prepare_vm_contract_bundle(
     driver,
     contract_name: str,
     stack: tuple[str, ...],
+    prepared_in_call: dict[str, VmPreparedContract] | None = None,
 ) -> VmPreparedContract:
+    # Every call checks the whole import graph against current state, so a
+    # warm process reaches the same verdict as a restarted node. Only the pure
+    # validation of one module's IR is cached, keyed by that IR's hash.
+    if prepared_in_call is None:
+        prepared_in_call = {}
     if contract_name in stack:
         raise ValueError(
             "xian_vm_v2 import graph contains a cycle: " + " -> ".join((*stack, contract_name))
         )
+    already_prepared = prepared_in_call.get(contract_name)
+    if already_prepared is not None:
+        return already_prepared
 
     artifact_hash, module_ir_json = _load_vm_module_ir_json(driver, contract_name)
-    module_ir = json.loads(module_ir_json)
-    _reject_disabled_runtime_features(driver, contract_name, module_ir)
+    prepared = _validated_vm_module(driver, contract_name, artifact_hash, module_ir_json)
 
+    next_stack = (*stack, contract_name)
+    for imported_contract in prepared.imported_contracts:
+        _prepare_vm_contract_bundle(
+            driver=driver,
+            contract_name=imported_contract,
+            stack=next_stack,
+            prepared_in_call=prepared_in_call,
+        )
+
+    prepared_in_call[contract_name] = prepared
+    return prepared
+
+
+def _validated_vm_module(
+    driver,
+    contract_name: str,
+    artifact_hash: str,
+    module_ir_json: str,
+) -> VmPreparedContract:
     cache_key = (contract_name, artifact_hash)
-    cached = _VM_PREPARED_CONTRACTS.get(cache_key)
-    if cached is not None:
-        return cached
+    prepared = _VM_PREPARED_CONTRACTS.get(cache_key)
+    if prepared is not None:
+        # Runtime features are chain state, so they are checked on every call.
+        if prepared.uses_zk:
+            _reject_disabled_zk_feature(driver, contract_name)
+        return prepared
 
-    bindings = _load_vm_runtime_bindings()
-    bindings.validate_module_ir(module_ir)
-
+    module_ir = json.loads(module_ir_json)
+    uses_zk = module_ir_uses_runtime_feature(module_ir, RUNTIME_FEATURE_ZK)
+    if uses_zk:
+        _reject_disabled_zk_feature(driver, contract_name)
+    _load_vm_runtime_bindings().validate_module_ir(module_ir)
     imported_contracts = tuple(
         sorted(
             {
@@ -496,27 +529,14 @@ def _prepare_vm_contract_bundle(
         contract_name=contract_name,
         artifact_hash=artifact_hash,
         imported_contracts=imported_contracts,
+        uses_zk=uses_zk,
     )
     _VM_PREPARED_CONTRACTS[cache_key] = prepared
-
-    next_stack = (*stack, contract_name)
-    for imported_contract in imported_contracts:
-        _prepare_vm_contract_bundle(
-            driver=driver,
-            contract_name=imported_contract,
-            stack=next_stack,
-        )
-
     return prepared
 
 
-def _reject_disabled_runtime_features(
-    driver, contract_name: str, module_ir: dict[str, Any]
-) -> None:
-    if module_ir_uses_runtime_feature(
-        module_ir,
-        RUNTIME_FEATURE_ZK,
-    ) and not runtime_feature_enabled(
+def _reject_disabled_zk_feature(driver, contract_name: str) -> None:
+    if not runtime_feature_enabled(
         driver,
         RUNTIME_FEATURE_ZK,
         default_enabled=True,
