@@ -20,9 +20,7 @@ if os.environ.get("XIAN_SDK_TRANSACTION_PARITY") != "1":
     )
 
 xian_fastpath_core = pytest.importorskip("xian_fastpath_core")
-_native_decode_static = (
-    xian_fastpath_core.decode_and_validate_transaction_static
-)
+_native_decode_static = xian_fastpath_core.decode_and_validate_transaction_static
 
 CHAIN_ID = "xian-local"
 PRIVATE_KEY = "".join(f"{value:02x}" for value in range(32))
@@ -38,12 +36,13 @@ class ValidationResult:
     error: str | None = None
 
 
-def _run(command: list[str], *, cwd: Path) -> str:
+def _run(command: list[str], *, cwd: Path, stdin: str | None = None) -> str:
     result = subprocess.run(
         command,
         cwd=cwd,
         check=True,
         capture_output=True,
+        input=stdin,
         text=True,
     )
     return result.stdout
@@ -82,6 +81,10 @@ cases = [
     {{
         "name": "reject_float_kwargs",
         "kwargs": {{"amount": 1.5, "to": sender}},
+    }},
+    {{
+        "name": "reject_noncanonical_fixed",
+        "kwargs": {{"amount": {{"__fixed__": "1.0"}}}},
     }},
     {{"name": "reject_non_object_kwargs", "kwargs": []}},
     {{
@@ -170,6 +173,7 @@ const cases = [
     name: "reject_float_kwargs",
     kwargs: {{ amount: 1.5, to: sender }}
   }},
+  {{ name: "reject_noncanonical_fixed", kwargs: {{ amount: {{ __fixed__: "1.0" }} }} }},
   {{ name: "reject_non_object_kwargs", kwargs: [] }},
   {{
     name: "reject_boolean_nonce",
@@ -209,34 +213,28 @@ for (const [index, testCase] of cases.entries()) {{
 
 console.log(JSON.stringify(records));
 """
-    output = _run(
-        ["node", "--input-type=module", "-e", script], cwd=XIAN_JS_DIR
-    )
+    output = _run(["node", "--input-type=module", "-e", script], cwd=XIAN_JS_DIR)
     return json.loads(output)
 
 
 @contextmanager
 def _validation_mode(*, native: bool):
-    original_decode_static = (
-        tx_utils._native_decode_and_validate_transaction_static
-    )
+    original_decode_static = tx_utils._native_decode_and_validate_transaction_static
     tx_utils._native_decode_and_validate_transaction_static = (
         _native_decode_static if native else None
     )
     try:
         yield
     finally:
-        tx_utils._native_decode_and_validate_transaction_static = (
-            original_decode_static
-        )
+        tx_utils._native_decode_and_validate_transaction_static = original_decode_static
 
 
-def _validate(raw_tx: bytes, *, native: bool) -> ValidationResult:
+def _validate(raw_tx: bytes, *, native: bool, chain_id: str = CHAIN_ID) -> ValidationResult:
     with _validation_mode(native=native):
         try:
             value = tx_utils.decode_and_validate_transaction_static_bytes(
                 raw_tx,
-                chain_id=CHAIN_ID,
+                chain_id=chain_id,
             )
         except Exception as exc:
             return ValidationResult(accepted=False, error=str(exc))
@@ -251,15 +249,14 @@ def test_python_and_js_sdk_transactions_match_admission_fastpath():
     if not (XIAN_JS_DIR / "packages/client/dist/index.js").exists():
         pytest.fail("xian-js client package must be built before this test")
 
-    python_records = {
-        record["name"]: record for record in _python_sdk_records()
-    }
+    python_records = {record["name"]: record for record in _python_sdk_records()}
     js_records = {record["name"]: record for record in _js_sdk_records()}
 
     assert js_records.keys() == python_records.keys()
     for name, python_record in python_records.items():
         js_record = js_records[name]
         assert js_record["accepted"] == python_record["accepted"], name
+        assert python_record["accepted"] == (not name.startswith("reject_")), name
         if not python_record["accepted"]:
             continue
 
@@ -270,3 +267,55 @@ def test_python_and_js_sdk_transactions_match_admission_fastpath():
         assert python_result.accepted, name
         assert native_result.accepted == python_result.accepted, name
         assert native_result.value == python_result.value, name
+
+
+def test_default_sdk_signatures_match_v2_fixtures_and_node():
+    fixture = (
+        ROOT.parent / "xian-contracting/tests/fixtures/transaction_numeric_v2.json"
+    ).read_text(encoding="utf-8")
+    python_script = """
+import json, sys
+from xian_py import Wallet
+from xian_py.transaction import create_tx, prepare_transaction
+from xian_runtime_types.encoding import convert_dict
+
+vectors = json.load(sys.stdin)
+wallet = Wallet(vectors["private_key"])
+for case in vectors["cases"]:
+    payload = case["payload"]
+    payload["kwargs"] = convert_dict(payload["kwargs"])
+    print(prepare_transaction(create_tx(payload, wallet)).submitted_bytes.decode("ascii"))
+"""
+    js_script = """
+import { readFileSync } from "node:fs";
+import { Ed25519Signer, XianClient, prepareTransaction } from "./packages/client/dist/index.js";
+
+const vectors = JSON.parse(readFileSync(0, "utf8"), (_, value) =>
+  value && typeof value === "object" && "__big_int__" in value ? BigInt(value.__big_int__) : value
+);
+const client = new XianClient({ rpcUrl: "http://127.0.0.1" });
+const signer = new Ed25519Signer(vectors.private_key);
+for (const { payload } of vectors.cases) {
+  console.log(prepareTransaction(await client.signTx({ payload }, signer)).rpcHex);
+}
+"""
+    python_hex = _run(
+        ["uv", "run", "--project", str(XIAN_PY_DIR), "python", "-c", python_script],
+        cwd=XIAN_PY_DIR,
+        stdin=fixture,
+    ).splitlines()
+    js_hex = _run(
+        ["node", "--input-type=module", "-e", js_script], cwd=XIAN_JS_DIR, stdin=fixture
+    ).splitlines()
+    for case, python_wire, js_wire in zip(
+        json.loads(fixture)["cases"], python_hex, js_hex, strict=True
+    ):
+        expected = case["transaction_json"].encode("utf-8").hex()
+        assert python_wire == js_wire == expected, case["name"]
+        for native in (False, True):
+            result = _validate(
+                python_wire.encode("ascii"), native=native, chain_id=case["payload"]["chain_id"]
+            )
+            assert result.accepted, result.error
+            assert result.value["payload"] == case["payload"]
+            assert result.value["metadata"]["signature"] == case["signature"]
