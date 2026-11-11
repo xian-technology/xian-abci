@@ -9,9 +9,13 @@ from contracting.storage.lmdb_environment import DEFAULT_ENVIRONMENT_POOL
 
 VM_EXECUTION_MODE = "xian_vm_v2"
 VM_BYTECODE_VERSION = "xvm-2"
-VM_GAS_SCHEDULE = "xvm-gas-3"
-VM_EXECUTION_REVISION = "xvm-execution-9"
+VM_GAS_SCHEDULE = "xvm-gas-4"
+VM_EXECUTION_REVISION = "xvm-execution-10"
 SET_CODEC = "xian-set-1"
+# Contract admission (compiler-core) and transaction admission (fastpath-core,
+# or the equivalent Python fallback) are consensus rules like execution.
+COMPILER_ADMISSION_REVISION = "xian-admission-2"
+TX_ADMISSION_REVISION = "xian-fastpath-admission-2"
 EXECUTION_POLICY_KEY = "__execution_policy"
 
 
@@ -21,6 +25,8 @@ def current_execution_policy() -> dict[str, str]:
         "gas_schedule": VM_GAS_SCHEDULE,
         "bytecode_version": VM_BYTECODE_VERSION,
         "set_codec": SET_CODEC,
+        "compiler_admission_revision": COMPILER_ADMISSION_REVISION,
+        "tx_admission_revision": TX_ADMISSION_REVISION,
     }
 
 

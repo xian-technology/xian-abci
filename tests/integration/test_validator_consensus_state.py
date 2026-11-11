@@ -59,7 +59,7 @@ def test_effective_set_survives_commit_restart_and_state_export_import(tmp_path)
     restored = tmp_path / "restored"
     import_state(exported_state=exported, storage_home=restored)
     with Driver(vm_profile="xian_vm_v2", storage_home=restored) as driver:
-        driver.set("validators.active_validators", [REPLACEMENT.upper()])
+        driver.set("validators.active_validators", [REPLACEMENT])
         updates = handler(driver).build_validator_updates(3)
         assert [(item.pub_key.ed25519.hex(), item.power) for item in updates] == [
             (REPLACEMENT, 10),

@@ -8,6 +8,8 @@ from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any
 
+import lmdb
+from contracting.constants import TRANSACTION_BASE_CHI
 from contracting.runtime_features import (
     RUNTIME_FEATURE_ZK,
     module_ir_uses_runtime_feature,
@@ -17,8 +19,10 @@ from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import validate_persistent_value
 
 from xian.execution_policy import (
+    COMPILER_ADMISSION_REVISION,
     EXECUTION_POLICY_KEY,
     SET_CODEC,
+    TX_ADMISSION_REVISION,
     VM_BYTECODE_VERSION,
     VM_EXECUTION_MODE,
     VM_EXECUTION_REVISION,
@@ -80,6 +84,42 @@ class _VmFeeReservation:
         # Subtract the actual charge from the reserved amount, rather than
         # independently rounding a second chi-to-token conversion for the refund.
         return {self.balance_key: balance + (self.amount - fee)}
+
+
+# Receipt text for deterministic failures whose own message is not canonical.
+HOST_FAILURE_MESSAGE = "Transaction failed in the host runtime."
+
+# Faults that depend on the machine rather than on the transaction. They halt
+# the node; recording them in a receipt would let validators disagree.
+HOST_FAULT_EXCEPTIONS = (MemoryError, OSError, RecursionError, SystemError, lmdb.Error)
+
+
+class ContractPreparationError(ValueError):
+    """A contract cannot run in current chain state; the message is canonical."""
+
+
+def failed_transaction_chi(chi_used: int, chi_budget: int) -> int:
+    """Chi charged for any failed metered transaction: at least base, at most budget."""
+    return min(max(int(chi_used), TRANSACTION_BASE_CHI), max(int(chi_budget), 0))
+
+
+def canonical_failure(exc: Exception) -> Exception:
+    """Map a deterministic failure to receipt-safe text; re-raise host faults."""
+    if isinstance(exc, HOST_FAULT_EXCEPTIONS):
+        raise exc
+    bindings = _load_vm_runtime_bindings()
+    # The VM's own error types carry messages rendered by the native runtime.
+    native_types = tuple(
+        error_type
+        for error_type in (
+            getattr(bindings, "VmIrValidationError", None),
+            getattr(bindings, "VmRuntimeExecutionError", None),
+        )
+        if isinstance(error_type, type)
+    )
+    if isinstance(exc, (ContractPreparationError, *native_types)):
+        return ValueError(str(exc))
+    return RuntimeError(HOST_FAILURE_MESSAGE)
 
 
 _VM_PREPARED_CONTRACTS: dict[tuple[str, str], VmPreparedContract] = {}
@@ -238,7 +278,37 @@ def build_vm_runtime() -> VmRuntime:
             f"gas_schedule={VM_GAS_SCHEDULE!r}"
         )
 
+    validate_admission_runtimes()
     return VmRuntime(runtime_info=runtime_info)
+
+
+_LOADED = object()
+
+
+def validate_admission_runtimes(*, compiler=_LOADED, fastpath=_LOADED) -> None:
+    """Refuse native admission code that implements a different rule revision."""
+    if compiler is _LOADED:
+        import xian_compiler_core as compiler
+    if fastpath is _LOADED:
+        try:
+            import xian_fastpath_core as fastpath
+        except ImportError:
+            # The Python fallback then admits transactions; it implements
+            # TX_ADMISSION_REVISION itself.
+            fastpath = None
+    revisions = compiler.compiler_version().get("admission_revisions") or {}
+    if revisions.get(VM_EXECUTION_MODE) != COMPILER_ADMISSION_REVISION:
+        raise ValueError(
+            "native compiler admission revision does not match the node: "
+            f"{revisions.get(VM_EXECUTION_MODE)!r} != {COMPILER_ADMISSION_REVISION!r}"
+        )
+    if fastpath is not None and (
+        getattr(fastpath, "ADMISSION_REVISION", None) != TX_ADMISSION_REVISION
+    ):
+        raise ValueError(
+            "native fastpath admission revision does not match the node: "
+            f"{getattr(fastpath, 'ADMISSION_REVISION', None)!r} != {TX_ADMISSION_REVISION!r}"
+        )
 
 
 def prepare_vm_contract(
@@ -271,14 +341,7 @@ def execute_vm_contract(
         function_name,
         kwargs,
     ):
-        return VmExecutionResult(
-            status_code=1,
-            result=ValueError(vm_contract_source_error(contract_name, function_name)),
-            writes={},
-            events=[],
-            chi_used=0,
-            contract_costs={},
-        )
+        return _failed_vm_result(ValueError(vm_contract_source_error(contract_name, function_name)))
 
     bindings = _load_vm_runtime_bindings()
     context = {
@@ -308,14 +371,7 @@ def execute_vm_contract(
             transaction_size_bytes=max(int(transaction_size_bytes), 0),
         )
     except Exception as exc:
-        return VmExecutionResult(
-            status_code=1,
-            result=exc,
-            writes={},
-            events=[],
-            chi_used=0,
-            contract_costs={},
-        )
+        return _failed_vm_result(canonical_failure(exc))
 
     return _validated_vm_result(
         VmExecutionResult(
@@ -326,6 +382,36 @@ def execute_vm_contract(
             chi_used=int(getattr(output, "chi_used", 0)),
             contract_costs=dict(getattr(output, "contract_costs", {}) or {}),
         )
+    )
+
+
+def _prepared_contract_failure(runtime, driver, contract_name: str) -> VmExecutionResult | None:
+    """Check the contract bundle; a contract that cannot run is a failed transaction."""
+    try:
+        prepare_vm_contract(runtime, driver, contract_name)
+    except Exception as exc:
+        return _failed_vm_result(canonical_failure(exc))
+    return None
+
+
+def _charge_failure(
+    output: VmExecutionResult, *, meter: bool, chi_budget: int
+) -> VmExecutionResult:
+    # One policy for every failed metered transaction, wherever it failed.
+    if not meter or output.status_code == 0:
+        return output
+    return replace(output, chi_used=failed_transaction_chi(output.chi_used, chi_budget))
+
+
+def _failed_vm_result(result: Exception) -> VmExecutionResult:
+    # chi_used stays 0 here; execute_vm_transaction applies the failure charge.
+    return VmExecutionResult(
+        status_code=1,
+        result=result,
+        writes={},
+        events=[],
+        chi_used=0,
+        contract_costs={},
     )
 
 
@@ -382,7 +468,9 @@ def execute_vm_transaction(
                 currency_contract=currency_contract,
                 balances_hash=balances_hash,
             )
-        vm_output = execute_vm_contract(
+        vm_output = _prepared_contract_failure(
+            runtime, driver, contract_name
+        ) or execute_vm_contract(
             runtime,
             driver,
             sender=sender,
@@ -395,14 +483,13 @@ def execute_vm_transaction(
             transaction_size_bytes=transaction_size_bytes,
         )
     except _InsufficientFeeBalance as exc:
-        vm_output = VmExecutionResult(
-            status_code=1, result=AssertionError(str(exc)), writes={}, events=[]
-        )
+        vm_output = _failed_vm_result(AssertionError(str(exc)))
     finally:
         vm_reads = deepcopy(driver.transaction_reads)
         vm_prefix_reads = frozenset(getattr(driver, "transaction_read_prefixes", set()))
         driver.restore_state(base_driver_state)
 
+    vm_output = _charge_failure(vm_output, meter=meter, chi_budget=chi_budget)
     chi_used = int(vm_output.chi_used or 0)
     contract_costs = dict(vm_output.contract_costs or {})
     merged_writes = _settle_vm_transaction_writes(
@@ -474,7 +561,7 @@ def _prepare_vm_contract_bundle(
     if prepared_in_call is None:
         prepared_in_call = {}
     if contract_name in stack:
-        raise ValueError(
+        raise ContractPreparationError(
             "xian_vm_v2 import graph contains a cycle: " + " -> ".join((*stack, contract_name))
         )
     already_prepared = prepared_in_call.get(contract_name)
@@ -511,7 +598,12 @@ def _validated_vm_module(
             _reject_disabled_zk_feature(driver, contract_name)
         return prepared
 
-    module_ir = json.loads(module_ir_json)
+    try:
+        module_ir = json.loads(module_ir_json)
+    except ValueError as exc:
+        raise ContractPreparationError(
+            f"contract '{contract_name}' has invalid persisted VM IR"
+        ) from exc
     uses_zk = module_ir_uses_runtime_feature(module_ir, RUNTIME_FEATURE_ZK)
     if uses_zk:
         _reject_disabled_zk_feature(driver, contract_name)
@@ -541,7 +633,7 @@ def _reject_disabled_zk_feature(driver, contract_name: str) -> None:
         RUNTIME_FEATURE_ZK,
         default_enabled=True,
     ):
-        raise ValueError(
+        raise ContractPreparationError(
             f"contract '{contract_name}' uses zk host syscalls, "
             "but the chain zk runtime feature is disabled"
         )
@@ -563,7 +655,7 @@ def _load_vm_module_ir_json(
                 module_ir_json,
             )
 
-    raise ValueError(
+    raise ContractPreparationError(
         "xian_vm_v2 requires persisted __xian_ir_v1__ for "
         f"contract '{contract_name}'; stored source is inspection-only"
     )

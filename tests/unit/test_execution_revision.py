@@ -19,10 +19,12 @@ def policy_state(value=None):
 
 def test_policy_requires_exact_current_identifiers():
     expected = {
-        "execution_revision": "xvm-execution-9",
-        "gas_schedule": "xvm-gas-3",
+        "execution_revision": "xvm-execution-10",
+        "gas_schedule": "xvm-gas-4",
         "bytecode_version": "xvm-2",
         "set_codec": "xian-set-1",
+        "compiler_admission_revision": "xian-admission-2",
+        "tx_admission_revision": "xian-fastpath-admission-2",
     }
     assert policy.current_execution_policy() == expected
     policy.validate_execution_policy(expected)
@@ -213,3 +215,43 @@ def test_previous_native_revision_is_rejected_even_when_gas_is_supported(previou
     with patch("xian.execution_engine._load_vm_runtime_bindings", return_value=bindings):
         with pytest.raises(ValueError, match="execution policy"):
             build_vm_runtime()
+
+
+def test_startup_fences_compiler_and_fastpath_admission_revisions():
+    from types import SimpleNamespace
+
+    from xian import execution_engine
+
+    def compiler(revision):
+        return SimpleNamespace(
+            compiler_version=lambda: {"admission_revisions": {"xian_vm_v2": revision}}
+        )
+
+    current_compiler = compiler("xian-admission-2")
+    current_fastpath = SimpleNamespace(ADMISSION_REVISION="xian-fastpath-admission-2")
+    execution_engine.validate_admission_runtimes(
+        compiler=current_compiler, fastpath=current_fastpath
+    )
+    # Without the extension the Python fallback, which applies the same
+    # canonical admission rule, is authoritative.
+    execution_engine.validate_admission_runtimes(compiler=current_compiler, fastpath=None)
+    with pytest.raises(ValueError, match="compiler admission"):
+        execution_engine.validate_admission_runtimes(
+            compiler=compiler("xian-admission-1"), fastpath=current_fastpath
+        )
+    with pytest.raises(ValueError, match="fastpath admission"):
+        execution_engine.validate_admission_runtimes(
+            compiler=current_compiler,
+            fastpath=SimpleNamespace(ADMISSION_REVISION="xian-fastpath-admission-1"),
+        )
+    with pytest.raises(ValueError, match="fastpath admission"):
+        execution_engine.validate_admission_runtimes(
+            compiler=current_compiler, fastpath=SimpleNamespace()
+        )
+
+
+def test_installed_native_runtimes_match_the_node_policy():
+    from xian.execution_engine import build_vm_runtime
+
+    runtime = build_vm_runtime()
+    assert runtime.runtime_info["execution_revision"] == "xvm-execution-10"

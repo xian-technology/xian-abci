@@ -212,7 +212,6 @@ def _decode_block_transactions(self, req, *, height: int, block_hash: str):
                 tx = decode_and_validate_transaction_static_bytes(
                     tx_bytes,
                     chain_id=self.chain_id,
-                    max_raw_tx_bytes=self.max_tx_bytes,
                 )
             except Exception as e:
                 decoded_entries.append(
@@ -376,50 +375,20 @@ def _execute_block_transactions(
 
             tx = entry["tx"]
             tx_bytes = entry["tx_bytes"]
-            try:
-                if processed_results is not None:
-                    result = next(processed_iter)
-                else:
-                    result = self.tx_processor.process_tx(
-                        tx,
-                        fee_policy=self.tx_fee_policy,
-                        rewards_handler=self.rewards_handler,
-                        track_access=False,
-                    )
-            except Exception as e:
-                processed_entries.append(
-                    {
-                        "error": _error_tx_result(
-                            f"Error processing tx: {e}",
-                            extra=error_fields(e),
-                            stage="finalize_execute",
-                            tx=tx,
-                            raw_tx=tx_bytes,
-                            block_height=height,
-                            block_hash=block_hash,
-                            tx_index=block_tx_index,
-                        )
-                    }
+            # The processor turns every deterministic failure into a receipt;
+            # anything it raises is a host fault and must halt the node.
+            if processed_results is not None:
+                result = next(processed_iter)
+            else:
+                result = self.tx_processor.process_tx(
+                    tx,
+                    fee_policy=self.tx_fee_policy,
+                    rewards_handler=self.rewards_handler,
+                    track_access=False,
                 )
-                continue
-
             tx_result = result.get("tx_result")
-            if tx_result is None:
-                processed_entries.append(
-                    {
-                        "error": _error_tx_result(
-                            "Transaction processor returned no tx_result",
-                            extra={"reason_code": "missing_tx_result"},
-                            stage="finalize_execute",
-                            tx=tx,
-                            raw_tx=tx_bytes,
-                            block_height=height,
-                            block_hash=block_hash,
-                            tx_index=block_tx_index,
-                        )
-                    }
-                )
-                continue
+            if tx_result is None or not tx_result.get("hash"):
+                raise RuntimeError("transaction processor returned no receipt")
 
             processed_entries.append(
                 {
@@ -452,22 +421,7 @@ def _assemble_tx_results(
             tx_bytes = entry["tx_bytes"]
             tx_result = entry["tx_result"]
 
-            tx_hash = tx_result.get("hash")
-            if not tx_hash:
-                tx_results.append(
-                    _error_tx_result(
-                        "Transaction processor returned no tx hash",
-                        extra={"reason_code": "missing_tx_hash"},
-                        stage="finalize_result_assembly",
-                        tx=tx,
-                        raw_tx=tx_bytes,
-                        block_height=height,
-                        block_hash=block_hash,
-                        tx_index=block_tx_index,
-                    )
-                )
-                continue
-
+            tx_hash = tx_result["hash"]
             self.nonce_storage.set_nonce_by_tx(tx)
             parsed_tx_result = encode_abci_json(tx_result)
             if self.transaction_trace_debug_logging:

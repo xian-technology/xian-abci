@@ -28,6 +28,8 @@ async def commit(self) -> ResponseCommit:
         raise
     self.state_root_cache.commit()
     self.nonce_storage.reconcile_pending()
+    # The next block runs under the fee policy this block committed.
+    self.refresh_tx_fee_policy()
 
     # This file remains for compatibility with offline tools. The LMDB marker
     # above is authoritative and startup/Info reconcile this mirror after a

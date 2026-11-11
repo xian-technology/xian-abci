@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import pytest
+from contracting.constants import TRANSACTION_BASE_CHI
 from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
 from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
@@ -273,7 +274,6 @@ class SimulatorTests(unittest.TestCase):
         simulator._make_environment = lambda payload, block_meta=None: {}
 
         with (
-            mock.patch("xian.simulator.prepare_vm_contract"),
             mock.patch(
                 "xian.simulator.execute_vm_transaction",
                 return_value=_native_result(
@@ -315,7 +315,6 @@ class SimulatorTests(unittest.TestCase):
                 native = _native_result(original, chi_used=987)
                 native.writes = {"con_example.counter": 4}
                 with (
-                    mock.patch("xian.simulator.prepare_vm_contract"),
                     mock.patch("xian.simulator.execute_vm_transaction", return_value=native),
                 ):
                     result = simulator._execute(
@@ -339,7 +338,6 @@ class SimulatorTests(unittest.TestCase):
         simulator._make_environment = lambda payload, block_meta=None: {}
 
         with (
-            mock.patch("xian.simulator.prepare_vm_contract"),
             mock.patch(
                 "xian.simulator.execute_vm_transaction",
                 return_value=_native_result(
@@ -371,7 +369,6 @@ class SimulatorTests(unittest.TestCase):
         simulator._make_environment = lambda payload, block_meta=None: {}
 
         with (
-            mock.patch("xian.simulator.prepare_vm_contract"),
             mock.patch(
                 "xian.simulator.execute_vm_transaction",
                 return_value=_native_result(
@@ -393,40 +390,12 @@ class SimulatorTests(unittest.TestCase):
         self.assertEqual(result["status"], 1)
         self.assertEqual(result["result"], "AssertionError('boom')")
 
-    def test_execute_preflights_contract_for_vm(self):
-        simulator = _simulator()
-        simulator._make_environment = lambda payload, block_meta=None: {}
-
-        with (
-            mock.patch("xian.simulator.prepare_vm_contract") as prepare,
-            mock.patch(
-                "xian.simulator.execute_vm_transaction",
-                return_value=_native_result("ok", chi_used=1),
-            ),
-        ):
-            result = simulator._execute(
-                {
-                    "sender": "alice",
-                    "contract": "currency",
-                    "function": "balance_of",
-                    "kwargs": {"account": "alice"},
-                }
-            )
-
-        self.assertEqual(result["status"], 0)
-        prepare.assert_called_once_with(
-            simulator.execution_runtime,
-            simulator.client.raw_driver,
-            "currency",
-        )
-
     def test_execute_honors_free_metered_simulation_fee_policy(self):
         simulator = _simulator()
         simulator.charge_fees = False
         simulator._make_environment = lambda payload, block_meta=None: {}
 
         with (
-            mock.patch("xian.simulator.prepare_vm_contract"),
             mock.patch(
                 "xian.simulator.execute_vm_transaction",
                 return_value=_native_result("ok", chi_used=1),
@@ -449,8 +418,8 @@ class SimulatorTests(unittest.TestCase):
         simulator._make_environment = lambda payload, block_meta=None: {}
 
         with (
-            mock.patch("xian.simulator.prepare_vm_contract") as prepare,
-            mock.patch("xian.simulator.execute_vm_transaction") as native_execute,
+            mock.patch("xian.execution_engine.prepare_vm_contract") as prepare,
+            mock.patch("xian.execution_engine._load_vm_runtime_bindings") as bindings,
         ):
             result = simulator._execute(
                 {
@@ -465,12 +434,14 @@ class SimulatorTests(unittest.TestCase):
 
         self.assertEqual(result["status"], 1)
         self.assertIn("requires source code", result["result"])
+        # The estimate reports the same base charge a real failed tx pays.
+        self.assertEqual(result["chi_used"], TRANSACTION_BASE_CHI)
         prepare.assert_called_once_with(
             simulator.execution_runtime,
             simulator.client.raw_driver,
             "submission",
         )
-        native_execute.assert_not_called()
+        bindings.return_value.execute_contract.assert_not_called()
 
     def test_execute_simulates_source_only_submission_and_reports_chi(self):
         source = (
@@ -700,7 +671,11 @@ if __name__ == "__main__":
 
 @pytest.mark.parametrize("token", ["-0", "1e-400", "1.0000000000000001", "9007199254740992"])
 def test_query_simulation_rejects_noncanonical_json_tokens(token):
-    payload = '{"sender":"alice","contract":"con_probe","function":"read","kwargs":{"nested":[' + token + ']}}'
+    payload = (
+        '{"sender":"alice","contract":"con_probe","function":"read","kwargs":{"nested":['
+        + token
+        + "]}}"
+    )
     service = QuerySimulationService(storage_home=Path("/tmp"))
     result = asyncio.run(service.simulate_encoded_transaction(payload.encode().hex()))
     assert result["status"] == 1

@@ -4,9 +4,7 @@ import json
 from argparse import ArgumentParser, BooleanOptionalAction
 
 from xian.fee_policy import (
-    DEFAULT_FREE_BLOCK_MAX_CHI,
-    DEFAULT_FREE_TX_MAX_CHI,
-    DEFAULT_TX_FEE_MODE,
+    FEE_POLICY_FIELDS,
     SUPPORTED_TX_FEE_MODES,
 )
 from xian.genesis_builder import build_bundle_network_genesis
@@ -316,23 +314,29 @@ def build_parser() -> ArgumentParser:
     parser.add_argument(
         "--tx-fee-mode",
         choices=sorted(SUPPORTED_TX_FEE_MODES),
-        help="transaction fee policy for user transactions",
+        help="genesis fee policy for user transactions (requires --genesis-bundle)",
         required=False,
-        default=DEFAULT_TX_FEE_MODE,
+        default=None,
     )
     parser.add_argument(
         "--free-tx-max-chi",
         type=int,
-        help="maximum chi_supplied accepted per transaction in free_metered mode",
+        help=(
+            "genesis limit on chi_supplied per transaction in free_metered mode "
+            "(requires --genesis-bundle)"
+        ),
         required=False,
-        default=DEFAULT_FREE_TX_MAX_CHI,
+        default=None,
     )
     parser.add_argument(
         "--free-block-max-chi",
         type=int,
-        help="maximum total chi_supplied accepted per block in free_metered mode",
+        help=(
+            "genesis limit on total chi_supplied per block in free_metered mode "
+            "(requires --genesis-bundle)"
+        ),
         required=False,
-        default=DEFAULT_FREE_BLOCK_MAX_CHI,
+        default=None,
     )
     parser.add_argument(
         "--parallel-execution-enabled",
@@ -546,6 +550,14 @@ def build_parser() -> ArgumentParser:
     return parser
 
 
+def _genesis_fee_policy(args) -> dict[str, object]:
+    return {
+        field: getattr(args, field)
+        for field in FEE_POLICY_FIELDS
+        if getattr(args, field) is not None
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -553,6 +565,13 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError("pass either --genesis-source or --genesis-bundle, not both")
     if args.genesis_time is not None and args.genesis_bundle is None:
         raise ValueError("--genesis-time requires --genesis-bundle")
+    if args.genesis_bundle is not None and args.genesis_time is None:
+        raise ValueError(
+            "--genesis-bundle requires --genesis-time so all operators build one chain"
+        )
+    fee_policy = _genesis_fee_policy(args)
+    if fee_policy and args.genesis_bundle is None:
+        raise ValueError("fee policy options are genesis inputs and require --genesis-bundle")
     genesis_payload = None
     if args.genesis_bundle is not None:
         if not args.chain_id:
@@ -562,6 +581,7 @@ def main(argv: list[str] | None = None) -> int:
             network=args.genesis_bundle,
             genesis_time=args.genesis_time,
             runtime_features={"zk": args.runtime_feature_zk},
+            fee_policy=fee_policy,
         )
     result = configure_existing_home(
         options=ExistingHomeOptions(
@@ -611,9 +631,6 @@ def main(argv: list[str] | None = None) -> int:
                     timeout_ms=args.simulation_timeout_ms,
                     max_chi=args.simulation_max_chi,
                 ),
-                tx_fee_mode=args.tx_fee_mode,
-                free_tx_max_chi=args.free_tx_max_chi,
-                free_block_max_chi=args.free_block_max_chi,
                 parallel_execution=ParallelExecutionOptions(
                     enabled=args.parallel_execution_enabled,
                     workers=args.parallel_execution_workers,

@@ -9,12 +9,12 @@ from xian_runtime_types.time import Datetime
 
 from xian.app_logging import build_log_fields
 from xian.execution_engine import (
+    HOST_FAILURE_MESSAGE,
+    HOST_FAULT_EXCEPTIONS,
     VmRuntime,
     execute_vm_transaction,
-    prepare_vm_contract,
-    vm_contract_source_error,
+    failed_transaction_chi,
     vm_metering_writes,
-    vm_requires_contract_source,
 )
 from xian.fee_policy import TxFeePolicy
 from xian.utils.block import nanoseconds_to_utc_datetime
@@ -81,34 +81,32 @@ class TxProcessor:
         fee_policy = fee_policy or TxFeePolicy.system_unmetered()
 
         try:
-            # Execute the transaction
-            output = self.execute_tx(
-                transaction=tx,
-                chi_cost=chi_cost,
-                environment=environment,
-                metering=fee_policy.meter_execution,
-                charge_fees=fee_policy.charge_fees,
-            )
-            if output is None:
-                return {
-                    "tx_result": None,
-                    "chi_rewards_amount": 0,
-                    "chi_rewards_contract": None,
-                    "base_writes": {},
-                    "reward_deltas": {},
-                    "access": None,
-                }
+            try:
+                output = self.execute_tx(
+                    transaction=tx,
+                    chi_cost=chi_cost,
+                    environment=environment,
+                    metering=fee_policy.meter_execution,
+                    charge_fees=fee_policy.charge_fees,
+                )
+                processed = self._process_output(
+                    output, tx, chi_cost, rewards_handler, fee_policy, track_access
+                )
+            except HOST_FAULT_EXCEPTIONS:
+                raise
+            except Exception as exc:
+                logger.bind(
+                    **build_log_fields(
+                        stage="process_tx",
+                        tx=tx,
+                        extra={"error_type": type(exc).__name__},
+                    )
+                ).exception("Transaction processing failed; recording a failed receipt")
+                output = self._unexpected_failure_output(tx, fee_policy)
+                processed = self._process_output(
+                    output, tx, chi_cost, rewards_handler, fee_policy, track_access
+                )
 
-            # Process the result of the executor
-            processed = self.process_tx_output(
-                output=output,
-                transaction=tx,
-                chi_cost=chi_cost,
-                rewards_handler=rewards_handler,
-                charge_fees=fee_policy.charge_fees,
-                distribute_fee_rewards=fee_policy.distribute_fee_rewards,
-                track_access=track_access,
-            )
             tx_result = processed["tx_result"]
             self.update_chi_cost_cache(processed["base_writes"])
             tx_result = self.prune_tx_result(tx_result)
@@ -134,28 +132,6 @@ class TxProcessor:
                     }
                 )
             return response
-        except Exception as e:
-            logger.bind(
-                **build_log_fields(
-                    stage="process_tx",
-                    tx=tx,
-                    extra={"error_type": type(e).__name__},
-                )
-            ).exception("Transaction processing failed unexpectedly")
-            response = {
-                "tx_result": None,
-                "chi_rewards_amount": 0,
-                "chi_rewards_contract": None,
-            }
-            if track_access:
-                response.update(
-                    {
-                        "base_writes": {},
-                        "reward_deltas": {},
-                        "access": None,
-                    }
-                )
-            return response
         finally:
             driver.set_transaction_read_tracking(previous_read_tracking)
             if self.profiler is not None:
@@ -165,6 +141,33 @@ class TxProcessor:
                     block_scoped=True,
                 )
 
+    def _process_output(self, output, tx, chi_cost, rewards_handler, fee_policy, track_access):
+        return self.process_tx_output(
+            output=output,
+            transaction=tx,
+            chi_cost=chi_cost,
+            rewards_handler=rewards_handler,
+            charge_fees=fee_policy.charge_fees,
+            distribute_fee_rewards=fee_policy.distribute_fee_rewards,
+            track_access=track_access,
+        )
+
+    @staticmethod
+    def _unexpected_failure_output(tx: dict, fee_policy: TxFeePolicy) -> dict:
+        chi_used = 0
+        if fee_policy.meter_execution:
+            chi_used = failed_transaction_chi(0, tx["payload"]["chi_supplied"])
+        return {
+            "status_code": 1,
+            "result": RuntimeError(HOST_FAILURE_MESSAGE),
+            "writes": {},
+            "events": [],
+            "chi_used": chi_used,
+            "reads": {},
+            "prefix_reads": frozenset(),
+            "contract_costs": {},
+        }
+
     def execute_tx(
         self,
         transaction,
@@ -173,11 +176,6 @@ class TxProcessor:
         metering=False,
         charge_fees: bool = True,
     ):
-        execution_runtime = getattr(
-            self,
-            "execution_runtime",
-            VmRuntime(),
-        )
         resolved_environment = environment or {}
         if self.trace_logging:
             logger.bind(
@@ -193,54 +191,14 @@ class TxProcessor:
         started_ns = time.perf_counter_ns()
 
         try:
-            prepare_vm_contract(
-                execution_runtime,
-                self.client.raw_driver,
-                transaction["payload"]["contract"],
-            )
-            converted_kwargs = decode_wire_numbers(transaction["payload"]["kwargs"])
-            if vm_requires_contract_source(
-                transaction["payload"]["contract"],
-                transaction["payload"]["function"],
-                converted_kwargs,
-            ):
-                return {
-                    "status_code": 1,
-                    "result": ValueError(
-                        vm_contract_source_error(
-                            transaction["payload"]["contract"],
-                            transaction["payload"]["function"],
-                        )
-                    ),
-                    "writes": {},
-                    "events": [],
-                    "chi_used": 0,
-                    "reads": {},
-                    "prefix_reads": frozenset(),
-                    "contract_costs": {},
-                }
             return self._execute_vm_tx(
                 transaction=transaction,
-                kwargs=converted_kwargs,
+                kwargs=decode_wire_numbers(transaction["payload"]["kwargs"]),
                 chi_cost=chi_cost,
                 environment=resolved_environment,
                 metering=metering,
                 charge_fees=charge_fees,
             )
-        except (TypeError, ValueError) as err:
-            logger.bind(
-                **build_log_fields(
-                    stage="execute_tx",
-                    tx=transaction,
-                    extra={
-                        "chi_cost": chi_cost,
-                        "chi_supplied": transaction["payload"]["chi_supplied"],
-                        "metering": metering,
-                        "error_type": type(err).__name__,
-                    },
-                )
-            ).exception("Transaction execution failed before producing an executor result")
-            return None
         finally:
             if self.profiler is not None:
                 self.profiler.observe(

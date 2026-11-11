@@ -106,7 +106,6 @@ class ProcessorVmExecutionTests(unittest.TestCase):
             kwargs={"data": [[{"__big_int__": str(2**80)}, True]]},
         )
         with (
-            mock.patch("xian.processor.prepare_vm_contract"),
             mock.patch.object(processor, "_execute_vm_tx", return_value={}) as execute,
         ):
             processor.execute_tx(transaction, chi_cost=20)
@@ -136,7 +135,6 @@ class ProcessorVmExecutionTests(unittest.TestCase):
             contract_costs={},
         )
         with (
-            mock.patch("xian.processor.prepare_vm_contract"),
             mock.patch("xian.processor.execute_vm_transaction", return_value=outcome) as execute,
         ):
             result = processor.execute_tx(
@@ -225,7 +223,6 @@ class ProcessorVmExecutionTests(unittest.TestCase):
             )
 
         with (
-            mock.patch("xian.processor.prepare_vm_contract"),
             mock.patch(
                 "xian.processor.execute_vm_transaction",
                 side_effect=fake_execute_authoritative,
@@ -261,11 +258,14 @@ class ProcessorVmExecutionTests(unittest.TestCase):
         self.assertEqual(environment["block_hash"], "abc123")
 
     def test_execute_tx_rejects_submission_without_artifacts_for_xian_vm(self):
-        processor = _processor(_driver())
+        driver = _driver()
+        driver.snapshot_state = lambda: None
+        driver.restore_state = lambda _state: None
+        processor = _processor(driver)
 
         with (
-            mock.patch("xian.processor.prepare_vm_contract") as prepare,
-            mock.patch("xian.processor.execute_vm_transaction") as native_execute,
+            mock.patch("xian.execution_engine.prepare_vm_contract") as prepare,
+            mock.patch("xian.execution_engine._load_vm_runtime_bindings") as bindings,
         ):
             output = processor.execute_tx(
                 transaction=_transaction(
@@ -288,13 +288,12 @@ class ProcessorVmExecutionTests(unittest.TestCase):
             processor.client.raw_driver,
             "submission",
         )
-        native_execute.assert_not_called()
+        bindings.return_value.execute_contract.assert_not_called()
 
     def test_execute_tx_runs_vm_authoritative_execution(self):
         processor = _processor(_driver())
 
         with (
-            mock.patch("xian.processor.prepare_vm_contract") as prepare,
             mock.patch(
                 "xian.processor.execute_vm_transaction",
                 return_value=SimpleNamespace(
@@ -328,11 +327,6 @@ class ProcessorVmExecutionTests(unittest.TestCase):
         self.assertEqual(output["chi_used"], 11)
         self.assertEqual(output["writes"], {"currency.balances:alice": 5})
         self.assertEqual(output["contract_costs"], {"currency": 100})
-        prepare.assert_called_once_with(
-            processor.execution_runtime,
-            processor.client.raw_driver,
-            "currency",
-        )
         native_execute.assert_called_once()
         self.assertFalse(native_execute.call_args.kwargs["apply_metering_writes"])
 

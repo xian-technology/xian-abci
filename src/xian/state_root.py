@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from contracting import constants as contracting_constants
+from contracting.runtime_features import RUNTIME_FEATURE_STATE_PREFIX
 
 from xian.execution_policy import EXECUTION_POLICY_KEY
+from xian.fee_policy import FEE_POLICY_KEY
 from xian.utils.encoding import encode_abci_json
 
 STATE_ROOT_VERSION = "xian-state-root-v2"
@@ -18,10 +20,14 @@ PRIORITY_PREFIX = f"{STATE_ROOT_VERSION}:priority:".encode("utf-8")
 
 
 def is_consensus_state_key(key: str) -> bool:
+    # The fee policy and runtime features change execution results, so they are
+    # hashed like contract state; other double-underscore keys are node-local.
     return (
         key == EXECUTION_POLICY_KEY
         or not key.startswith("__")
         or key.startswith(f"__n{contracting_constants.INDEX_SEPARATOR}")
+        or key == FEE_POLICY_KEY
+        or key.startswith(RUNTIME_FEATURE_STATE_PREFIX)
     )
 
 

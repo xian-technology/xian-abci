@@ -13,6 +13,8 @@ from xian.formatting import (
     TRANSACTION_PAYLOAD_RULES,
     TRANSACTION_RULES,
     contract_name_is_formatted,
+    signature_is_formatted,
+    vk_is_formatted,
 )
 from xian.utils.encoding import decode_transaction_bytes
 
@@ -274,6 +276,7 @@ def decode_and_validate_transaction_static_bytes(
             )
         except Exception as exc:
             raise TransactionException(str(exc)) from exc
+        _require_canonical_identity(tx)
         _validate_wire_payload(tx["payload"])
         return tx
 
@@ -311,6 +314,14 @@ class SequentialNonceTracker:
                 f"Transaction nonce is invalid. Expected {expected_nonce}, got {tx_nonce}"
             )
         self._latest_nonces[sender] = tx_nonce
+
+
+def _require_canonical_identity(tx: dict) -> None:
+    # Keep admission independent of the installed fastpath's hex-case rule.
+    if not vk_is_formatted(tx["payload"]["sender"]) or not signature_is_formatted(
+        tx["metadata"]["signature"]
+    ):
+        raise TransactionException("Transaction identity must be canonical lowercase hex")
 
 
 def _validate_wire_payload(payload: dict) -> None:

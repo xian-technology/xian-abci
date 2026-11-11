@@ -108,7 +108,14 @@ def test_explicit_genesis_is_reproducible_despite_wall_clock_and_timezone(
     assert results[0] == results[1]
 
 
-@pytest.mark.parametrize("kind", ["bundle", "single", "local"])
+def test_bundle_network_genesis_requires_a_pinned_genesis_time(contracts_dir):
+    # Every operator builds a shared bundle network's genesis independently;
+    # sampling each operator's clock would give every node a different chain.
+    with pytest.raises(ValueError, match="genesis_time"):
+        build_network("bundle", contracts_dir)
+
+
+@pytest.mark.parametrize("kind", ["single", "local"])
 def test_default_genesis_time_is_sampled_once_for_the_whole_build(kind, contracts_dir):
     with patch("xian.genesis_builder.datetime", wraps=datetime) as clock:
         clock.now.return_value = datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=timezone.utc)

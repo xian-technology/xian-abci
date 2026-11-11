@@ -6,12 +6,14 @@ from pathlib import Path
 from xian_accounts import Ed25519Account
 
 from xian.constants import Constants
+from xian.fee_policy import FEE_POLICY_KEY, TxFeePolicy
 from xian.genesis_builder import build_single_validator_genesis
 from xian.node_setup import (
     NodeConfigOptions,
     generate_validator_material,
     materialize_cometbft_home,
     render_node_configs,
+    write_toml,
 )
 from xian.utils.block import store_genesis_block
 from xian.xian_abci import Xian
@@ -80,6 +82,7 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
             for index, case in enumerate(cases, start=1):
                 home = Path(tmp_dir) / case["mode"] / ".cometbft"
                 validator_material = generate_validator_material(f"{index:064x}")
+                # The fee policy is chain state chosen at genesis, not node config.
                 genesis = build_single_validator_genesis(
                     chain_id=case["chain_id"],
                     priv_validator_key=validator_material["priv_validator_key"],
@@ -87,15 +90,23 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                     network="local",
                     validator_name=f"validator-{index}",
                     contracts_dir=contracts_dir,
+                    fee_policy={
+                        "tx_fee_mode": case["mode"],
+                        "free_tx_max_chi": 250_000,
+                        "free_block_max_chi": 1_000_000,
+                    },
+                )
+                genesis_entries = {
+                    entry["key"]: entry["value"] for entry in genesis["abci_genesis"]["genesis"]
+                }
+                self.assertEqual(
+                    genesis_entries[FEE_POLICY_KEY]["tx_fee_mode"],
+                    case["mode"],
                 )
                 configs = render_node_configs(
-                    options=NodeConfigOptions(
-                        moniker=f"validator-{index}",
-                        tx_fee_mode=case["mode"],
-                        free_tx_max_chi=250_000,
-                        free_block_max_chi=1_000_000,
-                    )
+                    options=NodeConfigOptions(moniker=f"validator-{index}")
                 )
+                self.assertNotIn("tx_fee_mode", configs["xian"])
                 materialize_cometbft_home(
                     home=home,
                     config=configs["cometbft"],
@@ -121,6 +132,9 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                     )
 
                     self.assertEqual(app.tx_fee_policy.mode, case["mode"])
+                    if case["mode"] == "free_metered":
+                        self.assertEqual(app.tx_fee_policy.max_tx_chi, 250_000)
+                        self.assertEqual(app.tx_fee_policy.max_block_chi, 1_000_000)
                     self.assertTrue(app.tx_fee_policy.meter_execution)
                     self.assertEqual(
                         app.tx_fee_policy.charge_fees,
@@ -161,6 +175,47 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(ending_balance, starting_balance)
                 finally:
                     await app.close()
+
+
+    async def test_fee_policy_follows_committed_state_and_rejects_node_config(self):
+        contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = Path(tmp_dir) / ".cometbft"
+            validator_material = generate_validator_material(f"{9:064x}")
+            genesis = build_single_validator_genesis(
+                chain_id="xian-fee-state-test-1",
+                priv_validator_key=validator_material["priv_validator_key"],
+                founder_private_key=FOUNDER_PRIVATE_KEY,
+                network="local",
+                contracts_dir=contracts_dir,
+            )
+            configs = render_node_configs(options=NodeConfigOptions(moniker="validator"))
+            materialize_cometbft_home(
+                home=home,
+                config=configs["cometbft"],
+                xian_config={**configs["xian"], "tx_fee_mode": "free_metered"},
+                genesis=genesis,
+                priv_validator_key=validator_material["priv_validator_key"],
+            )
+            with self.assertRaises(SystemExit):
+                await Xian.create(constants=_fresh_runtime_constants(home))
+
+            write_toml(home / "config" / "xian.toml", configs["xian"], overwrite=True)
+            app = await Xian.create(constants=_fresh_runtime_constants(home))
+            try:
+                self.assertEqual(app.tx_fee_policy.mode, "paid_metered")
+                driver = app.client.raw_driver
+                await store_genesis_block(app.client, app.nonce_storage, app.genesis["abci_genesis"])
+                # A governed state change takes effect once it is committed.
+                free = TxFeePolicy.free_metered(max_tx_chi=7, max_block_chi=70)
+                driver.set(FEE_POLICY_KEY, free.to_state())
+                self.assertEqual(app.refresh_tx_fee_policy().mode, "paid_metered")
+                driver.hard_apply("1")
+                self.assertEqual(app.refresh_tx_fee_policy(), free)
+                self.assertFalse(app.enable_tx_fee)
+                self.assertFalse(app.simulator.charge_fees)
+            finally:
+                await app.close()
 
 
 if __name__ == "__main__":

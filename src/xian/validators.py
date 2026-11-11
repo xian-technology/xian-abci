@@ -1,4 +1,5 @@
 from loguru import logger
+from xian_runtime_types.decimal import ContractingDecimal
 
 from cometbft.abci.v1beta1.types_pb2 import ValidatorUpdate
 from cometbft.crypto.v1.keys_pb2 import PublicKey
@@ -7,6 +8,8 @@ from xian.formatting import vk_is_formatted
 # Node-managed metadata: contract identifiers cannot start/end with underscores.
 # Keeping it in the validators namespace includes it in app hashes and exports.
 CONSENSUS_VALIDATORS_KEY = "validators.__consensus__"
+# CometBFT rejects a validator set whose total power exceeds MaxInt64 / 8.
+MAX_TOTAL_VOTING_POWER = (2**63 - 1) // 8
 
 
 class ValidatorHandler:
@@ -32,24 +35,37 @@ class ValidatorHandler:
                     value_type=type(validator).__name__,
                 ).warning("Ignoring invalid validator key in state")
                 continue
+            # Keys are canonical lowercase hex, so one key is one validator.
             power = self.validator_power(read(f"validators.powers:{validator}"))
-            key = validator.lower()
-            if key in desired and desired[key] != power:
-                # Aliases identify one consensus key, never two validators.
-                # Conflicting power must not depend on list ordering.
-                logger.bind(
-                    stage="validator_selection",
-                    reason_code="conflicting_validator_powers",
-                    validator=key,
-                ).warning("Ignoring validator selection with conflicting powers")
-                return None
-            desired[key] = power
+            if power is None:
+                return self._reject_selection("invalid_validator_power")
+            desired[validator] = power
+        if sum(desired.values()) > MAX_TOTAL_VOTING_POWER:
+            return self._reject_selection("total_voting_power_exceeds_cometbft_limit")
         return desired
 
-    def validator_power(self, power) -> int:
-        if power is None or power <= 0:
+    @staticmethod
+    def _reject_selection(reason_code: str) -> None:
+        # CometBFT halts on a validator set it cannot apply; keep the
+        # effective set instead, as for every other invalid selection.
+        logger.bind(stage="validator_selection", reason_code=reason_code).warning(
+            "Ignoring validator selection that CometBFT cannot apply"
+        )
+        return None
+
+    def validator_power(self, power) -> int | None:
+        if power is None:
             return self.DEFAULT_VALIDATOR_POWER
-        return int(power)
+        if isinstance(power, bool) or not isinstance(power, int | ContractingDecimal):
+            return None
+        if power <= 0:
+            return self.DEFAULT_VALIDATOR_POWER
+        normalized = int(power)
+        # A fractional power truncating to zero would silently remove the
+        # validator; oversized powers are rejected by the total check.
+        if normalized <= 0:
+            return None
+        return normalized
 
     def committed_validators(self) -> dict[str, int]:
         validators = self.client.raw_driver.value_from_disk(CONSENSUS_VALIDATORS_KEY)

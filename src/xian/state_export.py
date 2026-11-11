@@ -46,6 +46,19 @@ def fetch_filebased_state(
     return contract_state, run_state
 
 
+def _hashed_run_state_entries(run_state: dict[str, Any], nonce_prefix: str) -> list[dict]:
+    # Hashed run-state entries other than nonces (execution policy, runtime
+    # features) travel in the genesis list, exactly as the app hash sees them.
+    return [
+        {"key": key, "value": value}
+        for key, value in run_state.items()
+        if value is not None
+        and key.startswith("__")
+        and is_consensus_state_key(key)
+        and not key.startswith(nonce_prefix)
+    ]
+
+
 def build_exported_state(
     *,
     founder_private_key: str | None,
@@ -83,17 +96,18 @@ def build_exported_state(
         "genesis": [],
     }
 
+    nonce_prefix = f"__n{contracting_constants.INDEX_SEPARATOR}"
     nonces = [
-        {"key": key[4:], "value": value}
+        {"key": key[len(nonce_prefix) :], "value": value}
         for key, value in run_state.items()
-        if key.startswith("__n.")
+        if key.startswith(nonce_prefix)
     ]
     nonces = sorted(nonces, key=lambda item: item["key"])
 
     for key, value in contract_state.items():
         if value is not None:
             exported_state["genesis"].append({"key": key, "value": value})
-    exported_state["genesis"].append({"key": EXECUTION_POLICY_KEY, "value": execution_policy})
+    exported_state["genesis"].extend(_hashed_run_state_entries(run_state, nonce_prefix))
 
     exported_state["genesis"] = sorted(
         exported_state["genesis"],

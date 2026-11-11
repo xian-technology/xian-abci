@@ -17,6 +17,7 @@ from xian_runtime_types.encoding import safe_repr
 from xian_runtime_types.time import Datetime
 
 from xian.execution_engine import (
+    HOST_FAILURE_MESSAGE,
     _load_vm_runtime_bindings,
     build_vm_runtime,
     clear_prepared_contract_cache,
@@ -644,7 +645,7 @@ def hidden():
         client.flush()
         try:
             for name, constructor_args in (
-                ("currency", {"vk": "node1"}),
+                ("currency", {"vk": "11" * 32}),
                 ("dao", None),
                 ("rewards", None),
                 ("chi_cost", {"initial_rate": 20}),
@@ -656,7 +657,7 @@ def hidden():
                     owner="members" if name in {"dao", "rewards"} else None,
                 )
 
-            for node in ("node1", "node2", "node3", "node4", "node5"):
+            for node in ("11" * 32, "22" * 32, "33" * 32, "44" * 32, "55" * 32):
                 client.raw_driver.set(
                     client.raw_driver.make_key("currency", "balances", [node]),
                     1_000_000,
@@ -672,11 +673,11 @@ def hidden():
                 constructor_args={
                     "genesis_registration_fee": 100_000,
                     "genesis_nodes": [
-                        "node1",
-                        "node2",
-                        "node3",
-                        "node4",
-                        "node5",
+                        "11" * 32,
+                        "22" * 32,
+                        "33" * 32,
+                        "44" * 32,
+                        "55" * 32,
                     ],
                 },
             )
@@ -709,15 +710,15 @@ def hidden():
 
             remove_flow = (
                 tx(
-                    "node1",
+                    "11" * 32,
                     "members",
                     "propose_vote",
-                    {"type_of_vote": "remove_member", "arg": "node3"},
+                    {"type_of_vote": "remove_member", "arg": "33" * 32},
                     1,
                     1,
                 ),
                 tx(
-                    "node2",
+                    "22" * 32,
                     "members",
                     "vote",
                     {"proposal_id": 1, "vote": "yes"},
@@ -725,7 +726,7 @@ def hidden():
                     2,
                 ),
                 tx(
-                    "node4",
+                    "44" * 32,
                     "members",
                     "vote",
                     {"proposal_id": 1, "vote": "yes"},
@@ -733,7 +734,7 @@ def hidden():
                     3,
                 ),
                 tx(
-                    "node5",
+                    "55" * 32,
                     "members",
                     "vote",
                     {"proposal_id": 1, "vote": "yes"},
@@ -748,7 +749,7 @@ def hidden():
 
             approve_result = processor.process_tx(
                 tx(
-                    "node3",
+                    "33" * 32,
                     "currency",
                     "approve",
                     {"amount": 100_000, "to": "members"},
@@ -761,7 +762,7 @@ def hidden():
 
             reregister_result = processor.process_tx(
                 tx(
-                    "node3",
+                    "33" * 32,
                     "members",
                     "register",
                     {
@@ -778,11 +779,11 @@ def hidden():
             self.assertIsNotNone(reregister_result["tx_result"])
             self.assertEqual(reregister_result["tx_result"]["status"], 0)
             self.assertEqual(
-                client.raw_driver.get("members.pending_registrations:node3"),
+                client.raw_driver.get(f"members.pending_registrations:{"33" * 32}"),
                 True,
             )
-            self.assertIsNone(client.raw_driver.get("members.joined_at:node3"))
-            self.assertIsNone(client.raw_driver.get("members.left_at:node3"))
+            self.assertIsNone(client.raw_driver.get(f"members.joined_at:{"33" * 32}"))
+            self.assertIsNone(client.raw_driver.get(f"members.left_at:{"33" * 32}"))
         finally:
             client.flush()
 
@@ -1449,7 +1450,8 @@ def hidden():
             )
 
         self.assertEqual(output.status_code, 1)
-        self.assertEqual(str(output.result), "boom")
+        # Arbitrary host exception text is not consensus data.
+        self.assertEqual(str(output.result), HOST_FAILURE_MESSAGE)
         self.assertEqual(output.writes, {})
         self.assertEqual(output.events, [])
 

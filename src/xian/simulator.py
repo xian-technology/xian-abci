@@ -17,9 +17,6 @@ from xian.app_logging import build_log_fields
 from xian.execution_engine import (
     VmRuntime,
     execute_vm_transaction,
-    prepare_vm_contract,
-    vm_contract_source_error,
-    vm_requires_contract_source,
 )
 from xian.utils.block import (
     get_latest_block_nanos,
@@ -124,11 +121,6 @@ class TransactionSimulator:
         block_meta: dict | None = None,
         max_chi: int | None = None,
     ) -> dict:
-        execution_runtime = getattr(
-            self,
-            "execution_runtime",
-            VmRuntime(),
-        )
         state_snapshot = self._snapshot_driver_state()
         try:
             chi_cost = int(
@@ -142,24 +134,7 @@ class TransactionSimulator:
             chi_cost = 20
 
         try:
-            prepare_vm_contract(
-                execution_runtime,
-                self.client.raw_driver,
-                payload["contract"],
-            )
             converted_kwargs = decode_wire_numbers(payload.get("kwargs", {}))
-            if vm_requires_contract_source(
-                payload["contract"],
-                payload["function"],
-                converted_kwargs,
-            ):
-                return _simulation_error_result(
-                    payload=payload,
-                    message=vm_contract_source_error(
-                        payload["contract"],
-                        payload["function"],
-                    ),
-                )
             environment = self._make_environment(payload, block_meta=block_meta)
             return self._execute_vm_simulation(
                 payload=payload,
@@ -303,8 +278,10 @@ class QuerySimulationService:
         timeout_ms: int = 3000,
         max_chi: int = 1_000_000,
         charge_fees: bool = True,
+        runtime_features: dict[str, bool] | None = None,
     ) -> None:
         self.storage_home = Path(storage_home)
+        self.runtime_features = dict(runtime_features) if runtime_features is not None else None
         self.execution_runtime = execution_runtime or VmRuntime()
         self.get_block_meta = get_block_meta or (lambda: None)
         self.get_state_snapshot = get_state_snapshot or (lambda: None)
@@ -358,6 +335,7 @@ class QuerySimulationService:
             "chain_id": self.chain_id,
             "max_chi": self.max_chi,
             "charge_fees": self.charge_fees,
+            "runtime_features": self.runtime_features,
             "driver_state": self.get_state_snapshot(),
         }
         return PreparedSimulation(service=self, task=task, payload=normalized_payload)

@@ -41,6 +41,8 @@ node_2 = "dff5d54d9c3cdb04d279c3c0a123d6a73a94e0725d7eac955fdf87298dbe45a6"
 node_3 = "6d2476cd66fa277b6077c76cdcd92733040dada2e12a28c3ebb08af44e12be76"
 node_4 = "b4d1967e6264bbcd61fd487caf3cafaffdc34be31d0994bf02afdcc2056c053c"
 node_5 = "db21a73137672f075f9a8ee142a1aa4839a5deb28ef03a10f3e7e16c87db8f24"
+# Validator identities are canonical lowercase 64-hex keys.
+NEW_NODE = "aa" * 32
 
 
 def create_block_meta(dt: datetime = datetime.now()):
@@ -100,7 +102,7 @@ class MyTestCase(unittest.TestCase):
             key="currency.balances:db21a73137672f075f9a8ee142a1aa4839a5deb28ef03a10f3e7e16c87db8f24",
             value=100000,
         )
-        self.d.set(key="currency.balances:new_node", value=1000000)
+        self.d.set(key=f"currency.balances:{NEW_NODE}", value=1000000)
 
         with open(dao_contract_path) as f:
             contract = f.read()
@@ -157,7 +159,7 @@ class MyTestCase(unittest.TestCase):
         self.tx_processor.process_tx(
             tx={
                 "payload": {
-                    "sender": "new_node",
+                    "sender": NEW_NODE,
                     "contract": "currency",
                     "function": "approve",
                     "kwargs": {"amount": 100000, "to": "validators"},
@@ -170,7 +172,7 @@ class MyTestCase(unittest.TestCase):
         self.tx_processor.process_tx(
             tx={
                 "payload": {
-                    "sender": "new_node",
+                    "sender": NEW_NODE,
                     "contract": "validators",
                     "function": "register",
                     "kwargs": {},
@@ -185,7 +187,7 @@ class MyTestCase(unittest.TestCase):
         self.tx_processor.process_tx(
             tx={
                 "payload": {
-                    "sender": "new_node",
+                    "sender": NEW_NODE,
                     "contract": "validators",
                     "function": "unregister",
                     "kwargs": {},
@@ -204,7 +206,7 @@ class MyTestCase(unittest.TestCase):
                     "sender": node_1,
                     "contract": "validators",
                     "function": "propose_vote",
-                    "kwargs": {"type_of_vote": "add_member", "arg": "new_node"},
+                    "kwargs": {"type_of_vote": "add_member", "arg": NEW_NODE},
                     "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
@@ -262,7 +264,7 @@ class MyTestCase(unittest.TestCase):
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "remove_member",
-                        "arg": "new_node",
+                        "arg": NEW_NODE,
                     },
                     "chi_supplied": 1000,
                 },
@@ -336,7 +338,7 @@ class MyTestCase(unittest.TestCase):
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "jail_member",
-                        "arg": {"member": "new_node", "reason": "downtime"},
+                        "arg": {"member": NEW_NODE, "reason": "downtime"},
                     },
                     "chi_supplied": 1000,
                 },
@@ -409,7 +411,7 @@ class MyTestCase(unittest.TestCase):
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "unjail_member",
-                        "arg": "new_node",
+                        "arg": NEW_NODE,
                     },
                     "chi_supplied": 1000,
                 },
@@ -470,7 +472,7 @@ class MyTestCase(unittest.TestCase):
                     "kwargs": {
                         "type_of_vote": "slash_member",
                         "arg": {
-                            "member": "new_node",
+                            "member": NEW_NODE,
                             "slash_bps": slash_bps,
                             "reason": reason,
                         },
@@ -509,7 +511,7 @@ class MyTestCase(unittest.TestCase):
                     "sender": node_1,
                     "contract": "validators",
                     "function": "propose_vote",
-                    "kwargs": {"type_of_vote": "add_member", "arg": "new_node"},
+                    "kwargs": {"type_of_vote": "add_member", "arg": NEW_NODE},
                     "chi_supplied": 1000,
                 },
                 "metadata": {"signature": "abc"},
@@ -681,7 +683,7 @@ class MyTestCase(unittest.TestCase):
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "dao_payout",
-                        "arg": {"amount": 100000, "to": "new_node", "contract_name": "currency"},
+                        "arg": {"amount": 100000, "to": NEW_NODE, "contract_name": "currency"},
                     },
                     "chi_supplied": 1000,
                 },
@@ -863,7 +865,7 @@ class MyTestCase(unittest.TestCase):
         self.tx_processor.process_tx(
             tx={
                 "payload": {
-                    "sender": "new_node",
+                    "sender": NEW_NODE,
                     "contract": "validators",
                     "function": "announce_leave",
                     "kwargs": {},
@@ -880,7 +882,7 @@ class MyTestCase(unittest.TestCase):
         leave = self.tx_processor.process_tx(
             tx={
                 "payload": {
-                    "sender": "new_node",
+                    "sender": NEW_NODE,
                     "contract": "validators",
                     "function": "leave",
                     "kwargs": {},
@@ -894,33 +896,35 @@ class MyTestCase(unittest.TestCase):
 
     def test_register(self):
         self.register()
-        self.assertEqual(self.validators.pending_registrations["new_node"], True)
-        self.assertEqual(self.currency.balances["new_node"], 900000)
+        self.assertEqual(self.validators.pending_registrations[NEW_NODE], True)
+        self.assertEqual(self.currency.balances[NEW_NODE], 900000)
 
     def test_unregister(self):
         self.register()
         self.unregister()
-        self.assertEqual(self.validators.pending_registrations["new_node"], False)
-        self.assertEqual(self.currency.balances["new_node"], 1000000)
+        self.assertEqual(self.validators.pending_registrations[NEW_NODE], False)
+        self.assertEqual(self.currency.balances[NEW_NODE], 1000000)
 
     def test_register_propose_unregister_and_validate(self):
         self.register()
-        self.assertEqual(self.validators.pending_registrations["new_node"], True)
-        self.assertEqual(self.currency.balances["new_node"], 900000)
+        self.assertEqual(self.validators.pending_registrations[NEW_NODE], True)
+        self.assertEqual(self.currency.balances[NEW_NODE], 900000)
 
         res = self.vote_in_and_unregister()
 
-        assert (
-            res[3].get("tx_result").get("result")
-            == "AssertionError('Member must have pending registration.')"
-        )
+        # A proposal whose member withdrew is rejected when it would
+        # finalize; the vote returns the final record instead of failing.
+        final_vote = res[3].get("tx_result")
+        assert final_vote["status"] == 0
+        assert final_vote["result"]["finalized"] is True
+        assert final_vote["result"]["status"] == "rejected"
 
-        self.assertEqual(self.validators.pending_registrations["new_node"], False)
-        self.assertEqual(self.currency.balances["new_node"], 1000000)
+        self.assertEqual(self.validators.pending_registrations[NEW_NODE], False)
+        self.assertEqual(self.currency.balances[NEW_NODE], 1000000)
 
         nodes = self.validators.active_validators.get()
         self.assertNotIn(
-            "new_node",
+            NEW_NODE,
             nodes,
             "The node should not be in the list of validators after unregistering.",
         )
@@ -932,7 +936,7 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(self.validators.votes[1]["no"], 0)
         self.assertEqual(self.validators.votes[1]["finalized"], True)
         nodes = self.validators.active_validators.get()
-        self.assertIn("new_node", nodes)
+        self.assertIn(NEW_NODE, nodes)
 
     def test_validator_governance_vote_records_and_events(self):
         block_meta = create_block_meta(datetime.now())
@@ -1029,7 +1033,7 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(self.validators.votes[2]["no"], 0)
         self.assertEqual(self.validators.votes[2]["finalized"], True)
         nodes = self.validators.active_validators.get()
-        self.assertNotIn("new_node", nodes)
+        self.assertNotIn(NEW_NODE, nodes)
 
     def test_announce_leave(self):
         self.register()
@@ -1041,7 +1045,7 @@ class MyTestCase(unittest.TestCase):
         self.vote_in()
         self.announce_leave()
         self.leave()
-        self.assertEqual(self.validators.pending_leave["new_node"], False)
+        self.assertEqual(self.validators.pending_leave[NEW_NODE], False)
 
     def test_leave_not_pending(self):
         self.register()
@@ -1094,39 +1098,39 @@ class MyTestCase(unittest.TestCase):
         self.register()
         self.vote_in()
         self.vote_out()
-        self.assertEqual(self.validators.pending_leave["new_node"], False)
-        self.assertEqual(self.validators.statuses["new_node"], "removed")
-        self.assertEqual(self.currency.balances["new_node"], 1000000)
+        self.assertEqual(self.validators.pending_leave[NEW_NODE], False)
+        self.assertEqual(self.validators.statuses[NEW_NODE], "removed")
+        self.assertEqual(self.currency.balances[NEW_NODE], 1000000)
 
     def test_jail_member(self):
         self.register()
         self.vote_in()
         self.vote_jail()
-        self.assertNotIn("new_node", self.validators.active_validators.get())
-        self.assertEqual(self.validators.statuses["new_node"], "approved")
-        self.assertEqual(self.validators.jailed["new_node"], True)
-        self.assertEqual(self.currency.balances["new_node"], 900000)
+        self.assertNotIn(NEW_NODE, self.validators.active_validators.get())
+        self.assertEqual(self.validators.statuses[NEW_NODE], "approved")
+        self.assertEqual(self.validators.jailed[NEW_NODE], True)
+        self.assertEqual(self.currency.balances[NEW_NODE], 900000)
 
     def test_unjail_member(self):
         self.register()
         self.vote_in()
         self.vote_jail()
         self.vote_unjail()
-        self.assertEqual(self.validators.jailed["new_node"], False)
-        self.assertEqual(self.validators.statuses["new_node"], "approved")
-        self.assertNotIn("new_node", self.validators.active_validators.get())
+        self.assertEqual(self.validators.jailed[NEW_NODE], False)
+        self.assertEqual(self.validators.statuses[NEW_NODE], "approved")
+        self.assertNotIn(NEW_NODE, self.validators.active_validators.get())
 
     def test_slash_member(self):
         self.register()
         self.vote_in()
-        self.currency.approve(amount=200, to="validators", signer="new_node")
-        self.validators.bond_self(amount=200, signer="new_node")
+        self.currency.approve(amount=200, to="validators", signer=NEW_NODE)
+        self.validators.bond_self(amount=200, signer=NEW_NODE)
 
         dao_balance_before = self.currency.balances["dao"]
         self.vote_slash()
 
-        self.assertEqual(self.validators.self_bond["new_node"], 150)
-        self.assertEqual(self.validators.total_slashed["new_node"], 50)
+        self.assertEqual(self.validators.self_bond[NEW_NODE], 150)
+        self.assertEqual(self.validators.total_slashed[NEW_NODE], 50)
         self.assertEqual(self.currency.balances["dao"], dao_balance_before + 50)
         self.assertEqual(self.validators.votes[2]["status"], "approved")
         self.assertEqual(self.validators.votes[2]["result"]["slash_amount"], 50)
@@ -1136,13 +1140,13 @@ class MyTestCase(unittest.TestCase):
         self.vote_in()
         self.announce_leave()
         self.leave()
-        self.assertEqual(self.currency.balances["new_node"], 1000000)
+        self.assertEqual(self.currency.balances[NEW_NODE], 1000000)
 
     def test_force_leave_payback(self):
         self.register()
         self.vote_in()
         self.vote_out()
-        self.assertEqual(self.currency.balances["new_node"], 1000000)
+        self.assertEqual(self.currency.balances[NEW_NODE], 1000000)
 
     def test_leave_before_pending_period_passed(self):
         self.register()
@@ -1174,12 +1178,12 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(self.rewards.S["value"], [Decimal("0.7"), 0, 0, Decimal("0.3")])
 
     def test_dao_payout(self):
-        self.assertEqual(self.currency.balances["new_node"], 1000000)
+        self.assertEqual(self.currency.balances[NEW_NODE], 1000000)
         self.vote_dao_payout()
         self.assertEqual(self.validators.votes[1]["yes"], 4)
         self.assertEqual(self.validators.votes[1]["no"], 0)
         self.assertEqual(self.validators.votes[1]["finalized"], True)
-        self.assertEqual(self.currency.balances["new_node"], 1100000)
+        self.assertEqual(self.currency.balances[NEW_NODE], 1100000)
 
     def test_reg_fee_change(self):
         self.assertEqual(self.validators.registration_fee.get(), 100000)

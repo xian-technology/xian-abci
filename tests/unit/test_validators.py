@@ -1,6 +1,7 @@
 import unittest
 
 import pytest
+from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.validators import ValidatorHandler
 
@@ -131,7 +132,9 @@ def test_malformed_identities_do_not_abort_valid_validator_updates(invalid):
     assert update_values(ValidatorHandler(app).build_validator_updates(1)) == [(REPLACEMENT, 10)]
 
 
-def test_uppercase_identity_uses_original_power_and_canonical_consensus_key():
+def test_uppercase_identity_is_not_a_validator_and_keeps_the_effective_set():
+    # Only canonical lowercase hex names a consensus key. An uppercase
+    # spelling is malformed, so the selection is empty and the set is kept.
     app = _FakeApp(
         {
             "validators.active_validators": [REPLACEMENT.upper()],
@@ -139,33 +142,14 @@ def test_uppercase_identity_uses_original_power_and_canonical_consensus_key():
         },
         {"validators.active_validators": [VALIDATOR]},
     )
-    assert update_values(ValidatorHandler(app).build_validator_updates(1)) == [
-        (REPLACEMENT, 25),
-        (VALIDATOR, 0),
-    ]
-    assert app.client.raw_driver.get(CONSENSUS_KEY) == {REPLACEMENT: 25}
-
-
-def test_case_only_identity_change_does_not_remove_the_same_consensus_key():
-    app = _FakeApp(
-        {"validators.active_validators": [VALIDATOR.upper()]},
-        {"validators.active_validators": [VALIDATOR]},
-    )
     assert ValidatorHandler(app).build_validator_updates(1) == []
+    assert app.client.raw_driver.get(CONSENSUS_KEY) == {VALIDATOR: 10}
 
 
 @pytest.mark.parametrize(
     "aliases", [[VALIDATOR, VALIDATOR.upper()], [VALIDATOR.upper(), VALIDATOR]]
 )
-def test_case_aliases_with_equal_power_produce_one_consensus_update(aliases):
-    app = _FakeApp({"validators.active_validators": aliases}, {"validators.active_validators": []})
-    assert update_values(ValidatorHandler(app).build_validator_updates(1)) == [(VALIDATOR, 10)]
-
-
-@pytest.mark.parametrize(
-    "aliases", [[VALIDATOR, VALIDATOR.upper()], [VALIDATOR.upper(), VALIDATOR]]
-)
-def test_conflicting_case_alias_powers_preserve_previous_effective_set(aliases):
+def test_uppercase_alias_is_ignored_beside_its_canonical_key(aliases):
     app = _FakeApp(
         {
             "validators.active_validators": aliases,
@@ -174,8 +158,10 @@ def test_conflicting_case_alias_powers_preserve_previous_effective_set(aliases):
         },
         {"validators.active_validators": [REPLACEMENT]},
     )
-    assert ValidatorHandler(app).build_validator_updates(1) == []
-    assert app.client.raw_driver.get(CONSENSUS_KEY) == {REPLACEMENT: 10}
+    assert update_values(ValidatorHandler(app).build_validator_updates(1)) == [
+        (VALIDATOR, 10),
+        (REPLACEMENT, 0),
+    ]
 
 
 @pytest.mark.parametrize("desired", [[], ["con_registrar", 7], "not a validator list", 7])
@@ -216,4 +202,48 @@ def test_power_boundary_preserves_default_and_minimum_positive_power(power, expe
     )
     assert update_values(ValidatorHandler(app).build_validator_updates(1)) == [
         (VALIDATOR, expected)
+    ]
+
+
+# CometBFT: MaxTotalVotingPower = MaxInt64 / 8.
+MAX_TOTAL_VOTING_POWER = (2**63 - 1) // 8
+
+
+@pytest.mark.parametrize(
+    "powers",
+    [
+        {VALIDATOR: 2**70},
+        {VALIDATOR: 2**63},
+        {VALIDATOR: MAX_TOTAL_VOTING_POWER + 1},
+        {VALIDATOR: MAX_TOTAL_VOTING_POWER, REPLACEMENT: 1},
+        {VALIDATOR: "25"},
+        {VALIDATOR: True},
+        {VALIDATOR: ContractingDecimal("0.5")},
+    ],
+    ids=["2^70", "int64-overflow", "over-total", "sum-over-total", "text", "bool", "fraction"],
+)
+def test_selection_cometbft_cannot_apply_keeps_the_effective_set(powers):
+    # FinalizeBlock must never crash or hand CometBFT an unusable set.
+    app = _FakeApp(
+        {
+            "validators.active_validators": list(powers),
+            **{f"validators.powers:{key}": power for key, power in powers.items()},
+        },
+        {"validators.active_validators": [VALIDATOR]},
+    )
+    assert ValidatorHandler(app).build_validator_updates(1) == []
+    assert app.client.raw_driver.get(CONSENSUS_KEY) == {VALIDATOR: 10}
+
+
+def test_selection_at_the_total_power_limit_is_applied():
+    app = _FakeApp(
+        {
+            "validators.active_validators": [REPLACEMENT],
+            f"validators.powers:{REPLACEMENT}": MAX_TOTAL_VOTING_POWER,
+        },
+        {"validators.active_validators": [VALIDATOR]},
+    )
+    assert update_values(ValidatorHandler(app).build_validator_updates(1)) == [
+        (REPLACEMENT, MAX_TOTAL_VOTING_POWER),
+        (VALIDATOR, 0),
     ]

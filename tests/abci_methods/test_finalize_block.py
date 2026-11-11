@@ -181,65 +181,42 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             99,
         )
 
-    async def test_finalize_block_handles_missing_tx_result(self):
-        with (
-            patch(
-                "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
-                return_value={"payload": {"chi_supplied": 100}},
-            ),
-            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
-            patch.object(
-                self.app.tx_processor,
-                "process_tx",
-                return_value={"tx_result": None},
-            ),
-            patch.object(self.app.nonce_storage, "set_nonce_by_tx") as set_nonce,
-        ):
-            response = await self.process_request(
-                Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
-            )
-
-        self.assertEqual(len(response.finalize_block.tx_results), 1)
-        self.assertEqual(response.finalize_block.tx_results[0].code, self.constants.ErrorCode)
-        set_nonce.assert_not_called()
-
-    async def test_finalize_block_missing_tx_hash_does_not_set_nonce(self):
-        tx_result = {
-            "status": 0,
-            "state": [],
-            "events": [],
-            "chi_used": 1,
-            "result": "ok",
+    async def test_finalize_block_halts_when_processor_returns_no_receipt(self):
+        # Deterministic failures become receipts inside the processor. A
+        # missing receipt or hash is a broken invariant, never a free tx.
+        tx = {
+            "payload": {
+                "sender": "alice",
+                "nonce": 1,
+                "contract": "currency",
+                "function": "transfer",
+                "chi_supplied": 100,
+            },
+            "metadata": {"signature": "sig"},
         }
-
-        with (
-            patch(
-                "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
-                return_value={
-                    "payload": {
-                        "sender": "alice",
-                        "nonce": 1,
-                        "contract": "currency",
-                        "function": "transfer",
-                        "chi_supplied": 100,
-                    },
-                    "metadata": {"signature": "sig"},
-                },
-            ),
-            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
-            patch.object(
-                self.app.tx_processor,
-                "process_tx",
-                return_value={"tx_result": tx_result},
-            ),
-            patch.object(self.app.nonce_storage, "set_nonce_by_tx") as set_nonce,
-        ):
-            response = await self.process_request(
-                Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"]))
-            )
-
-        self.assertEqual(response.finalize_block.tx_results[0].code, self.constants.ErrorCode)
-        set_nonce.assert_not_called()
+        no_hash = {"status": 0, "state": [], "events": [], "chi_used": 1, "result": "ok"}
+        for tx_result in (None, no_hash):
+            with self.subTest(tx_result=tx_result):
+                with (
+                    patch(
+                        "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
+                        return_value=dict(tx),
+                    ),
+                    patch(
+                        "xian.methods.finalize_block.validate_consensus_transaction_after_static"
+                    ),
+                    patch.object(
+                        self.app.tx_processor,
+                        "process_tx",
+                        return_value={"tx_result": tx_result},
+                    ),
+                    patch.object(self.app.nonce_storage, "set_nonce_by_tx") as set_nonce,
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "no receipt"):
+                        await self.app.finalize_block(RequestFinalizeBlock(txs=[b"dummy"]))
+                set_nonce.assert_not_called()
+                self.assertIsNone(self.app._pending_commit_driver_state)
+                self.app.client.raw_driver.flush_cache()
 
     async def test_finalize_block_app_hash_commits_state_writes(self):
         base_result = {

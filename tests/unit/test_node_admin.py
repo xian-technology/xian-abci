@@ -179,6 +179,27 @@ class NodeAdminTests(unittest.TestCase):
                     home,
                 )
 
+    def test_snapshot_trust_accepts_only_canonical_lowercase_keys(self):
+        # One signing key must have one spelling in trust lists and manifests.
+        manifest, account = _signed_snapshot_manifest(
+            archive_url="https://example.invalid/snapshot.tar.gz",
+            archive_bytes=b"archive",
+        )
+        with self.assertRaisesRegex(ValueError, "invalid snapshot signing key"):
+            apply_snapshot_archive(
+                "https://example.invalid/snapshot-manifest.json",
+                Path(tempfile.gettempdir()),
+                trusted_manifest_public_keys=[account.public_key.upper()],
+            )
+        uppercase_signer = {**manifest, "signing_public_key": account.public_key.upper()}
+        with patch("xian.node_admin._fetch_json_url", return_value=uppercase_signer):
+            with self.assertRaisesRegex(ValueError, "valid Ed25519 hex key"):
+                apply_snapshot_archive(
+                    "https://example.invalid/snapshot-manifest.json",
+                    Path(tempfile.gettempdir()),
+                    trusted_manifest_public_keys=[account.public_key],
+                )
+
     def test_apply_snapshot_archive_rejects_untrusted_manifest_signer(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             home = Path(tmp_dir)
@@ -340,9 +361,6 @@ prometheus = false
                     simulation_max_concurrency=4,
                     simulation_timeout_ms=4500,
                     simulation_max_chi=750000,
-                    tx_fee_mode="free_metered",
-                    free_tx_max_chi=350_000,
-                    free_block_max_chi=1_400_000,
                     bds_host="postgres",
                     bds_port=5544,
                     bds_database="xian_index",
@@ -413,9 +431,7 @@ prometheus = false
             self.assertEqual(rendered_xian_config["simulation_max_concurrency"], 4)
             self.assertEqual(rendered_xian_config["simulation_timeout_ms"], 4500)
             self.assertEqual(rendered_xian_config["simulation_max_chi"], 750000)
-            self.assertEqual(rendered_xian_config["tx_fee_mode"], "free_metered")
-            self.assertEqual(rendered_xian_config["free_tx_max_chi"], 350_000)
-            self.assertEqual(rendered_xian_config["free_block_max_chi"], 1_400_000)
+            self.assertNotIn("tx_fee_mode", rendered_xian_config)
             self.assertEqual(rendered_xian_config["bds"]["host"], "postgres")
             self.assertEqual(rendered_xian_config["bds"]["port"], 5544)
             self.assertEqual(rendered_xian_config["bds"]["database"], "xian_index")

@@ -316,3 +316,38 @@ def test_prepare_rejects_duplicate_keys_with_null_values_and_nonce_collisions():
         exported["hash"] = compute_exported_state_root(exported).hex()
         with pytest.raises(ValueError, match="duplicate"):
             prepare_state_import(exported)
+
+
+def test_runtime_features_are_hashed_exported_and_imported(tmp_path):
+    # Runtime features change execution results, so they are consensus state:
+    # in the app hash, in exports and therefore in state-sync snapshots.
+    from contracting.runtime_features import runtime_feature_state_key
+    from contracting.storage.driver import Driver
+
+    from xian.state_export import export_state, import_state, load_exported_state
+    from xian.state_root import compute_driver_state_root
+    from xian.utils.block import stage_latest_block
+
+    zk_key = runtime_feature_state_key("zk")
+    source = tmp_path / "source"
+    with Driver(vm_profile="xian_vm_v2", storage_home=source) as driver:
+        driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
+        driver.set("con_import.value", 7)
+        driver.set(zk_key, False)
+        driver.commit()
+        disabled_root = compute_driver_state_root(driver)
+        driver.set(zk_key, True)
+        driver.commit()
+        enabled_root = compute_driver_state_root(driver)
+        stage_latest_block(driver, block_hash=enabled_root, height=3, nanos=9)
+        driver.commit()
+    assert disabled_root != enabled_root
+
+    exported = load_exported_state(export_state(output_dir=tmp_path / "out", storage_home=source))
+    assert {"key": zk_key, "value": True} in exported["genesis"]
+
+    target = tmp_path / "target"
+    import_state(exported_state=exported, storage_home=target)
+    with Driver(vm_profile="xian_vm_v2", storage_home=target) as driver:
+        assert driver.get(zk_key) is True
+        assert compute_driver_state_root(driver) == enabled_root

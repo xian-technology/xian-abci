@@ -50,6 +50,8 @@ def make_signed_tx_bytes(
     chi_supplied: int = 100,
     mutate_signature: bool = False,
     memo: str | None = None,
+    contract: str = "currency",
+    function: str = "transfer",
 ) -> bytes:
     signing_key = nacl.signing.SigningKey(SEED)
     sender = signing_key.verify_key.encode(
@@ -58,8 +60,8 @@ def make_signed_tx_bytes(
 
     payload = {
         "chain_id": chain_id,
-        "contract": "currency",
-        "function": "transfer",
+        "contract": contract,
+        "function": function,
         "kwargs": {"amount": "1", "to": sender},
         "nonce": nonce,
         "sender": sender,
@@ -404,3 +406,58 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Expected 1, got 0", error_payload["error"])
         process_tx.assert_called_once()
         set_nonce.assert_called_once()
+
+    async def test_finalize_block_charges_and_consumes_nonce_for_missing_contract(self):
+        # A contract that does not exist is a normal failed transaction: it
+        # pays base chi and its nonce cannot be included again for free.
+        self.app.tx_fee_policy = TxFeePolicy.free_metered()
+        tx = make_signed_tx_bytes(nonce=0, contract="con_missing", function="any")
+        sender = (
+            nacl.signing.SigningKey(SEED)
+            .verify_key.encode(encoder=nacl.encoding.HexEncoder)
+            .decode("ascii")
+        )
+
+        response = await self.process_request(
+            "finalize_block",
+            Request(finalize_block=RequestFinalizeBlock(txs=[tx], height=1)),
+        )
+
+        tx_result = response.finalize_block.tx_results[0]
+        self.assertEqual(tx_result.code, 1)
+        receipt = json.loads(tx_result.data.decode("utf-8"))
+        self.assertEqual(receipt["status"], 1)
+        self.assertEqual(receipt["chi_used"], 5)
+        self.assertIn("con_missing", receipt["result"])
+        await self.app.commit()
+        self.assertEqual(self.app.nonce_storage.get_nonce(sender), 0)
+
+    async def test_finalize_block_halts_when_processing_raises(self):
+        tx = make_signed_tx_bytes(nonce=0)
+        with patch.object(self.app.tx_processor, "process_tx", side_effect=OSError("disk")):
+            with self.assertRaises(OSError):
+                await self.app.finalize_block(RequestFinalizeBlock(txs=[tx], height=1))
+        self.assertIsNone(self.app._pending_commit_driver_state)
+        self.assertFalse(self.app._state_transition_lock.locked())
+
+    async def test_local_mempool_size_limit_does_not_change_block_validation(self):
+        # mempool.max_tx_bytes is node-local. Consensus block size already
+        # bounds transactions, so validators with different limits must agree.
+        self.app.tx_fee_policy = TxFeePolicy.free_metered()
+        tx = make_signed_tx_bytes(nonce=0, contract="con_missing", function="any")
+        self.app.max_tx_bytes = len(tx) - 1
+
+        process_response = await self.process_request(
+            "process_proposal",
+            Request(process_proposal=RequestProcessProposal(txs=[tx])),
+        )
+        self.assertEqual(
+            process_response.process_proposal.status,
+            ResponseProcessProposal.ProposalStatus.ACCEPT,
+        )
+        finalize_response = await self.process_request(
+            "finalize_block",
+            Request(finalize_block=RequestFinalizeBlock(txs=[tx], height=1)),
+        )
+        receipt = json.loads(finalize_response.finalize_block.tx_results[0].data)
+        self.assertEqual(receipt["chi_used"], 5)

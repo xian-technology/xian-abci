@@ -12,6 +12,7 @@ from contracting.execution.parallel import (
     SpeculativeExecutionController,
 )
 from contracting.local import ContractingClient
+from contracting.runtime_features import set_driver_runtime_features
 from contracting.storage.driver import Driver
 from loguru import logger
 
@@ -97,6 +98,9 @@ def _speculative_process_tx(task: dict) -> dict:
     )
     runtime.client.raw_driver.flush_cache()
     runtime.tx_processor.reset_block_cache()
+    if task.get("runtime_features") is not None:
+        # Fresh worker drivers must resolve features like the node's driver.
+        set_driver_runtime_features(runtime.client.raw_driver, task["runtime_features"])
 
     if task["base_pending_writes"]:
         runtime.client.raw_driver.apply_writes(task["base_pending_writes"])
@@ -134,8 +138,10 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         low_acceptance_min_wave_size: int = 8,
         access_estimates_enabled: bool = True,
         execution_runtime: VmRuntime | None = None,
+        runtime_features: dict[str, bool] | None = None,
     ) -> None:
         self.storage_home = Path(storage_home)
+        self.runtime_features = dict(runtime_features) if runtime_features is not None else None
         self.execution_runtime = execution_runtime or VmRuntime()
         self._mp_context = multiprocessing.get_context("spawn")
         self._executor: ProcessPoolExecutor | None = None
@@ -250,14 +256,11 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
         base_pending_writes: dict[str, object],
     ) -> list[dict]:
         tasks = [
-            {
-                "storage_home": str(self.storage_home),
-                "tx": tx,
-                "fee_policy": self._require_batch_fee_policy(),
-                "use_rewards_handler": self._batch_rewards_handler is not None,
-                "execution_runtime": self.execution_runtime,
-                "base_pending_writes": deepcopy(base_pending_writes),
-            }
+            self._speculation_task(
+                tx,
+                fee_policy=self._require_batch_fee_policy(),
+                base_pending_writes=base_pending_writes,
+            )
             for tx in requests
         ]
 
@@ -265,6 +268,23 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
             return [_speculative_process_tx(task) for task in tasks]
 
         return list(self._get_executor().map(_speculative_process_tx, tasks))
+
+    def _speculation_task(
+        self,
+        tx: dict,
+        *,
+        fee_policy: TxFeePolicy,
+        base_pending_writes: dict[str, object],
+    ) -> dict:
+        return {
+            "storage_home": str(self.storage_home),
+            "tx": tx,
+            "fee_policy": fee_policy,
+            "use_rewards_handler": self._batch_rewards_handler is not None,
+            "execution_runtime": self.execution_runtime,
+            "runtime_features": self.runtime_features,
+            "base_pending_writes": deepcopy(base_pending_writes),
+        }
 
     def _get_executor(self) -> ProcessPoolExecutor:
         if self._executor is None:

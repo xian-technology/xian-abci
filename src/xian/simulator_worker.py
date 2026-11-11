@@ -5,6 +5,7 @@ import traceback
 from pathlib import Path
 
 from contracting.local import ContractingClient
+from contracting.runtime_features import set_driver_runtime_features
 from contracting.storage.driver import Driver
 
 from xian import simulator_ipc
@@ -27,6 +28,8 @@ def main() -> int:
             submission_filename=None,
         )
         client.raw_driver.restore_state(task.get("driver_state"))
+        if task.get("runtime_features") is not None:
+            set_driver_runtime_features(client.raw_driver, task["runtime_features"])
         simulator = TransactionSimulator(
             client=client,
             execution_runtime=VmRuntime(runtime_info=task.get("runtime_info")),

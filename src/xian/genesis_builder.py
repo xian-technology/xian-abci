@@ -27,6 +27,7 @@ from xian.execution_policy import (
     current_execution_policy,
     validate_execution_policy,
 )
+from xian.fee_policy import FEE_POLICY_KEY, fee_policy_state
 from xian.runtime_features import (
     RuntimeFeatureResolution,
     genesis_runtime_feature_entries,
@@ -190,6 +191,7 @@ def deploy_bundle_contracts(
     constructor_overrides: dict[str, dict[str, Any]] | None = None,
     runtime_features: dict[str, Any] | None = None,
     submission_time: Datetime | None = None,
+    fee_policy: dict[str, Any] | None = None,
 ) -> None:
     """Stage submission and deploy a network bundle's contracts into ``driver``.
 
@@ -197,6 +199,7 @@ def deploy_bundle_contracts(
     on top before ``finalize_genesis_block`` hashes and signs the result.
     """
     resolved_runtime_features = normalize_runtime_features(runtime_features)
+    resolved_fee_policy = fee_policy_state(fee_policy)
     install_driver_runtime_features(
         driver,
         RuntimeFeatureResolution(
@@ -254,6 +257,7 @@ def deploy_bundle_contracts(
 
     for entry in genesis_runtime_feature_entries(resolved_runtime_features):
         driver.set(entry["key"], entry["value"])
+    driver.set(FEE_POLICY_KEY, resolved_fee_policy)
 
 
 def finalize_genesis_block(
@@ -303,6 +307,7 @@ def _build_genesis_block(
     storage_home: Path,
     constructor_overrides: dict[str, dict[str, Any]] | None = None,
     runtime_features: dict[str, Any] | None = None,
+    fee_policy: dict[str, Any] | None = None,
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
     submission_time = parse_genesis_time(genesis_time)
@@ -314,6 +319,7 @@ def _build_genesis_block(
         contracts_dir=contracts_dir,
         constructor_overrides=constructor_overrides,
         runtime_features=runtime_features,
+        fee_policy=fee_policy,
         submission_time=submission_time,
     )
     return finalize_genesis_block(driver, founder_private_key=founder_private_key)
@@ -327,6 +333,7 @@ def build_genesis_block(
     storage_home: Path | None = None,
     constructor_overrides: dict[str, dict[str, Any]] | None = None,
     runtime_features: dict[str, Any] | None = None,
+    fee_policy: dict[str, Any] | None = None,
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
     resolved_contracts_dir = resolve_contracts_dir(contracts_dir)
@@ -339,6 +346,7 @@ def build_genesis_block(
             storage_home=storage_home.resolve(),
             constructor_overrides=constructor_overrides,
             runtime_features=runtime_features,
+            fee_policy=fee_policy,
             genesis_time=genesis_time,
         )
 
@@ -350,6 +358,7 @@ def build_genesis_block(
             storage_home=Path(tmp_dir),
             constructor_overrides=constructor_overrides,
             runtime_features=runtime_features,
+            fee_policy=fee_policy,
             genesis_time=genesis_time,
         )
 
@@ -450,6 +459,7 @@ def build_single_validator_genesis(
     registration_fee: int = 100000,
     contracts_dir: Path | None = None,
     runtime_features: dict[str, Any] | None = None,
+    fee_policy: dict[str, Any] | None = None,
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
     founder_wallet = Ed25519Account(founder_private_key)
@@ -468,6 +478,7 @@ def build_single_validator_genesis(
         registration_fee=registration_fee,
         contracts_dir=contracts_dir,
         runtime_features=runtime_features,
+        fee_policy=fee_policy,
         genesis_time=genesis_time,
     )
 
@@ -481,6 +492,7 @@ def build_local_network_genesis(
     registration_fee: int = 100000,
     contracts_dir: Path | None = None,
     runtime_features: dict[str, Any] | None = None,
+    fee_policy: dict[str, Any] | None = None,
     validator_constructor_overrides: dict[str, Any] | None = None,
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
@@ -525,6 +537,7 @@ def build_local_network_genesis(
             "validators": dict(validator_overrides),
         },
         runtime_features=runtime_features,
+        fee_policy=fee_policy,
         genesis_time=resolved_genesis_time,
     )
     validator_entries = [
@@ -550,13 +563,19 @@ def build_bundle_network_genesis(
     contracts_dir: Path | None = None,
     genesis_time: str | None = None,
     runtime_features: dict[str, Any] | None = None,
+    fee_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if genesis_time is None:
+        # Operators build a shared bundle network's genesis independently, so
+        # sampling each operator's clock would give every node another chain.
+        raise ValueError("bundle network genesis requires an explicit genesis_time")
     resolved_genesis_time = normalize_genesis_time(genesis_time)
     abci_genesis = build_genesis_block(
         founder_private_key=DEFAULT_PRESET_GENESIS_PRIVATE_KEY,
         network=network,
         contracts_dir=contracts_dir,
         runtime_features=runtime_features,
+        fee_policy=fee_policy,
         genesis_time=resolved_genesis_time,
     )
     abci_genesis["origin"] = {"sender": "", "signature": ""}

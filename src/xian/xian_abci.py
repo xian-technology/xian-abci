@@ -67,7 +67,12 @@ from xian.execution_policy import (
     validate_persisted_execution_policy,
     validate_vm_execution_config,
 )
-from xian.fee_policy import TxFeePolicy
+from xian.fee_policy import (
+    FEE_POLICY_KEY,
+    TxFeePolicy,
+    reject_node_local_fee_settings,
+    resolve_chain_fee_policy,
+)
 from xian.log_safety import error_fields
 from xian.methods import (
     check_tx,
@@ -237,7 +242,15 @@ class Xian:
             trace_logging=self.transaction_trace_debug_logging,
             execution_runtime=self.execution_runtime,
         )
-        self.tx_fee_policy = TxFeePolicy.from_runtime_config(xian_config)
+        try:
+            reject_node_local_fee_settings(xian_config)
+            self.tx_fee_policy = resolve_chain_fee_policy(
+                committed_value=self.client.raw_driver.value_from_disk(FEE_POLICY_KEY),
+                genesis=self.genesis,
+            )
+        except ValueError as exc:
+            logger.bind(**error_fields(exc)).error("Fee policy resolution failed")
+            raise SystemExit() from exc
         self.enable_tx_fee = self.tx_fee_policy.charge_fees
         self.simulator = QuerySimulationService(
             storage_home=constants.STORAGE_HOME,
@@ -250,6 +263,7 @@ class Xian:
             timeout_ms=xian_config.get("simulation_timeout_ms", 3000),
             max_chi=xian_config.get("simulation_max_chi", 1_000_000),
             charge_fees=self.tx_fee_policy.charge_fees,
+            runtime_features=self.runtime_features,
         )
         self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None
@@ -310,6 +324,7 @@ class Xian:
                 DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED,
             ),
             execution_runtime=self.execution_runtime,
+            runtime_features=self.runtime_features,
         )
         if xian_config.get(
             "parallel_execution_warm_workers",
@@ -384,6 +399,15 @@ class Xian:
                 self._bds_storage_initialized = True
             await self.bds.start()
         await self.metrics_service.start()
+
+    def refresh_tx_fee_policy(self) -> TxFeePolicy:
+        """Adopt the fee policy in committed state, e.g. after a governed patch."""
+        committed_value = self.client.raw_driver.value_from_disk(FEE_POLICY_KEY)
+        if committed_value is not None:
+            self.tx_fee_policy = TxFeePolicy.from_state(committed_value)
+            self.enable_tx_fee = self.tx_fee_policy.charge_fees
+            self.simulator.charge_fees = self.tx_fee_policy.charge_fees
+        return self.tx_fee_policy
 
     def _release_state_transition_lock(self):
         if self._state_transition_lock.locked():
@@ -517,6 +541,7 @@ class Xian:
             self.client.raw_driver.flush_cache()
             self.nonce_storage.flush_pending()
             self.state_root_cache.rebuild(self.client.raw_driver.items().items())
+            self.refresh_tx_fee_policy()
         return response
 
     async def query(self, req):

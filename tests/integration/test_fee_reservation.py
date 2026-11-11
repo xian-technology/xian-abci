@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from contracting.constants import TRANSACTION_BASE_CHI
 from contracting.storage.driver import Driver
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import decode_wire_numbers
@@ -90,13 +91,15 @@ def test_unfunded_budget_has_no_execution_effects_fee_or_rewards(tmp_path, balan
         assert result is not None
         assert result["status"] == 1
         assert "chi" in result["result"].lower()
-        assert result["chi_used"] == 0
-        assert result["state"] == []
+        # A failed transaction pays base chi from whatever balance remains.
+        charged = max(balance - ContractingDecimal(TRANSACTION_BASE_CHI) / 100, 0)
+        assert result["chi_used"] == TRANSACTION_BASE_CHI
+        assert result["state"] == [{"key": "currency.balances:alice", "value": charged}]
         assert result["events"] == []
         assert result["rewards"] is None
         assert response["reward_deltas"] == {}
         assert driver.get("con_probe.value") is None
-        assert driver.get("currency.balances:alice") == balance
+        assert driver.get("currency.balances:alice") == charged
         assert "currency.balances:alice" in response["access"].reads
         assert "chi_cost.S:value" in response["access"].reads
     finally:
@@ -181,9 +184,11 @@ def test_affordability_check_does_not_round_required_budget_down(tmp_path):
         # One chi requires strictly more than this truncated token amount.
         result = process(processor, rewards, tx(budget=1))["tx_result"]
         assert result["status"] == 1
-        assert result["chi_used"] == 0
-        assert result["state"] == []
-        assert driver.get("currency.balances:alice") == balance
+        assert "enough chi" in result["result"]
+        assert driver.get("con_probe.value") is None
+        # The failure charge is capped at the one submitted chi.
+        assert result["chi_used"] == 1
+        assert driver.get("currency.balances:alice") == max(balance - ContractingDecimal(1) / 3, 0)
     finally:
         driver.close()
 
@@ -438,7 +443,7 @@ def test_direct_helper_checks_exact_affordability_with_fractional_rate(tmp_path)
             )
         assert outcome.output.status_code == 1
         assert "not have enough chi" in str(outcome.output.result)
-        assert outcome.chi_used == 0
+        assert outcome.chi_used == 1
         assert outcome.writes == {}
         assert driver.get("currency.balances:alice") == ContractingDecimal("0.5")
         execute.assert_not_called()

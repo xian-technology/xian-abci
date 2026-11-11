@@ -6,8 +6,6 @@ import unittest
 from pathlib import Path
 
 from xian.node_setup import (
-    DEFAULT_FREE_BLOCK_MAX_CHI,
-    DEFAULT_FREE_TX_MAX_CHI,
     AppLoggingOptions,
     BdsOptions,
     MetricsOptions,
@@ -188,9 +186,9 @@ class NodeSetupTests(unittest.TestCase):
         self.assertEqual(xian_config["simulation_max_concurrency"], 3)
         self.assertEqual(xian_config["simulation_timeout_ms"], 2500)
         self.assertEqual(xian_config["simulation_max_chi"], 500000)
-        self.assertEqual(xian_config["tx_fee_mode"], "paid_metered")
-        self.assertEqual(xian_config["free_tx_max_chi"], DEFAULT_FREE_TX_MAX_CHI)
-        self.assertEqual(xian_config["free_block_max_chi"], DEFAULT_FREE_BLOCK_MAX_CHI)
+        # The fee policy is chain state from genesis, never node config.
+        for key in ("tx_fee_mode", "free_tx_max_chi", "free_block_max_chi"):
+            self.assertNotIn(key, xian_config)
         self.assertTrue(xian_config["parallel_execution_enabled"])
         self.assertEqual(xian_config["parallel_execution_workers"], 4)
         self.assertEqual(xian_config["parallel_execution_min_transactions"], 12)
@@ -261,33 +259,9 @@ class NodeSetupTests(unittest.TestCase):
         self.assertNotIn("tracer_mode", xian_config)
         self.assertNotIn("execution", xian_config)
 
-    def test_render_config_supports_free_metered_fee_policy(self):
-        xian_config = render_xian_config(
-            options=_node_options(
-                tx_fee_mode="free_metered",
-                free_tx_max_chi=250_000,
-                free_block_max_chi=1_000_000,
-            )
-        )
-
-        self.assertEqual(xian_config["tx_fee_mode"], "free_metered")
-        self.assertEqual(xian_config["free_tx_max_chi"], 250_000)
-        self.assertEqual(xian_config["free_block_max_chi"], 1_000_000)
-
-    def test_render_config_rejects_invalid_fee_policy(self):
-        with self.assertRaisesRegex(ValueError, "tx_fee_mode"):
-            render_xian_config(options=_node_options(tx_fee_mode="free"))
-
-        with self.assertRaisesRegex(ValueError, "free_tx_max_chi"):
-            render_xian_config(options=_node_options(free_tx_max_chi=0))
-
-        with self.assertRaisesRegex(ValueError, "free_block_max_chi"):
-            render_xian_config(
-                options=_node_options(
-                    free_tx_max_chi=1_000,
-                    free_block_max_chi=999,
-                )
-            )
+    def test_node_options_no_longer_accept_fee_policy(self):
+        with self.assertRaises(TypeError):
+            _node_options(tx_fee_mode="free_metered")
 
     def test_render_config_rejects_unknown_direct_kwargs(self):
         with self.assertRaises(TypeError):

@@ -17,11 +17,6 @@ from xian_accounts import is_valid_ed25519_key, verify_message
 
 from xian.config_paths import resolve_genesis_source
 from xian.constants import Constants as c
-from xian.fee_policy import (
-    DEFAULT_FREE_BLOCK_MAX_CHI,
-    DEFAULT_FREE_TX_MAX_CHI,
-    DEFAULT_TX_FEE_MODE,
-)
 from xian.node_setup import (
     DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED,
     DEFAULT_PARALLEL_EXECUTION_ENABLED,
@@ -411,9 +406,6 @@ def configure_existing_home(
     simulation_max_concurrency: int = 2,
     simulation_timeout_ms: int = 3000,
     simulation_max_chi: int = 1_000_000,
-    tx_fee_mode: str = DEFAULT_TX_FEE_MODE,
-    free_tx_max_chi: int = DEFAULT_FREE_TX_MAX_CHI,
-    free_block_max_chi: int = DEFAULT_FREE_BLOCK_MAX_CHI,
     parallel_execution_enabled: bool = DEFAULT_PARALLEL_EXECUTION_ENABLED,
     parallel_execution_workers: int = DEFAULT_PARALLEL_EXECUTION_WORKERS,
     parallel_execution_min_transactions: int = (DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS),
@@ -491,9 +483,6 @@ def configure_existing_home(
                 timeout_ms=simulation_timeout_ms,
                 max_chi=simulation_max_chi,
             ),
-            tx_fee_mode=tx_fee_mode,
-            free_tx_max_chi=free_tx_max_chi,
-            free_block_max_chi=free_block_max_chi,
             parallel_execution=ParallelExecutionOptions(
                 enabled=parallel_execution_enabled,
                 workers=parallel_execution_workers,
@@ -568,9 +557,6 @@ def configure_existing_home(
             metrics=node_config.metrics,
             app_logging=node_config.app_logging,
             simulation=node_config.simulation,
-            tx_fee_mode=node_config.tx_fee_mode,
-            free_tx_max_chi=node_config.free_tx_max_chi,
-            free_block_max_chi=node_config.free_block_max_chi,
             parallel_execution=node_config.parallel_execution,
             pending_nonce_reservation_ttl_seconds=(
                 node_config.pending_nonce_reservation_ttl_seconds

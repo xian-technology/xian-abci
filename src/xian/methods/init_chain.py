@@ -13,6 +13,7 @@ async def init_chain(self, req) -> ResponseInitChain:
     # previous fire-and-forget `asyncio.ensure_future(...)` could drop the
     # write if the app crashed or restarted before the coroutine ran.
     await store_genesis_block(self.client, self.nonce_storage, abci_genesis_state)
+    self.refresh_tx_fee_policy()
     state_root = self.state_root_cache.rebuild(self.client.raw_driver.items().items())
     expected_hash = abci_genesis_state.get("hash")
     if expected_hash and bytes.fromhex(expected_hash) != state_root:

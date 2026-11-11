@@ -1,20 +1,21 @@
 import re
 
 from contracting.names import is_safe_contract_name
+from xian_accounts import is_canonical_hex
 
 MIN_JSON_INTEGER = -(2**63)
 MAX_JSON_INTEGER = 2**64 - 1
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
-_VK_RE = re.compile(r"^[0-9a-fA-F]{64}$")
-_SIGNATURE_RE = re.compile(r"^[0-9a-fA-F]{128}$")
 
 
+# Identities share the accounts package's canonical lowercase hex rule: an
+# uppercase spelling of a key would otherwise name a second account.
 def vk_is_formatted(s: str) -> bool:
-    return isinstance(s, str) and _VK_RE.fullmatch(s) is not None
+    return is_canonical_hex(s, 64)
 
 
 def signature_is_formatted(s: str) -> bool:
-    return isinstance(s, str) and _SIGNATURE_RE.fullmatch(s) is not None
+    return is_canonical_hex(s, 128)
 
 
 def identifier_is_formatted(s: str) -> bool:
