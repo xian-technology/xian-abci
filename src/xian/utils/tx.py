@@ -5,9 +5,10 @@ from copy import deepcopy
 
 from loguru import logger
 from xian_accounts import verify_message
-from xian_runtime_types.encoding import convert_dict, encode_wire
+from xian_runtime_types.encoding import decode_wire_numbers, encode_wire
 
 from xian.exceptions import TransactionException
+from xian.execution_policy import VM_EXECUTION_MODE
 from xian.formatting import (
     TRANSACTION_PAYLOAD_RULES,
     TRANSACTION_RULES,
@@ -61,7 +62,7 @@ def unpack_transaction(tx):
 def tx_hash_from_tx(tx):
     h = hashlib.sha3_256()
     tx_dict = format_dictionary(tx)
-    encoded_tx = encode_wire(tx_dict).encode("utf-8")
+    encoded_tx = encode_wire(tx_dict, vm_profile=VM_EXECUTION_MODE).encode("utf-8")
     h.update(encoded_tx)
     return h.hexdigest()
 
@@ -73,7 +74,7 @@ def canonical_transaction_size_bytes(tx: dict) -> int:
             "payload": deepcopy(tx.get("payload", {})),
         }
     )
-    return len(encode_wire(tx_dict).encode("utf-8"))
+    return len(encode_wire(tx_dict, vm_profile=VM_EXECUTION_MODE).encode("utf-8"))
 
 
 def recurse_rules(d: dict, rule: dict | Callable):
@@ -119,7 +120,7 @@ def check_enough_chi(
     # Prevent people from sending their entire balances for free by checking if that is what they are doing.
     if contract == "currency" and function == "transfer":
         # If you have less than 2 transactions worth of native token after trying to send your amount, fail.
-        if ((balance - amount) * chi_per_tau) / 6 < 2:
+        if (balance - amount) * chi_per_tau < 12:
             raise TransactionException("Transaction sender has too few chi for this transaction")
 
 
@@ -239,7 +240,7 @@ def validate_transaction_after_static(
     amount = 0 if amount is None else amount
 
     if isinstance(amount, dict):
-        amount = convert_dict(amount)
+        amount = decode_wire_numbers(amount)
 
     # Check if they have enough chi for the operation
     check_enough_chi(
@@ -267,10 +268,12 @@ def decode_and_validate_transaction_static_bytes(
         )
     if _native_decode_and_validate_transaction_static is not None:
         try:
-            return _native_decode_and_validate_transaction_static(
+            tx = _native_decode_and_validate_transaction_static(
                 raw_tx,
                 chain_id,
             )
+            decode_wire_numbers(tx["payload"])
+            return tx
         except Exception as exc:
             raise TransactionException(str(exc)) from exc
 
@@ -312,6 +315,10 @@ class SequentialNonceTracker:
 
 def validate_transaction_static(tx: dict, *, chain_id: str) -> None:
     check_tx_formatting(tx)
+    try:
+        decode_wire_numbers(tx["payload"])
+    except (TypeError, ValueError, ArithmeticError, AssertionError) as exc:
+        raise TransactionException(str(exc)) from exc
 
     sender, signature, payload = unpack_transaction(tx)
     if not verify(sender, payload, signature):

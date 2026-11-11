@@ -41,7 +41,7 @@ def environment(signature):
 def test_transaction_hash_is_used_and_ambient_state_is_irrelevant(tmp_path, meter):
     previous = dict(rt.env)
     try:
-        with Driver(storage_home=tmp_path) as driver:
+        with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
             driver.set_contract_from_source("con_rng", SOURCE, owner=None)
             driver.commit()
             draws = []

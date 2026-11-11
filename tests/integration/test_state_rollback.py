@@ -23,8 +23,6 @@ def create_block_meta(dt: datetime.datetime = datetime.datetime.now()):
     }
 
 
-
-
 def _resolve_contracts_dir() -> Path:
     # Primary: alongside this test file
     here = Path(__file__).resolve().parent
@@ -48,8 +46,8 @@ def _resolve_contracts_dir() -> Path:
 class TestStateRollback(unittest.TestCase):
     def setUp(self):
         utils.setup_fixtures()
-        self.driver = Driver(storage_home=MockConstants.STORAGE_HOME)
-        self.client = ContractingClient(driver=self.driver)
+        self.driver = Driver(vm_profile="xian_vm_v2", storage_home=MockConstants.STORAGE_HOME)
+        self.client = ContractingClient(vm_profile="xian_vm_v2", driver=self.driver)
         self.client.flush()
         self.txp = TxProcessor(client=self.client)
         base_dir = str(_resolve_contracts_dir())

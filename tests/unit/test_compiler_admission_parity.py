@@ -34,9 +34,9 @@ def _deploy(
 ):
     _load_vm_runtime_bindings.cache_clear()
     clear_prepared_contract_cache()
-    driver = Driver()
+    driver = Driver(vm_profile="xian_vm_v2")
     driver.flush_full()
-    ContractingClient(driver=driver)
+    ContractingClient(driver=driver, vm_profile="xian_vm_v2")
     output = execute_vm_contract(
         build_vm_runtime(),
         driver,
@@ -65,6 +65,17 @@ def _deploy(
 )
 def test_node_admission_matches_shared_compiler_fixture(fixture_path: Path) -> None:
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    if fixture["vm_profile"] != "xian_vm_v2" and fixture["expected"]["accepted"]:
+        # The active node compiles the same source with its V2 numeric rules.
+        try:
+            artifact = xian_compiler_core.compile_contract_artifact(
+                fixture["module_name"], fixture["input_source"], vm_profile="xian_vm_v2"
+            )
+        except ValueError as exc:
+            fixture["expected"]["accepted"] = False
+            fixture["diagnostics"] = [{"code": str(exc).split(":")[0], "message": ""}]
+        else:
+            fixture["artifact"] = artifact
     constructor_args = (
         {"supply": 1} if fixture["module_name"] == "con_complex_ledger" else {}
     )

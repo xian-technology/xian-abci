@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 def _numeric_projection(column: str) -> str:
@@ -6,9 +6,6 @@ def _numeric_projection(column: str) -> str:
         CASE
             WHEN jsonb_typeof({column}) = 'number'
                 THEN ({column}::text)::numeric
-            WHEN jsonb_typeof({column}) = 'string'
-                AND trim(both '"' from {column}::text) ~ '^-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?$'
-                THEN (trim(both '"' from {column}::text))::numeric
             WHEN jsonb_typeof({column}) = 'object'
                 AND {column} ? '__fixed__'
                 THEN ({column} ->> '__fixed__')::numeric

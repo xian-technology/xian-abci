@@ -88,7 +88,7 @@ class StateSyncTests(unittest.TestCase):
             self.assertEqual(import_result["app_hash"], result["app_hash"])
             self.assertTrue(Path(import_result["stored_snapshot_path"]).exists())
 
-            target_driver = Driver(storage_home=target_home)
+            target_driver = Driver(vm_profile="xian_vm_v2", storage_home=target_home)
             self.assertEqual(
                 target_driver.get("demo.__source__"),
                 CANONICAL_CONTRACT_SOURCE,
@@ -159,7 +159,7 @@ class StateSyncTests(unittest.TestCase):
                 )
                 self.assertEqual(apply_response.result, apply_response.ACCEPT)
 
-            target_driver = Driver(storage_home=target_home)
+            target_driver = Driver(vm_profile="xian_vm_v2", storage_home=target_home)
             self.assertEqual(target_driver.get("demo.count"), 7)
             self.assertEqual(
                 target_driver.get("demo.set"),
@@ -192,7 +192,7 @@ class StateSyncTests(unittest.TestCase):
             )
             source.export_snapshot()
             record = source.list_snapshot_records()[0]
-            live_driver = Driver(storage_home=target_home)
+            live_driver = Driver(vm_profile="xian_vm_v2", storage_home=target_home)
             self.assertIsNone(live_driver.get("demo.count"))
             target = StateSnapshotManager(storage_home=target_home, chain_id="xian-test-1")
             app = SimpleNamespace(
@@ -221,7 +221,7 @@ class StateSyncTests(unittest.TestCase):
             self.assertEqual(live_driver.get("demo.count"), 7)
             self.assertEqual(live_driver.get("__n.alice:"), 5)
             # Another startup must retain the imported marker rather than reset to zero.
-            app.client.raw_driver = Driver(storage_home=target_home)
+            app.client.raw_driver = Driver(vm_profile="xian_vm_v2", storage_home=target_home)
             restarted = asyncio.run(info(app, None))
             self.assertEqual(restarted.last_block_height, 42)
 
@@ -357,7 +357,7 @@ class StateSyncTests(unittest.TestCase):
 
     @staticmethod
     def _seed_state(storage_home: Path) -> None:
-        driver = Driver(storage_home=storage_home)
+        driver = Driver(vm_profile="xian_vm_v2", storage_home=storage_home)
         driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
         driver.set_contract_from_source("demo", CONTRACT_SOURCE, owner="alice")
         driver.set("demo.set", ContractingSet([(1, "a"), ContractingFrozenSet([b"x"])]))

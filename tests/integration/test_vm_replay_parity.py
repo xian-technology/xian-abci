@@ -139,8 +139,12 @@ class TestVmReplayParity(unittest.TestCase):
         self.python_home.mkdir(parents=True, exist_ok=True)
         self.native_home.mkdir(parents=True, exist_ok=True)
 
-        self.python_client = ContractingClient(storage_home=self.python_home)
-        self.native_client = ContractingClient(storage_home=self.native_home)
+        self.python_client = ContractingClient(
+            vm_profile="xian_vm_v2", storage_home=self.python_home
+        )
+        self.native_client = ContractingClient(
+            vm_profile="xian_vm_v2", storage_home=self.native_home
+        )
         self.python_client.submit(PARITY_PROBE_SOURCE, name="con_vm_parity_probe")
         self.native_client.submit(PARITY_PROBE_SOURCE, name="con_vm_parity_probe")
         self.python_client.raw_driver.hard_apply(0)

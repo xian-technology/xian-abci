@@ -24,7 +24,7 @@ from xian.execution_policy import (
     VM_EXECUTION_REVISION,
     VM_GAS_SCHEDULE,
 )
-from xian.utils.encoding import encode_abci_json
+from xian.utils.encoding import encode_abci_json, normalize_contract_result
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +82,7 @@ def vm_contract_source_error(
     contract_name: str,
     function_name: str,
 ) -> str:
-    return f"xian_vm_v1 requires source code for {contract_name}.{function_name}"
+    return f"xian_vm_v2 requires source code for {contract_name}.{function_name}"
 
 
 def metering_write_keys(
@@ -156,7 +156,7 @@ def _load_vm_runtime_bindings():
         import xian_vm_core
     except ImportError as exc:  # pragma: no cover - exercised via unit tests
         raise ValueError(
-            "execution engine 'xian_vm_v1' requires the native "
+            "execution engine 'xian_vm_v2' requires the native "
             "'xian-tech-vm-core' package to be installed"
         ) from exc
     return xian_vm_core
@@ -164,7 +164,7 @@ def _load_vm_runtime_bindings():
 
 def build_vm_runtime() -> VmRuntime:
     bindings = _load_vm_runtime_bindings()
-    runtime_info = bindings.runtime_info()
+    runtime_info = bindings.runtime_info(VM_EXECUTION_MODE)
     if (
         runtime_info.get("execution_revision") != VM_EXECUTION_REVISION
         or runtime_info.get("set_codec") != SET_CODEC
@@ -172,15 +172,16 @@ def build_vm_runtime() -> VmRuntime:
         raise ValueError("native runtime execution policy does not match the node")
     if runtime_info.get("vm_profile") != VM_EXECUTION_MODE:
         raise ValueError(
-            "xian_vm_v1 native runtime reported an unexpected vm_profile: "
+            "xian_vm_v2 native runtime reported an unexpected vm_profile: "
             f"{runtime_info.get('vm_profile')!r}"
         )
     if not bindings.supports_execution_policy(
         VM_BYTECODE_VERSION,
         VM_GAS_SCHEDULE,
+        VM_EXECUTION_MODE,
     ):
         raise ValueError(
-            "xian_vm_v1 native runtime does not support execution policy "
+            "xian_vm_v2 native runtime does not support execution policy "
             f"bytecode_version={VM_BYTECODE_VERSION!r} "
             f"gas_schedule={VM_GAS_SCHEDULE!r}"
         )
@@ -243,6 +244,7 @@ def execute_vm_contract(
     }
     try:
         output = bindings.execute_contract(
+            vm_profile=VM_EXECUTION_MODE,
             driver=driver,
             contract_name=contract_name,
             function_name=function_name,
@@ -282,13 +284,11 @@ def _validated_vm_result(output: VmExecutionResult) -> VmExecutionResult:
         if EXECUTION_POLICY_KEY in output.writes:
             raise ValueError("contract effects cannot change the protected execution policy")
         validate_persistent_value((output.writes, output.events))
-        # Both ABCI responses and state-root leaves use this encoder. Validate
-        # effects before the transaction can apply any of them; return values
-        # are deliberately excluded because the processor renders them as text.
+        normalize_contract_result(output.result)
         encode_abci_json((output.writes, output.events))
         for key in output.writes:
             key.encode("utf-8")
-    except (AssertionError, TypeError, ValueError, RecursionError):
+    except (ArithmeticError, AssertionError, TypeError, ValueError, RecursionError):
         return replace(
             output,
             status_code=1,
@@ -370,7 +370,7 @@ def _prepare_vm_contract_bundle(
 ) -> VmPreparedContract:
     if contract_name in stack:
         raise ValueError(
-            "xian_vm_v1 import graph contains a cycle: " + " -> ".join((*stack, contract_name))
+            "xian_vm_v2 import graph contains a cycle: " + " -> ".join((*stack, contract_name))
         )
 
     artifact_hash, module_ir_json = _load_vm_module_ir_json(driver, contract_name)
@@ -437,7 +437,7 @@ def _load_vm_module_ir_json(
     if get_contract_ir is not None:
         module_ir_json = get_contract_ir(
             contract_name,
-            vm_profile="xian_vm_v1",
+            vm_profile=VM_EXECUTION_MODE,
         )
         if isinstance(module_ir_json, str) and module_ir_json:
             return (
@@ -446,6 +446,6 @@ def _load_vm_module_ir_json(
             )
 
     raise ValueError(
-        "xian_vm_v1 requires persisted __xian_ir_v1__ for "
+        "xian_vm_v2 requires persisted __xian_ir_v1__ for "
         f"contract '{contract_name}'; stored source is inspection-only"
     )

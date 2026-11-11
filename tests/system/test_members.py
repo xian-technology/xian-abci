@@ -2,6 +2,7 @@ import os
 import unittest
 
 from contracting.local import ContractingClient
+from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.time import Datetime
 
 from xian.config_paths import resolve_contracts_dir
@@ -17,7 +18,7 @@ class TestMembersContract(unittest.TestCase):
         }
         self.deployer_vk = "xian-deployer"
 
-        self.client = ContractingClient(environment=self.environment)
+        self.client = ContractingClient(vm_profile="xian_vm_v2", environment=self.environment)
         self.client.flush()
 
         # Set up paths and load contracts
@@ -206,8 +207,8 @@ class TestMembersContract(unittest.TestCase):
             ("change_registration_fee", 0),
             ("change_registration_fee", -1),
             ("change_registration_fee", True),
-            ("reward_change", [0.5, 0.5]),
-            ("reward_change", [0.5, 0.6, -0.1, 0]),
+            ("reward_change", [ContractingDecimal("0.5"), ContractingDecimal("0.5")]),
+            ("reward_change", [ContractingDecimal("0.5"), ContractingDecimal("0.6"), ContractingDecimal("-0.1"), 0]),
             ("dao_payout", {"amount": 10, "to": "recipient"}),
             (
                 "dao_payout",
@@ -225,8 +226,8 @@ class TestMembersContract(unittest.TestCase):
             ("update_policy", {"max_validators": True}),
             ("update_policy", {"duplicate_vote_jail": "yes"}),
             ("jail_member", {"reason": "missing member"}),
-            ("slash_member", {"member": "node1", "slash_bps": 1.5}),
-            ("set_member_power", {"member": "node1", "power": 1.5}),
+            ("slash_member", {"member": "node1", "slash_bps": ContractingDecimal("1.5")}),
+            ("set_member_power", {"member": "node1", "power": ContractingDecimal("1.5")}),
         ]
 
         for type_of_vote, arg in invalid_payloads:
@@ -234,7 +235,7 @@ class TestMembersContract(unittest.TestCase):
                 self.assert_vote_payload_rejected(type_of_vote, arg)
 
     def test_reward_change_allows_zero_value_buckets(self):
-        requested_split = [0.70, 0, 0, 0.30]
+        requested_split = [ContractingDecimal("0.7"), 0, 0, ContractingDecimal("0.3")]
         rewards = self.client.get_contract_proxy("rewards")
 
         self.members.propose_vote(

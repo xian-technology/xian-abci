@@ -8,7 +8,7 @@ from typing import Any
 
 from contracting.compilation import parser
 from loguru import logger
-from xian_runtime_types.decimal import ContractingDecimal
+from xian_runtime_types.decimal import ContractingDecimal, canonical_fixed
 from xian_runtime_types.encoding import is_wrapper_set
 from xian_runtime_types.time import Datetime
 
@@ -26,7 +26,7 @@ from xian.utils.block import (
     get_latest_block_nanos,
     nanoseconds_to_utc_datetime,
 )
-from xian.utils.encoding import encode_abci_json, encode_str
+from xian.utils.encoding import encode_abci_json, encode_str, normalize_for_abci_json
 
 DEFAULT_KEYS_QUERY_LIMIT = 100
 MAX_KEYS_QUERY_LIMIT = 200
@@ -285,7 +285,7 @@ def _make_vm_query_environment(ctx: QueryContext) -> dict[str, Any]:
         "__input_hash": hashlib.sha3_256(
             f"query:{ctx.route}:{ctx.key}:{int(block_nanos or 0)}".encode("utf-8")
         ).hexdigest(),
-        "__xian_execution_mode__": "xian_vm_v1",
+        "__xian_execution_mode__": "xian_vm_v2",
         "now": now,
         "chain_id": getattr(ctx.app, "chain_id", None),
     }
@@ -1093,7 +1093,13 @@ async def _execute_query(ctx: QueryContext) -> QueryResult:
     raise UnknownQueryPath(f"Unknown query path: {ctx.route}")
 
 
-def _encode_query_value(result: Any) -> tuple[bytes | None, str | None]:
+def _encode_query_value(result: Any, *, telemetry: bool = False) -> tuple[bytes | None, str | None]:
+    if telemetry:
+        # Operator measurements include fractional durations and utilization ratios.
+        raw = json.dumps(
+            result, default=normalize_for_abci_json, separators=(",", ":"), allow_nan=False
+        )
+        return raw.encode("utf-8"), "json"
     if result is None:
         return None, None
     if is_wrapper_set(result):
@@ -1104,8 +1110,8 @@ def _encode_query_value(result: Any) -> tuple[bytes | None, str | None]:
         return encode_str(result), "str"
     if isinstance(result, int):
         return encode_str(str(result)), "int"
-    if isinstance(result, float) or isinstance(result, ContractingDecimal):
-        return encode_str(str(result)), "decimal"
+    if isinstance(result, ContractingDecimal):
+        return encode_str(canonical_fixed(result)), "decimal"
     if isinstance(result, dict):
         return encode_abci_json(result), "dict"
     if isinstance(result, list):
@@ -1154,7 +1160,9 @@ async def query(self, req) -> ResponseQuery:
 
     try:
         outcome = await _execute_query(ctx)
-        value, type_of_data = _encode_query_value(outcome.result)
+        value, type_of_data = _encode_query_value(
+            outcome.result, telemetry=route in {"perf_status", "bds_status", "bds_spool"}
+        )
     except UnknownQueryPath as err:
         error = str(err)
         logger.bind(**error_fields(err)).warning("Unknown ABCI query route")

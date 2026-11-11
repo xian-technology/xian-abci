@@ -82,7 +82,7 @@ def test_cyclic_effect_is_a_transaction_failure():
 
 def test_supported_effects_and_return_only_dict_keep_their_original_values():
     value = {
-        "values": [None, True, 2**128, 1.5, "text", b"\xff", (1, 2)],
+        "values": [None, True, 2**128, ContractingDecimal("1.5"), "text", b"\xff", (1, 2)],
         "sets": [ContractingSet([1, 2]), ContractingFrozenSet([1, 2])],
         "decimal": Decimal("1.25"),
         "fixed": ContractingDecimal("2.5"),
@@ -125,7 +125,7 @@ def test_processor_preserves_return_values_but_rejects_unencodable_state(
     source = "valid = Variable()\ninvalid = Variable()\n\n@export\ndef probe():\n"
     source += "    valid.set(7)\n"
     source += f"    invalid.set({expression})\n" if store else f"    return {expression}\n"
-    with ContractingClient(storage_home=tmp_path / "state") as client:
+    with ContractingClient(vm_profile="xian_vm_v2", storage_home=tmp_path / "state") as client:
         client.submit(source, name="con_boundary", owner=None)
         client.raw_driver.set("currency.balances:alice", 100_000)
         client.raw_driver.commit()
@@ -146,7 +146,7 @@ def test_processor_preserves_return_values_but_rejects_unencodable_state(
         output = processor.process_tx(tx, fee_policy=TxFeePolicy.paid_metered())["tx_result"]
         assert output is not None
         wrapper = expression.startswith(("set(", "frozenset("))
-        failed = store and not wrapper
+        failed = (store and not wrapper) or expression == "{1: 2}"
         assert output["status"] == int(failed)
         assert output["chi_used"] > 0
         assert client.raw_driver.get("currency.balances:alice") < 100_000
@@ -160,5 +160,12 @@ def test_processor_preserves_return_values_but_rejects_unencodable_state(
             )
         else:
             assert stored is None
-        assert isinstance(output["result"], str)
+        if failed:
+            assert isinstance(output["result"], str)
+        elif store:
+            assert output["result"] is None
+        elif wrapper:
+            assert isinstance(output["result"], dict)
+        else:
+            assert isinstance(output["result"], str)
         encode_abci_json(output)

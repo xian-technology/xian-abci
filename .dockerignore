@@ -7,6 +7,8 @@
 .coverage.*
 .metrics
 .tmp-home
+.tmp
+logs
 graphify-out
 htmlcov
 coverage.xml

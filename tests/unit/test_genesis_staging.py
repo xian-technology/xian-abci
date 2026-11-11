@@ -71,7 +71,7 @@ def bundle(tmp_path):
 
 def test_staged_deployment_matches_existing_builder(bundle, tmp_path):
     expected = build_genesis_block(**bundle, genesis_time=INSTANT)
-    with Driver(storage_home=tmp_path / "staged") as driver:
+    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path / "staged") as driver:
         deploy_bundle_contracts(driver, **bundle, submission_time=parse_genesis_time(INSTANT))
         assert driver.pending_writes
         assert driver._store.items() == {}  # Deployment has not committed to storage.
@@ -87,7 +87,7 @@ def test_staged_deployment_matches_existing_builder(bundle, tmp_path):
 
 @pytest.mark.parametrize("signer", [SEED, None])
 def test_finalize_includes_layered_state_and_optional_signature(bundle, tmp_path, signer):
-    with Driver(storage_home=tmp_path / "layered") as driver:
+    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path / "layered") as driver:
         deploy_bundle_contracts(driver, **bundle, submission_time=parse_genesis_time(INSTANT))
         driver.set("clock_state.amount", 23)
         driver.set("extra.state", {"items": [1, 2]})
@@ -115,7 +115,7 @@ def test_public_timestamp_helpers_normalize_offsets():
 
 
 def test_staged_default_time_is_sampled_once_and_existing_contract_state_is_kept(bundle, tmp_path):
-    with Driver(storage_home=tmp_path / "default-time") as driver:
+    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path / "default-time") as driver:
         with patch("xian.genesis_builder.datetime", wraps=datetime) as clock:
             clock.now.return_value = datetime(2026, 1, 2, tzinfo=timezone.utc)
             deploy_bundle_contracts(driver, **bundle)
@@ -136,7 +136,7 @@ def test_constructor_overrides_can_supply_missing_args_by_source_name(bundle, tm
     del config["contracts"][0]["constructor_args"]
     config_path.write_text(json.dumps(config))
     bundle["constructor_overrides"] = {"clock": {"account": "custom", "value": 29}}
-    with Driver(storage_home=tmp_path / "override") as driver:
+    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path / "override") as driver:
         deploy_bundle_contracts(driver, **bundle, submission_time=parse_genesis_time(INSTANT))
         result = finalize_genesis_block(driver, founder_private_key=SEED)
         state = {entry["key"]: entry["value"] for entry in result["genesis"]}

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import json
 from ipaddress import ip_address
 from urllib.parse import urlsplit, urlunsplit
+
+from xian_runtime_types.encoding import loads_wire_json
 
 from xian.constants import Constants
 from xian.toml_utils import load as load_toml
@@ -127,5 +128,4 @@ def load_genesis_data(config: Constants):
     if not (config.COMETBFT_GENESIS.exists() and config.COMETBFT_GENESIS.is_file()):
         raise FileNotFoundError(f"File not found: {config.COMETBFT_GENESIS}")
 
-    with open(config.COMETBFT_GENESIS, "r") as file:
-        return json.load(file)
+    return loads_wire_json(config.COMETBFT_GENESIS.read_bytes())

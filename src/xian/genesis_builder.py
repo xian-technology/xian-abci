@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 import re
 import tempfile
 from copy import deepcopy
@@ -15,7 +14,7 @@ from contracting.local import BUILTIN_SUBMISSION_SOURCE_PATH
 from contracting.runtime_features import normalize_runtime_features
 from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
-from xian_runtime_types.encoding import encode, encode_wire
+from xian_runtime_types.encoding import decode_wire_numbers, encode, encode_wire, loads_wire_json
 from xian_runtime_types.time import Datetime
 
 from xian.config_paths import (
@@ -24,6 +23,7 @@ from xian.config_paths import (
 from xian.execution_engine import VmRuntime, build_vm_runtime, execute_vm_contract
 from xian.execution_policy import (
     EXECUTION_POLICY_KEY,
+    VM_EXECUTION_MODE,
     current_execution_policy,
     validate_execution_policy,
 )
@@ -59,7 +59,7 @@ DEFAULT_PRESET_GENESIS_PRIVATE_KEY = (
 def hash_state_changes(state_changes: list[dict[str, Any]]) -> str:
     ordered_state_changes = sorted(state_changes, key=lambda item: item["key"])
     digest = hashlib.sha3_256()
-    digest.update(encode(ordered_state_changes).encode("utf-8"))
+    digest.update(encode(ordered_state_changes, vm_profile=VM_EXECUTION_MODE).encode("utf-8"))
     return digest.hexdigest()
 
 
@@ -77,7 +77,7 @@ def load_contract_bundle_config(
     resolved_contracts_dir = resolve_contracts_dir(contracts_dir)
     config_path = resolved_contracts_dir / f"contracts_{network}.json"
     with open(config_path, "r", encoding="utf-8") as handle:
-        return json.load(handle)
+        return loads_wire_json(handle.read())
 
 
 def normalize_genesis_time(value: str | None = None) -> str:
@@ -110,7 +110,7 @@ def _stage_native_submission_contract(driver: Driver, *, submission_time: Dateti
         module_name="submission",
         source=source,
         lint=False,
-        vm_profile="xian_vm_v1",
+        vm_profile=VM_EXECUTION_MODE,
     )
     driver.set_contract(
         name="submission",
@@ -140,7 +140,7 @@ def _deploy_native_genesis_contract(
             "name": contract_name,
             "code": source,
             "owner": owner,
-            "constructor_args": constructor_args or {},
+            "constructor_args": decode_wire_numbers(constructor_args or {}),
         },
         environment={"now": submission_time},
         meter=False,
@@ -306,7 +306,7 @@ def _build_genesis_block(
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
     submission_time = parse_genesis_time(genesis_time)
-    driver = Driver(storage_home=storage_home)
+    driver = Driver(vm_profile=VM_EXECUTION_MODE, storage_home=storage_home)
     deploy_bundle_contracts(
         driver,
         founder_private_key=founder_private_key,
@@ -574,16 +574,16 @@ def build_bundle_network_genesis(
 def write_genesis_block(path: Path, genesis_block: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
-        handle.write(encode_wire(genesis_block))
+        handle.write(encode_wire(genesis_block, vm_profile=VM_EXECUTION_MODE))
 
 
 def update_cometbft_genesis(genesis_path: Path, *, abci_genesis: dict[str, Any]) -> None:
     with open(genesis_path, "r", encoding="utf-8") as handle:
-        cometbft_genesis = json.load(handle)
+        cometbft_genesis = loads_wire_json(handle.read())
 
     cometbft_genesis["abci_genesis"] = abci_genesis
     cometbft_genesis["initial_height"] = str(abci_genesis["number"])
     cometbft_genesis["app_hash"] = str(abci_genesis.get("hash", ""))
 
     with open(genesis_path, "w", encoding="utf-8") as handle:
-        handle.write(encode_wire(cometbft_genesis))
+        handle.write(encode_wire(cometbft_genesis, vm_profile=VM_EXECUTION_MODE))

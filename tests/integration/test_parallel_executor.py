@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from contracting.local import ContractingClient
+from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.execution_engine import build_vm_runtime
 from xian.fee_policy import TxFeePolicy
@@ -93,10 +94,8 @@ CORE_VALUE_CONTRACT_CODE = textwrap.dedent(
 
 
 class TestParallelBlockExecutor(unittest.TestCase):
-    def _build_processor(
-        self, storage_home: Path, *, with_rewards: bool = False
-    ):
-        client = ContractingClient(storage_home=storage_home)
+    def _build_processor(self, storage_home: Path, *, with_rewards: bool = False):
+        client = ContractingClient(vm_profile="xian_vm_v2", storage_home=storage_home)
         tx_processor = TxProcessor(client=client)
 
         contract_dir = (
@@ -111,7 +110,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
             client.raw_driver.set("chi_cost.S:value", 100)
             client.raw_driver.set("foundation.owner", "foundation")
             client.raw_driver.set("validators.active_validators", ["mn-1", "mn-2"])
-            client.raw_driver.set("rewards.S:value", [0.88, 0.01, 0.01, 0.1])
+            client.raw_driver.set("rewards.S:value", [ContractingDecimal(text) for text in ("0.88", "0.01", "0.01", "0.1")])
             for address in (
                 "alice",
                 "bob",
@@ -551,7 +550,7 @@ class TestParallelBlockExecutor(unittest.TestCase):
                 sender="grace",
                 contract="rewards",
                 function="set_value",
-                kwargs={"new_value": [0.25, 0.25, 0.25, 0.25]},
+                kwargs={"new_value": [{"__fixed__": "0.25"}] * 4},
                 nonce=0,
                 signature="sig-core-7",
             ),
@@ -570,10 +569,10 @@ class TestParallelBlockExecutor(unittest.TestCase):
             tempfile.TemporaryDirectory() as parallel_dir,
         ):
             serial_client = ContractingClient(
-                storage_home=Path(serial_dir) / "xian"
+                vm_profile="xian_vm_v2", storage_home=Path(serial_dir) / "xian"
             )
             parallel_client = ContractingClient(
-                storage_home=Path(parallel_dir) / "xian"
+                vm_profile="xian_vm_v2", storage_home=Path(parallel_dir) / "xian"
             )
             for client in (serial_client, parallel_client):
                 client.submit(
@@ -710,10 +709,10 @@ class TestParallelBlockExecutor(unittest.TestCase):
             tempfile.TemporaryDirectory() as parallel_dir,
         ):
             serial_client = ContractingClient(
-                storage_home=Path(serial_dir) / "xian"
+                vm_profile="xian_vm_v2", storage_home=Path(serial_dir) / "xian"
             )
             parallel_client = ContractingClient(
-                storage_home=Path(parallel_dir) / "xian"
+                vm_profile="xian_vm_v2", storage_home=Path(parallel_dir) / "xian"
             )
             serial_client.submit(contract_code, name="con_scan", signer="sys")
             parallel_client.submit(contract_code, name="con_scan", signer="sys")
@@ -946,10 +945,10 @@ class TestParallelBlockExecutor(unittest.TestCase):
             tempfile.TemporaryDirectory() as parallel_dir,
         ):
             serial_client = ContractingClient(
-                storage_home=Path(serial_dir) / "xian"
+                vm_profile="xian_vm_v2", storage_home=Path(serial_dir) / "xian"
             )
             parallel_client = ContractingClient(
-                storage_home=Path(parallel_dir) / "xian"
+                vm_profile="xian_vm_v2", storage_home=Path(parallel_dir) / "xian"
             )
             serial_client.submit(
                 PARALLEL_HASH_PROBE_CONTRACT_CODE,

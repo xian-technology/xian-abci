@@ -10,7 +10,7 @@ def _tracker(tmp_path, **overrides):
         "output_path": tmp_path / "perf.json",
         "node_name": "node0",
         "chain_id": "xian-test",
-        "execution_mode": "xian_vm_v1",
+        "execution_mode": "xian_vm_v2",
     }
     kwargs.update(overrides)
     return PerfTracker(**kwargs)
@@ -65,7 +65,7 @@ def test_from_env_returns_noop_unless_enabled(monkeypatch, tmp_path):
         cometbft_home=tmp_path,
         node_name="node0",
         chain_id="xian-test",
-        execution_mode="xian_vm_v1",
+        execution_mode="xian_vm_v2",
     )
 
     assert isinstance(tracker, NoopPerfTracker)
@@ -80,7 +80,7 @@ def test_from_env_builds_tracker_with_overrides(monkeypatch, tmp_path):
         cometbft_home=tmp_path,
         node_name="node0",
         chain_id="xian-test",
-        execution_mode="xian_vm_v1",
+        execution_mode="xian_vm_v2",
     )
 
     assert isinstance(tracker, PerfTracker)

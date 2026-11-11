@@ -8,11 +8,16 @@ from typing import Any, Protocol
 
 import aiohttp
 from contracting.storage.driver import Driver
+from google.protobuf.timestamp_pb2 import Timestamp
 from loguru import logger
-from xian_runtime_types.encoding import convert_dict
+from xian_runtime_types.encoding import decode_wire_numbers, loads_wire_json
 
 from xian.constants import Constants
-from xian.execution_policy import validate_execution_policy, validate_genesis_execution_policy
+from xian.execution_policy import (
+    VM_EXECUTION_MODE,
+    validate_execution_policy,
+    validate_genesis_execution_policy,
+)
 from xian.services.bds.bds import BDS
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.services.bds.runtime import resolve_bds_config
@@ -47,31 +52,20 @@ async def _validate_source_policies(
         validate_execution_policy(await trusted_block_source.execution_policy())
 
 
+def _rpc_timestamp(value: str) -> Timestamp:
+    timestamp = Timestamp()
+    timestamp.FromJsonString(value)
+    return timestamp
+
+
 def parse_rfc3339_nano(value: str) -> datetime:
-    if value.endswith("Z"):
-        value = value[:-1] + "+00:00"
-    if "." not in value:
-        return datetime.fromisoformat(value).astimezone(UTC)
-
-    head, tail = value.split(".", 1)
-    if "+" in tail:
-        fraction, offset = tail.split("+", 1)
-        offset = f"+{offset}"
-    elif "-" in tail:
-        fraction, offset = tail.split("-", 1)
-        offset = f"-{offset}"
-    else:
-        fraction, offset = tail, ""
-
-    normalized_fraction = fraction[:6].ljust(6, "0")
-    normalized = f"{head}.{normalized_fraction}{offset}"
-    return datetime.fromisoformat(normalized).astimezone(UTC)
+    return _rpc_timestamp(value).ToDatetime(UTC)
 
 
 def datetime_to_nanos(value: datetime) -> int:
-    resolved = utc_datetime(value)
-    seconds = int(resolved.timestamp())
-    return (seconds * 1_000_000_000) + (resolved.microsecond * 1_000)
+    timestamp = Timestamp()
+    timestamp.FromDatetime(utc_datetime(value))
+    return timestamp.ToNanoseconds()
 
 
 def resolve_rpc_url(
@@ -220,7 +214,8 @@ class BdsReindexer:
 
         block = block_response["block"]
         header = block["header"]
-        block_time = parse_rfc3339_nano(header["time"])
+        timestamp = _rpc_timestamp(header["time"])
+        block_time = timestamp.ToDatetime(UTC)
         tx_bytes_list = self._extract_block_txs(block)
         tx_results = block_results.get("txs_results") or []
         if len(tx_bytes_list) != len(tx_results):
@@ -248,7 +243,7 @@ class BdsReindexer:
             block_meta={
                 "height": int(header["height"]),
                 "hash": str(block_response["block_id"]["hash"]).upper(),
-                "nanos": datetime_to_nanos(block_time),
+                "nanos": timestamp.ToNanoseconds(),
             },
             block_time=block_time,
             app_hash=str(header["app_hash"]).upper(),
@@ -298,7 +293,7 @@ class BdsReindexer:
         if not data_b64:
             return None
         decoded = base64.b64decode(data_b64).decode("utf-8")
-        parsed = convert_dict(json.loads(decoded))
+        parsed = decode_wire_numbers(loads_wire_json(decoded))
         return parsed if isinstance(parsed, dict) else None
 
     def _build_transaction_payload(
@@ -364,7 +359,9 @@ async def run_bds_reindex(
         validate_genesis_execution_policy(cometbft_genesis)
         await _validate_source_policies(block_source, trusted_block_source)
         await bds.initialize_storage(cometbft_genesis, reset=reset)
-        state_patch_manager = StatePatchManager(Driver(storage_home=constants.STORAGE_HOME))
+        state_patch_manager = StatePatchManager(
+            Driver(vm_profile=VM_EXECUTION_MODE, storage_home=constants.STORAGE_HOME)
+        )
         patch_dir_path = resolve_state_patch_dir(constants)
         state_patch_manager.load_patches(str(patch_dir_path))
         reindexer = BdsReindexer(

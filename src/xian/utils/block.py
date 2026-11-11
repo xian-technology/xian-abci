@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from loguru import logger
-from xian_runtime_types.encoding import convert_dict
+from xian_runtime_types.encoding import decode_wire_numbers
 
 from xian.constants import Constants as c
 from xian.log_safety import error_fields
@@ -192,14 +192,6 @@ def get_nanotime_from_block_time(timeobj) -> int:
     return (seconds * 1_000_000_000) + nanos
 
 
-def _convert_runtime_value(value):
-    if type(value) is dict:
-        return convert_dict(value)
-    if isinstance(value, list):
-        return [_convert_runtime_value(item) for item in value]
-    return value
-
-
 def apply_state_changes_from_block(client, nonce_storage, block):
     state_changes = block.get("genesis", [])
     rewards = block.get("rewards", [])
@@ -207,16 +199,14 @@ def apply_state_changes_from_block(client, nonce_storage, block):
     nanos = block.get("hlc_timestamp")
     nonces = block.get("nonces", [])
 
-    for i, s in enumerate(state_changes):
-        s["value"] = _convert_runtime_value(s["value"])
-        client.raw_driver.set(s["key"], s["value"])
+    for change in state_changes:
+        client.raw_driver.set(change["key"], decode_wire_numbers(change["value"]))
 
     for n in nonces:
         nonce_storage.set_nonce(n["key"], n["value"])
 
-    for s in rewards:
-        s["value"] = _convert_runtime_value(s["value"])
-        client.raw_driver.set(s["key"], s["value"])
+    for change in rewards:
+        client.raw_driver.set(change["key"], decode_wire_numbers(change["value"]))
 
     client.raw_driver.hard_apply(nanos)
 

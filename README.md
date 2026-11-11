@@ -49,7 +49,7 @@ uv run xian-parallel-estimator-report --help
 
 Optional extras:
 
-- `vm` — enables the `xian_vm_v1` bindings.
+- `vm` — enables the `xian_vm_v2` bindings.
 - `native` — enables native admission helpers for development and release
   validation.
 - `zk` — enables the native zk verifier required by nodes on chains with the

@@ -11,14 +11,13 @@ from xian_runtime_types.time import Datetime
 
 from xian.utils.tx import canonical_transaction_size_bytes, tx_hash_from_tx
 
-# Raw quantum, large integer text, nested tags and escaped Unicode are deliberate:
-# decoding/re-encoding the wire tree would silently change some of these bytes.
+# Canonical numeric wrappers and escaped Unicode must hash to these exact bytes.
 WIRE = {
     "payload": {
         "sender": "alice",
         "kwargs": {
-            "amount": {"__fixed__": "0.00100"},
-            "nested": [{"fee": {"__fixed__": "2.00"}}, {"__big_int__": "0018446744073709551616"}],
+            "amount": {"__fixed__": "0.001"},
+            "nested": [{"fee": {"__fixed__": "2"}}, {"__big_int__": "18446744073709551616"}],
             "label": "é",
         },
         "function": "settle",
@@ -28,9 +27,9 @@ WIRE = {
 }
 GOLDEN = (
     '{"metadata":{"signature":"sig"},"payload":{"contract":"con_x402",'
-    '"function":"settle","kwargs":{"amount":{"__fixed__":"0.00100"},'
-    '"label":"\\u00e9","nested":[{"fee":{"__fixed__":"2.00"}},'
-    '{"__big_int__":"0018446744073709551616"}]},"sender":"alice"}}'
+    '"function":"settle","kwargs":{"amount":{"__fixed__":"0.001"},'
+    '"label":"\\u00e9","nested":[{"fee":{"__fixed__":"2"}},'
+    '{"__big_int__":"18446744073709551616"}]},"sender":"alice"}}'
 ).encode()
 
 
@@ -45,10 +44,10 @@ def test_only_size_excludes_node_added_fields_hash_keeps_historical_input():
     transaction = {
         **deepcopy(WIRE),
         "b_meta": {"height": 3},
-        "runtime_extra": {"__fixed__": "1.00"},
+        "runtime_extra": {"__fixed__": "1"},
     }
     assert canonical_transaction_size_bytes(transaction) == len(GOLDEN)
-    full = b'{"b_meta":{"height":3},' + GOLDEN[1:-1] + b',"runtime_extra":{"__fixed__":"1.00"}}'
+    full = b'{"b_meta":{"height":3},' + GOLDEN[1:-1] + b',"runtime_extra":{"__fixed__":"1"}}'
     assert tx_hash_from_tx(transaction) == hashlib.sha3_256(full).hexdigest()
     assert tx_hash_from_tx(transaction) != tx_hash_from_tx(WIRE)
 
@@ -84,3 +83,60 @@ def test_size_and_hash_are_stable_when_wire_keys_arrive_in_another_order():
     alternate = json.loads(GOLDEN)
     assert canonical_transaction_size_bytes(alternate) == canonical_transaction_size_bytes(WIRE)
     assert tx_hash_from_tx(alternate) == tx_hash_from_tx(WIRE)
+
+
+@pytest.mark.parametrize(
+    "value", [{"__fixed__": "0.00100"}, {"__big_int__": "0018446744073709551616"}, 0.5]
+)
+def test_nested_noncanonical_numbers_cannot_be_hashed(value):
+    wire = deepcopy(WIRE)
+    wire["payload"]["kwargs"]["nested"].append(value)
+    with pytest.raises((TypeError, ValueError)):
+        tx_hash_from_tx(wire)
+
+
+@pytest.mark.parametrize("native", [True, False])
+def test_node_accepts_shared_signed_numeric_vectors(monkeypatch, native):
+    from pathlib import Path
+
+    from xian.utils import tx
+
+    if not native:
+        monkeypatch.setattr(tx, "_native_decode_and_validate_transaction_static", None)
+    elif tx._native_decode_and_validate_transaction_static is None:
+        pytest.skip("native transaction fastpath unavailable")
+    fixture = Path(__file__).resolve().parents[3] / "xian-contracting/tests/fixtures/transaction_numeric_v2.json"
+    for case in json.loads(fixture.read_text())["cases"]:
+        raw = case["transaction_json"].encode().hex().encode()
+        admitted = tx.decode_and_validate_transaction_static_bytes(
+            raw, chain_id=case["payload"]["chain_id"]
+        )
+        assert admitted == {"payload": case["payload"], "metadata": {"signature": case["signature"]}}
+
+
+@pytest.mark.parametrize("native", [True, False])
+@pytest.mark.parametrize(
+    "token",
+    ["-0", "1.0000000000000001", "1e-400", "9007199254740992",
+     '{"__fixed__":"1.0"}', '{"__fixed__":"' + "9" * 62 + '"}'],
+)
+def test_signed_invalid_numeric_tokens_are_rejected(monkeypatch, native, token):
+    from nacl.signing import SigningKey
+
+    from xian.utils import tx
+
+    if not native:
+        monkeypatch.setattr(tx, "_native_decode_and_validate_transaction_static", None)
+    elif tx._native_decode_and_validate_transaction_static is None:
+        pytest.skip("native transaction fastpath unavailable")
+    signer = SigningKey(bytes(32))
+    payload = {
+        "chain_id": "local", "contract": "con_probe", "function": "call",
+        "kwargs": {"nested": ["TOKEN"]}, "nonce": 0, "chi_supplied": 50,
+        "sender": signer.verify_key.encode().hex(),
+    }
+    message = tx.canonical_json(payload).replace('"TOKEN"', token)
+    signature = signer.sign(message.encode()).signature.hex()
+    raw = ('{"metadata":{"signature":"' + signature + '"},"payload":' + message + '}').encode()
+    with pytest.raises((ValueError, tx.TransactionException)):
+        tx.decode_and_validate_transaction_static_bytes(raw.hex().encode(), chain_id="local")

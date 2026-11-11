@@ -73,7 +73,7 @@ def tx(contract: str, *, amount: int = 100) -> dict:
 
 
 def test_failed_contract_transaction_does_not_apply_contract_writes(tmp_path):
-    client = ContractingClient(storage_home=tmp_path)
+    client = ContractingClient(vm_profile="xian_vm_v2", storage_home=tmp_path)
     client.flush()
     client.submit(EXCEPTION_SOURCE, name="con_exception")
     processor = TxProcessor(client=client)
@@ -91,7 +91,7 @@ def test_failed_contract_transaction_does_not_apply_contract_writes(tmp_path):
 
 
 def test_successful_contract_transaction_applies_contract_writes(tmp_path):
-    client = ContractingClient(storage_home=tmp_path)
+    client = ContractingClient(vm_profile="xian_vm_v2", storage_home=tmp_path)
     client.flush()
     client.submit(CURRENCY_SOURCE, name="con_currency")
     processor = TxProcessor(client=client)

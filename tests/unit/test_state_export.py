@@ -102,7 +102,7 @@ if __name__ == "__main__":
 
 
 def test_export_import_preserves_canonical_set_storage_bytes(tmp_path):
-    from decimal import Decimal
+    from xian_runtime_types.decimal import ContractingDecimal
 
     from contracting.storage.driver import Driver
     from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
@@ -114,12 +114,12 @@ def test_export_import_preserves_canonical_set_storage_bytes(tmp_path):
     source = tmp_path / "source"
     destination = tmp_path / "destination"
     initialize_execution_policy(source)
-    driver = Driver(storage_home=source)
+    driver = Driver(vm_profile="xian_vm_v2", storage_home=source)
     value = ContractingSet(
         [
             ("large", 9007199254740993),
-            ("negative-zero", -0.0),
-            ("decimal", Decimal("1.234567890123456789")),
+            ("zero", ContractingDecimal("0")),
+            ("decimal", ContractingDecimal("1.234567890123456789")),
             ContractingFrozenSet([b"\x00\xff"]),
         ]
     )
@@ -132,9 +132,9 @@ def test_export_import_preserves_canonical_set_storage_bytes(tmp_path):
             source / "lmdb", b"con_demo.stored"
         )
         exported_path = export_state(output_dir=tmp_path / "export", storage_home=source)
-        exported = decode(exported_path.read_text())
+        exported = decode(exported_path.read_text(), vm_profile="xian_vm_v2")
         import_state(exported_state=exported, storage_home=destination)
-        restored = Driver(storage_home=destination)
+        restored = Driver(vm_profile="xian_vm_v2", storage_home=destination)
         try:
             actual, _ = DEFAULT_ENVIRONMENT_POOL.read_existing_value(
                 destination / "lmdb", b"con_demo.stored"

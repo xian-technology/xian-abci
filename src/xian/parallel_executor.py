@@ -17,6 +17,7 @@ from loguru import logger
 
 from xian.app_logging import configure_worker_logging
 from xian.execution_engine import VmRuntime
+from xian.execution_policy import VM_EXECUTION_MODE
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
@@ -67,8 +68,11 @@ def _get_worker_runtime(
     if runtime is not None:
         return runtime
 
-    driver = Driver(storage_home=Path(storage_home), bypass_cache=True)
+    driver = Driver(
+        vm_profile=VM_EXECUTION_MODE, storage_home=Path(storage_home), bypass_cache=True
+    )
     client = ContractingClient(
+        vm_profile=VM_EXECUTION_MODE,
         storage_home=Path(storage_home),
         driver=driver,
         submission_filename=None,

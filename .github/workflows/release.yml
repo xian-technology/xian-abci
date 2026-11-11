@@ -38,28 +38,28 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-contracting
-          ref: main
+          ref: 12b1c31f98d535a278b0c00e40dd90584f6b52f4
           path: xian-contracting
 
       - name: Check out xian-configs
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-configs
-          ref: main
+          ref: eb5b028950877839e4b3615b0dd9f06bc2196f2a
           path: xian-configs
 
       - name: Check out xian-contracts
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-contracts
-          ref: main
+          ref: ec018123e1f98052113d81d7306da2114a4ae5e2
           path: xian-contracts
 
       - name: Check out xian-stack
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-stack
-          ref: 3d84b11e040da4c65aab7e3cee9fa00a9bc5afe1
+          ref: 004f627d9f5218d518866a99fc4541a3627aae67
           path: xian-stack
 
       - name: Set up Python

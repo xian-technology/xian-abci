@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
 from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
 from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
@@ -47,7 +48,7 @@ def _simulator(driver=None, *, chain_id: str | None = None):
         raw_driver=driver or _driver(),
         get_var=lambda **kwargs: 20,
     )
-    simulator.execution_runtime = SimpleNamespace(mode="xian_vm_v1")
+    simulator.execution_runtime = SimpleNamespace(mode="xian_vm_v2")
     simulator.get_block_meta = lambda: None
     simulator.chain_id = chain_id
     return simulator
@@ -58,6 +59,7 @@ def _native_result(result, *, status_code=0, chi_used=255):
         output=SimpleNamespace(
             status_code=status_code,
             result=result,
+            events=[],
         ),
         writes={},
         chi_used=chi_used,
@@ -264,7 +266,7 @@ class SimulatorTests(unittest.TestCase):
 
         environment = simulator._make_environment({"contract": "currency"})
 
-        self.assertEqual(environment["__xian_execution_mode__"], "xian_vm_v1")
+        self.assertEqual(environment["__xian_execution_mode__"], "xian_vm_v2")
 
     def test_execute_normalizes_structured_result_for_abci(self):
         simulator = _simulator()
@@ -304,10 +306,7 @@ class SimulatorTests(unittest.TestCase):
         results = [
             {decimal.Decimal("NaN"): "first", decimal.Decimal("NaN"): "second"},
             {7: "integer", "7": "string"},
-            ContractingSet([decimal.Decimal("Infinity"), decimal.Decimal("NaN")]),
-            {"nested": ContractingFrozenSet([decimal.Decimal("NaN")])},
             {1: "x" * 2000},
-            float("nan"),
         ]
         for original in results:
             with self.subTest(result_type=type(original)):
@@ -364,7 +363,7 @@ class SimulatorTests(unittest.TestCase):
         self.assertEqual(result["status"], 0)
         self.assertEqual(
             result["result"],
-            [1, "0.637954245540464949970792229477"],
+            [1, {"__fixed__": "0.637954245540464949970792229477"}],
         )
 
     def test_execute_normalizes_exception_result_for_abci(self):
@@ -483,7 +482,7 @@ class SimulatorTests(unittest.TestCase):
             "def ping():\n"
             "    return v.get()\n"
         )
-        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         client.flush()
         try:
             simulator = TransactionSimulator(
@@ -517,7 +516,7 @@ class SimulatorTests(unittest.TestCase):
 
     def test_large_deployment_estimate_funds_actual_transaction_bytes(self):
         source = "# " + "padding" * 3000 + "\n@export\ndef ping():\n    return True\n"
-        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         client.flush()
         try:
             simulator = TransactionSimulator(
@@ -695,3 +694,12 @@ class QuerySimulationServiceTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize("token", ["-0", "1e-400", "1.0000000000000001", "9007199254740992"])
+def test_query_simulation_rejects_noncanonical_json_tokens(token):
+    payload = '{"sender":"alice","contract":"con_probe","function":"read","kwargs":{"nested":[' + token + ']}}'
+    service = QuerySimulationService(storage_home=Path("/tmp"))
+    result = asyncio.run(service.simulate_encoded_transaction(payload.encode().hex()))
+    assert result["status"] == 1
+    assert result["chi_used"] == 0

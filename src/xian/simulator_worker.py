@@ -9,6 +9,7 @@ from contracting.storage.driver import Driver
 
 from xian import simulator_ipc
 from xian.execution_engine import VmRuntime
+from xian.execution_policy import VM_EXECUTION_MODE
 from xian.simulator import TransactionSimulator
 
 
@@ -18,8 +19,9 @@ def main() -> int:
         if not isinstance(task, dict):
             raise ValueError("simulation task must be a JSON object")
         storage_home = Path(task["storage_home"])
-        driver = Driver(storage_home=storage_home)
+        driver = Driver(vm_profile=VM_EXECUTION_MODE, storage_home=storage_home)
         client = ContractingClient(
+            vm_profile=VM_EXECUTION_MODE,
             storage_home=storage_home,
             driver=driver,
             submission_filename=None,

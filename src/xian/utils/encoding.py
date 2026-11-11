@@ -6,8 +6,15 @@ from datetime import datetime
 from typing import Any, Tuple
 
 from loguru import logger
-from xian_runtime_types.decimal import ContractingDecimal
-from xian_runtime_types.encoding import encode_set_value, is_wrapper_set, safe_repr
+from xian_runtime_types.decimal import ContractingDecimal, canonical_fixed
+from xian_runtime_types.encoding import (
+    encode_set_value,
+    is_wrapper_set,
+    loads_wire_json,
+    normalize_wire_numbers,
+    safe_repr,
+)
+from xian_runtime_types.set_codec import RESERVED_TAGS
 from xian_runtime_types.time import Datetime
 
 from xian.log_safety import error_fields
@@ -78,7 +85,10 @@ def decode_transaction_bytes(raw) -> Tuple[dict, str]:
     tx_hex = tx_bytes.decode("utf-8")
     tx_decoded_bytes = bytes.fromhex(tx_hex)
     tx_str = tx_decoded_bytes.decode("utf-8")
-    tx_json = json.loads(tx_str)
+    try:
+        tx_json = loads_wire_json(tx_str)
+    except ValueError as exc:
+        raise ValueError("Transaction bytes are not canonical") from exc
 
     canonical_tx_str = canonical_json_text(tx_json)
     if tx_str != canonical_tx_str:
@@ -186,15 +196,19 @@ def stringify_decimals(obj):
         return ""
 
 
+class _NonStringKey(ValueError):
+    pass
+
+
 def normalize_for_abci_json(obj):
     if is_wrapper_set(obj):
-        return encode_set_value(obj)
+        return normalize_wire_numbers(encode_set_value(obj))
     if isinstance(obj, BaseException):
         return safe_repr(obj) or str(obj)
-    if isinstance(obj, ContractingDecimal):
-        return _decimal_to_plain_string(obj)
-    if isinstance(obj, decimal.Decimal):
-        return _decimal_to_plain_string(obj)
+    if isinstance(obj, (ContractingDecimal, decimal.Decimal)):
+        return {"__fixed__": canonical_fixed(obj)}
+    if type(obj) in (int, float):
+        return normalize_wire_numbers(obj)
     if isinstance(obj, datetime):
         return obj.isoformat()
     if isinstance(obj, Datetime):
@@ -205,9 +219,12 @@ def normalize_for_abci_json(obj):
         except UnicodeDecodeError:
             return str(obj)
     if isinstance(obj, dict):
+        if obj.keys() & RESERVED_TAGS:
+            return normalize_wire_numbers(obj)
         normalized = []
         for key, value in obj.items():
-            assert isinstance(key, str), "Non-string key types not allowed."
+            if not isinstance(key, str):
+                raise _NonStringKey("Non-string key types not allowed.")
             normalized.append((key, normalize_for_abci_json(value)))
         normalized.sort(key=lambda item: item[0])
         return {key: value for key, value in normalized}
@@ -216,6 +233,20 @@ def normalize_for_abci_json(obj):
     if isinstance(obj, list):
         return [normalize_for_abci_json(elem) for elem in obj]
     return obj
+
+
+def normalize_contract_result(value):
+    """Return structured receipts for wire values and render local-only shapes as text."""
+    try:
+        normalized = normalize_for_abci_json(value)
+    except _NonStringKey:
+        # Contract-local dictionaries can have keys without a JSON representation.
+        return safe_repr(value)
+    try:
+        json.dumps(normalized, allow_nan=False)
+    except TypeError:
+        return safe_repr(value)
+    return normalized
 
 
 def encode_abci_json(obj) -> bytes:

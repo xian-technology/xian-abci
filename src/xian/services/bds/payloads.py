@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from xian_runtime_types.encoding import convert_dict
+from xian_runtime_types.encoding import decode_wire_numbers
 
 from xian.execution_policy import current_execution_policy, validate_execution_policy
 from xian.services.bds.serializer import canonical_json_value as _canonical_json_value
@@ -57,7 +57,7 @@ class BdsBlockPayload:
         validate_execution_policy(data.get("execution_policy"))
         return cls(
             execution_policy=dict(data["execution_policy"]),
-            block_meta=data["block_meta"],
+            block_meta=decode_wire_numbers(data["block_meta"]),
             block_time=datetime.fromisoformat(data["block_time"]),
             app_hash=data["app_hash"],
             transactions=[
@@ -65,10 +65,10 @@ class BdsBlockPayload:
                     tx_index=tx["tx_index"],
                     envelope=tx["envelope"],
                     payload=tx["payload"],
-                    tx_result=convert_dict(tx["tx_result"]),
+                    tx_result=decode_wire_numbers(tx["tx_result"]),
                 )
                 for tx in data.get("transactions", [])
             ],
-            state_patches=convert_dict(data.get("state_patches", [])),
+            state_patches=decode_wire_numbers(data.get("state_patches", [])),
             state_patch_hash=data.get("state_patch_hash"),
         )

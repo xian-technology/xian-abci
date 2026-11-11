@@ -60,6 +60,7 @@ from xian.app_logging import (
 from xian.constants import Constants
 from xian.execution_engine import build_vm_runtime
 from xian.execution_policy import (
+    VM_EXECUTION_MODE,
     current_execution_policy,
     initialize_execution_policy,
     validate_genesis_execution_policy,
@@ -166,6 +167,7 @@ class Xian:
         self.execution_mode = self.execution_runtime.mode
         initialize_execution_policy(constants.STORAGE_HOME)
         self.client = ContractingClient(
+            vm_profile=VM_EXECUTION_MODE,
             storage_home=constants.STORAGE_HOME,
         )
         reconcile_latest_block(

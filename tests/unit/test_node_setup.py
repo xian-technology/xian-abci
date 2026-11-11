@@ -511,7 +511,7 @@ class NodeSetupTests(unittest.TestCase):
             "initial_height": "1",
             "abci_genesis": {
                 "genesis": [
-                    {"key": "currency.balances:alice", "value": {"__fixed__": "1.2300"}},
+                    {"key": "currency.balances:alice", "value": {"__fixed__": "1.23"}},
                     {"key": "con_bytes.data", "value": {"__bytes__": "00ff"}},
                     {"key": "con_values.nested", "value": [{"__big_int__": str(2**80)}]},
                 ]

@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
-from contracting.compilation.linter import LintingError
+from xian_compiler_core import CompilerError
 from contracting.execution.executor import Executor
 from contracting.storage.driver import Driver
 
@@ -20,7 +20,7 @@ def handler(driver):
 
 def test_effective_set_survives_commit_restart_and_state_export_import(tmp_path):
     original = tmp_path / "original"
-    with Driver(storage_home=original) as driver:
+    with Driver(vm_profile="xian_vm_v2", storage_home=original) as driver:
         driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
         driver.set("validators.active_validators", [INCUMBENT])
         driver.commit()
@@ -32,7 +32,7 @@ def test_effective_set_survives_commit_restart_and_state_export_import(tmp_path)
         driver.commit()
         assert StateRootCache.from_driver(driver).root_hash == prepared_root
 
-    with Driver(storage_home=original) as restarted:
+    with Driver(vm_profile="xian_vm_v2", storage_home=original) as restarted:
         assert restarted.get("validators.active_validators") == ["con_invalid"]
         assert restarted.get(CONSENSUS_VALIDATORS_KEY) == {INCUMBENT: 10}
         assert handler(restarted).build_validator_updates(2) == []
@@ -59,7 +59,7 @@ def test_effective_set_survives_commit_restart_and_state_export_import(tmp_path)
 
     restored = tmp_path / "restored"
     import_state(exported_state=exported, storage_home=restored)
-    with Driver(storage_home=restored) as driver:
+    with Driver(vm_profile="xian_vm_v2", storage_home=restored) as driver:
         driver.set("validators.active_validators", [REPLACEMENT.upper()])
         updates = handler(driver).build_validator_updates(3)
         assert [(item.pub_key.ed25519.hex(), item.power) for item in updates] == [
@@ -67,14 +67,14 @@ def test_effective_set_survives_commit_restart_and_state_export_import(tmp_path)
             (INCUMBENT, 0),
         ]
         driver.commit()
-    with Driver(storage_home=restored) as driver:
+    with Driver(vm_profile="xian_vm_v2", storage_home=restored) as driver:
         assert handler(driver).build_validator_updates(4) == []
         assert driver.get(CONSENSUS_VALIDATORS_KEY) == {REPLACEMENT: 10}
 
 
 def test_consensus_metadata_name_cannot_be_declared_by_contracts(tmp_path):
-    with Driver(storage_home=tmp_path) as driver:
-        with pytest.raises(LintingError, match="must not start or end with underscore"):
+    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
+        with pytest.raises(CompilerError, match="must not start or end with underscore"):
             driver.set_contract_from_source(
                 "con_forgery",
                 "__consensus__ = Variable()\n@export\ndef write():\n    __consensus__.set({})\n",
@@ -84,7 +84,7 @@ def test_consensus_metadata_name_cannot_be_declared_by_contracts(tmp_path):
 
 @pytest.mark.parametrize("native", [False, True])
 def test_foreign_contract_cannot_write_effective_consensus_metadata(tmp_path, native):
-    with Driver(storage_home=tmp_path) as driver:
+    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
         driver.set_contract_from_source(
             "validators", "@export\ndef ping():\n    return True\n", owner=None
         )
@@ -99,6 +99,7 @@ def test_foreign_contract_cannot_write_effective_consensus_metadata(tmp_path, na
         if native:
             vm = pytest.importorskip("xian_vm_core")
             result = vm.execute_contract(
+                vm_profile="xian_vm_v2",
                 driver=driver,
                 contract_name="con_forgery",
                 function_name="write",

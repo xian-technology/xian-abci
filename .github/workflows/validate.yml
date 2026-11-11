@@ -44,42 +44,42 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-contracting
-          ref: main
+          ref: 12b1c31f98d535a278b0c00e40dd90584f6b52f4
           path: xian-contracting
 
       - name: Check out xian-configs
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-configs
-          ref: main
+          ref: eb5b028950877839e4b3615b0dd9f06bc2196f2a
           path: xian-configs
 
       - name: Check out xian-contracts
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-contracts
-          ref: main
+          ref: ec018123e1f98052113d81d7306da2114a4ae5e2
           path: xian-contracts
 
       - name: Check out xian-stack
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-stack
-          ref: main
+          ref: 004f627d9f5218d518866a99fc4541a3627aae67
           path: xian-stack
 
       - name: Check out xian-py
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-py
-          ref: main
+          ref: 4c7fc664c2fc142fdd3be53a91dff764f3c3b415
           path: xian-py
 
       - name: Check out xian-js
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-js
-          ref: main
+          ref: 39812da81a19a8d58584ea0f544c13d57c98b6e7
           path: xian-js
 
       - name: Use matching dependency branches when available

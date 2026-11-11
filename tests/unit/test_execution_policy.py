@@ -11,14 +11,12 @@ class VmExecutionConfigTests(unittest.TestCase):
         self.assertIsNone(validate_vm_execution_mode())
 
     def test_validate_rejects_non_vm_modes(self):
-        with self.assertRaisesRegex(ValueError, "xian_vm_v1"):
+        with self.assertRaisesRegex(ValueError, "xian_vm_v2"):
             validate_vm_execution_mode(mode="native_instruction_v1")
 
     def test_validate_vm_execution_config_rejects_execution_section(self):
         with self.assertRaisesRegex(ValueError, "xian.execution"):
-            validate_vm_execution_config(
-                {"execution": {"engine": {"mode": "xian_vm_v1"}}}
-            )
+            validate_vm_execution_config({"execution": {"engine": {"mode": "xian_vm_v2"}}})
 
     def test_validate_vm_execution_config_rejects_tracer_mode(self):
         with self.assertRaisesRegex(ValueError, "tracer_mode"):
@@ -30,7 +28,7 @@ class VmExecutionConfigTests(unittest.TestCase):
                 {
                     "execution": {
                         "engine": {
-                            "mode": "xian_vm_v1",
+                            "mode": "xian_vm_v2",
                             "shadow_tracer_mode": "python_line_v1",
                         }
                     }

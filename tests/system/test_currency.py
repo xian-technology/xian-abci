@@ -21,9 +21,9 @@ class TestCurrencyContract(unittest.TestCase):
         }
         self.deployer_vk = "xian-deployer"
 
-        self.client = ContractingClient(environment=self.environment)
+        self.client = ContractingClient(vm_profile="xian_vm_v2", environment=self.environment)
         self.client.flush()
-        
+
         self.contracts_dir = str(resolve_contracts_dir())
 
         permit_authorizer_path = os.path.join(
@@ -41,7 +41,6 @@ class TestCurrencyContract(unittest.TestCase):
 
         self.permit_authorizer = self.client.get_contract_proxy("permit_authorizer")
         self.currency = self.client.get_contract_proxy("currency")
-
 
     def tearDown(self):
         # Called after every test, ensures each test starts with a clean slate and is isolated from others
@@ -83,7 +82,6 @@ class TestCurrencyContract(unittest.TestCase):
         self.assertEqual(bob_balance, 100)
         self.assertEqual(sys_balance, 5555555.55 + 5555555.55 - 100)
 
-
     def test_change_metadata(self):
         # GIVEN a non-operator trying to change metadata
         with self.assertRaises(Exception):
@@ -112,7 +110,7 @@ class TestCurrencyContract(unittest.TestCase):
         self.client.submit(
             """
 @export
-def approve_from_authorizer(owner: str, spender: str, amount: float):
+def approve_from_authorizer(owner: str, spender: str, amount: decimal):
     return True
 """,
             name="new_permit_authorizer",
@@ -261,7 +259,7 @@ def approve_from_authorizer(owner: str, spender: str, amount: float):
             token_contract="currency",
             owner=public_key,
             spender=spender,
-            value=100.0,
+            value=100,
             deadline=deadline,
             nonce=0,
             signature=signature,
@@ -461,6 +459,7 @@ def approve_from_authorizer(owner: str, spender: str, amount: float):
             "Only permit authorizer can approve on behalf of others.",
             str(context.exception),
         )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -12,8 +12,8 @@ class BdsMetricsCollectorTests(unittest.TestCase):
     ) -> None:
         app = SimpleNamespace(
             chain_id="xian-local",
-            execution_mode="xian_vm_v1",
-            execution_runtime=SimpleNamespace(mode="xian_vm_v1"),
+            execution_mode="xian_vm_v2",
+            execution_runtime=SimpleNamespace(mode="xian_vm_v2"),
             bds_enabled=False,
             parallel_block_executor=SimpleNamespace(enabled=True),
             enable_tx_fee=True,
@@ -84,8 +84,8 @@ class BdsMetricsCollectorTests(unittest.TestCase):
     def test_metrics_collector_exports_bds_recovery_fields(self) -> None:
         app = SimpleNamespace(
             chain_id="xian-local",
-            execution_mode="xian_vm_v1",
-            execution_runtime=SimpleNamespace(mode="xian_vm_v1"),
+            execution_mode="xian_vm_v2",
+            execution_runtime=SimpleNamespace(mode="xian_vm_v2"),
             bds_enabled=True,
             parallel_block_executor=SimpleNamespace(enabled=False),
             enable_tx_fee=True,

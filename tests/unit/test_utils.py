@@ -255,7 +255,7 @@ class TestAbciJsonDecimalFormatting(unittest.TestCase):
             {"amount": "5000", "fees": ["1.25", "0.000005"]},
         )
 
-    def test_normalize_for_abci_json_uses_plain_strings(self):
+    def test_normalize_for_abci_json_uses_canonical_numeric_tags(self):
         value = {
             "amount": decimal.Decimal("5E+3"),
             "nested": {
@@ -267,8 +267,8 @@ class TestAbciJsonDecimalFormatting(unittest.TestCase):
         self.assertEqual(
             normalize_for_abci_json(value),
             {
-                "amount": "5000",
-                "nested": {"small": "0.000005", "zero": "0"},
+                "amount": {"__fixed__": "5000"},
+                "nested": {"small": {"__fixed__": "0.000005"}, "zero": {"__fixed__": "0"}},
             },
         )
 
@@ -280,7 +280,7 @@ class TestAbciJsonDecimalFormatting(unittest.TestCase):
 
         self.assertEqual(
             list(normalize_for_abci_json(value).items()),
-            [("a_amount", "10.5"), ("z_amount", "5000")],
+            [("a_amount", {"__fixed__": "10.5"}), ("z_amount", {"__fixed__": "5000"})],
         )
 
 

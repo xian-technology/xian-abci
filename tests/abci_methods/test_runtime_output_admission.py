@@ -84,7 +84,7 @@ def test_finalize_rejects_invalid_state_and_commits_following_transaction(tmp_pa
         "value = Variable()\nvalid = Variable()\n\n"
         "@export\ndef invalid():\n    valid.set(99)\n"
         f"    value.set({expression})\n\n"
-        "@export\ndef good():\n    valid.set(7)\n    return {1: 2}\n"
+        "@export\ndef good():\n    valid.set(7)\n    return {'value': 7}\n"
     )
 
     async def run():
@@ -144,7 +144,7 @@ def test_finalize_persists_wrapper_sets_and_reads_typed_members_next_block(tmp_p
                 )
             )
             assert second.tx_results[0].code == 0
-            assert json.loads(second.tx_results[0].data)["result"] == "[True, True]"
+            assert json.loads(second.tx_results[0].data)["result"] == [True, True]
             await app.commit()
 
     asyncio.run(run())

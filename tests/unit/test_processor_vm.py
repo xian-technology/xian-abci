@@ -29,7 +29,7 @@ def _driver():
 def _processor(driver):
     processor = object.__new__(TxProcessor)
     processor.client = SimpleNamespace(raw_driver=driver)
-    processor.execution_runtime = SimpleNamespace(mode="xian_vm_v1")
+    processor.execution_runtime = SimpleNamespace(mode="xian_vm_v2")
     processor.profiler = None
     processor.trace_logging = False
     processor.currency_contract = "currency"
@@ -74,8 +74,8 @@ class ProcessorVmExecutionTests(unittest.TestCase):
             contract="con_x402",
             function="settle",
             kwargs={
-                "amount": {"__fixed__": "0.00100"},
-                "nested": [{"fee": {"__fixed__": "2.00"}}, {"__bytes__": "00ff"}],
+                "amount": {"__fixed__": "0.001"},
+                "nested": [{"fee": {"__fixed__": "2"}}, {"__bytes__": "00ff"}],
             },
         )
         original = deepcopy(transaction)
@@ -193,7 +193,7 @@ class ProcessorVmExecutionTests(unittest.TestCase):
 
     def test_get_environment_exposes_internal_execution_mode(self):
         processor = object.__new__(TxProcessor)
-        processor.execution_runtime = SimpleNamespace(mode="xian_vm_v1")
+        processor.execution_runtime = SimpleNamespace(mode="xian_vm_v2")
         processor.get_timestamp_hash_from_tx = lambda nanos, signature: f"{nanos}:{signature}"
         processor.get_now_from_nanos = lambda nanos: f"now:{nanos}"
 
@@ -209,7 +209,7 @@ class ProcessorVmExecutionTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(environment["__xian_execution_mode__"], "xian_vm_v1")
+        self.assertEqual(environment["__xian_execution_mode__"], "xian_vm_v2")
         self.assertEqual(environment["block_hash"], "abc123")
 
     def test_execute_tx_rejects_submission_without_artifacts_for_xian_vm(self):

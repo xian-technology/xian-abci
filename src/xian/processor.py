@@ -4,7 +4,7 @@ import time
 from contracting.execution.parallel import ExecutionAccess as TransactionAccess
 from contracting.stdlib.bridge import zk as zk_bridge
 from loguru import logger
-from xian_runtime_types.encoding import convert_dict, safe_repr
+from xian_runtime_types.encoding import decode_wire_numbers, safe_repr
 from xian_runtime_types.time import Datetime
 
 from xian.app_logging import build_log_fields
@@ -18,6 +18,7 @@ from xian.execution_engine import (
 )
 from xian.fee_policy import TxFeePolicy
 from xian.utils.block import nanoseconds_to_utc_datetime
+from xian.utils.encoding import normalize_contract_result
 from xian.utils.tx import canonical_transaction_size_bytes, tx_hash_from_tx
 
 
@@ -197,7 +198,7 @@ class TxProcessor:
                 self.client.raw_driver,
                 transaction["payload"]["contract"],
             )
-            converted_kwargs = convert_dict(transaction["payload"]["kwargs"])
+            converted_kwargs = decode_wire_numbers(transaction["payload"]["kwargs"])
             if vm_requires_contract_source(
                 transaction["payload"]["contract"],
                 transaction["payload"]["function"],
@@ -386,7 +387,11 @@ class TxProcessor:
                 "state": writes,
                 "events": output["events"],
                 "chi_used": output["chi_used"],
-                "result": safe_repr(output["result"]),
+                "result": (
+                    safe_repr(output["result"])
+                    if output["status_code"]
+                    else normalize_contract_result(output["result"])
+                ),
                 "rewards": rewards if rewards else None,
                 "reward_records": reward_records or None,
             }

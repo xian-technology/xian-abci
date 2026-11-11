@@ -1,10 +1,12 @@
 import base64
 import json
 import unittest
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest import mock
 
 from xian.execution_policy import current_execution_policy
+from xian.services.bds.payloads import BdsBlockPayload
 from xian.services.bds.reindex import (
     BdsReindexer,
     CometBftRpcClient,
@@ -93,22 +95,25 @@ class BdsReindexerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan.total_blocks, 3)
 
     async def test_build_payload_reconstructs_block_transactions(self):
+        amount = {"__fixed__": "9007199254740993.000000000000000000000000000001"}
+        raw_units = {"__big_int__": str(2**256 + 1)}
+        escrow = {"amount": amount, "deposits": [raw_units]}
         tx = {
             "payload": {
                 "sender": "alice",
                 "nonce": 7,
                 "contract": "currency",
                 "function": "transfer",
-                "kwargs": {"to": "bob", "amount": 1},
+                "kwargs": {"to": "escrow", "amount": amount},
             },
             "metadata": {"signature": "sig"},
         }
         tx_result = {
             "status": 0,
-            "state": [{"key": "currency.balances:alice", "value": "99"}],
+            "state": [{"key": "con_escrow.deposit", "value": escrow}],
             "events": [],
             "chi_used": 7,
-            "result": "ok",
+            "result": {"receipts": [escrow]},
         }
         source = _FakeBlockSource()
         source.blocks[12] = {
@@ -150,6 +155,23 @@ class BdsReindexerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload.transactions[0].payload["sender"], "alice")
         self.assertEqual(payload.transactions[0].tx_result["status"], 0)
         self.assertIn("hash", payload.transactions[0].tx_result)
+
+        nanos = 1767225612123456789
+        self.assertEqual(payload.block_meta["nanos"], nanos)
+        spool = json.loads(json.dumps(payload.to_spool_dict()))
+        self.assertEqual(spool["block_meta"]["nanos"], {"__big_int__": str(nanos)})
+        restored = BdsBlockPayload.from_spool_dict(spool)
+        self.assertEqual(restored.block_meta["nanos"], nanos)
+        journal = restored.transactions[0]
+        self.assertEqual(journal.payload["kwargs"]["amount"], amount)
+        self.assertEqual(
+            journal.tx_result["result"]["receipts"][0], journal.tx_result["state"][0]["value"]
+        )
+        self.assertEqual(
+            journal.tx_result["state"][0]["value"]["amount"], Decimal(amount["__fixed__"])
+        )
+        self.assertEqual(journal.tx_result["state"][0]["value"]["deposits"], [2**256 + 1])
+        self.assertEqual(restored.to_spool_dict(), spool)
 
     async def test_build_payload_rejects_noncanonical_block_transaction(self):
         tx = {

@@ -27,7 +27,7 @@ def create_block_meta(dt: datetime = datetime.now()):
 class TestProcessor(unittest.TestCase):
     def setUp(self):
         setup_fixtures()
-        self.c = ContractingClient(storage_home=MockConstants.STORAGE_HOME)
+        self.c = ContractingClient(vm_profile="xian_vm_v2", storage_home=MockConstants.STORAGE_HOME)
         self.d = self.c.raw_driver
         self.c.flush()
         self.tx_processor = TxProcessor(client=self.c)

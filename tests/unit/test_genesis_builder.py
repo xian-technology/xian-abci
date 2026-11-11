@@ -68,7 +68,7 @@ class GenesisBuilderTests(unittest.TestCase):
         async def build_imported_root(genesis_block):
             loaded_genesis = json.loads(encode(genesis_block))
             with tempfile.TemporaryDirectory() as tmp_dir:
-                client = ContractingClient(storage_home=Path(tmp_dir))
+                client = ContractingClient(vm_profile="xian_vm_v2", storage_home=Path(tmp_dir))
                 nonce_storage = NonceStorage(client)
                 client.raw_driver.flush_full()
                 await store_genesis_block(
@@ -160,7 +160,7 @@ class GenesisBuilderTests(unittest.TestCase):
             "limits = Variable()\n"
             "ratios = Variable()\n\n"
             "@construct\n"
-            "def seed(founder: str, limits_arg: list[int], ratios_arg: list[float]):\n"
+            "def seed(founder: str, limits_arg: list[int], ratios_arg: list[decimal]):\n"
             "    owner_value.set(founder)\n"
             "    limits.set(limits_arg)\n"
             "    ratios.set(ratios_arg)\n\n"
@@ -219,9 +219,9 @@ class GenesisBuilderTests(unittest.TestCase):
                 "submit_contract",
             )
 
-            native_driver = Driver(storage_home=Path(tmp_dir) / "native")
+            native_driver = Driver(vm_profile="xian_vm_v2", storage_home=Path(tmp_dir) / "native")
             native_driver.flush_full()
-            ContractingClient(driver=native_driver)
+            ContractingClient(vm_profile="xian_vm_v2", driver=native_driver)
             native_output = execute_vm_contract(
                 build_vm_runtime(),
                 native_driver,
@@ -297,7 +297,7 @@ class GenesisBuilderTests(unittest.TestCase):
 
     def test_write_genesis_block_preserves_existing_wire_tags(self):
         genesis = {
-            "genesis": [{"key": "currency.balances:alice", "value": {"__fixed__": "1.2300"}}]
+            "genesis": [{"key": "currency.balances:alice", "value": {"__fixed__": "1.23"}}]
         }
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "genesis_block.json"
@@ -308,12 +308,12 @@ class GenesisBuilderTests(unittest.TestCase):
         original = {
             "chain_id": "xian-local-1",
             "initial_height": "0",
-            "app_state": {"balance": {"__fixed__": "2.000"}},
+            "app_state": {"balance": {"__fixed__": "2"}},
         }
         replacement = {
             "hash": "abc",
             "number": "7",
-            "genesis": [{"key": "currency.balances:alice", "value": {"__fixed__": "1.2300"}}],
+            "genesis": [{"key": "currency.balances:alice", "value": {"__fixed__": "1.23"}}],
         }
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "genesis.json"
@@ -324,6 +324,7 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertEqual(saved["abci_genesis"], replacement)
         self.assertEqual(saved["initial_height"], "7")
         self.assertEqual(saved["app_hash"], "abc")
+
     def test_build_genesis_block_applies_constructor_overrides(self):
         founder_private_key = (
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"

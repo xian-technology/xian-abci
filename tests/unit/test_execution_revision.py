@@ -19,9 +19,9 @@ def policy_state(value=None):
 
 def test_policy_requires_exact_current_identifiers():
     expected = {
-        "execution_revision": "xvm-execution-5",
-        "gas_schedule": "xvm-gas-2",
-        "bytecode_version": "xvm-1",
+        "execution_revision": "xvm-execution-6",
+        "gas_schedule": "xvm-gas-3",
+        "bytecode_version": "xvm-2",
         "set_codec": "xian-set-1",
     }
     assert policy.current_execution_policy() == expected
@@ -104,7 +104,7 @@ def test_incompatible_import_is_rejected_before_opening_driver():
 def test_open_driver_policy_check_preserves_bytes_and_cache(tmp_path, valid):
     from contracting.storage.driver import Driver
 
-    driver = Driver(storage_home=tmp_path)
+    driver = Driver(vm_profile="xian_vm_v2", storage_home=tmp_path)
     try:
         driver.set(
             "__execution_policy", policy.current_execution_policy() if valid else {"old": True}
@@ -130,7 +130,7 @@ def test_current_import_rejects_legacy_destination_before_flush(tmp_path):
 
     exported = policy_state()
     exported["hash"] = compute_exported_state_root(exported).hex()
-    driver = Driver(storage_home=tmp_path)
+    driver = Driver(vm_profile="xian_vm_v2", storage_home=tmp_path)
     try:
         driver.set("con_old.value", 7)
         driver.commit()
@@ -159,7 +159,7 @@ def test_fresh_bootstrap_accepts_existing_empty_database(tmp_path):
     assert policy.validate_persisted_execution_policy(tmp_path)
 
 
-@pytest.fixture(params=["xvm-execution-2", "xvm-execution-3", "xvm-execution-4"])
+@pytest.fixture(params=["xvm-execution-2", "xvm-execution-3", "xvm-execution-4", "xvm-execution-5"])
 def previous_policy(request):
     return {
         "execution_revision": request.param,
@@ -202,7 +202,7 @@ def test_previous_native_revision_is_rejected_even_when_gas_is_supported(previou
     from xian.execution_engine import build_vm_runtime
 
     bindings = SimpleNamespace(
-        runtime_info=lambda: {"vm_profile": "xian_vm_v1", **previous_policy},
+        runtime_info=lambda _profile: {"vm_profile": "xian_vm_v2", **previous_policy},
         supports_execution_policy=lambda *_args: True,
     )
     with patch("xian.execution_engine._load_vm_runtime_bindings", return_value=bindings):

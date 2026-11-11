@@ -985,9 +985,7 @@ class BDS:
             tx_result["status"] == 0,
             tx_result["status"],
             tx_result["chi_used"],
-            _nullable_jsonb_param(
-                None if tx_result.get("result") == "None" else tx_result.get("result")
-            ),
+            _nullable_jsonb_param(tx_result.get("result")),
             json.dumps(payload, separators=(",", ":")),
             json.dumps(tx.envelope, separators=(",", ":")),
             block_time,

@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from pathlib import Path
 from typing import Any
 
 from contracting import constants as contracting_constants
 from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
-from xian_runtime_types.encoding import decode, encode, encode_set_value, is_wrapper_set
+from xian_runtime_types.encoding import decode, encode
 
 from xian.execution_policy import (
     EXECUTION_POLICY_KEY,
+    VM_EXECUTION_MODE,
     validate_execution_policy,
     validate_genesis_execution_policy,
     validate_persisted_execution_policy,
 )
+from xian.genesis_builder import hash_state_changes
 from xian.state_root import (
     compute_driver_state_root,
     compute_exported_state_root,
@@ -29,24 +29,15 @@ from xian.utils.block import (
 )
 
 
-def hash_state_changes(state_changes: list[dict[str, Any]]) -> str:
-    def serialize(obj: Any) -> Any:
-        if is_wrapper_set(obj):
-            return encode_set_value(obj)
-        if isinstance(obj, bytes):
-            return obj.hex()
-        raise TypeError(f"object of type {type(obj)!r} is not JSON serializable")
-
-    digest = hashlib.sha3_256()
-    digest.update(json.dumps(state_changes, default=serialize).encode("utf-8"))
-    return digest.hexdigest()
-
-
 def fetch_filebased_state(
     *,
     storage_home: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    driver = Driver(storage_home=storage_home) if storage_home is not None else Driver()
+    driver = (
+        Driver(vm_profile=VM_EXECUTION_MODE, storage_home=storage_home)
+        if storage_home is not None
+        else Driver(vm_profile=VM_EXECUTION_MODE)
+    )
     contract_state = driver.get_all_contract_state()
     run_state = driver.get_run_state()
     return contract_state, run_state
@@ -138,12 +129,12 @@ def export_state(
     )
 
     output_path = output_dir / output_filename
-    output_path.write_text(encode(exported_state), encoding="utf-8")
+    output_path.write_text(encode(exported_state, vm_profile=VM_EXECUTION_MODE), encoding="utf-8")
     return output_path
 
 
 def load_exported_state(path: Path) -> dict[str, Any]:
-    return decode(path.read_text(encoding="utf-8"))
+    return decode(path.read_text(encoding="utf-8"), vm_profile=VM_EXECUTION_MODE)
 
 
 def import_state(
@@ -160,9 +151,9 @@ def import_state(
         raise ValueError("exported state root mismatch")
 
     driver = (
-        Driver(storage_home=resolved_storage_home)
+        Driver(vm_profile=VM_EXECUTION_MODE, storage_home=resolved_storage_home)
         if resolved_storage_home is not None
-        else Driver()
+        else Driver(vm_profile=VM_EXECUTION_MODE)
     )
     driver.flush_full()
 

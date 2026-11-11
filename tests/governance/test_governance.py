@@ -2,7 +2,7 @@ import os
 import time
 import unittest
 from datetime import datetime, timedelta
-from pathlib import Path
+from decimal import Decimal
 
 from contracting.local import ContractingClient
 from fixtures.mock_constants import MockConstants
@@ -14,8 +14,6 @@ from xian.processor import TxProcessor
 # Get the directory where the script is located
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 CONTRACTS_DIR = resolve_contracts_dir()
 
 # Change the current working directory
@@ -58,45 +56,27 @@ def create_block_meta(dt: datetime = datetime.now()):
     nanos = int(time.mktime(dt.timetuple()) * 1e9 + dt.microsecond * 1e3)
     # Mock b_meta dictionary with current nanoseconds
     return {
-        "nanos": nanos,                # Current nanoseconds timestamp
-        "height": 123456,              # Example block number
-        "chain_id": "test-chain",      # Example chain ID
-        "hash": "abc123def456"         # Example block hash
+        "nanos": nanos,  # Current nanoseconds timestamp
+        "height": 123456,  # Example block number
+        "chain_id": "test-chain",  # Example chain ID
+        "hash": "abc123def456",  # Example block hash
     }
 
 
 class MyTestCase(unittest.TestCase):
-
     def setUp(self):
         setup_fixtures()
-        self.c = ContractingClient(storage_home=MockConstants.STORAGE_HOME)
+        self.c = ContractingClient(vm_profile="xian_vm_v2", storage_home=MockConstants.STORAGE_HOME)
         self.tx_processor = TxProcessor(client=self.c)
-        # Hard load the submission contract
+        self.c.flush()
         self.d = self.c.raw_driver
-        self.d.flush_full()
 
-        # Get the directory where the script is located
-        os.path.dirname(os.path.abspath(__file__))
-
-        # Construct absolute paths for the contract files
-        submission_contract_path = (
-            WORKSPACE_ROOT
-            / "xian-contracting"
-            / "src"
-            / "contracting"
-            / "contracts"
-            / "submission.s.py"
-        )
         currency_contract_path = CONTRACTS_DIR / "currency.s.py"
         dao_contract_path = CONTRACTS_DIR / "dao.s.py"
         rewards_contract_path = CONTRACTS_DIR / "rewards.s.py"
         chi_cost_contract_path = CONTRACTS_DIR / "chi_cost.s.py"
         members_contract_path = CONTRACTS_DIR / "validators.s.py"
         foundation_contract_path = CONTRACTS_DIR / "foundation.s.py"
-
-        with open(submission_contract_path) as f:
-            contract = f.read()
-        self.d.set_contract(name="submission", source=contract)
 
         with open(currency_contract_path) as f:
             contract = f.read()
@@ -136,7 +116,10 @@ class MyTestCase(unittest.TestCase):
         with open(rewards_contract_path) as f:
             contract = f.read()
         self.c.submit(contract, name="rewards", owner="validators")
-        self.d.set(key="rewards.S:value", value=[0.88, 0.01, 0.01, 0.1])
+        self.d.set(
+            key="rewards.S:value",
+            value=[Decimal("0.88"), Decimal("0.01"), Decimal("0.01"), Decimal("0.1")],
+        )
 
         with open(chi_cost_contract_path) as f:
             contract = f.read()
@@ -151,11 +134,11 @@ class MyTestCase(unittest.TestCase):
             constructor_args={
                 "genesis_registration_fee": 100000,
                 "genesis_nodes": [
-                   node_1,
-                   node_2,
-                   node_3,
-                   node_4,
-                   node_5,
+                    node_1,
+                    node_2,
+                    node_3,
+                    node_4,
+                    node_5,
                 ],
             },
         )
@@ -165,9 +148,7 @@ class MyTestCase(unittest.TestCase):
         self.c.submit(
             contract,
             name="foundation",
-            constructor_args={
-                "vk": node_1
-            },
+            constructor_args={"vk": node_1},
         )
 
         self.currency = self.c.get_contract_proxy("currency")
@@ -650,7 +631,7 @@ class MyTestCase(unittest.TestCase):
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "reward_change",
-                        "arg": [0.70, 0, 0, 0.30],
+                        "arg": [{"__fixed__": "0.7"}, 0, 0, {"__fixed__": "0.3"}],
                     },
                     "chi_supplied": 1000,
                 },
@@ -813,7 +794,6 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        
 
     def vote_types_change(self):
         block_meta = create_block_meta(datetime.now())
@@ -922,42 +902,35 @@ class MyTestCase(unittest.TestCase):
 
     def test_register(self):
         self.register()
-        self.assertEqual(
-            self.validators.pending_registrations["new_node"], True
-        )
+        self.assertEqual(self.validators.pending_registrations["new_node"], True)
         self.assertEqual(self.currency.balances["new_node"], 900000)
 
     def test_unregister(self):
         self.register()
         self.unregister()
-        self.assertEqual(
-            self.validators.pending_registrations["new_node"], False
-        )
+        self.assertEqual(self.validators.pending_registrations["new_node"], False)
         self.assertEqual(self.currency.balances["new_node"], 1000000)
 
     def test_register_propose_unregister_and_validate(self):
         self.register()
-        self.assertEqual(
-            self.validators.pending_registrations["new_node"], True
-        )
+        self.assertEqual(self.validators.pending_registrations["new_node"], True)
         self.assertEqual(self.currency.balances["new_node"], 900000)
 
         res = self.vote_in_and_unregister()
-        
+
         assert (
             res[3].get("tx_result").get("result")
             == "AssertionError('Member must have pending registration.')"
         )
 
-        self.assertEqual(
-            self.validators.pending_registrations["new_node"], False
-        )
+        self.assertEqual(self.validators.pending_registrations["new_node"], False)
         self.assertEqual(self.currency.balances["new_node"], 1000000)
 
         nodes = self.validators.active_validators.get()
         self.assertNotIn(
-            "new_node", nodes,
-            "The node should not be in the list of validators after unregistering."
+            "new_node",
+            nodes,
+            "The node should not be in the list of validators after unregistering.",
         )
 
     def test_vote_in_node(self):
@@ -1077,18 +1050,18 @@ class MyTestCase(unittest.TestCase):
         self.announce_leave()
         self.leave()
         self.assertEqual(self.validators.pending_leave["new_node"], False)
-        
+
     def test_leave_not_pending(self):
         self.register()
-        leave_res = self.leave().get('tx_result').get('result')
+        leave_res = self.leave().get("tx_result").get("result")
         self.assertEqual(leave_res, "AssertionError('Not pending.')")
-        
+
     def test_expired_proposal(self):
         proposal_block_meta = create_block_meta(datetime.now())
         expired_block_meta = create_block_meta(datetime.now() + timedelta(days=8))
-        
+
         # Propose
-        
+
         self.tx_processor.process_tx(
             tx={
                 "payload": {
@@ -1105,23 +1078,25 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": proposal_block_meta,
             }
         )
-        
-        expired_vote_res = self.tx_processor.process_tx(
-            tx={
-                "payload": {
-                    "sender": node_2,
-                    "contract": "validators",
-                    "function": "vote",
-                    "kwargs": {"proposal_id": 1, "vote": "yes"},
-                    "chi_supplied": 1000,
-                },
-                "metadata": {"signature": "abc"},
-                "b_meta": expired_block_meta,
-            }
-        ).get('tx_result').get('result')
-        self.assertEqual(
-            expired_vote_res, "AssertionError('Proposal expired.')"
+
+        expired_vote_res = (
+            self.tx_processor.process_tx(
+                tx={
+                    "payload": {
+                        "sender": node_2,
+                        "contract": "validators",
+                        "function": "vote",
+                        "kwargs": {"proposal_id": 1, "vote": "yes"},
+                        "chi_supplied": 1000,
+                    },
+                    "metadata": {"signature": "abc"},
+                    "b_meta": expired_block_meta,
+                }
+            )
+            .get("tx_result")
+            .get("result")
         )
+        self.assertEqual(expired_vote_res, "AssertionError('Proposal expired.')")
 
     def test_force_leave(self):
         self.register()
@@ -1176,12 +1151,12 @@ class MyTestCase(unittest.TestCase):
         self.vote_in()
         self.vote_out()
         self.assertEqual(self.currency.balances["new_node"], 1000000)
-        
+
     def test_leave_before_pending_period_passed(self):
         self.register()
         self.vote_in()
         self.announce_leave()
-        leave_res = self.leave(create_block_meta(datetime.now())).get('tx_result').get('result')
+        leave_res = self.leave(create_block_meta(datetime.now())).get("tx_result").get("result")
         self.assertEqual(
             leave_res,
             "AssertionError('Leave announcement period not over.')",
@@ -1196,12 +1171,15 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(self.chi_cost.S["value"], 30)
 
     def test_reward_change_vote(self):
-        self.assertEqual(self.rewards.S["value"], [0.88, 0.01, 0.01, 0.1])
+        self.assertEqual(
+            self.rewards.S["value"],
+            [Decimal("0.88"), Decimal("0.01"), Decimal("0.01"), Decimal("0.1")],
+        )
         self.vote_reward_change()
         self.assertEqual(self.validators.votes[1]["yes"], 4)
         self.assertEqual(self.validators.votes[1]["no"], 0)
         self.assertEqual(self.validators.votes[1]["finalized"], True)
-        self.assertEqual(self.rewards.S["value"], [0.70, 0, 0, 0.30])
+        self.assertEqual(self.rewards.S["value"], [Decimal("0.7"), 0, 0, Decimal("0.3")])
 
     def test_dao_payout(self):
         self.assertEqual(self.currency.balances["new_node"], 1000000)

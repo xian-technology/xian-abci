@@ -8,7 +8,7 @@ from pathlib import Path
 
 from contracting.local import ContractingClient
 from loguru import logger
-from xian_runtime_types.encoding import convert_dict, safe_repr
+from xian_runtime_types.encoding import decode_wire_numbers, loads_wire_json
 from xian_runtime_types.time import Datetime
 
 from xian import simulator_ipc
@@ -24,18 +24,8 @@ from xian.utils.block import (
     get_latest_block_nanos,
     nanoseconds_to_utc_datetime,
 )
-from xian.utils.encoding import normalize_for_abci_json, stringify_decimals
+from xian.utils.encoding import normalize_contract_result, normalize_for_abci_json
 from xian.utils.tx import canonical_transaction_size_bytes, format_dictionary
-
-
-def _simulation_result(value):
-    """Keep structured JSON results and safely represent other VM return values."""
-    try:
-        normalized = normalize_for_abci_json(value)
-        json.dumps(normalized, allow_nan=False)
-    except (AssertionError, TypeError, ValueError):
-        return safe_repr(value)
-    return normalized
 
 
 def _simulation_error_result(
@@ -119,7 +109,7 @@ class TransactionSimulator:
         block_meta: dict | None = None,
         max_chi: int | None = None,
     ) -> dict:
-        decoded = json.loads(bytes.fromhex(raw_payload_hex).decode("utf-8"))
+        decoded = loads_wire_json(bytes.fromhex(raw_payload_hex))
         return self.simulate(
             decoded,
             block_meta=block_meta,
@@ -156,7 +146,7 @@ class TransactionSimulator:
                 self.client.raw_driver,
                 payload["contract"],
             )
-            converted_kwargs = convert_dict(payload.get("kwargs", {}))
+            converted_kwargs = decode_wire_numbers(payload.get("kwargs", {}))
             if vm_requires_contract_source(
                 payload["contract"],
                 payload["function"],
@@ -218,10 +208,11 @@ class TransactionSimulator:
             "payload": payload,
             "status": outcome.output.status_code,
             "state": writes,
+            "events": outcome.output.events,
             "chi_used": outcome.chi_used,
-            "result": _simulation_result(outcome.output.result),
+            "result": normalize_contract_result(outcome.output.result),
         }
-        return stringify_decimals(format_dictionary(result))
+        return normalize_for_abci_json(format_dictionary(result))
 
     @staticmethod
     def _normalize_payload(payload: dict) -> dict:
@@ -289,7 +280,7 @@ class TransactionSimulator:
             "block_hash": block_hash,
             "block_num": block_meta.get("height", block_num),
             "__input_hash": input_hash,
-            "__xian_execution_mode__": (getattr(execution_runtime, "mode", None) or "xian_vm_v1"),
+            "__xian_execution_mode__": (getattr(execution_runtime, "mode", None) or "xian_vm_v2"),
             "now": now,
             "chain_id": chain_id,
         }
@@ -325,7 +316,7 @@ class QuerySimulationService:
 
     async def simulate_encoded_transaction(self, raw_payload_hex: str) -> dict:
         try:
-            decoded_payload = json.loads(bytes.fromhex(raw_payload_hex).decode("utf-8"))
+            decoded_payload = loads_wire_json(bytes.fromhex(raw_payload_hex))
             normalized_payload = TransactionSimulator._normalize_payload(decoded_payload)
         except Exception as exc:
             return _simulation_error_result(

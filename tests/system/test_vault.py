@@ -15,18 +15,18 @@ class TestVaultContract(unittest.TestCase):
         }
         self.deployer_vk = "xian-deployer"
 
-        self.client = ContractingClient(environment=self.environment)
+        self.client = ContractingClient(vm_profile="xian_vm_v2", environment=self.environment)
         self.client.flush()
-        
+
         # Set up paths and load contracts
         self.contracts_dir = str(resolve_contracts_dir())
-        
+
         # Deploy currency contract first (dependency)
         currency_path = os.path.join(self.contracts_dir, "currency.s.py")
         with open(currency_path) as f:
             code = f.read()
             self.client.submit(code, name="currency", constructor_args={"vk": self.deployer_vk})
-        
+
         # Deploy vault contract
         vault_path = os.path.join(self.contracts_dir, "vault.s.py")
         with open(vault_path) as f:

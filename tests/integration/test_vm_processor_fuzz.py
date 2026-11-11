@@ -199,8 +199,8 @@ def test_python_and_native_processors_match_for_fuzzed_sequences(
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="xian-vm-processor-fuzz-") as tmpdir:
         root = Path(tmpdir)
-        python_client = ContractingClient(storage_home=root / "python")
-        native_client = ContractingClient(storage_home=root / "native")
+        python_client = ContractingClient(vm_profile="xian_vm_v2", storage_home=root / "python")
+        native_client = ContractingClient(vm_profile="xian_vm_v2", storage_home=root / "native")
         _deploy_probe(python_client)
         _deploy_probe(native_client)
 
@@ -246,8 +246,8 @@ def test_python_and_native_processors_match_for_fuzzed_sequences(
 def test_processors_preserve_failure_rollback_invariant() -> None:
     with tempfile.TemporaryDirectory(prefix="xian-vm-processor-failure-") as tmpdir:
         root = Path(tmpdir)
-        python_client = ContractingClient(storage_home=root / "python")
-        native_client = ContractingClient(storage_home=root / "native")
+        python_client = ContractingClient(vm_profile="xian_vm_v2", storage_home=root / "python")
+        native_client = ContractingClient(vm_profile="xian_vm_v2", storage_home=root / "native")
         _deploy_probe(python_client)
         _deploy_probe(native_client)
 

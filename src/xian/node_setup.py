@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,9 +8,10 @@ from typing import Any, Sequence
 
 from nacl.encoding import Base64Encoder, HexEncoder
 from nacl.signing import SigningKey
-from xian_runtime_types.encoding import encode_wire
+from xian_runtime_types.encoding import encode_wire, loads_wire_json
 
 from xian import toml_utils
+from xian.execution_policy import VM_EXECUTION_MODE
 from xian.fee_policy import (
     DEFAULT_FREE_BLOCK_MAX_CHI,
     DEFAULT_FREE_TX_MAX_CHI,
@@ -683,8 +683,7 @@ def render_xian_config(*, options: NodeConfigOptions) -> dict[str, Any]:
 
 
 def load_genesis(path: Path) -> dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    return loads_wire_json(path.read_bytes())
 
 
 def write_json(path: Path, payload: dict[str, Any], *, overwrite: bool = False) -> None:
@@ -692,7 +691,7 @@ def write_json(path: Path, payload: dict[str, Any], *, overwrite: bool = False) 
         raise FileExistsError(f"{path} already exists")
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        f.write(encode_wire(payload))
+        f.write(encode_wire(payload, vm_profile=VM_EXECUTION_MODE))
         f.write("\n")
 
 

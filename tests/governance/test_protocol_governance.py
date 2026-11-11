@@ -94,7 +94,9 @@ def governance_contract_source() -> str:
 
 class ProtocolGovernanceContractTests(unittest.TestCase):
     def setUp(self):
-        self.client = ContractingClient(environment={"chain_id": "test-chain"})
+        self.client = ContractingClient(
+            vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"}
+        )
         self.client.flush()
         self.client.submit(
             MEMBERSHIP_CONTRACT,

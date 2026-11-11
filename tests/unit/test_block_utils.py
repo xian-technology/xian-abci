@@ -108,7 +108,7 @@ class LatestBlockUtilsTests(unittest.TestCase):
     def test_unapplied_commit_marker_does_not_advance_recovery_metadata(self):
         with TemporaryDirectory() as tmpdir:
             storage_home = Path(tmpdir)
-            driver = Driver(storage_home=storage_home)
+            driver = Driver(vm_profile="xian_vm_v2", storage_home=storage_home)
             old_block = stage_latest_block(
                 driver,
                 block_hash=bytes.fromhex("11" * 32),
@@ -127,7 +127,7 @@ class LatestBlockUtilsTests(unittest.TestCase):
             )
             driver.close()
 
-            recovered_driver = Driver(storage_home=storage_home)
+            recovered_driver = Driver(vm_profile="xian_vm_v2", storage_home=storage_home)
             try:
                 recovered = reconcile_latest_block(recovered_driver, storage_home)
                 self.assertEqual(recovered, old_block)
@@ -147,7 +147,7 @@ class LatestBlockUtilsTests(unittest.TestCase):
                 storage_home,
             )
 
-            driver = Driver(storage_home=storage_home)
+            driver = Driver(vm_profile="xian_vm_v2", storage_home=storage_home)
             try:
                 recovered = reconcile_latest_block(driver, storage_home)
                 self.assertEqual(recovered, LATEST_BLOCK_DEFAULT)
@@ -166,7 +166,7 @@ class LatestBlockUtilsTests(unittest.TestCase):
             }
             write_latest_block(old_block, storage_home)
 
-            driver = Driver(storage_home=storage_home)
+            driver = Driver(vm_profile="xian_vm_v2", storage_home=storage_home)
             driver.apply_writes({"currency.balances:alice": 123})
             committed_block = stage_latest_block(
                 driver,
@@ -181,7 +181,7 @@ class LatestBlockUtilsTests(unittest.TestCase):
             # but the legacy JSON mirror still describes the prior block.
             self.assertEqual(get_latest_block_height(storage_home), 7)
 
-            recovered_driver = Driver(storage_home=storage_home)
+            recovered_driver = Driver(vm_profile="xian_vm_v2", storage_home=storage_home)
             try:
                 recovered = reconcile_latest_block(recovered_driver, storage_home)
                 self.assertEqual(recovered, committed_block)
@@ -200,7 +200,7 @@ class LatestBlockUtilsTests(unittest.TestCase):
     def test_reconcile_rejects_invalid_authoritative_marker(self):
         with TemporaryDirectory() as tmpdir:
             storage_home = Path(tmpdir)
-            driver = Driver(storage_home=storage_home)
+            driver = Driver(vm_profile="xian_vm_v2", storage_home=storage_home)
             driver.apply_writes(
                 {
                     Constants.LATEST_BLOCK_KEY: {

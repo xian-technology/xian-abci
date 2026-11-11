@@ -7,10 +7,10 @@ from pathlib import Path
 import lmdb
 from contracting.storage.lmdb_environment import DEFAULT_ENVIRONMENT_POOL
 
-VM_EXECUTION_MODE = "xian_vm_v1"
-VM_BYTECODE_VERSION = "xvm-1"
-VM_GAS_SCHEDULE = "xvm-gas-2"
-VM_EXECUTION_REVISION = "xvm-execution-5"
+VM_EXECUTION_MODE = "xian_vm_v2"
+VM_BYTECODE_VERSION = "xvm-2"
+VM_GAS_SCHEDULE = "xvm-gas-3"
+VM_EXECUTION_REVISION = "xvm-execution-6"
 SET_CODEC = "xian-set-1"
 EXECUTION_POLICY_KEY = "__execution_policy"
 
@@ -83,7 +83,7 @@ def initialize_execution_policy(storage_home: Path) -> None:
 def validate_vm_execution_mode(*, mode: str | None = None) -> None:
     selected = (mode or VM_EXECUTION_MODE).strip()
     if selected != VM_EXECUTION_MODE:
-        raise ValueError("xian_vm_v1 is the only supported execution mode")
+        raise ValueError("xian_vm_v2 is the only supported execution mode")
 
 
 def validate_vm_execution_config(
@@ -91,7 +91,7 @@ def validate_vm_execution_config(
 ) -> None:
     payload = xian_config or {}
     if "tracer_mode" in payload:
-        raise ValueError("xian.tracer_mode is no longer supported; Xian nodes only run xian_vm_v1")
+        raise ValueError("xian.tracer_mode is no longer supported; Xian nodes only run xian_vm_v2")
     if "execution" in payload:
-        raise ValueError("xian.execution has been removed; Xian nodes only run xian_vm_v1")
+        raise ValueError("xian.execution has been removed; Xian nodes only run xian_vm_v2")
     validate_vm_execution_mode()

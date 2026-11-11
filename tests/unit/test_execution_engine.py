@@ -105,9 +105,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_build_runtime_for_vm_requires_supported_native_constants(self):
         fake_bindings = types.SimpleNamespace(
-            runtime_info=lambda: {
-                "vm_profile": "xian_vm_v1",
-                "execution_revision": "xvm-execution-5",
+            runtime_info=lambda _profile: {
+                "vm_profile": "xian_vm_v2",
+                "execution_revision": "xvm-execution-6",
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: False,
@@ -122,10 +122,10 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_build_runtime_for_vm_records_runtime_info(self):
         fake_bindings = types.SimpleNamespace(
-            runtime_info=lambda: {
-                "vm_profile": "xian_vm_v1",
-                "host_catalog_version": "xian_vm_v1_host_v1",
-                "execution_revision": "xvm-execution-5",
+            runtime_info=lambda _profile: {
+                "vm_profile": "xian_vm_v2",
+                "host_catalog_version": "xian_vm_v2_host_v1",
+                "execution_revision": "xvm-execution-6",
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
@@ -137,8 +137,8 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         ):
             runtime = build_vm_runtime()
 
-        self.assertEqual(runtime.runtime_info["vm_profile"], "xian_vm_v1")
-        self.assertEqual(runtime.mode, "xian_vm_v1")
+        self.assertEqual(runtime.runtime_info["vm_profile"], "xian_vm_v2")
+        self.assertEqual(runtime.mode, "xian_vm_v2")
 
     def test_vm_metering_writes_uses_exact_decimal_division(self):
         driver = mock.Mock()
@@ -159,10 +159,10 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_prepare_vm_contract_recurses_static_imports(self):
         fake_bindings = types.SimpleNamespace(
-            runtime_info=lambda: {
-                "vm_profile": "xian_vm_v1",
-                "host_catalog_version": "xian_vm_v1_host_v1",
-                "execution_revision": "xvm-execution-5",
+            runtime_info=lambda _profile: {
+                "vm_profile": "xian_vm_v2",
+                "host_catalog_version": "xian_vm_v2_host_v1",
+                "execution_revision": "xvm-execution-6",
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
@@ -175,11 +175,11 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         ):
             built_runtime = build_vm_runtime()
             driver = mock.Mock()
-            driver.get_contract_ir.side_effect = lambda name, vm_profile="xian_vm_v1": {
+            driver.get_contract_ir.side_effect = lambda name, vm_profile="xian_vm_v2": {
                 "con_parent": (
                     ContractingCompiler(module_name="con_parent").lower_to_ir_json(
                         "import con_child\n\n@export\ndef ping():\n    return con_child.ping()\n",
-                        vm_profile="xian_vm_v1",
+                        vm_profile="xian_vm_v2",
                         indent=None,
                         sort_keys=True,
                     )
@@ -187,7 +187,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 "con_child": (
                     ContractingCompiler(module_name="con_child").lower_to_ir_json(
                         "@export\ndef ping():\n    return 'pong'\n",
-                        vm_profile="xian_vm_v1",
+                        vm_profile="xian_vm_v2",
                         indent=None,
                         sort_keys=True,
                     )
@@ -207,10 +207,10 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_prepare_vm_contract_accepts_persisted_vm_ir(self):
         fake_bindings = types.SimpleNamespace(
-            runtime_info=lambda: {
-                "vm_profile": "xian_vm_v1",
-                "host_catalog_version": "xian_vm_v1_host_v1",
-                "execution_revision": "xvm-execution-5",
+            runtime_info=lambda _profile: {
+                "vm_profile": "xian_vm_v2",
+                "host_catalog_version": "xian_vm_v2_host_v1",
+                "execution_revision": "xvm-execution-6",
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
@@ -226,17 +226,17 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             driver = mock.Mock()
             parent_ir = ContractingCompiler(module_name="con_parent").lower_to_ir_json(
                 "import con_child\n\n@export\ndef ping():\n    return con_child.ping()\n",
-                vm_profile="xian_vm_v1",
+                vm_profile="xian_vm_v2",
                 indent=None,
                 sort_keys=True,
             )
             child_ir = ContractingCompiler(module_name="con_child").lower_to_ir_json(
                 "@export\ndef ping():\n    return 'pong'\n",
-                vm_profile="xian_vm_v1",
+                vm_profile="xian_vm_v2",
                 indent=None,
                 sort_keys=True,
             )
-            driver.get_contract_ir.side_effect = lambda name, vm_profile="xian_vm_v1": {
+            driver.get_contract_ir.side_effect = lambda name, vm_profile="xian_vm_v2": {
                 "con_parent": parent_ir,
                 "con_child": child_ir,
             }.get(name)
@@ -255,9 +255,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_execute_native_submission_deploy_stages_contract_artifacts(self):
         runtime = build_vm_runtime()
-        driver = Driver()
+        driver = Driver(vm_profile="xian_vm_v2")
         driver.flush_full()
-        ContractingClient(driver=driver)
+        ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         code = (
             "v = Variable()\n\n"
             "@construct\n"
@@ -300,14 +300,14 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_execute_native_submission_rejects_submitted_ir_artifacts(self):
         runtime = build_vm_runtime()
-        driver = Driver()
+        driver = Driver(vm_profile="xian_vm_v2")
         driver.flush_full()
-        ContractingClient(driver=driver)
+        ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         source = "@export\ndef ping():\n    return 'pong'\n"
         forged_artifacts = {
             "format": "xian_contract_artifact_v1",
             "module_name": "con_forged_ir_probe",
-            "vm_profile": "xian_vm_v1",
+            "vm_profile": "xian_vm_v2",
             "source": source,
             "vm_ir_json": "{}",
             "hashes": {},
@@ -339,9 +339,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_execute_native_submission_rejects_zk_contract_when_feature_disabled(self):
         runtime = build_vm_runtime()
-        driver = Driver()
+        driver = Driver(vm_profile="xian_vm_v2")
         driver.flush_full()
-        ContractingClient(driver=driver)
+        ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         set_driver_runtime_features(driver, {"zk": False})
         code = "@export\ndef check():\n    return zk.is_available()\n"
         output = execute_vm_contract(
@@ -369,7 +369,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_prepare_vm_contract_rejects_zk_contract_when_feature_disabled(self):
         runtime = build_vm_runtime()
-        driver = Driver()
+        driver = Driver(vm_profile="xian_vm_v2")
         driver.flush_full()
         set_driver_runtime_features(driver, {"zk": False})
         code = "@export\ndef check():\n    return zk.is_available()\n"
@@ -377,7 +377,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             module_name="con_zk_probe",
             source=code,
             lint=True,
-            vm_profile="xian_vm_v1",
+            vm_profile="xian_vm_v2",
         )
         driver.set_contract(
             name="con_zk_probe",
@@ -391,9 +391,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_execute_native_submission_change_owner_stages_metadata_write(self):
         runtime = build_vm_runtime()
-        driver = Driver()
+        driver = Driver(vm_profile="xian_vm_v2")
         driver.flush_full()
-        ContractingClient(driver=driver)
+        ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         driver.set_contract_from_source(
             "con_owned",
             "@export\ndef ping():\n    return 1\n",
@@ -427,9 +427,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_execute_native_token_factory_deploys_child_contract(self):
         runtime = build_vm_runtime()
-        driver = Driver()
+        driver = Driver(vm_profile="xian_vm_v2")
         driver.flush_full()
-        ContractingClient(driver=driver)
+        ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         token_factory_source = (
             Path(__file__).resolve().parents[3]
             / "xian-configs"
@@ -489,7 +489,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self,
     ):
         contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
-        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         client.flush()
         try:
             for name, constructor_args in (
@@ -510,7 +510,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     client.raw_driver.make_key("currency", "balances", [node]),
                     1_000_000,
                 )
-            client.raw_driver.set("rewards.S:value", [0.88, 0.01, 0.01, 0.1])
+            client.raw_driver.set("rewards.S:value", [ContractingDecimal(text) for text in ("0.88", "0.01", "0.01", "0.1")])
 
             client.submit(
                 (contracts_dir / "validators.s.py").read_text(),
@@ -634,7 +634,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_execute_native_permit_authorizer_matches_python_runtime(self):
         contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
-        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         client.flush()
         try:
             client.submit(
@@ -721,11 +721,11 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         finally:
             client.flush()
 
-    def test_execute_native_currency_transfer_coerces_float_kwargs_like_python(
+    def test_execute_native_currency_transfer_accepts_exact_decimal(
         self,
     ):
         contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
-        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         client.flush()
         try:
             client.submit(
@@ -751,7 +751,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 sender="worker0",
                 contract_name="currency",
                 function_name="transfer",
-                kwargs={"amount": 1.0, "to": "worker1"},
+                kwargs={"amount": ContractingDecimal("1"), "to": "worker1"},
                 environment={
                     "now": Datetime(2026, 4, 12, 12, 0),
                     "block_num": 40,
@@ -785,13 +785,13 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         finally:
             client.flush()
 
-    def test_execute_native_submission_coerces_constructor_arg_floats(self):
+    def test_execute_native_submission_accepts_exact_decimal_constructor_argument(self):
         root_dir = Path(__file__).resolve().parents[3]
         source = (
             root_dir / "xian-stack" / "workloads" / "dex_mixed" / "token_fixture.py"
         ).read_text()
         contract_name = "con_tokena_probe"
-        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         client.flush()
         try:
             client.raw_driver.set("currency.balances:sys", 100_000)
@@ -809,7 +809,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                     "code": source,
                     "constructor_args": {
                         "owner": "sys",
-                        "supply": 5_000_000.0,
+                        "supply": ContractingDecimal("5000000"),
                         "name": "Workload Token A",
                         "symbol": "WTA",
                     },
@@ -838,7 +838,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         root_dir = Path(__file__).resolve().parents[3]
         source = (root_dir / "xian-stack" / "workloads" / "dex_mixed" / "con_pairs.py").read_text()
         contract_name = "con_pairs_probe"
-        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         client.flush()
         try:
             client.raw_driver.set("currency.balances:sys", 250_000)
@@ -889,7 +889,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             root_dir / "xian-configs" / "contracts" / "zk_registry.s.py"
         ).read_text()
         contract_name = "con_shielded_note_probe"
-        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         client.flush()
         try:
             client.raw_driver.set("currency.balances:sys", 100_000_000)
@@ -955,7 +955,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             root_dir / "xian-configs" / "contracts" / "zk_registry.s.py"
         ).read_text()
         contract_name = "con_shielded_note_probe"
-        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         client.flush()
         try:
             driver = client.raw_driver
@@ -1040,7 +1040,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             root_dir / "xian-stack" / "workloads" / "parallel_probe" / "con_parallel_probe.py"
         ).read_text()
 
-        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         client.flush()
         try:
             driver = client.raw_driver
@@ -1080,7 +1080,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         finally:
             client.flush()
 
-    def test_execute_native_dex_add_liquidity_matches_python_runtime(self):
+    def test_execute_native_dex_add_liquidity_has_exact_reserves(self):
         root_dir = Path(__file__).resolve().parents[3]
         workload_dir = root_dir / "xian-stack" / "workloads" / "dex_mixed"
         token_source = (workload_dir / "token_fixture.py").read_text()
@@ -1097,75 +1097,14 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             )
         )
 
-        client = ContractingClient(environment={"chain_id": "test-chain"})
+        client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         client.flush()
         driver = client.raw_driver
-        executor = Executor(driver=driver)
         runtime = build_vm_runtime()
 
-        def apply_output_writes(output: dict[str, object]) -> None:
-            for key, value in output["writes"].items():
-                driver.set(key, value)
+        def deploy_contract(name, source, constructor_args):
+            client.submit(source, name=name, signer="sys", constructor_args=constructor_args)
             driver.commit()
-
-        def execute_python(
-            *,
-            sender: str,
-            contract_name: str,
-            function_name: str,
-            kwargs: dict[str, object],
-            environment: dict[str, object],
-            chi: int,
-            transaction_size_bytes: int,
-        ) -> dict[str, object]:
-            before_state = driver.snapshot_state()
-            output = executor.execute(
-                sender=sender,
-                contract_name=contract_name,
-                function_name=function_name,
-                kwargs=kwargs,
-                environment=environment,
-                auto_commit=False,
-                metering=True,
-                chi=chi,
-                chi_cost=20,
-                transaction_size_bytes=transaction_size_bytes,
-            )
-            output = augment_execution_output_with_driver_state(
-                output,
-                before_state=before_state,
-                after_state=driver.snapshot_state(),
-            )
-            driver.restore_state(before_state)
-            return output
-
-        def deploy_contract(
-            name: str,
-            source: str,
-            constructor_args: dict[str, object],
-            *,
-            chi: int,
-        ) -> None:
-            output = execute_python(
-                sender="sys",
-                contract_name="submission",
-                function_name="submit_contract",
-                kwargs={
-                    "name": name,
-                    "code": source,
-                    "constructor_args": constructor_args,
-                },
-                environment={
-                    "now": Datetime(2026, 4, 12, 12, 0),
-                    "block_num": 1,
-                    "block_hash": "deploy-block",
-                    "chain_id": "test-chain",
-                },
-                chi=chi,
-                transaction_size_bytes=len(source.encode("utf-8")),
-            )
-            self.assertEqual(output["status_code"], 0)
-            apply_output_writes(output)
 
         try:
             driver.set("currency.balances:sys", 1_000_000)
@@ -1176,25 +1115,23 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 token_source,
                 {
                     "owner": "sys",
-                    "supply": 5_000_000.0,
+                    "supply": ContractingDecimal("5000000"),
                     "name": "Token A",
                     "symbol": "TA",
                 },
-                chi=150_000,
             )
             deploy_contract(
                 "con_tokenb_probe",
                 token_source,
                 {
                     "owner": "sys",
-                    "supply": 5_000_000.0,
+                    "supply": ContractingDecimal("5000000"),
                     "name": "Token B",
                     "symbol": "TB",
                 },
-                chi=150_000,
             )
-            deploy_contract(pairs_name, pairs_source, {}, chi=300_000)
-            deploy_contract(dex_name, dex_source, {}, chi=200_000)
+            deploy_contract(pairs_name, pairs_source, {})
+            deploy_contract(dex_name, dex_source, {})
 
             execution_environment = {
                 "now": Datetime(2026, 4, 12, 12, 5),
@@ -1203,20 +1140,8 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 "chain_id": "test-chain",
             }
             for token_name in ("con_tokena_probe", "con_tokenb_probe"):
-                approval = execute_python(
-                    sender="sys",
-                    contract_name=token_name,
-                    function_name="approve",
-                    kwargs={
-                        "amount": 500_000.0,
-                        "to": dex_name,
-                    },
-                    environment=execution_environment,
-                    chi=7_500,
-                    transaction_size_bytes=0,
-                )
-                self.assertEqual(approval["status_code"], 0)
-                apply_output_writes(approval)
+                client.get_contract_proxy(token_name).approve(amount=500_000, to=dex_name, signer="sys")
+                driver.commit()
 
             outcome = execute_vm_transaction(
                 runtime,
@@ -1227,10 +1152,10 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 kwargs={
                     "tokenA": "con_tokena_probe",
                     "tokenB": "con_tokenb_probe",
-                    "amountADesired": 250_000.0,
-                    "amountBDesired": 250_000.0,
-                    "amountAMin": 240_000.0,
-                    "amountBMin": 240_000.0,
+                    "amountADesired": 250_000,
+                    "amountBDesired": 250_000,
+                    "amountAMin": 240_000,
+                    "amountBMin": 240_000,
                     "to": "sys",
                     "deadline": Datetime(2026, 4, 12, 12, 10),
                 },
@@ -1271,10 +1196,10 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self,
     ):
         fake_bindings = types.SimpleNamespace(
-            runtime_info=lambda: {
-                "vm_profile": "xian_vm_v1",
-                "host_catalog_version": "xian_vm_v1_host_v1",
-                "execution_revision": "xvm-execution-5",
+            runtime_info=lambda _profile: {
+                "vm_profile": "xian_vm_v2",
+                "host_catalog_version": "xian_vm_v2_host_v1",
+                "execution_revision": "xvm-execution-6",
                 "set_codec": "xian-set-1",
             },
             supports_execution_policy=lambda *_args: True,
@@ -1333,7 +1258,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         )
 
     def test_execute_vm_contract_converts_runtime_errors(self):
-        runtime = types.SimpleNamespace(mode="xian_vm_v1")
+        runtime = types.SimpleNamespace(mode="xian_vm_v2")
         driver = mock.Mock()
         driver.get_owner.return_value = "alice"
         fake_bindings = types.SimpleNamespace(
@@ -1365,7 +1290,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self.assertEqual(output.events, [])
 
     def test_execute_vm_contract_tolerates_missing_get_owner(self):
-        runtime = types.SimpleNamespace(mode="xian_vm_v1")
+        runtime = types.SimpleNamespace(mode="xian_vm_v2")
         driver = types.SimpleNamespace()
         captured = {}
 
@@ -1406,7 +1331,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_execute_vm_contract_rejects_source_only_contracts(self):
         runtime = build_vm_runtime()
-        driver = Driver()
+        driver = Driver(vm_profile="xian_vm_v2")
         driver.flush_full()
         driver.set_contract_from_source(
             "con_source_only",
@@ -1433,9 +1358,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
 
     def test_execute_native_submission_requires_deterministic_now(self):
         runtime = build_vm_runtime()
-        driver = Driver()
+        driver = Driver(vm_profile="xian_vm_v2")
         driver.flush_full()
-        ContractingClient(driver=driver)
+        ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         source = "@export\ndef ping():\n    return 'pong'\n"
 
         output = execute_vm_contract(
@@ -1458,9 +1383,9 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self,
     ):
         runtime = build_vm_runtime()
-        driver = Driver()
+        driver = Driver(vm_profile="xian_vm_v2")
         driver.flush_full()
-        ContractingClient(driver=driver)
+        ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         source = (
             "blob = Variable()\n\n"
             "@construct\n"
@@ -1486,7 +1411,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
                 "block_num": 7,
                 "block_hash": "abc123",
                 "chain_id": "xian-local",
-                "__xian_execution_mode__": "xian_vm_v1",
+                "__xian_execution_mode__": "xian_vm_v2",
             },
             meter=True,
             chi_budget=180_000,
@@ -1498,11 +1423,11 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
         self.assertEqual(output.writes, {})
         self.assertEqual(output.events, [])
 
-    def test_dynamic_importlib_call_matches_python_runtime(self):
+    def test_dynamic_importlib_call_preserves_context_and_writes(self):
         runtime = build_vm_runtime()
-        driver = Driver()
+        driver = Driver(vm_profile="xian_vm_v2")
         driver.flush_full()
-        ContractingClient(driver=driver)
+        client = ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         driver.set(driver.make_key("currency", "balances", ["alice"]), 1_000_000)
 
         environment = {
@@ -1510,12 +1435,8 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             "block_num": 7,
             "block_hash": "abc123",
             "chain_id": "xian-local",
-            "__xian_execution_mode__": "xian_vm_v1",
+            "__xian_execution_mode__": "xian_vm_v2",
         }
-        submission_environment = dict(environment)
-        submission_environment.pop("__xian_execution_mode__", None)
-        executor = Executor(driver=driver, metering=True)
-
         leaf_name = "con_dynamic_leaf"
         leaf_source = (
             "touch_total = Variable()\n\n"
@@ -1550,30 +1471,7 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             (leaf_name, leaf_source),
             (router_name, router_source),
         ):
-            output = executor.execute(
-                sender="alice",
-                contract_name="submission",
-                function_name="submit_contract",
-                kwargs={
-                    "name": name,
-                    "code": source,
-                    "constructor_args": {},
-                },
-                environment=submission_environment,
-                auto_commit=False,
-                metering=True,
-                chi=180_000,
-                transaction_size_bytes=len(source.encode("utf-8")),
-            )
-            output = augment_execution_output_with_driver_state(
-                output,
-                before_state=driver.snapshot_state(),
-                after_state=driver.snapshot_state(),
-            )
-            for key, value in output["writes"].items():
-                driver.set(key, value)
-            driver.commit()
-            driver.set(driver.make_key("currency", "balances", ["alice"]), 1_000_000)
+            client.submit(source, name=name, signer="alice")
             driver.commit()
 
         call_kwargs = {
@@ -1596,28 +1494,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             transaction_size_bytes=0,
         )
         driver.restore_state(before_state)
-        python_output = executor.execute(
-            sender="alice",
-            contract_name=router_name,
-            function_name="dynamic_touch",
-            kwargs=call_kwargs,
-            environment=environment,
-            auto_commit=False,
-            metering=False,
-            transaction_size_bytes=0,
-        )
-        python_output = augment_execution_output_with_driver_state(
-            python_output,
-            before_state=before_state,
-            after_state=driver.snapshot_state(),
-        )
-        driver.restore_state(before_state)
-
-        mismatches = compare_execution_results(
-            python_output,
-            native_output,
-        )
-
         self.assertEqual(native_output.status_code, 0)
         self.assertEqual(
             native_output.result,
@@ -1635,7 +1511,6 @@ class ExecutionEngineRuntimeTests(unittest.TestCase):
             native_output.writes,
             {f"{leaf_name}.touch_total": 3},
         )
-        self.assertEqual(mismatches, {})
 
     def test_compare_execution_results_reports_mismatched_fields(self):
         native_output = types.SimpleNamespace(

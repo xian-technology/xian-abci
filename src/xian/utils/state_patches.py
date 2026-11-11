@@ -9,9 +9,9 @@ from typing import Any
 from contracting.artifacts import build_contract_artifacts
 from contracting.storage.driver import XIAN_VM_V1_IR_KEY
 from loguru import logger
-from xian_runtime_types.encoding import convert_dict
+from xian_runtime_types.encoding import decode_wire_numbers, loads_wire_json
 
-from xian.execution_policy import EXECUTION_POLICY_KEY
+from xian.execution_policy import EXECUTION_POLICY_KEY, VM_EXECUTION_MODE
 from xian.utils.encoding import hash_bytes
 
 STATE_PATCH_BUNDLE_VERSION = 1
@@ -50,7 +50,7 @@ def build_contract_artifacts_from_source(
         module_name=contract_name,
         source=change["value"],
         lint=False,
-        vm_profile="xian_vm_v1",
+        vm_profile=VM_EXECUTION_MODE,
         compact=False,
     )
     return (
@@ -233,7 +233,7 @@ class StatePatchManager:
             raise RuntimeError("State patch bundle inventory is not loaded")
 
     def _load_bundle_file(self, bundle_file: Path) -> StatePatchBundle:
-        payload = json.loads(bundle_file.read_text(encoding="utf-8"))
+        payload = loads_wire_json(bundle_file.read_bytes())
         if payload.get("version") != STATE_PATCH_BUNDLE_VERSION:
             raise ValueError(f"{bundle_file} has unsupported state patch bundle version")
 
@@ -275,6 +275,7 @@ class StatePatchManager:
                 raise ValueError(
                     f"{bundle_file} cannot patch {XIAN_VM_V1_IR_KEY} directly; use __source__"
                 )
+            decode_wire_numbers(raw_change.get("value"))
             seen_keys.add(key)
             normalized_changes.append(
                 {
@@ -510,9 +511,7 @@ class StatePatchManager:
                 )
                 continue
 
-            if isinstance(value, dict):
-                value = convert_dict(value)
-            self.raw_driver.set(key, value)
+            self.raw_driver.set(key, decode_wire_numbers(value))
 
     def _mark_patch_applied(
         self,
