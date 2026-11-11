@@ -199,9 +199,32 @@ def test_submission_name_parity(case):
             False,
         ),
         (
-            "max_u64_nonce_is_accepted",
-            _signed_tx_bytes(payload_overrides={"nonce": 2**64 - 1}),
+            "largest_bare_wire_integer_is_accepted",
+            _signed_tx_bytes(
+                payload_overrides={"nonce": 2**53 - 1},
+                kwargs={"amount": -(2**53 - 1), "to": SENDER},
+            ),
             True,
+        ),
+        (
+            "negative_unsafe_bare_integer_is_rejected",
+            _signed_tx_bytes(kwargs={"amount": -(2**53), "to": SENDER}),
+            False,
+        ),
+        (
+            "first_wide_integer_in_tag_is_accepted",
+            _signed_tx_bytes(kwargs={"amount": {"__big_int__": str(2**53)}, "to": SENDER}),
+            True,
+        ),
+        (
+            "redundant_precision_in_tag_is_rejected",
+            _signed_tx_bytes(kwargs={"amount": {"__fixed__": "1.0"}, "to": SENDER}),
+            False,
+        ),
+        (
+            "max_u64_nonce_requires_safe_wire_integer",
+            _signed_tx_bytes(payload_overrides={"nonce": 2**64 - 1}),
+            False,
         ),
         (
             "overflowing_nonce_is_rejected",
@@ -209,9 +232,9 @@ def test_submission_name_parity(case):
             False,
         ),
         (
-            "max_u64_kwargs_integer_is_accepted",
+            "max_u64_kwargs_integer_requires_safe_wire_integer",
             _signed_tx_bytes(kwargs={"amount": 2**64 - 1, "to": SENDER}),
-            True,
+            False,
         ),
         (
             "overflowing_kwargs_integer_is_rejected",

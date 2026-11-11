@@ -272,10 +272,10 @@ def decode_and_validate_transaction_static_bytes(
                 raw_tx,
                 chain_id,
             )
-            decode_wire_numbers(tx["payload"])
-            return tx
         except Exception as exc:
             raise TransactionException(str(exc)) from exc
+        _validate_wire_payload(tx["payload"])
+        return tx
 
     tx, _ = decode_transaction_bytes(raw_tx)
     validate_transaction_static(tx, chain_id=chain_id)
@@ -313,12 +313,17 @@ class SequentialNonceTracker:
         self._latest_nonces[sender] = tx_nonce
 
 
+def _validate_wire_payload(payload: dict) -> None:
+    try:
+        decode_wire_numbers(payload)
+    except (TypeError, ValueError, ArithmeticError, AssertionError) as exc:
+        # The native parser can represent a bare u64 before V2 checks its wire form.
+        raise TransactionException("Transaction bytes are not canonical") from exc
+
+
 def validate_transaction_static(tx: dict, *, chain_id: str) -> None:
     check_tx_formatting(tx)
-    try:
-        decode_wire_numbers(tx["payload"])
-    except (TypeError, ValueError, ArithmeticError, AssertionError) as exc:
-        raise TransactionException(str(exc)) from exc
+    _validate_wire_payload(tx["payload"])
 
     sender, signature, payload = unpack_transaction(tx)
     if not verify(sender, payload, signature):
