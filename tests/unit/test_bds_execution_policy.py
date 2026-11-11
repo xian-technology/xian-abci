@@ -156,6 +156,26 @@ def test_snapshot_preflight_rejects_before_reset(policy, row_policy, omit):
     bds.reset_schema.assert_not_awaited()
 
 
+@pytest.mark.parametrize("runtime_json", ['{"n":-0}', '{"n":1e-400}', '{"__fixed__":"1.0"}'])
+def test_snapshot_rejects_noncanonical_runtime_jsonb(runtime_json):
+    from xian.services.bds.snapshot import TABLE_SPECS, _validate_snapshot_value
+
+    state = next(spec for spec in TABLE_SPECS if spec.name == "state")
+    with pytest.raises((ValueError, TypeError)):
+        _validate_snapshot_value(state, {"key": "con_test.amount", "value": runtime_json})
+
+
+def test_snapshot_rejects_bare_negative_zero_inside_an_object_row(tmp_path):
+    from xian.services.bds.snapshot import _snapshot_rows
+
+    path = tmp_path / "state_changes.jsonl"
+    path.write_text('{"new_value":{"nested":-0},"block_time":1794386400123456789}\n')
+    with pytest.raises(ValueError, match="negative zero"):
+        list(_snapshot_rows(path))
+    path.write_text('{"new_value":{"nested":0},"block_time":1794386400123456789}\n')
+    assert next(_snapshot_rows(path))["block_time"] == 1794386400123456789
+
+
 def test_reindex_rejects_legacy_source_before_reading_blocks():
     from types import SimpleNamespace
 

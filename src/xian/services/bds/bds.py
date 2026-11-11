@@ -12,7 +12,7 @@ from timeit import default_timer as timer
 from typing import Any
 
 from loguru import logger
-from xian_runtime_types.encoding import convert_dict
+from xian_runtime_types.encoding import decode_wire_numbers
 
 from xian.constants import Constants
 from xian.execution_policy import (
@@ -771,7 +771,7 @@ class BDS:
         validate_genesis_execution_policy(cometbft_genesis)
         await self.validate_storage_policy()
         start_time = timer()
-        genesis_state = convert_dict(cometbft_genesis["abci_genesis"]["genesis"])
+        genesis_state = decode_wire_numbers(cometbft_genesis["abci_genesis"]["genesis"])
         block_time = GENESIS_CREATED_AT
 
         async with self.db.acquire() as connection:

@@ -213,7 +213,7 @@ class BdsSnapshotTests(unittest.IsolatedAsyncioTestCase):
                     "tx_index": 0,
                     "write_index": 0,
                     "key": "currency.balances:alice",
-                    "new_value": {"__fixed__": "1.0"},
+                    "new_value": {"__fixed__": "1"},
                     "previous_change_id": 4,
                     "previous_tx_hash": "TX-11",
                     "origin_type": "tx",

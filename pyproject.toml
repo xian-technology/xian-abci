@@ -99,9 +99,9 @@ select = ["E", "F", "I"]
 ignore = ["E501"]
 
 [tool.uv.sources]
-xian-tech-compiler-core = { path = "../xian-contracting/packages/xian-compiler-core", editable = true }
+xian-tech-compiler-core = { path = "../xian-contracting/packages/xian-compiler-core" }
 xian-tech-accounts = { path = "../xian-contracting/packages/xian-accounts", editable = true }
 xian-tech-contracting = { path = "../xian-contracting", editable = true }
 xian-tech-runtime-types = { path = "../xian-contracting/packages/xian-runtime-types", editable = true }
 xian-tech-fastpath-core = { path = "../xian-contracting/packages/xian-fastpath-core", editable = true }
-xian-tech-vm-core = { path = "../xian-contracting/packages/xian-vm-core", editable = true }
+xian-tech-vm-core = { path = "../xian-contracting/packages/xian-vm-core" }

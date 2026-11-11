@@ -9,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from xian_runtime_types.encoding import convert_dict
+from xian_runtime_types.encoding import decode_wire_numbers, loads_wire_json
 
 from xian.execution_policy import (
     EXECUTION_POLICY_KEY,
@@ -319,11 +319,18 @@ _RUNTIME_JSON_COLUMNS = {
 def _validate_snapshot_value(spec: TableSpec, row: dict[str, Any]) -> None:
     for column in _RUNTIME_JSON_COLUMNS.get(spec.name, ()):
         value = row[column]
-        wire = json.loads(value) if isinstance(value, str) else value
-        typed = convert_dict(wire)
+        wire = loads_wire_json(value) if isinstance(value, str) else value
+        typed = decode_wire_numbers(wire)
         canonical_json_text(typed)
         if spec.name in {"state", "state_changes"} and row["key"] == EXECUTION_POLICY_KEY:
             validate_execution_policy(typed)
+
+
+def _snapshot_integer(token: str) -> int:
+    # PostgreSQL heights and nanosecond timestamps can exceed the wire safe-integer range.
+    if token == "-0":
+        raise ValueError("negative zero is not a canonical snapshot integer")
+    return int(token)
 
 
 def _snapshot_rows(path: Path):
@@ -332,7 +339,7 @@ def _snapshot_rows(path: Path):
     with path.open(encoding="utf-8") as handle:
         for line in handle:
             if line.strip():
-                yield json.loads(line)
+                yield json.loads(line, parse_int=_snapshot_integer)
 
 
 def _snapshot_meta_values(path: Path) -> dict[str, str]:
