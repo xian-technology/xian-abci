@@ -11,6 +11,10 @@ This file records the runtime properties that must hold before an
   restart, catch-up, and proposal processing.
 - Block time, block hash, and chain-id handling must remain deterministic across
   nodes.
+- Parallel execution must include fee and reward configuration reads in its
+  conflict checks, including cached chi prices. A configuration update earlier
+  in a block must affect later transactions exactly as it does in serial
+  execution.
 
 ## Failure Semantics
 

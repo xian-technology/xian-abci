@@ -350,6 +350,74 @@ class TestParallelBlockExecutor(unittest.TestCase):
                 )
                 self.assertEqual(parallel_client.raw_driver.get(key), expected)
 
+    def test_paid_parallel_execution_observes_updated_chi_price(self):
+        txs = [
+            self._tx(
+                sender="alice",
+                contract="chi_cost",
+                function="set_value",
+                kwargs={"new_value": 200},
+                nonce=0,
+                signature="sig-price",
+            ),
+            self._tx(
+                sender="bob",
+                contract="con_token_b",
+                function="change_metadata",
+                kwargs={"key": "example", "value": "updated"},
+                nonce=0,
+                signature="sig-after-price",
+            ),
+        ]
+        with (
+            tempfile.TemporaryDirectory() as serial_dir,
+            tempfile.TemporaryDirectory() as parallel_dir,
+        ):
+            serial_client, serial_processor = self._build_processor(
+                Path(serial_dir) / "xian", with_rewards=True
+            )
+            parallel_client, parallel_processor = self._build_processor(
+                Path(parallel_dir) / "xian", with_rewards=True
+            )
+            for client in (serial_client, parallel_client):
+                client.submit(CORE_VALUE_CONTRACT_CODE, name="chi_cost", signer="sys")
+                client.raw_driver.set("chi_cost.S:value", 100)
+                client.raw_driver.commit()
+
+            serial_results = [
+                serial_processor.process_tx(
+                    deepcopy(tx),
+                    fee_policy=TxFeePolicy.paid_metered(),
+                    rewards_handler=RewardsHandler(serial_client),
+                    track_access=True,
+                )["tx_result"]
+                for tx in txs
+            ]
+            executor = ParallelBlockExecutor(
+                storage_home=Path(parallel_dir) / "xian",
+                enabled=True,
+                workers=1,
+                min_transactions=1,
+            )
+            try:
+                results, _stats = executor.execute(
+                    txs=deepcopy(txs),
+                    tx_processor=parallel_processor,
+                    fee_policy=TxFeePolicy.paid_metered(),
+                    rewards_handler=RewardsHandler(parallel_client),
+                )
+            finally:
+                executor.close()
+
+            self.assertEqual([result["status"] for result in serial_results], [0, 0])
+            self.assertEqual([result["tx_result"] for result in results], serial_results)
+            for recipient in ("alice", "bob", "foundation", "mn-1", "mn-2"):
+                key = f"currency.balances:{recipient}"
+                self.assertEqual(
+                    parallel_client.raw_driver.get(key), serial_client.raw_driver.get(key)
+                )
+
+
     def test_parallel_executor_estimates_hot_token_transfer_conflicts(self):
         txs = [
             self._tx(

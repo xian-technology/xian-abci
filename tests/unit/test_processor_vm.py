@@ -50,6 +50,54 @@ def _transaction(**payload_overrides):
 
 
 class ProcessorVmExecutionTests(unittest.TestCase):
+    def test_access_includes_fee_and_reward_configuration_reads(self):
+        driver = _driver()
+        driver.set = lambda **_kwargs: None
+        processor = _processor(driver)
+        processor.chi_cost_key = "chi_cost.S:value"
+        output = {
+            "status_code": 0,
+            "result": None,
+            "writes": {},
+            "events": [],
+            "chi_used": 1,
+            "reads": {"con_probe.value": 1},
+            "prefix_reads": frozenset({"con_probe.values:"}),
+        }
+
+        def reward_outputs(**_kwargs):
+            driver.transaction_reads.update(
+                {"rewards.S:value": [1, 0, 0, 0], "foundation.owner": "foundation"}
+            )
+            driver.transaction_read_prefixes.add("validators.delegations:")
+            return None, {}, []
+
+        rewards_handler = SimpleNamespace(build_tx_reward_outputs=reward_outputs)
+        with mock.patch("xian.processor.tx_hash_from_tx", return_value="tx-hash"):
+            result = processor.process_tx_output(
+                output,
+                _transaction(contract="con_probe", function="run", kwargs={}),
+                chi_cost=20,
+                rewards_handler=rewards_handler,
+                track_access=True,
+            )
+
+        self.assertEqual(
+            result["reads"],
+            frozenset(
+                {
+                    "con_probe.value",
+                    "chi_cost.S:value",
+                    "rewards.S:value",
+                    "foundation.owner",
+                }
+            ),
+        )
+        self.assertEqual(
+            result["prefix_reads"],
+            frozenset({"con_probe.values:", "validators.delegations:"}),
+        )
+
     def test_nested_runtime_wrappers_are_converted_before_vm_execution(self):
         processor = _processor(_driver())
         transaction = _transaction(

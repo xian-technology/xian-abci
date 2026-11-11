@@ -364,19 +364,17 @@ class TxProcessor:
             reads = frozenset()
             prefix_reads = frozenset()
             if track_access:
-                output_reads = output.get("reads")
-                if isinstance(output_reads, dict):
-                    reads = frozenset(output_reads.keys())
-                elif output_reads is not None:
-                    reads = frozenset(output_reads)
-                else:
-                    reads = frozenset(self.client.raw_driver.transaction_reads.keys())
-
-                output_prefix_reads = output.get("prefix_reads")
-                if output_prefix_reads is not None:
-                    prefix_reads = frozenset(output_prefix_reads)
-                else:
-                    prefix_reads = frozenset(self.client.raw_driver.transaction_read_prefixes)
+                # VM execution restores its driver snapshot before fee and reward
+                # accounting. Both sets of reads affect the speculative result.
+                reads = frozenset(output.get("reads") or ()) | frozenset(
+                    self.client.raw_driver.transaction_reads
+                )
+                prefix_reads = frozenset(output.get("prefix_reads") or ()) | frozenset(
+                    self.client.raw_driver.transaction_read_prefixes
+                )
+                if charge_fees:
+                    # The block cache may have supplied this value without a read.
+                    reads |= {self.chi_cost_key}
 
             for write in writes:
                 self.client.raw_driver.set(key=write["key"], value=write["value"])
