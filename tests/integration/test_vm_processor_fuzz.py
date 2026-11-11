@@ -9,6 +9,7 @@ import pytest
 from contracting.local import ContractingClient
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from processor_probe_model import ProcessorProbeModel, typed_value
 from xian_runtime_types.time import Datetime
 
 from xian.execution_engine import build_vm_runtime
@@ -99,7 +100,6 @@ def fail_after_write(key: str, value: int):
 
 FIXED_TIMESTAMP = Datetime(2026, 4, 23, 12, 0, 0)
 FIXED_BLOCK_TIME = datetime(2026, 4, 23, 12, 0, 0, tzinfo=UTC)
-IGNORED_BALANCE_KEY = "currency.balances:alice"
 
 
 def _make_block_meta(offset_seconds: int) -> dict[str, Any]:
@@ -127,34 +127,8 @@ def _make_tx(function: str, kwargs: dict[str, Any], offset_seconds: int) -> dict
     }
 
 
-def _normalized_state_writes(entries: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
-    if entries is None:
-        return None
-    return [
-        entry
-        for entry in entries
-        if entry.get("key") != "submission.__submitted__"
-        and entry.get("key") != IGNORED_BALANCE_KEY
-    ]
-
-
-def _normalized_contract_state(state: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(state)
-    normalized.pop("submission.__submitted__", None)
-    normalized.pop(IGNORED_BALANCE_KEY, None)
-    return normalized
-
-
-def _normalized_tx_result(tx_result: dict[str, Any] | None) -> dict[str, Any] | None:
-    if tx_result is None:
-        return None
-    return {
-        "status": tx_result.get("status"),
-        "hash": tx_result.get("hash"),
-        "result": tx_result.get("result"),
-        "state": _normalized_state_writes(tx_result.get("state")),
-        "events": tx_result.get("events"),
-    }
+def _semantic_receipt(tx_result: dict[str, Any]) -> dict[str, Any]:
+    return {key: tx_result[key] for key in ("status", "result", "state", "events")}
 
 
 def _deploy_probe(client: ContractingClient) -> None:
@@ -172,112 +146,74 @@ FUZZ_OPERATION = st.one_of(
     st.builds(
         lambda key, value: ("put", {"key": key, "value": value}),
         key=st.sampled_from(["alpha", "beta", "gamma", "delta"]),
-        value=st.integers(min_value=-20, max_value=20),
+        value=st.integers(min_value=-60, max_value=60),
     ),
     st.builds(
         lambda key, delta: ("add", {"key": key, "delta": delta}),
         key=st.sampled_from(["alpha", "beta", "gamma", "delta"]),
-        delta=st.integers(min_value=-6, max_value=8),
+        delta=st.integers(min_value=-120, max_value=120),
     ),
     st.builds(
         lambda slot, amount: ("claim", {"slot": slot, "amount": amount}),
         slot=st.sampled_from(["slot-a", "slot-b", "slot-c", "slot-d"]),
-        amount=st.integers(min_value=0, max_value=6),
+        amount=st.integers(min_value=-2, max_value=6),
     ),
     st.builds(
         lambda key, value: ("fail_after_write", {"key": key, "value": value}),
         key=st.sampled_from(["alpha", "beta", "gamma", "delta"]),
-        value=st.integers(min_value=-20, max_value=20),
+        value=st.integers(min_value=-60, max_value=60),
     ),
 )
 
 
+def _check_sequence(operations):
+    with tempfile.TemporaryDirectory(prefix="xian-vm-processor-model-") as tmpdir:
+        with ContractingClient(vm_profile="xian_vm_v2", storage_home=Path(tmpdir)) as client:
+            _deploy_probe(client)
+            processor = TxProcessor(client=client, execution_runtime=build_vm_runtime())
+            model = ProcessorProbeModel()
+            deployment_state = client.raw_driver.items()
+            for offset, (function, kwargs) in enumerate(operations, start=1):
+                expected = model.step(function, kwargs)
+                tx = _make_tx(function, kwargs, offset)
+                tx_result = processor.process_tx(tx=tx)["tx_result"]
+                assert tx_result is not None
+                assert typed_value(_semantic_receipt(tx_result)) == typed_value(expected)
+                # These calls use system_unmetered; fee/reward behavior is covered
+                # separately. No expected cost is derived from the VM's output.
+                assert tx_result["rewards"] is None
+                assert tx_result["reward_records"] is None
+                client.raw_driver.hard_apply(tx["b_meta"]["nanos"])
+                assert typed_value(client.raw_driver.items()) == typed_value(
+                    deployment_state | model.state
+                )
+            committed_state = deployment_state | model.state
+        with ContractingClient(
+            vm_profile="xian_vm_v2", storage_home=Path(tmpdir), submission_filename=None
+        ) as reopened:
+            assert typed_value(reopened.raw_driver.items()) == typed_value(committed_state)
+
+
 @settings(max_examples=24, deadline=None)
 @given(operations=st.lists(FUZZ_OPERATION, min_size=1, max_size=12))
-def test_python_and_native_processors_match_for_fuzzed_sequences(
-    operations: list[tuple[str, dict[str, Any]]],
-) -> None:
-    with tempfile.TemporaryDirectory(prefix="xian-vm-processor-fuzz-") as tmpdir:
-        root = Path(tmpdir)
-        python_client = ContractingClient(vm_profile="xian_vm_v2", storage_home=root / "python")
-        native_client = ContractingClient(vm_profile="xian_vm_v2", storage_home=root / "native")
-        _deploy_probe(python_client)
-        _deploy_probe(native_client)
-
-        python_processor = TxProcessor(client=python_client)
-        native_processor = TxProcessor(
-            client=native_client,
-            execution_runtime=build_vm_runtime(),
-        )
-
-        for offset_seconds, (function_name, kwargs) in enumerate(operations, start=1):
-            before_state = _normalized_contract_state(
-                python_client.raw_driver.get_all_contract_state()
-            )
-            assert before_state == _normalized_contract_state(
-                native_client.raw_driver.get_all_contract_state()
-            )
-
-            tx = _make_tx(function_name, kwargs, offset_seconds)
-            python_result = python_processor.process_tx(tx=tx)
-            native_result = native_processor.process_tx(tx=tx)
-
-            assert _normalized_tx_result(python_result["tx_result"]) == _normalized_tx_result(
-                native_result["tx_result"]
-            )
-
-            block_nanos = tx["b_meta"]["nanos"]
-            python_client.raw_driver.hard_apply(block_nanos)
-            native_client.raw_driver.hard_apply(block_nanos)
-
-            after_python_state = _normalized_contract_state(
-                python_client.raw_driver.get_all_contract_state()
-            )
-            after_native_state = _normalized_contract_state(
-                native_client.raw_driver.get_all_contract_state()
-            )
-            assert after_python_state == after_native_state
-
-            tx_result = python_result["tx_result"]
-            if tx_result is not None and tx_result.get("status") != 0:
-                assert after_python_state == before_state
+def test_native_processor_matches_independent_state_model(operations) -> None:
+    _check_sequence(operations)
 
 
-def test_processors_preserve_failure_rollback_invariant() -> None:
-    with tempfile.TemporaryDirectory(prefix="xian-vm-processor-failure-") as tmpdir:
-        root = Path(tmpdir)
-        python_client = ContractingClient(vm_profile="xian_vm_v2", storage_home=root / "python")
-        native_client = ContractingClient(vm_profile="xian_vm_v2", storage_home=root / "native")
-        _deploy_probe(python_client)
-        _deploy_probe(native_client)
-
-        python_processor = TxProcessor(client=python_client)
-        native_processor = TxProcessor(
-            client=native_client,
-            execution_runtime=build_vm_runtime(),
-        )
-
-        before_state = _normalized_contract_state(
-            python_client.raw_driver.get_all_contract_state()
-        )
-        tx = _make_tx("fail_after_write", {"key": "alpha", "value": 7}, 1)
-        python_result = python_processor.process_tx(tx=tx)
-        native_result = native_processor.process_tx(tx=tx)
-
-        assert _normalized_tx_result(
-            python_result["tx_result"]
-        ) == _normalized_tx_result(native_result["tx_result"])
-        assert python_result["tx_result"] is not None
-        assert python_result["tx_result"]["status"] == 1
-        assert _normalized_tx_result(python_result["tx_result"])["state"] == []
-        assert _normalized_tx_result(python_result["tx_result"])["events"] == []
-
-        block_nanos = tx["b_meta"]["nanos"]
-        python_client.raw_driver.hard_apply(block_nanos)
-        native_client.raw_driver.hard_apply(block_nanos)
-        assert _normalized_contract_state(
-            python_client.raw_driver.get_all_contract_state()
-        ) == before_state
-        assert _normalized_contract_state(
-            native_client.raw_driver.get_all_contract_state()
-        ) == before_state
+def test_native_processor_preserves_success_failure_and_followup_semantics() -> None:
+    _check_sequence(
+        [
+            ("put", {"key": "alpha", "value": 5}),
+            ("add", {"key": "alpha", "delta": 2}),
+            ("claim", {"slot": "slot-a", "amount": 3}),
+            ("claim", {"slot": "slot-a", "amount": 1}),
+            ("fail_after_write", {"key": "alpha", "value": 99}),
+            ("put", {"key": "beta", "value": -3}),
+            ("add", {"key": "beta", "delta": 1000}),
+            ("put", {"key": "", "value": 1}),
+            ("put", {"key": "beta", "value": 99}),
+            ("claim", {"slot": "slot-b", "amount": -1}),
+            ("claim", {"slot": "", "amount": 1}),
+            ("add", {"key": "beta", "delta": 3}),
+        ]
+    )

@@ -6,7 +6,8 @@ This file records the runtime properties that must hold before an
 ## Determinism
 
 - The same transaction sequence must produce the same transaction results,
-  events, and committed state under the Python and native execution paths.
+  events, and committed state on every native V2 node. Speculative parallel
+  execution must match serial execution.
 - Validator replay must converge on the same app hash and contract state after
   restart, catch-up, and proposal processing.
 - Block time, block hash, and chain-id handling must remain deterministic across
@@ -31,8 +32,7 @@ This file records the runtime properties that must hold before an
   rules require validators to upgrade together.
 - Shielded proof-cache warming is optional acceleration. Rejected warm-up
   requests must not fail a block or bypass verification during execution.
-- Replay after failure must leave the same committed state on every node and in
-  every execution engine.
+- Replay after failure must leave the same committed state on every node.
 - A committed block's height and app hash must become durable in the same LMDB
   transaction as its state writes. `Info` must never advertise metadata for
   state that was not committed, and startup must repair the compatibility JSON
@@ -58,13 +58,15 @@ This file records the runtime properties that must hold before an
   active validators. This is an upgrade boundary, not recovery for a chain
   whose previous contract state already disagrees with CometBFT.
 
-## Native Runtime Rollout
+## Native Runtime Validation
 
-- Native-authoritative execution must continue to produce shadow-comparison data
-  for mismatch detection.
-- Any native/shadow mismatch is release-blocking until explained and accepted.
-- Release validation must include a real localnet run that enforces a zero
-  mismatch budget.
+- The node accepts only its exact native V2 execution policy. Persisted state,
+  genesis, snapshots, and bindings must agree on the execution revision, gas
+  schedule, bytecode version, and set codec.
+- Result, event, state, or app-hash disagreement between validators is
+  release-blocking until explained and accepted.
+- Release validation must include a real localnet run that checks consistent
+  app hashes and contract state across nodes, including restart and replay.
 
 ## Release Gate
 
@@ -75,6 +77,8 @@ The enforcement surface in this repo includes:
 
 - `tests/integration/test_vm_replay_parity.py`
 - `tests/integration/test_vm_processor_fuzz.py`
-- `tests/unit/test_processor_shadow.py`
-- `tests/unit/test_vm_observability.py`
+- `tests/integration/test_parallel_executor.py`
+- `tests/unit/test_execution_engine.py`
+- `tests/unit/test_execution_revision.py`
+- `tests/unit/test_state_root.py`
 - the ABCI-method integration tests under `tests/abci_methods/`

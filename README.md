@@ -47,9 +47,10 @@ uv run xian-bds-spool --help
 uv run xian-parallel-estimator-report --help
 ```
 
+Native V2 bindings are installed through the `xian-tech-contracting` dependency.
 Optional extras:
 
-- `vm` — enables the `xian_vm_v2` bindings.
+- `vm` — retains compatibility with install commands requesting the bindings explicitly.
 - `native` — enables native admission helpers for development and release
   validation.
 - `zk` — enables the native zk verifier required by nodes on chains with the
@@ -111,10 +112,10 @@ Preferred full validation entrypoint, used for releases:
 It defaults to Python `3.14` (override with `XIAN_ABCI_VALIDATE_PYTHON`) and
 runs:
 
-- `./scripts/validate-repo.sh`
-- protobuf regeneration / stale-stub checks
-- the Python-vs-native processor fuzz parity coverage
-  (`tests/integration/test_vm_processor_fuzz.py`)
+- `./scripts/validate-repo.sh`, including protobuf regeneration and stale-stub
+  checks, lint, formatting, and the full node test suite
+- `./scripts/validate-native-fastpath.sh`, which rebuilds optional Rust admission
+  helpers and checks them against the Python transaction validator
 
 Faster local loops:
 

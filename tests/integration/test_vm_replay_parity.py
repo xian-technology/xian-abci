@@ -1,9 +1,12 @@
+import ast
+import json
 import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from contracting.local import ContractingClient
+from processor_probe_model import typed_value
 
 from xian.execution_engine import build_vm_runtime
 from xian.processor import TxProcessor
@@ -67,9 +70,7 @@ def bump(delta: int):
 
 
 def make_block_meta(offset_seconds: int) -> dict:
-    dt = datetime(2026, 4, 12, 12, 0, 0, tzinfo=UTC) + timedelta(
-        seconds=offset_seconds
-    )
+    dt = datetime(2026, 4, 12, 12, 0, 0, tzinfo=UTC) + timedelta(seconds=offset_seconds)
     nanos = int(dt.timestamp()) * 1_000_000_000
     return {
         "nanos": nanos,
@@ -100,178 +101,213 @@ def make_tx(
     }
 
 
-class TestVmReplayParity(unittest.TestCase):
-    @staticmethod
-    def _normalized_state_writes(entries: list[dict] | None) -> list[dict] | None:
-        if entries is None:
-            return None
-        return [
-            entry
-            for entry in entries
-            if entry.get("key") != "submission.__submitted__"
-        ]
+def probe_event(*, key, value, counter):
+    return {
+        "contract": "con_vm_parity_probe",
+        "event": "Probe",
+        "signer": "alice",
+        "caller": "alice",
+        "data_indexed": {"key": key},
+        "data": {"value": value, "counter": counter},
+    }
 
-    @staticmethod
-    def _normalized_contract_state(state: dict) -> dict:
-        normalized = dict(state)
-        # Each isolated storage home bootstraps the built-in submission contract
-        # independently, so its installation timestamp is not part of replay parity.
-        normalized.pop("submission.__submitted__", None)
-        return normalized
 
-    @staticmethod
-    def _normalized_tx_result(tx_result: dict) -> dict:
-        return {
-            "status": tx_result.get("status"),
-            "hash": tx_result.get("hash"),
-            "result": tx_result.get("result"),
-            "state": TestVmReplayParity._normalized_state_writes(
-                tx_result.get("state")
-            ),
-            "events": tx_result.get("events"),
-        }
+def probe_receipt(counter, *, key=None, value=None):
+    writes = {"con_vm_parity_probe.counter": counter}
+    if key is None:
+        result, events = counter, []
+    else:
+        writes[f"con_vm_parity_probe.items:{key}"] = value
+        result = {"counter": counter, "item": value}
+        events = [probe_event(key=key, value=value, counter=counter)]
+    return {
+        "status": 0,
+        "result": result,
+        "state": [{"key": key, "value": writes[key]} for key in sorted(writes)],
+        "events": events,
+    }
 
+
+class TestNativeReplayDeterminism(unittest.TestCase):
     def setUp(self):
-        self._tmpdir = tempfile.TemporaryDirectory(prefix="xian-vm-parity-")
+        self._tmpdir = tempfile.TemporaryDirectory(prefix="xian-native-replay-")
         self.addCleanup(self._tmpdir.cleanup)
         root = Path(self._tmpdir.name)
-        self.python_home = root / "python"
-        self.native_home = root / "native"
-        self.python_home.mkdir(parents=True, exist_ok=True)
-        self.native_home.mkdir(parents=True, exist_ok=True)
+        self.homes = [root / "original", root / "clean-replay"]
 
-        self.python_client = ContractingClient(
-            vm_profile="xian_vm_v2", storage_home=self.python_home
-        )
-        self.addCleanup(self.python_client.close)
-        self.native_client = ContractingClient(
-            vm_profile="xian_vm_v2", storage_home=self.native_home
-        )
-        self.addCleanup(self.native_client.close)
-        self.python_client.submit(PARITY_PROBE_SOURCE, name="con_vm_parity_probe")
-        self.native_client.submit(PARITY_PROBE_SOURCE, name="con_vm_parity_probe")
-        self.python_client.raw_driver.hard_apply(0)
-        self.native_client.raw_driver.hard_apply(0)
+    def make_client(self, home):
+        client = ContractingClient(vm_profile="xian_vm_v2", storage_home=home)
+        self.addCleanup(client.close)
+        client.submit(PARITY_PROBE_SOURCE, name="con_vm_parity_probe")
+        client.raw_driver.hard_apply(0)
+        return client
 
-        self.python_processor = TxProcessor(client=self.python_client)
-        self.native_processor = TxProcessor(
-            client=self.native_client,
-            execution_runtime=build_vm_runtime(),
-        )
+    def assert_semantics(self, actual, expected):
+        self.assertIsNotNone(actual)
+        self.assertEqual(typed_value({key: actual[key] for key in expected}), typed_value(expected))
+        # These system-unmetered calls do not exercise submitted fee budgets.
+        self.assertIsNone(actual["rewards"])
+        self.assertIsNone(actual["reward_records"])
 
-    def tearDown(self):
-        self.python_client.flush()
-        self.native_client.flush()
+    def persisted_state(self, home):
+        contract_state, run_state = fetch_filebased_state(storage_home=home)
+        # Only the built-in helper's installation time differs between homes.
+        contract_state.pop("submission.__submitted__", None)
+        return contract_state, run_state
 
-    def test_python_and_native_processors_replay_the_same_tx_sequence(self):
-        txs = [
-            make_tx(
-                sender="alice",
-                function="set_item",
-                kwargs={"key": "alpha", "value": 5},
-                offset_seconds=1,
-            ),
-            make_tx(
-                sender="alice",
-                function="accumulate",
-                kwargs={"values": [1, 2, 3]},
-                offset_seconds=2,
-            ),
-            make_tx(
-                sender="alice",
-                function="set_item",
-                kwargs={"key": "beta", "value": -1},
-                offset_seconds=3,
-            ),
-            make_tx(
-                sender="alice",
-                function="set_item",
-                kwargs={"key": "beta", "value": 7},
-                offset_seconds=4,
-            ),
+    def test_clean_native_replay_matches_explicit_results_and_committed_state(self):
+        operations = [
+            ("set_item", {"key": "alpha", "value": 5}),
+            ("accumulate", {"values": [1, 2, 3]}),
+            ("set_item", {"key": "beta", "value": -1}),
+            ("set_item", {"key": "beta", "value": 7}),
         ]
-
-        for tx in txs:
-            python_result = self.python_processor.process_tx(tx=tx)
-            native_result = self.native_processor.process_tx(tx=tx)
-
-            self.assertEqual(
-                self._normalized_tx_result(python_result["tx_result"]),
-                self._normalized_tx_result(native_result["tx_result"]),
-            )
-            block_nanos = tx["b_meta"]["nanos"]
-            self.python_client.raw_driver.hard_apply(block_nanos)
-            self.native_client.raw_driver.hard_apply(block_nanos)
-
-        python_contract_state, python_run_state = fetch_filebased_state(
-            storage_home=self.python_home
-        )
-        native_contract_state, native_run_state = fetch_filebased_state(
-            storage_home=self.native_home
-        )
-
-        self.assertEqual(
-            self._normalized_contract_state(python_contract_state),
-            self._normalized_contract_state(native_contract_state),
-        )
-        self.assertEqual(python_run_state, native_run_state)
-
-    def test_python_and_native_processors_replay_submission_deployment_sequence(
-        self,
-    ):
-        txs = [
-            make_tx(
-                sender="alice",
-                contract="submission",
-                function="submit_contract",
-                kwargs={
-                    "name": "con_vm_replay_child",
-                    "code": DEPLOYED_PROBE_SOURCE,
-                    "constructor_args": {"start": 3},
-                },
-                offset_seconds=1,
-            ),
-            make_tx(
-                sender="alice",
-                contract="con_vm_replay_child",
-                function="bump",
-                kwargs={"delta": 2},
-                offset_seconds=2,
-            ),
-            make_tx(
-                sender="alice",
-                contract="con_vm_replay_child",
-                function="bump",
-                kwargs={"delta": 5},
-                offset_seconds=3,
-            ),
+        expected = [
+            probe_receipt(5, key="alpha", value=5),
+            probe_receipt(11),
+            {
+                "status": 1,
+                "result": "AssertionError('value must be non-negative.')",
+                "state": [],
+                "events": [],
+            },
+            probe_receipt(18, key="beta", value=7),
         ]
+        replays = []
+        for home in self.homes:
+            with self.make_client(home) as client:
+                processor = TxProcessor(client=client, execution_runtime=build_vm_runtime())
+                expected_state = client.raw_driver.items()
+                receipts = []
+                for offset, ((function, kwargs), receipt) in enumerate(
+                    zip(operations, expected), 1
+                ):
+                    tx = make_tx(
+                        sender="alice", function=function, kwargs=kwargs, offset_seconds=offset
+                    )
+                    actual = processor.process_tx(tx=tx)["tx_result"]
+                    self.assert_semantics(actual, receipt)
+                    expected_state.update(
+                        {entry["key"]: entry["value"] for entry in receipt["state"]}
+                    )
+                    client.raw_driver.hard_apply(tx["b_meta"]["nanos"])
+                    self.assertEqual(
+                        typed_value(client.raw_driver.items()), typed_value(expected_state)
+                    )
+                    receipts.append(actual)
+            replays.append((receipts, self.persisted_state(home)))
+        # This compares independent clean runs for determinism, after both have
+        # already satisfied explicit outcomes and full-state/rollback checks.
+        self.assertEqual(typed_value(replays[0]), typed_value(replays[1]))
 
-        for tx in txs:
-            python_result = self.python_processor.process_tx(tx=tx)
-            native_result = self.native_processor.process_tx(tx=tx)
-
-            self.assertEqual(
-                self._normalized_tx_result(python_result["tx_result"]),
-                self._normalized_tx_result(native_result["tx_result"]),
-            )
-
-            block_nanos = tx["b_meta"]["nanos"]
-            self.python_client.raw_driver.hard_apply(block_nanos)
-            self.native_client.raw_driver.hard_apply(block_nanos)
-
-        python_contract_state, python_run_state = fetch_filebased_state(
-            storage_home=self.python_home
+    def assert_deployment(self, result):
+        self.assert_semantics(
+            result,
+            {
+                "status": 0,
+                "result": None,
+                "events": [
+                    {
+                        "contract": "submission",
+                        "event": "ContractDeployed",
+                        "signer": "alice",
+                        "caller": "alice",
+                        "data_indexed": {"name": "con_vm_replay_child", "developer": "alice"},
+                        "data": {"owner": ""},
+                    }
+                ],
+            },
         )
-        native_contract_state, native_run_state = fetch_filebased_state(
-            storage_home=self.native_home
-        )
-
+        writes = {
+            entry["key"].removeprefix("con_vm_replay_child."): entry["value"]
+            for entry in result["state"]
+        }
         self.assertEqual(
-            self._normalized_contract_state(python_contract_state),
-            self._normalized_contract_state(native_contract_state),
+            set(writes),
+            {
+                "__deployer__",
+                "__developer__",
+                "__initiator__",
+                "__owner__",
+                "__source__",
+                "__submitted__",
+                "__xian_ir_v1__",
+                "counter",
+            },
         )
-        self.assertEqual(python_run_state, native_run_state)
+        self.assertEqual(writes["counter"], 3)
+        for key in ("__deployer__", "__developer__", "__initiator__"):
+            self.assertEqual(writes[key], "alice")
+        self.assertIsNone(writes["__owner__"])
+        self.assertEqual(str(writes["__submitted__"]), "2026-04-12 12:00:01")
+        self.assertEqual(
+            ast.dump(ast.parse(writes["__source__"])), ast.dump(ast.parse(DEPLOYED_PROBE_SOURCE))
+        )
+        ir = json.loads(writes["__xian_ir_v1__"])
+        self.assertEqual(ir["module_name"], "con_vm_replay_child")
+        self.assertEqual(ir["vm_profile"], "xian_vm_v2")
+        self.assertEqual(
+            {function["name"]: function["visibility"] for function in ir["functions"]},
+            {"seed": "construct", "bump": "export"},
+        )
+
+    def test_clean_native_replay_preserves_deployment_constructor_and_followup_calls(self):
+        deployment = make_tx(
+            sender="alice",
+            contract="submission",
+            function="submit_contract",
+            kwargs={
+                "name": "con_vm_replay_child",
+                "code": DEPLOYED_PROBE_SOURCE,
+                "constructor_args": {"start": 3},
+            },
+            offset_seconds=1,
+        )
+        replays = []
+        for home in self.homes:
+            with self.make_client(home) as client:
+                processor = TxProcessor(client=client, execution_runtime=build_vm_runtime())
+                initial = client.raw_driver.items()
+                deployed = processor.process_tx(tx=deployment)["tx_result"]
+                self.assert_deployment(deployed)
+                expected_state = initial | {
+                    entry["key"]: entry["value"]
+                    for entry in deployed["state"]
+                    if entry["value"] is not None
+                }
+                client.raw_driver.hard_apply(deployment["b_meta"]["nanos"])
+                self.assertEqual(
+                    typed_value(client.raw_driver.items()), typed_value(expected_state)
+                )
+                receipts = [deployed]
+                for offset, delta, expected_value in [(2, 2, 5), (3, 5, 10)]:
+                    tx = make_tx(
+                        sender="alice",
+                        contract="con_vm_replay_child",
+                        function="bump",
+                        kwargs={"delta": delta},
+                        offset_seconds=offset,
+                    )
+                    actual = processor.process_tx(tx=tx)["tx_result"]
+                    self.assert_semantics(
+                        actual,
+                        {
+                            "status": 0,
+                            "result": expected_value,
+                            "state": [
+                                {"key": "con_vm_replay_child.counter", "value": expected_value}
+                            ],
+                            "events": [],
+                        },
+                    )
+                    expected_state["con_vm_replay_child.counter"] = expected_value
+                    client.raw_driver.hard_apply(tx["b_meta"]["nanos"])
+                    self.assertEqual(
+                        typed_value(client.raw_driver.items()), typed_value(expected_state)
+                    )
+                    receipts.append(actual)
+            replays.append((receipts, self.persisted_state(home)))
+        self.assertEqual(typed_value(replays[0]), typed_value(replays[1]))
 
 
 if __name__ == "__main__":

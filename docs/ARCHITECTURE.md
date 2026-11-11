@@ -11,7 +11,7 @@ Main areas:
   `parallel_executor.py`, and `parallel_planner.py`: transaction execution flow
 - `src/xian/services/`: BDS and snapshot/state-sync services
 - `src/xian/dashboard/`, `metrics.py`, `simulator.py`, and
-  `vm_observability.py`: optional node-adjacent surfaces
+  `simulator_worker.py`: optional node-adjacent surfaces
 - `src/xian/utils/state_patches.py` and `src/xian/tools/state_patches/`:
   governed state-patch loading and execution
 - `src/xian/node_setup.py` and `src/xian/node_admin.py`: reusable home/config
