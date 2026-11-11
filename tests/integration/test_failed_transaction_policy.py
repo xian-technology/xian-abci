@@ -11,12 +11,11 @@ from unittest.mock import patch
 
 import pytest
 from contracting.constants import TRANSACTION_BASE_CHI
+from fee_probe_support import make_processor, process, tx
 from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.execution_engine import HOST_FAILURE_MESSAGE, clear_prepared_contract_cache
 from xian.fee_policy import TxFeePolicy
-
-from tests.integration.test_fee_reservation import make_processor, process, tx
 
 RATE = 100
 
