@@ -416,3 +416,54 @@ def test_fee_reservation_is_restored_when_vm_boundary_raises(tmp_path):
         assert driver.get("currency.balances:alice") == 100
     finally:
         driver.close()
+
+
+def test_direct_helper_checks_exact_affordability_with_fractional_rate(tmp_path):
+    # The generic accounting helper accepts exact rates independently of the
+    # canonical governance contract's stricter integer ABI.
+    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
+        driver.set("currency.balances:alice", ContractingDecimal("0.5"))
+        with patch("xian.execution_engine.execute_vm_contract") as execute:
+            outcome = execute_vm_transaction(
+                VmRuntime(),
+                driver,
+                sender="alice",
+                contract_name="con_probe",
+                function_name="record",
+                kwargs={},
+                environment={},
+                chi_budget=1,
+                chi_cost=ContractingDecimal("1.5"),
+                meter=True,
+            )
+        assert outcome.output.status_code == 1
+        assert "not have enough chi" in str(outcome.output.result)
+        assert outcome.chi_used == 0
+        assert outcome.writes == {}
+        assert driver.get("currency.balances:alice") == ContractingDecimal("0.5")
+        execute.assert_not_called()
+
+
+def test_canonical_chi_rate_export_rejects_fractional_rate_before_writing_state(tmp_path):
+    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
+        driver.set_contract_from_source(
+            "chi_cost", (ROOT / "xian-configs/contracts/chi_cost.s.py").read_text()
+        )
+        driver.set("chi_cost.S:value", 100)
+        driver.commit()
+        outcome = execute_vm_transaction(
+            VmRuntime(),
+            driver,
+            sender="validators",
+            contract_name="chi_cost",
+            function_name="set_value",
+            kwargs={"new_value": ContractingDecimal("1.5")},
+            environment={},
+            chi_budget=0,
+            chi_cost=100,
+            meter=False,
+        )
+        assert outcome.output.status_code == 1
+        assert "int" in str(outcome.output.result)
+        assert outcome.writes == {}
+        assert driver.get("chi_cost.S:value") == 100
