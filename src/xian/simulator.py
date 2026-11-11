@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from contracting.local import ContractingClient
@@ -317,6 +318,17 @@ class QuerySimulationService:
         self._counter_lock = asyncio.Lock()
 
     async def simulate_encoded_transaction(self, raw_payload_hex: str) -> dict:
+        prepared = self.prepare_encoded_transaction(raw_payload_hex)
+        if isinstance(prepared, dict):
+            return prepared
+        return await prepared.run()
+
+    def prepare_encoded_transaction(self, raw_payload_hex: str) -> "PreparedSimulation | dict":
+        """Capture node state for a simulation without starting its worker.
+
+        Callers holding the node state lock can release it before awaiting
+        ``PreparedSimulation.run``; the worker can run for the full timeout.
+        """
         try:
             decoded_payload = loads_wire_json(bytes.fromhex(raw_payload_hex))
             normalized_payload = TransactionSimulator._normalize_payload(decoded_payload)
@@ -338,12 +350,25 @@ class QuerySimulationService:
                 message="Simulation is disabled on this node",
             )
 
+        task = {
+            "storage_home": str(self.storage_home),
+            "runtime_info": getattr(self.execution_runtime, "runtime_info", None),
+            "payload": normalized_payload,
+            "block_meta": self.get_block_meta() or {},
+            "chain_id": self.chain_id,
+            "max_chi": self.max_chi,
+            "charge_fees": self.charge_fees,
+            "driver_state": self.get_state_snapshot(),
+        }
+        return PreparedSimulation(service=self, task=task, payload=normalized_payload)
+
+    async def _run_prepared(self, task: dict, payload: dict) -> dict:
         async with self._counter_lock:
             if self._active_requests >= self.max_concurrency:
                 logger.bind(
                     **build_log_fields(
                         stage="simulate_tx",
-                        payload=normalized_payload,
+                        payload=payload,
                         extra={
                             "active_requests": self._active_requests,
                             "simulation_max_concurrency": (self.max_concurrency),
@@ -351,24 +376,13 @@ class QuerySimulationService:
                     )
                 ).warning("Rejected readonly simulation because capacity is exhausted")
                 return _simulation_error_result(
-                    payload=normalized_payload,
+                    payload=payload,
                     message=("Simulation capacity exceeded on this node; retry later"),
                 )
             self._active_requests += 1
 
         try:
-            task = {
-                "storage_home": str(self.storage_home),
-                "runtime_info": getattr(self.execution_runtime, "runtime_info", None),
-                "payload": normalized_payload,
-                "block_meta": self.get_block_meta() or {},
-                "chain_id": self.chain_id,
-                "max_chi": self.max_chi,
-                "charge_fees": self.charge_fees,
-                "driver_state": self.get_state_snapshot(),
-            }
-            result = await self._run_task(task, normalized_payload)
-            return result
+            return await self._run_task(task, payload)
         finally:
             async with self._counter_lock:
                 self._active_requests -= 1
@@ -451,3 +465,13 @@ class QuerySimulationService:
 
     def close(self) -> None:
         return None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedSimulation:
+    service: QuerySimulationService
+    task: dict
+    payload: dict
+
+    async def run(self) -> dict:
+        return await self.service._run_prepared(self.task, self.payload)

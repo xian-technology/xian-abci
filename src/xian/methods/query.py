@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -67,6 +68,8 @@ class QueryContext:
 class QueryResult:
     result: Any
     key: str | None = None
+    # Work that must run after the node state lock is released.
+    deferred: Callable[[], Awaitable[Any]] | None = None
 
 
 class UnknownQueryPath(ValueError):
@@ -726,9 +729,10 @@ async def _handle_validators_vote_records(ctx: QueryContext) -> QueryResult:
 
 
 async def _handle_simulate_tx(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=await ctx.app.simulator.simulate_encoded_transaction(ctx.path_parts[1])
-    )
+    prepared = ctx.app.simulator.prepare_encoded_transaction(ctx.path_parts[1])
+    if isinstance(prepared, dict):
+        return QueryResult(result=prepared)
+    return QueryResult(result=None, deferred=prepared.run)
 
 
 async def _handle_state_patch_bundles(ctx: QueryContext) -> QueryResult:
@@ -1126,7 +1130,31 @@ async def query(self, req) -> ResponseQuery:
     (Yes you need to quote the path)
     """
 
-    # Xian.query holds the state-transition lock across this read and dispatch.
+    async with self._state_transition_lock:
+        prepared = await _query_locked_state(self, req)
+    if isinstance(prepared, ResponseQuery):
+        return prepared
+
+    height, route, key, outcome = prepared
+    try:
+        result = outcome.result if outcome.deferred is None else await outcome.deferred()
+        value, type_of_data = _encode_query_value(
+            result, telemetry=route in {"perf_status", "bds_status", "bds_spool"}
+        )
+    except Exception as err:
+        logger.bind(**error_fields(err)).error("ABCI query failed")
+        return ResponseQuery(code=c.ErrorCode, height=height)
+
+    return ResponseQuery(
+        code=c.OkCode,
+        height=height,
+        value=value,
+        info=type_of_data,
+        key=encode_str(outcome.key if outcome.key is not None else key),
+    )
+
+
+async def _query_locked_state(self, req) -> ResponseQuery | tuple[int, str, str, QueryResult]:
     # Use the LMDB marker: current_block_meta may describe an uncommitted block,
     # and the auxiliary JSON mirror can lag a successful commit.
     height = get_committed_latest_block(self.client.raw_driver)["height"]
@@ -1160,27 +1188,16 @@ async def query(self, req) -> ResponseQuery:
 
     try:
         outcome = await _execute_query(ctx)
-        value, type_of_data = _encode_query_value(
-            outcome.result, telemetry=route in {"perf_status", "bds_status", "bds_spool"}
-        )
     except UnknownQueryPath as err:
-        error = str(err)
         logger.bind(**error_fields(err)).warning("Unknown ABCI query route")
         return ResponseQuery(
             code=c.ErrorCode,
             height=height,
             value=b"\x00",
             info=None,
-            log=error,
+            log=str(err),
         )
     except Exception as err:
         logger.bind(**error_fields(err)).error("ABCI query failed")
         return ResponseQuery(code=c.ErrorCode, height=height)
-
-    return ResponseQuery(
-        code=c.OkCode,
-        height=height,
-        value=value,
-        info=type_of_data,
-        key=encode_str(outcome.key if outcome.key is not None else key),
-    )
+    return height, route, key, outcome

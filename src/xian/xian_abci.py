@@ -524,9 +524,9 @@ class Xian:
         Query the application state
         Request Ex. http://localhost:26657/abci_query?path="path"
         """
-        async with self._state_transition_lock:
-            res = await query.query(self, req)
-        return res
+        # The query method holds the state-transition lock while it reads node
+        # state and releases it before slow work such as readonly simulation.
+        return await query.query(self, req)
 
     async def close(self):
         self.parallel_block_executor.close()
