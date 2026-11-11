@@ -4,6 +4,7 @@ from threading import RLock
 
 from contracting import constants as config
 
+from xian.config_values import finite_float
 from xian.constants import Constants as c
 from xian.exceptions import TransactionException
 
@@ -29,7 +30,9 @@ class NonceStorage:
         self.client = client
         self.pending_nonces: dict[str, dict[int, NonceReservation]] = {}
         self._pending_lock = RLock()
-        self.reservation_ttl_seconds = float(reservation_ttl_seconds)
+        self.reservation_ttl_seconds = finite_float(
+            reservation_ttl_seconds, name="pending_nonce_reservation_ttl_seconds"
+        )
         self.max_pending_nonces_per_sender = max(
             int(max_pending_nonces_per_sender),
             1,

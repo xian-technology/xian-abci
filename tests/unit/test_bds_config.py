@@ -1,9 +1,48 @@
+import os
 import unittest
+from unittest.mock import patch
 
 from xian.services.bds.config import BdsConfig
 
 
 class BdsConfigTests(unittest.TestCase):
+    def test_explicit_empty_environment_does_not_inherit_host_settings(self):
+        with patch.dict(
+            os.environ,
+            {"XIAN_BDS_DSN": "postgres://host-only/db", "XIAN_BDS_HOST": "host-only"},
+            clear=True,
+        ):
+            config = BdsConfig.from_runtime_settings(environ={})
+
+        self.assertEqual(config, BdsConfig())
+
+    def test_omitted_environment_uses_host_settings(self):
+        with patch.dict(os.environ, {"XIAN_BDS_HOST": "inherited-db"}, clear=True):
+            config = BdsConfig.from_runtime_settings()
+
+        self.assertEqual(config.host, "inherited-db")
+
+    def test_invalid_nonfinite_numeric_settings_use_existing_defaults(self):
+        for value in (float("nan"), float("inf"), float("-inf"), "nan", "inf", "-inf"):
+            with self.subTest(value=value):
+                config = BdsConfig.from_runtime_settings(
+                    {"bds": {"port": value, "catchup_poll_seconds": value}},
+                    environ={},
+                )
+                self.assertEqual(config.port, 5432)
+                self.assertEqual(config.catchup_poll_seconds, 1.0)
+
+    def test_overflowing_poll_interval_uses_existing_default(self):
+        config = BdsConfig.from_runtime_settings(
+            {"bds": {"catchup_poll_seconds": 10**1000}}, environ={}
+        )
+        self.assertEqual(config.catchup_poll_seconds, 1.0)
+
+    def test_non_mapping_bds_settings_use_defaults(self):
+        self.assertEqual(
+            BdsConfig.from_runtime_settings({"bds": "invalid"}, environ={}), BdsConfig()
+        )
+
     def test_from_runtime_settings_prefers_nested_config(self):
         config = BdsConfig.from_runtime_settings(
             {

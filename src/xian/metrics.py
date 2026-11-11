@@ -10,6 +10,7 @@ from loguru import logger
 from prometheus_client import CollectorRegistry, start_http_server
 from prometheus_client.core import GaugeMetricFamily, InfoMetricFamily
 
+from xian.config_values import finite_float
 from xian.log_safety import error_fields
 from xian.utils.block import get_latest_block_height
 
@@ -21,6 +22,13 @@ class MetricsConfig:
     port: int = 9108
     bds_refresh_seconds: float = 5.0
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "bds_refresh_seconds",
+            finite_float(self.bds_refresh_seconds, name="metrics_bds_refresh_seconds"),
+        )
+
     @classmethod
     def from_runtime_settings(cls, xian_config: dict[str, Any] | None) -> MetricsConfig:
         settings = xian_config or {}
@@ -28,7 +36,7 @@ class MetricsConfig:
             enabled=bool(settings.get("metrics_enabled", True)),
             host=str(settings.get("metrics_host", "127.0.0.1")),
             port=int(settings.get("metrics_port", 9108)),
-            bds_refresh_seconds=float(settings.get("metrics_bds_refresh_seconds", 5.0)),
+            bds_refresh_seconds=settings.get("metrics_bds_refresh_seconds", 5.0),
         )
 
 

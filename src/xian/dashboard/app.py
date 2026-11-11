@@ -16,6 +16,7 @@ import aiohttp
 from aiohttp import web
 from loguru import logger
 
+from xian.config_values import finite_float
 from xian.utils.cometbft import format_url_netloc, normalize_rpc_url
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -64,7 +65,7 @@ def _normalized_positive_float(
     *,
     minimum: float = 0.001,
 ) -> float:
-    return max(float(value), minimum)
+    return max(finite_float(value, name="dashboard rate limit"), minimum)
 
 
 @dataclass

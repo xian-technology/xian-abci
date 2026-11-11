@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from typing import Any, Mapping
@@ -19,15 +20,16 @@ def _coerce_int(value: object, *, default: int) -> int:
     resolved = _first_non_empty(value, default=default)
     try:
         return int(resolved)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
 def _coerce_float(value: object, *, default: float) -> float:
     resolved = _first_non_empty(value, default=default)
     try:
-        return float(resolved)
-    except (TypeError, ValueError):
+        normalized = float(resolved)
+        return normalized if math.isfinite(normalized) else default
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -63,7 +65,7 @@ class BdsConfig:
         environ: Mapping[str, str] | None = None,
     ) -> BdsConfig:
         runtime = xian_config or {}
-        env = environ or os.environ
+        env = os.environ if environ is None else environ
         bds_settings = runtime.get("bds", {})
         if not isinstance(bds_settings, Mapping):
             bds_settings = {}
