@@ -82,9 +82,11 @@ def test_consensus_metadata_name_cannot_be_declared_by_contracts(tmp_path):
             )
 
 
-@pytest.mark.parametrize("native", [False, True])
-def test_foreign_contract_cannot_write_effective_consensus_metadata(tmp_path, native):
-    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
+@pytest.mark.parametrize(
+    "vm_profile", ["xian_vm_v1", "xian_vm_v2"], ids=["archived-cpython", "native"]
+)
+def test_foreign_contract_cannot_write_effective_consensus_metadata(tmp_path, vm_profile):
+    with Driver(vm_profile=vm_profile, storage_home=tmp_path) as driver:
         driver.set_contract_from_source(
             "validators", "@export\ndef ping():\n    return True\n", owner=None
         )
@@ -96,10 +98,10 @@ def test_foreign_contract_cannot_write_effective_consensus_metadata(tmp_path, na
             owner=None,
         )
         driver.commit()
-        if native:
+        if vm_profile == "xian_vm_v2":
             vm = pytest.importorskip("xian_vm_core")
             result = vm.execute_contract(
-                vm_profile="xian_vm_v2",
+                vm_profile=vm_profile,
                 driver=driver,
                 contract_name="con_forgery",
                 function_name="write",
