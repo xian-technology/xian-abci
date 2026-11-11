@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,7 @@ from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import decode, encode
 
+from xian.constants import Constants
 from xian.execution_policy import (
     EXECUTION_POLICY_KEY,
     VM_EXECUTION_MODE,
@@ -19,8 +21,10 @@ from xian.genesis_builder import hash_state_changes
 from xian.state_root import (
     compute_driver_state_root,
     compute_exported_state_root,
+    is_consensus_state_key,
 )
 from xian.utils.block import (
+    LATEST_BLOCK_DEFAULT,
     get_latest_block_hash,
     get_latest_block_height,
     get_latest_block_nanos,
@@ -33,13 +37,11 @@ def fetch_filebased_state(
     *,
     storage_home: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    driver = (
-        Driver(vm_profile=VM_EXECUTION_MODE, storage_home=storage_home)
-        if storage_home is not None
-        else Driver(vm_profile=VM_EXECUTION_MODE)
-    )
-    contract_state = driver.get_all_contract_state()
-    run_state = driver.get_run_state()
+    # Contract values and the durable block marker must share one read snapshot.
+    with Driver(vm_profile=VM_EXECUTION_MODE, storage_home=storage_home) as driver:
+        state = driver.items()
+    contract_state = {key: value for key, value in state.items() if not key.startswith("__")}
+    run_state = {key: value for key, value in state.items() if key.startswith("__")}
     return contract_state, run_state
 
 
@@ -121,10 +123,14 @@ def export_state(
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     contract_state, run_state = fetch_filebased_state(storage_home=storage_home)
+    latest_block = run_state.get(Constants.LATEST_BLOCK_KEY, LATEST_BLOCK_DEFAULT)
     exported_state = build_exported_state(
         founder_private_key=founder_private_key,
         contract_state=contract_state,
         run_state=run_state,
+        latest_block_hash=bytes.fromhex(latest_block["hash"]),
+        latest_block_height=latest_block["height"],
+        latest_block_nanos=latest_block["nanos"],
         storage_home=storage_home,
     )
 
@@ -137,54 +143,72 @@ def load_exported_state(path: Path) -> dict[str, Any]:
     return decode(path.read_text(encoding="utf-8"), vm_profile=VM_EXECUTION_MODE)
 
 
+def _import_state_writes(exported_state: dict[str, Any]) -> dict[str, Any]:
+    writes: dict[str, Any] = {}
+    for entry in exported_state.get("genesis", []):
+        key = entry["key"]
+        if not is_consensus_state_key(key):
+            raise ValueError(f"exported state contains non-consensus key: {key}")
+        writes[key] = entry["value"]
+    nonce_prefix = f"__n{contracting_constants.INDEX_SEPARATOR}"
+    for nonce in exported_state.get("nonces", []):
+        writes[f"{nonce_prefix}{nonce['key']}"] = nonce["value"]
+    return writes
+
+
+@dataclass(frozen=True)
+class PreparedStateImport:
+    state_root: bytes
+    writes: dict[str, Any]
+    height: int
+    nanos: int
+
+
+def prepare_state_import(exported_state: dict[str, Any]) -> PreparedStateImport:
+    """Validate source state without opening or modifying destination storage."""
+    validate_genesis_execution_policy(exported_state)
+    state_root = compute_exported_state_root(exported_state)
+    advertised_hash = bytes.fromhex(exported_state.get("hash", ""))
+    if advertised_hash != state_root:
+        raise ValueError("exported state root mismatch")
+    return PreparedStateImport(
+        state_root=state_root,
+        writes=_import_state_writes(exported_state),
+        height=int(exported_state.get("number", 0)),
+        nanos=int(exported_state.get("nanos", 0)),
+    )
+
+
 def import_state(
     *,
     exported_state: dict[str, Any],
     storage_home: Path | None = None,
 ) -> dict[str, Any]:
-    validate_genesis_execution_policy(exported_state)
+    prepared = prepare_state_import(exported_state)
     resolved_storage_home = Path(storage_home) if storage_home else None
     validate_persisted_execution_policy(resolved_storage_home or contracting_constants.STORAGE_HOME)
-    state_root = compute_exported_state_root(exported_state)
-    advertised_hash = bytes.fromhex(exported_state.get("hash", ""))
-    if advertised_hash != state_root:
-        raise ValueError("exported state root mismatch")
 
-    driver = (
-        Driver(vm_profile=VM_EXECUTION_MODE, storage_home=resolved_storage_home)
-        if resolved_storage_home is not None
-        else Driver(vm_profile=VM_EXECUTION_MODE)
-    )
-    driver.flush_full()
-
-    writes: dict[str, Any] = {}
-    for entry in exported_state.get("genesis", []):
-        key = entry["key"]
-        value = entry["value"]
-        writes[key] = value
-
-    for nonce in exported_state.get("nonces", []):
-        writes[(f"__n{contracting_constants.INDEX_SEPARATOR}{nonce['key']}")] = nonce["value"]
-
-    latest_block_height = int(exported_state.get("number", 0))
-    latest_block_nanos = int(exported_state.get("nanos", 0))
-    latest_block = stage_latest_block(
-        driver,
-        block_hash=state_root,
-        height=latest_block_height,
-        nanos=latest_block_nanos,
-    )
-    # State and its authoritative commit marker must become visible together.
-    # Info reconciles the JSON mirror from this marker after import/restart.
-    driver.apply_writes(writes)
-    driver.commit()
-    if compute_driver_state_root(driver) != state_root:
-        raise ValueError("imported state root mismatch")
+    with Driver(vm_profile=VM_EXECUTION_MODE, storage_home=resolved_storage_home) as driver:
+        # Replace stale keys and imported state in one atomic LMDB transaction.
+        # Flushing first would destroy the previous state if import fails.
+        driver.apply_writes({key: None for key in driver.keys_from_disk()})
+        driver.apply_writes(prepared.writes)
+        latest_block = stage_latest_block(
+            driver,
+            block_hash=prepared.state_root,
+            height=prepared.height,
+            nanos=prepared.nanos,
+        )
+        # State and its authoritative commit marker must become visible together.
+        # Info reconciles the JSON mirror from this marker after import/restart.
+        if compute_driver_state_root(driver) != prepared.state_root:
+            raise ValueError("imported state root mismatch")
+        driver.commit()
     try_write_latest_block(latest_block, resolved_storage_home)
 
     return {
-        "height": latest_block_height,
-        "app_hash": state_root.hex(),
-        "nanos": latest_block_nanos,
-        "keys_imported": len(writes),
+        "height": prepared.height,
+        "app_hash": prepared.state_root.hex(),
+        "nanos": prepared.nanos,
+        "keys_imported": len(prepared.writes),
     }

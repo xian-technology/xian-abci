@@ -26,8 +26,8 @@ from xian.state_export import (
     export_state,
     import_state,
     load_exported_state,
+    prepare_state_import,
 )
-from xian.state_root import compute_exported_state_root
 
 SNAPSHOT_FORMAT_VERSION = 2
 DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024
@@ -61,6 +61,18 @@ def _safe_extract_snapshot(archive: tarfile.TarFile, destination: Path) -> None:
         if destination_resolved not in member_path.parents and member_path != destination_resolved:
             raise ValueError(f"unsafe snapshot member path: {member.name}")
     archive.extractall(path=destination, filter="data")
+
+
+def _validate_trusted_snapshot(
+    exported_state: dict[str, Any],
+    *,
+    height: int | None,
+    app_hash_hex: str | None,
+) -> None:
+    if height is not None and int(exported_state["number"]) != height:
+        raise ValueError("snapshot height does not match trusted offer")
+    if app_hash_hex is not None and exported_state["hash"] != app_hash_hex:
+        raise ValueError("snapshot app hash does not match trusted offer")
 
 
 def default_snapshot_output_path(
@@ -145,9 +157,13 @@ class StateSnapshotManager:
     def _manifest_path(self, archive_path: Path) -> Path:
         return archive_path.parent / f"{archive_path.name}.manifest.json"
 
-    def _cleanup_existing_height(self, *, height: int, format_version: int) -> None:
+    def _cleanup_existing_height(
+        self, *, height: int, format_version: int, keep_path: Path
+    ) -> None:
         for record in self.list_snapshot_records():
             if record.height != height or record.format != format_version:
+                continue
+            if record.path.resolve() == keep_path.resolve():
                 continue
             logger.info(
                 "Removing previous snapshot for height={} format={}: {}",
@@ -209,10 +225,13 @@ class StateSnapshotManager:
             "created_at": created_at,
         }
         manifest_path = self._manifest_path(archive_path)
-        manifest_path.write_text(
-            json.dumps(manifest_payload, sort_keys=True, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        with TemporaryDirectory(dir=manifest_path.parent) as manifest_dir:
+            staged_manifest = Path(manifest_dir) / manifest_path.name
+            staged_manifest.write_text(
+                json.dumps(manifest_payload, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            staged_manifest.replace(manifest_path)
         return SnapshotRecord(
             path=archive_path,
             manifest_path=manifest_path,
@@ -285,10 +304,6 @@ class StateSnapshotManager:
             height = int(exported_state["number"])
             app_hash_hex = str(exported_state["hash"])
             exported_state_sha256 = _sha256_file(exported_state_path)
-            self._cleanup_existing_height(
-                height=height,
-                format_version=SNAPSHOT_FORMAT_VERSION,
-            )
             archive_path = (
                 Path(output_path).expanduser().resolve()
                 if output_path is not None
@@ -316,15 +331,12 @@ class StateSnapshotManager:
             )
 
             archive_path.parent.mkdir(parents=True, exist_ok=True)
-            with tarfile.open(archive_path, "w:gz") as archive:
-                archive.add(
-                    metadata_path,
-                    arcname=SNAPSHOT_METADATA_FILENAME,
-                )
-                archive.add(
-                    exported_state_path,
-                    arcname=SNAPSHOT_STATE_FILENAME,
-                )
+            with TemporaryDirectory(dir=archive_path.parent) as archive_dir:
+                staged_archive = Path(archive_dir) / archive_path.name
+                with tarfile.open(staged_archive, "w:gz") as archive:
+                    archive.add(metadata_path, arcname=SNAPSHOT_METADATA_FILENAME)
+                    archive.add(exported_state_path, arcname=SNAPSHOT_STATE_FILENAME)
+                staged_archive.replace(archive_path)
 
         assert archive_path is not None
         assert exported_state_sha256 is not None
@@ -338,6 +350,9 @@ class StateSnapshotManager:
             archive_sha256=archive_sha256,
             exported_state_sha256=exported_state_sha256,
         )
+        self._cleanup_existing_height(
+            height=height, format_version=SNAPSHOT_FORMAT_VERSION, keep_path=record.path
+        )
         return {
             "output_path": str(record.path),
             "height": record.height,
@@ -346,17 +361,22 @@ class StateSnapshotManager:
             "chunks": record.chunks,
         }
 
-    def import_snapshot_archive(self, snapshot_path: Path) -> dict[str, Any]:
+    def import_snapshot_archive(
+        self,
+        snapshot_path: Path,
+        *,
+        expected_height: int | None = None,
+        expected_app_hash_hex: str | None = None,
+    ) -> dict[str, Any]:
         if not snapshot_path.exists():
             raise FileNotFoundError(f"snapshot not found: {snapshot_path}")
-        exported_state_sha256: str | None = None
-        imported_height: int | None = None
-        imported_app_hash: str | None = None
         with TemporaryDirectory(dir=self.incoming_dir) as temp_dir:
             temp_root = Path(temp_dir)
+            staged_archive = temp_root / "snapshot.tar.gz"
+            shutil.copy2(snapshot_path, staged_archive)
             extract_dir = temp_root / "extracted"
             extract_dir.mkdir(parents=True, exist_ok=True)
-            with tarfile.open(snapshot_path, "r:gz") as archive:
+            with tarfile.open(staged_archive, "r:gz") as archive:
                 _safe_extract_snapshot(archive, extract_dir)
             metadata = json.loads(
                 (extract_dir / SNAPSHOT_METADATA_FILENAME).read_text(encoding="utf-8")
@@ -372,38 +392,46 @@ class StateSnapshotManager:
                 raise ValueError("snapshot height metadata mismatch")
             if str(metadata["app_hash"]) != str(exported_state["hash"]):
                 raise ValueError("snapshot app hash metadata mismatch")
-            state_root_hex = compute_exported_state_root(exported_state).hex()
+            _validate_trusted_snapshot(
+                exported_state, height=expected_height, app_hash_hex=expected_app_hash_hex
+            )
+            prepared = prepare_state_import(exported_state)
+            state_root_hex = prepared.state_root.hex()
             if state_root_hex != str(exported_state["hash"]):
                 raise ValueError("snapshot state root mismatch")
-            result = import_state(
-                exported_state=exported_state,
-                storage_home=self.storage_home,
+            imported_height = prepared.height
+            imported_app_hash = state_root_hex
+            archive_sha256 = _sha256_file(staged_archive)
+            # Content identity avoids replacing a previous archive before its
+            # replacement manifest and application state have been persisted.
+            stored_snapshot_path = self.snapshot_dir / (
+                f"xian-state-snapshot-h{imported_height}-{archive_sha256}.tar.gz"
             )
-            imported_height = int(exported_state["number"])
-            imported_app_hash = str(exported_state["hash"])
+            staged_archive.replace(stored_snapshot_path)
+            self._write_manifest(
+                archive_path=stored_snapshot_path,
+                height=imported_height,
+                app_hash_hex=imported_app_hash,
+                archive_sha256=archive_sha256,
+                exported_state_sha256=exported_state_sha256,
+            )
 
-        assert exported_state_sha256 is not None
-        assert imported_height is not None
-        assert imported_app_hash is not None
-        self._cleanup_existing_height(
-            height=imported_height,
-            format_version=SNAPSHOT_FORMAT_VERSION,
+        # Artifact publication and staging cleanup finish before the durable
+        # state replacement. A valid catalog entry is safe if the commit fails.
+        result = import_state(
+            exported_state=exported_state,
+            storage_home=self.storage_home,
         )
-        stored_snapshot_path = default_snapshot_output_path(
-            output_dir=self.snapshot_dir,
-            height=imported_height,
-            app_hash=imported_app_hash,
-        )
-        stored_snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(snapshot_path, stored_snapshot_path)
-        archive_sha256 = _sha256_file(stored_snapshot_path)
-        self._write_manifest(
-            archive_path=stored_snapshot_path,
-            height=imported_height,
-            app_hash_hex=imported_app_hash,
-            archive_sha256=archive_sha256,
-            exported_state_sha256=exported_state_sha256,
-        )
+        try:
+            self._cleanup_existing_height(
+                height=imported_height,
+                format_version=SNAPSHOT_FORMAT_VERSION,
+                keep_path=stored_snapshot_path,
+            )
+        except Exception as exc:
+            logger.bind(**error_fields(exc)).warning(
+                "Failed to clean up previous snapshots after state import"
+            )
         return {
             "snapshot_path": str(snapshot_path),
             "stored_snapshot_path": str(stored_snapshot_path),
@@ -515,9 +543,11 @@ class StateSnapshotManager:
             archive_sha256 = _sha256_file(session.archive_path)
             if archive_sha256 != session.expected_snapshot_hash_hex:
                 raise ValueError("snapshot archive hash mismatch")
-            result = self.import_snapshot_archive(session.archive_path)
-            if result["app_hash"] != session.expected_app_hash_hex:
-                raise ValueError("snapshot app hash mismatch")
+            self.import_snapshot_archive(
+                session.archive_path,
+                expected_height=session.expected_height,
+                expected_app_hash_hex=session.expected_app_hash_hex,
+            )
         except Exception as exc:
             logger.bind(**error_fields(exc)).error("Failed to apply state sync snapshot")
             self._reset_incoming_session()
@@ -527,6 +557,11 @@ class StateSnapshotManager:
         return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.ACCEPT)
 
     def _reset_incoming_session(self) -> None:
-        if self._incoming_session is not None:
-            self._incoming_session.close()
-            self._incoming_session = None
+        session, self._incoming_session = self._incoming_session, None
+        if session is not None:
+            try:
+                session.close()
+            except OSError as exc:
+                logger.bind(**error_fields(exc)).warning(
+                    "Failed to clean up incoming snapshot files"
+                )

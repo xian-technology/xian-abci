@@ -71,7 +71,11 @@ class StateExportTests(unittest.TestCase):
                 "xian.state_export.fetch_filebased_state",
                 return_value=(
                     {"con_a.value": 1},
-                    {"__n.alice": 7, EXECUTION_POLICY_KEY: current_execution_policy()},
+                    {
+                        "__n.alice": 7,
+                        EXECUTION_POLICY_KEY: current_execution_policy(),
+                        "__latest_block": {"hash": expected_hash.hex(), "height": 9, "nanos": 0},
+                    },
                 ),
             ):
                 with patch(
@@ -145,3 +149,150 @@ def test_export_import_preserves_canonical_set_storage_bytes(tmp_path):
             restored.close()
     finally:
         driver.close()
+
+
+def _valid_import_payload():
+    payload = {
+        "number": 42,
+        "nanos": 123,
+        "genesis": [
+            {"key": EXECUTION_POLICY_KEY, "value": current_execution_policy()},
+            {"key": "con_import.value", "value": 7},
+        ],
+    }
+    payload["hash"] = compute_exported_state_root(payload).hex()
+    return payload
+
+
+def test_import_rejects_uncommitted_runtime_metadata_before_replacing_state(tmp_path):
+    import pytest
+    from contracting.storage.driver import Driver
+    from xian.state_export import import_state
+    from xian.utils.block import get_committed_latest_block
+
+    driver = Driver(vm_profile="xian_vm_v2", storage_home=tmp_path)
+    try:
+        driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
+        driver.set("local.value", "preserve me")
+        driver.commit()
+        exported = _valid_import_payload()
+        exported["genesis"].append({
+            "key": "__latest_block",
+            "value": {"height": 999, "hash": "ff" * 32, "nanos": 0},
+        })
+        # Local runtime metadata does not contribute to the trusted state root.
+        assert compute_exported_state_root(exported).hex() == exported["hash"]
+        with pytest.raises(ValueError, match="non-consensus"):
+            import_state(exported_state=exported, storage_home=tmp_path)
+        driver.flush_cache()
+        assert driver.get("local.value") == "preserve me"
+        assert driver.get("con_import.value") is None
+        assert get_committed_latest_block(driver)["height"] == 0
+    finally:
+        driver.close()
+
+
+def test_import_commit_failure_preserves_original_durable_state(tmp_path):
+    import pytest
+    from contracting.storage.driver import Driver
+    from xian.state_export import import_state
+    from xian.utils.block import get_committed_latest_block, stage_latest_block
+
+    driver = Driver(vm_profile="xian_vm_v2", storage_home=tmp_path)
+    try:
+        driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
+        driver.set("local.value", "preserve me")
+        stage_latest_block(driver, block_hash=bytes.fromhex("ab" * 32), height=5, nanos=10)
+        driver.commit()
+        with patch(
+            "contracting.storage.lmdb_store.LMDBStore.batch_set",
+            side_effect=OSError("injected commit failure"),
+        ), pytest.raises(OSError, match="injected commit failure"):
+            import_state(exported_state=_valid_import_payload(), storage_home=tmp_path)
+        driver.flush_cache()
+        assert driver.get("local.value") == "preserve me"
+        assert driver.get("con_import.value") is None
+        assert get_committed_latest_block(driver)["height"] == 5
+    finally:
+        driver.close()
+
+
+def test_import_invalid_block_metadata_preserves_original_durable_state(tmp_path):
+    import pytest
+    from contracting.storage.driver import Driver
+    from xian.state_export import import_state
+
+    driver = Driver(vm_profile="xian_vm_v2", storage_home=tmp_path)
+    try:
+        driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
+        driver.set("local.value", "preserve me")
+        driver.commit()
+        exported = _valid_import_payload()
+        exported["number"] = "invalid"
+        with pytest.raises(ValueError):
+            import_state(exported_state=exported, storage_home=tmp_path)
+        driver.flush_cache()
+        assert driver.get("local.value") == "preserve me"
+    finally:
+        driver.close()
+
+
+def test_import_replaces_old_keys_and_commits_matching_block_metadata(tmp_path):
+    from contracting.storage.driver import Driver
+    from xian.state_export import import_state
+    from xian.utils.block import get_committed_latest_block
+
+    driver = Driver(vm_profile="xian_vm_v2", storage_home=tmp_path)
+    try:
+        driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
+        driver.set("local.value", "remove me")
+        driver.set("__n.old:", 3)
+        driver.commit()
+        exported = _valid_import_payload()
+        import_state(exported_state=exported, storage_home=tmp_path)
+        driver.flush_cache()
+        assert driver.get("local.value") is None
+        assert driver.get("__n.old:") is None
+        assert driver.get("con_import.value") == 7
+        assert get_committed_latest_block(driver) == {
+            "height": 42, "hash": exported["hash"], "nanos": 123,
+        }
+    finally:
+        driver.close()
+
+
+def test_export_uses_durable_block_marker_when_json_mirror_is_stale(tmp_path):
+    from contracting.storage.driver import Driver
+    from xian.state_export import load_exported_state
+    from xian.state_root import compute_driver_state_root
+    from xian.utils.block import set_latest_block, stage_latest_block
+
+    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
+        driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
+        driver.set("con_export.value", 7)
+        root = compute_driver_state_root(driver)
+        stage_latest_block(driver, block_hash=root, height=42, nanos=123)
+        driver.commit()
+    set_latest_block(block_hash=bytes.fromhex("ff" * 32), height=1, storage_home=tmp_path)
+    path = export_state(output_dir=tmp_path / "exports", storage_home=tmp_path)
+    exported = load_exported_state(path)
+    assert exported["hash"] == root.hex()
+    assert exported["number"] == 42
+    assert exported["nanos"] == 123
+
+
+def test_import_defaults_missing_block_metadata_to_initial_height_and_time(tmp_path):
+    from contracting.storage.driver import Driver
+    from xian.state_export import import_state
+    from xian.utils.block import get_committed_latest_block
+
+    exported = _valid_import_payload()
+    del exported["number"]
+    del exported["nanos"]
+    result = import_state(exported_state=exported, storage_home=tmp_path)
+    assert result["height"] == 0
+    assert result["nanos"] == 0
+    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
+        assert get_committed_latest_block(driver) == {
+            "hash": exported["hash"], "height": 0, "nanos": 0,
+        }
