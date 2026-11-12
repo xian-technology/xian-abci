@@ -404,3 +404,18 @@ def test_abci_startup_error_uses_safe_context_even_without_patcher(tmp_path, mon
     assert "OSError" in text
     assert "98" in text
     assert "ABCI server startup failed" in text
+
+
+def test_chi_admission_rejections_have_reason_codes():
+    from xian.exceptions import TransactionException
+    from xian.log_safety import error_fields
+    from xian.utils.tx import check_enough_chi
+
+    cases = (
+        ((0, 20, 100), "insufficient_chi"),
+        ((10, 20, 100, "currency", "transfer", 6), "transfer_exceeds_balance"),
+    )
+    for args, reason_code in cases:
+        with pytest.raises(TransactionException) as rejected:
+            check_enough_chi(*args)
+        assert error_fields(rejected.value)["reason_code"] == reason_code

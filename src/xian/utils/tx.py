@@ -107,6 +107,14 @@ def recurse_rules(d: dict, rule: dict | Callable):
     return True
 
 
+INSUFFICIENT_FEE_BALANCE = (
+    "Transaction sender's balance cannot cover the chi_supplied fee reservation"
+)
+TRANSFER_EXCEEDS_BALANCE = (
+    "currency.transfer amount plus the chi_supplied fee reservation exceeds the sender's balance"
+)
+
+
 def check_enough_chi(
     balance: object,
     chi_per_tau: object,
@@ -115,15 +123,16 @@ def check_enough_chi(
     function: object = None,
     amount: object = 0,
 ):
+    """Admit only what execution can pay for.
 
+    Execution first reserves ``chi_supplied / chi_per_tau`` from the sender's
+    balance; a currency transfer then spends its amount from what is left.
+    """
     if balance * chi_per_tau < chi_supplied:
-        raise TransactionException("Transaction sender has too few chi for this transaction")
-
-    # Prevent people from sending their entire balances for free by checking if that is what they are doing.
+        raise TransactionException(INSUFFICIENT_FEE_BALANCE)
     if contract == "currency" and function == "transfer":
-        # If you have less than 2 transactions worth of native token after trying to send your amount, fail.
-        if (balance - amount) * chi_per_tau < 12:
-            raise TransactionException("Transaction sender has too few chi for this transaction")
+        if (balance - amount) * chi_per_tau < chi_supplied:
+            raise TransactionException(TRANSFER_EXCEEDS_BALANCE)
 
 
 def check_format(d: dict, rule: dict):

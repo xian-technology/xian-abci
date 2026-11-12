@@ -154,7 +154,12 @@ def sanitize_record(record: dict) -> None:
 _SAFE_REASONS = {
     "Bad signature": "invalid_signature",
     "Wrong chain_id": "wrong_chain_id",
-    "Transaction sender has too few chi for this transaction": "insufficient_chi",
+    "Transaction sender's balance cannot cover the chi_supplied fee reservation": (
+        "insufficient_chi"
+    ),
+    "currency.transfer amount plus the chi_supplied fee reservation exceeds the sender's balance": (
+        "transfer_exceeds_balance"
+    ),
     "Transaction has unexpected or missing keys": "invalid_transaction_keys",
     "Transaction has wrongly formatted dictionary": "invalid_transaction_shape",
     "Metadata is missing": "missing_metadata",

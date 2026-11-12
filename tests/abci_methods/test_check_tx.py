@@ -35,13 +35,15 @@ def _canonical_json(payload: dict) -> str:
     return encode(decode(json.dumps(_sort_keys_deep(payload))))
 
 
-def make_signed_tx_bytes(*, nonce: int, chi_supplied: int = 100) -> bytes:
+def make_signed_tx_bytes(
+    *, nonce: int, chi_supplied: int = 100, amount: int = 1, function: str = "transfer"
+) -> bytes:
     return make_signed_tx_bytes_for_payload(
         {
             "chain_id": "xian-testnet-1",
             "contract": "currency",
-            "function": "transfer",
-            "kwargs": {"amount": 1, "to": SENDER},
+            "function": function,
+            "kwargs": {"amount": amount, "to": SENDER},
             "nonce": nonce,
             "sender": SENDER,
             "chi_supplied": chi_supplied,
@@ -96,7 +98,6 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         self.app.chain_id = "xian-testnet-1"
         self.app.client.raw_driver.set(f"currency.balances:{SENDER}", 100000)
         self.handler = ProtocolHandler(self.app)
-
 
     async def process_request(self, req):
         raw = await self.handler.process("check_tx", req)
@@ -296,8 +297,52 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         response = await self.process_request(self.make_request())
 
         self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
-        self.assertIn("too few chi", response.check_tx.log)
+        self.assertIn(
+            "Transaction sender's balance cannot cover the chi_supplied fee reservation",
+            response.check_tx.log,
+        )
         self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+
+    async def test_check_tx_accepts_a_balance_that_exactly_covers_the_reservation(self):
+        # chi_supplied 100 at 20 chi per XIAN reserves exactly 5 XIAN.
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+        self.app.client.raw_driver.set(f"currency.balances:{SENDER}", 5)
+
+        response = await self.process_request(
+            self.make_request(make_signed_tx_bytes(nonce=VALID_NONCE, function="approve"))
+        )
+
+        self.assertEqual(response.check_tx.code, self.constants.OkCode)
+
+    async def test_check_tx_transfer_must_fit_beside_the_fee_reservation(self):
+        # Execution first reserves chi_supplied / chi rate (100 / 20 = 5) from
+        # the balance, then the transfer spends what is left.
+        balance, reservation = 100_000, 5
+        cases = (
+            ("transfer", balance + 1, False),
+            ("transfer", balance - reservation + 1, False),
+            ("transfer", balance - reservation, True),
+            # Other currency functions do not spend the amount from the balance.
+            ("approve", balance + 1, True),
+        )
+        for function, amount, accepted in cases:
+            with self.subTest(function=function, amount=amount):
+                self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+                self.app.nonce_storage.flush_pending()
+                response = await self.process_request(
+                    self.make_request(
+                        make_signed_tx_bytes(nonce=VALID_NONCE, amount=amount, function=function)
+                    )
+                )
+                if accepted:
+                    self.assertEqual(response.check_tx.code, self.constants.OkCode)
+                    continue
+                self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
+                self.assertIn(
+                    "currency.transfer amount plus the chi_supplied fee reservation "
+                    "exceeds the sender's balance",
+                    response.check_tx.log,
+                )
 
     async def test_check_tx_free_metered_accepts_zero_balance_sender(self):
         self.app.tx_fee_policy = TxFeePolicy.free_metered(
