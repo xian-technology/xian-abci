@@ -456,38 +456,38 @@ def execute_vm_transaction(
     currency_contract: str = "currency",
     balances_hash: str = "balances",
 ) -> VmTransactionResult:
-    base_driver_state = driver.snapshot_state()
     reservation = None
-    try:
-        if meter and apply_metering_writes and reserve_fee_budget:
-            reservation = _reserve_vm_fee_budget(
+    # The reservation and execution reads are undone before settlement.
+    with driver.discarding_changes():
+        try:
+            if meter and apply_metering_writes and reserve_fee_budget:
+                reservation = _reserve_vm_fee_budget(
+                    driver,
+                    sender=sender,
+                    chi_budget=chi_budget,
+                    chi_cost=chi_cost,
+                    currency_contract=currency_contract,
+                    balances_hash=balances_hash,
+                )
+            vm_output = _prepared_contract_failure(
+                runtime, driver, contract_name
+            ) or execute_vm_contract(
+                runtime,
                 driver,
                 sender=sender,
+                contract_name=contract_name,
+                function_name=function_name,
+                kwargs=kwargs,
+                environment=environment,
+                meter=meter,
                 chi_budget=chi_budget,
-                chi_cost=chi_cost,
-                currency_contract=currency_contract,
-                balances_hash=balances_hash,
+                transaction_size_bytes=transaction_size_bytes,
             )
-        vm_output = _prepared_contract_failure(
-            runtime, driver, contract_name
-        ) or execute_vm_contract(
-            runtime,
-            driver,
-            sender=sender,
-            contract_name=contract_name,
-            function_name=function_name,
-            kwargs=kwargs,
-            environment=environment,
-            meter=meter,
-            chi_budget=chi_budget,
-            transaction_size_bytes=transaction_size_bytes,
-        )
-    except _InsufficientFeeBalance as exc:
-        vm_output = _failed_vm_result(AssertionError(str(exc)))
-    finally:
-        vm_reads = deepcopy(driver.transaction_reads)
-        vm_prefix_reads = frozenset(getattr(driver, "transaction_read_prefixes", set()))
-        driver.restore_state(base_driver_state)
+        except _InsufficientFeeBalance as exc:
+            vm_output = _failed_vm_result(AssertionError(str(exc)))
+        finally:
+            vm_reads = deepcopy(driver.transaction_reads)
+            vm_prefix_reads = frozenset(getattr(driver, "transaction_read_prefixes", set()))
 
     vm_output = _charge_failure(vm_output, meter=meter, chi_budget=chi_budget)
     chi_used = int(vm_output.chi_used or 0)

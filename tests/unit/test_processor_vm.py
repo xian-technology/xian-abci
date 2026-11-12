@@ -1,3 +1,4 @@
+import contextlib
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -259,8 +260,7 @@ class ProcessorVmExecutionTests(unittest.TestCase):
 
     def test_execute_tx_rejects_submission_without_artifacts_for_xian_vm(self):
         driver = _driver()
-        driver.snapshot_state = lambda: None
-        driver.restore_state = lambda _state: None
+        driver.discarding_changes = contextlib.nullcontext
         processor = _processor(driver)
 
         with (

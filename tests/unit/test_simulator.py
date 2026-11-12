@@ -27,6 +27,8 @@ class _FakeDriver(SimpleNamespace):
     # sync with the Driver interface the simulator relies on.
     snapshot_state = Driver.snapshot_state
     restore_state = Driver.restore_state
+    discarding_changes = Driver.discarding_changes
+    _pending_containers = Driver._pending_containers
 
 
 def _driver(storage_home: Path | None = None):
@@ -39,6 +41,7 @@ def _driver(storage_home: Path | None = None):
         transaction_read_prefixes=set(),
         transaction_writes={},
         log_events=[],
+        _undo=None,
     )
     return driver
 
