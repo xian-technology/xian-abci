@@ -15,6 +15,7 @@ from contracting.runtime_features import (
     module_ir_uses_runtime_feature,
     runtime_feature_enabled,
 )
+from contracting.storage.content_cache import ContentKeyedCache
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import validate_persistent_value
 
@@ -122,7 +123,8 @@ def canonical_failure(exc: Exception) -> Exception:
     return RuntimeError(HOST_FAILURE_MESSAGE)
 
 
-_VM_PREPARED_CONTRACTS: dict[tuple[str, str], VmPreparedContract] = {}
+# One module's preparation, by contract name, reused while its IR text is identical.
+_VM_PREPARED_CONTRACTS = ContentKeyedCache()
 
 
 def vm_requires_contract_source(
@@ -557,7 +559,7 @@ def _prepare_vm_contract_bundle(
 ) -> VmPreparedContract:
     # Every call checks the whole import graph against current state, so a
     # warm process reaches the same verdict as a restarted node. Only the pure
-    # validation of one module's IR is cached, keyed by that IR's hash.
+    # validation of one module's IR is cached, for byte-identical IR text.
     if prepared_in_call is None:
         prepared_in_call = {}
     if contract_name in stack:
@@ -568,8 +570,8 @@ def _prepare_vm_contract_bundle(
     if already_prepared is not None:
         return already_prepared
 
-    artifact_hash, module_ir_json = _load_vm_module_ir_json(driver, contract_name)
-    prepared = _validated_vm_module(driver, contract_name, artifact_hash, module_ir_json)
+    module_ir_json = _load_vm_module_ir_json(driver, contract_name)
+    prepared = _validated_vm_module(driver, contract_name, module_ir_json)
 
     next_stack = (*stack, contract_name)
     for imported_contract in prepared.imported_contracts:
@@ -587,11 +589,9 @@ def _prepare_vm_contract_bundle(
 def _validated_vm_module(
     driver,
     contract_name: str,
-    artifact_hash: str,
     module_ir_json: str,
 ) -> VmPreparedContract:
-    cache_key = (contract_name, artifact_hash)
-    prepared = _VM_PREPARED_CONTRACTS.get(cache_key)
+    prepared = _VM_PREPARED_CONTRACTS.get(contract_name, module_ir_json)
     if prepared is not None:
         # Runtime features are chain state, so they are checked on every call.
         if prepared.uses_zk:
@@ -619,11 +619,11 @@ def _validated_vm_module(
     )
     prepared = VmPreparedContract(
         contract_name=contract_name,
-        artifact_hash=artifact_hash,
+        artifact_hash=hashlib.sha256(module_ir_json.encode("utf-8")).hexdigest(),
         imported_contracts=imported_contracts,
         uses_zk=uses_zk,
     )
-    _VM_PREPARED_CONTRACTS[cache_key] = prepared
+    _VM_PREPARED_CONTRACTS.put(contract_name, module_ir_json, prepared)
     return prepared
 
 
@@ -639,10 +639,7 @@ def _reject_disabled_zk_feature(driver, contract_name: str) -> None:
         )
 
 
-def _load_vm_module_ir_json(
-    driver,
-    contract_name: str,
-) -> tuple[str, str]:
+def _load_vm_module_ir_json(driver, contract_name: str) -> str:
     get_contract_ir = getattr(driver, "get_contract_ir", None)
     if get_contract_ir is not None:
         module_ir_json = get_contract_ir(
@@ -650,10 +647,7 @@ def _load_vm_module_ir_json(
             vm_profile=VM_EXECUTION_MODE,
         )
         if isinstance(module_ir_json, str) and module_ir_json:
-            return (
-                hashlib.sha256(module_ir_json.encode("utf-8")).hexdigest(),
-                module_ir_json,
-            )
+            return module_ir_json
 
     raise ContractPreparationError(
         "xian_vm_v2 requires persisted __xian_ir_v1__ for "

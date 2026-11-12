@@ -76,3 +76,4 @@ def test_failed_execution_leaves_only_its_reads_out_of_the_block(tmp_path):
         assert set(driver.pending_reads) - set(reads_before) <= {"currency.balances:alice"}
     finally:
         driver.close()
+
