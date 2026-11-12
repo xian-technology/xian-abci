@@ -30,6 +30,18 @@ This file records the runtime properties that must hold before an
   admission, proposal validation, and finalization. Internal system execution
   retains its explicit unmetered policy. Changes to these consensus validation
   rules require validators to upgrade together.
+- Every chain fee mode carries hard chi caps in the hashed genesis entry
+  `__fee_policy` (`tx_fee_mode`, `max_tx_chi`, `max_block_chi`; defaults
+  200,000 and 500,000 chi). Chi is the only deterministic bound on execution
+  time, so these caps bound how long one transaction, and one block, can delay
+  every later transaction. CheckTx rejects a transaction whose `chi_supplied`
+  exceeds `max_tx_chi`; PrepareProposal packs transactions only while the sum
+  of `chi_supplied` stays within `max_block_chi`; ProcessProposal rejects a
+  block that breaks either cap, and FinalizeBlock rejects such transactions
+  before execution. A policy is valid only when
+  `0 < max_tx_chi <= max_block_chi <= 10,000,000` and `max_tx_chi` does not
+  exceed the VM's own per-transaction ceiling; genesis building and node
+  startup refuse anything else.
 - Shielded proof-cache warming is optional acceleration. Rejected warm-up
   requests must not fail a block or bypass verification during execution.
 - Replay after failure must leave the same committed state on every node.

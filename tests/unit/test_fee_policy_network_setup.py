@@ -92,8 +92,8 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                     contracts_dir=contracts_dir,
                     fee_policy={
                         "tx_fee_mode": case["mode"],
-                        "free_tx_max_chi": 250_000,
-                        "free_block_max_chi": 1_000_000,
+                        "max_tx_chi": 150_000,
+                        "max_block_chi": 1_000_000,
                     },
                 )
                 genesis_entries = {
@@ -132,9 +132,9 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                     )
 
                     self.assertEqual(app.tx_fee_policy.mode, case["mode"])
-                    if case["mode"] == "free_metered":
-                        self.assertEqual(app.tx_fee_policy.max_tx_chi, 250_000)
-                        self.assertEqual(app.tx_fee_policy.max_block_chi, 1_000_000)
+                    # Every chain fee mode carries its genesis caps.
+                    self.assertEqual(app.tx_fee_policy.max_tx_chi, 150_000)
+                    self.assertEqual(app.tx_fee_policy.max_block_chi, 1_000_000)
                     self.assertTrue(app.tx_fee_policy.meter_execution)
                     self.assertEqual(
                         app.tx_fee_policy.charge_fees,

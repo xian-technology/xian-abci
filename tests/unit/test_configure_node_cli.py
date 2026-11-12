@@ -91,13 +91,15 @@ class ConfigureNodeFeePolicyTests(unittest.TestCase):
                     "2026-03-30T00:00:00Z",
                     "--tx-fee-mode",
                     "free_metered",
-                    "--free-tx-max-chi",
+                    "--max-tx-chi",
                     "500",
+                    "--max-block-chi",
+                    "900",
                 ]
             )
         self.assertEqual(
             build.call_args.kwargs["fee_policy"],
-            {"tx_fee_mode": "free_metered", "free_tx_max_chi": 500},
+            {"tx_fee_mode": "free_metered", "max_tx_chi": 500, "max_block_chi": 900},
         )
 
 

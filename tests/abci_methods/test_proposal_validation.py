@@ -22,7 +22,7 @@ from cometbft.abci.v1beta3.types_pb2 import (
     RequestProcessProposal,
     Response,
 )
-from xian.fee_policy import TxFeePolicy
+from xian.fee_policy import DEFAULT_MAX_BLOCK_CHI, DEFAULT_MAX_TX_CHI, TxFeePolicy
 from xian.utils.encoding import encode_transaction_bytes
 from xian.xian_abci import Xian
 
@@ -328,6 +328,83 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             response.process_proposal.status,
             ResponseProcessProposal.ProposalStatus.REJECT,
         )
+
+    async def test_genesis_paid_policy_caps_bound_every_proposal_stage(self):
+        # The fixture genesis carries the default paid policy (200k/500k).
+        self.assertEqual(self.app.tx_fee_policy.mode, "paid_metered")
+        tx_cap, block_cap = DEFAULT_MAX_TX_CHI, DEFAULT_MAX_BLOCK_CHI
+        self.assertEqual(
+            (self.app.tx_fee_policy.max_tx_chi, self.app.tx_fee_policy.max_block_chi),
+            (tx_cap, block_cap),
+        )
+        first = make_signed_tx_bytes(nonce=0, chi_supplied=tx_cap)
+        second = make_signed_tx_bytes(nonce=1, chi_supplied=tx_cap)
+        too_big_for_block = make_signed_tx_bytes(nonce=2, chi_supplied=tx_cap)
+        fills_block = make_signed_tx_bytes(nonce=2, chi_supplied=block_cap - 2 * tx_cap)
+        over_tx_cap = make_signed_tx_bytes(nonce=0, chi_supplied=tx_cap + 1)
+
+        prepared = await self.process_request(
+            "prepare_proposal",
+            Request(
+                prepare_proposal=RequestPrepareProposal(
+                    max_tx_bytes=4 * 1024 * 1024,
+                    txs=[over_tx_cap, first, second, too_big_for_block, fills_block],
+                )
+            ),
+        )
+        self.assertEqual(list(prepared.prepare_proposal.txs), [first, second, fills_block])
+
+        for txs, status in (
+            (list(prepared.prepare_proposal.txs), ResponseProcessProposal.ACCEPT),
+            ([first, second, too_big_for_block], ResponseProcessProposal.REJECT),
+            ([over_tx_cap], ResponseProcessProposal.REJECT),
+        ):
+            with self.subTest(txs=len(txs), status=status):
+                processed = await self.process_request(
+                    "process_proposal",
+                    Request(process_proposal=RequestProcessProposal(txs=txs)),
+                )
+                self.assertEqual(processed.process_proposal.status, status)
+
+        with patch.object(self.app.tx_processor, "process_tx") as process_tx:
+            finalized = await self.process_request(
+                "finalize_block",
+                Request(finalize_block=RequestFinalizeBlock(txs=[over_tx_cap], height=1)),
+            )
+        process_tx.assert_not_called()
+        receipt = json.loads(finalized.finalize_block.tx_results[0].data.decode("utf-8"))
+        self.assertIn("Invalid transaction in block", receipt["error"])
+        self.assertIn(f"per-transaction limit of {tx_cap} chi", receipt["error"])
+
+    async def test_finalize_block_rejects_tx_past_the_block_cap_before_execution(self):
+        self.app.tx_fee_policy = TxFeePolicy.paid_metered(max_tx_chi=100, max_block_chi=150)
+        txs = [make_signed_tx_bytes(nonce=0), make_signed_tx_bytes(nonce=1)]
+        ok_result = {
+            "tx_result": {
+                "hash": "ABC123",
+                "status": 0,
+                "state": [],
+                "events": [],
+                "chi_used": 1,
+                "result": "ok",
+            }
+        }
+
+        with (
+            patch.object(self.app.tx_processor, "process_tx", return_value=ok_result) as process_tx,
+            patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
+        ):
+            finalized = await self.process_request(
+                "finalize_block",
+                Request(finalize_block=RequestFinalizeBlock(txs=txs)),
+            )
+
+        process_tx.assert_called_once()
+        results = finalized.finalize_block.tx_results
+        self.assertEqual(results[0].code, self.constants.OkCode)
+        self.assertEqual(results[1].code, self.constants.ErrorCode)
+        receipt = json.loads(results[1].data.decode("utf-8"))
+        self.assertIn("would exceed the chain's per-block limit of 150 chi", receipt["error"])
 
     async def test_finalize_block_rejects_invalid_signature_before_execution(
         self,

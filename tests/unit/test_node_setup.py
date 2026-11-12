@@ -187,7 +187,7 @@ class NodeSetupTests(unittest.TestCase):
         self.assertEqual(xian_config["simulation_timeout_ms"], 2500)
         self.assertEqual(xian_config["simulation_max_chi"], 500000)
         # The fee policy is chain state from genesis, never node config.
-        for key in ("tx_fee_mode", "free_tx_max_chi", "free_block_max_chi"):
+        for key in ("tx_fee_mode", "max_tx_chi", "max_block_chi"):
             self.assertNotIn(key, xian_config)
         self.assertTrue(xian_config["parallel_execution_enabled"])
         self.assertEqual(xian_config["parallel_execution_workers"], 4)

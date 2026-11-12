@@ -319,20 +319,20 @@ def build_parser() -> ArgumentParser:
         default=None,
     )
     parser.add_argument(
-        "--free-tx-max-chi",
+        "--max-tx-chi",
         type=int,
         help=(
-            "genesis limit on chi_supplied per transaction in free_metered mode "
+            "genesis limit on chi_supplied per transaction in every fee mode "
             "(requires --genesis-bundle)"
         ),
         required=False,
         default=None,
     )
     parser.add_argument(
-        "--free-block-max-chi",
+        "--max-block-chi",
         type=int,
         help=(
-            "genesis limit on total chi_supplied per block in free_metered mode "
+            "genesis limit on total chi_supplied per block in every fee mode "
             "(requires --genesis-bundle)"
         ),
         required=False,

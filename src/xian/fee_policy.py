@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import cache
+
+from xian_vm_core import runtime_info
 
 from xian.exceptions import TransactionException
 
@@ -10,15 +13,22 @@ FREE_METERED = "free_metered"
 SYSTEM_UNMETERED = "system_unmetered"
 
 DEFAULT_TX_FEE_MODE = PAID_METERED
-DEFAULT_FREE_TX_MAX_CHI = 1_000_000
-DEFAULT_FREE_BLOCK_MAX_CHI = 20_000_000
+# Hard chi caps that hold in every chain fee mode. Chi is the only
+# deterministic bound on execution time, so these caps bound how long one
+# transaction, and one block, can keep every later transaction waiting.
+DEFAULT_MAX_TX_CHI = 200_000
+DEFAULT_MAX_BLOCK_CHI = 500_000
+# Upper bound for a genesis-chosen block cap: 20x the default, which is tens of
+# seconds of execution per block even at fair prices. Larger values are a
+# misconfiguration, not a policy.
+MAX_BLOCK_CHI_LIMIT = 10_000_000
 
 SUPPORTED_TX_FEE_MODES = frozenset({PAID_METERED, FREE_METERED})
 
 # Consensus state key holding the chain's fee policy. Genesis writes it; every
 # validator reads it from state, so nodes cannot disagree through local config.
 FEE_POLICY_KEY = "__fee_policy"
-FEE_POLICY_FIELDS = ("tx_fee_mode", "free_tx_max_chi", "free_block_max_chi")
+FEE_POLICY_FIELDS = ("tx_fee_mode", "max_tx_chi", "max_block_chi")
 
 
 def normalize_tx_fee_mode(mode: object | None) -> str:
@@ -32,6 +42,27 @@ def _positive_int(value: object, *, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"{name} must be an integer greater than zero")
     return value
+
+
+@cache
+def vm_max_tx_chi() -> int | None:
+    """Per-transaction chi ceiling of the installed VM, when the VM reports it."""
+    # TODO(coordinator, revision 11): xvm-execution-10 does not report its
+    # ceiling (VM_MAX_RAW_CHI). Once the revision-11 VM exposes it, confirm the
+    # runtime_info key (proposed: "max_tx_chi", in chi) and make it required.
+    return runtime_info().get("max_tx_chi")
+
+
+def _validate_chi_caps(max_tx_chi: object, max_block_chi: object) -> None:
+    _positive_int(max_tx_chi, name="max_tx_chi")
+    _positive_int(max_block_chi, name="max_block_chi")
+    if max_block_chi < max_tx_chi:
+        raise ValueError("max_block_chi must be greater than or equal to max_tx_chi")
+    if max_block_chi > MAX_BLOCK_CHI_LIMIT:
+        raise ValueError(f"max_block_chi must not exceed {MAX_BLOCK_CHI_LIMIT} chi")
+    ceiling = vm_max_tx_chi()
+    if ceiling is not None and max_tx_chi > ceiling:
+        raise ValueError(f"max_tx_chi {max_tx_chi} exceeds the VM ceiling of {ceiling} chi")
 
 
 def fee_policy_state(settings: Mapping[str, object] | None = None) -> dict[str, object]:
@@ -55,30 +86,26 @@ class TxFeePolicy:
     charge_fees: bool
     distribute_fee_rewards: bool
     require_chi_balance: bool
+    # Set exactly for metered (chain) policies; system work is unmetered.
     max_tx_chi: int | None = None
     max_block_chi: int | None = None
 
+    def __post_init__(self) -> None:
+        if self.meter_execution:
+            _validate_chi_caps(self.max_tx_chi, self.max_block_chi)
+
     @classmethod
     def from_settings(cls, settings: Mapping[str, object] | None) -> "TxFeePolicy":
-        """Build a policy from genesis settings; free limits are ignored when paid."""
+        """Build a chain policy from genesis settings, filling default caps."""
         payload = dict(settings or {})
         unknown = sorted(set(payload) - set(FEE_POLICY_FIELDS))
         if unknown:
             raise ValueError(f"unknown fee policy settings: {', '.join(unknown)}")
-        mode = normalize_tx_fee_mode(payload.get("tx_fee_mode"))
-        max_tx_chi = _positive_int(
-            payload.get("free_tx_max_chi", DEFAULT_FREE_TX_MAX_CHI),
-            name="free_tx_max_chi",
+        return cls.metered(
+            normalize_tx_fee_mode(payload.get("tx_fee_mode")),
+            max_tx_chi=payload.get("max_tx_chi", DEFAULT_MAX_TX_CHI),
+            max_block_chi=payload.get("max_block_chi", DEFAULT_MAX_BLOCK_CHI),
         )
-        max_block_chi = _positive_int(
-            payload.get("free_block_max_chi", DEFAULT_FREE_BLOCK_MAX_CHI),
-            name="free_block_max_chi",
-        )
-        if max_block_chi < max_tx_chi:
-            raise ValueError("free_block_max_chi must be greater than or equal to free_tx_max_chi")
-        if mode == PAID_METERED:
-            return cls.paid_metered()
-        return cls.free_metered(max_tx_chi=max_tx_chi, max_block_chi=max_block_chi)
 
     @classmethod
     def from_state(cls, value: object) -> "TxFeePolicy":
@@ -91,49 +118,42 @@ class TxFeePolicy:
         return policy
 
     def to_state(self) -> dict[str, object]:
-        if self.mode == PAID_METERED:
-            return {"tx_fee_mode": PAID_METERED}
-        if self.mode == FREE_METERED:
-            return {
-                "tx_fee_mode": FREE_METERED,
-                "free_tx_max_chi": self.max_tx_chi,
-                "free_block_max_chi": self.max_block_chi,
-            }
-        raise ValueError(f"{self.mode} is not a chain fee policy")
+        if self.mode not in SUPPORTED_TX_FEE_MODES:
+            raise ValueError(f"{self.mode} is not a chain fee policy")
+        return {
+            "tx_fee_mode": self.mode,
+            "max_tx_chi": self.max_tx_chi,
+            "max_block_chi": self.max_block_chi,
+        }
 
     @classmethod
-    def paid_metered(
+    def metered(
         cls,
+        mode: str,
         *,
-        max_tx_chi: int | None = None,
-        max_block_chi: int | None = None,
+        max_tx_chi: int = DEFAULT_MAX_TX_CHI,
+        max_block_chi: int = DEFAULT_MAX_BLOCK_CHI,
     ) -> "TxFeePolicy":
+        """A chain policy; paid mode charges and rewards fees, free mode does not."""
+        mode = normalize_tx_fee_mode(mode)
+        paid = mode == PAID_METERED
         return cls(
-            mode=PAID_METERED,
+            mode=mode,
             meter_execution=True,
-            charge_fees=True,
-            distribute_fee_rewards=True,
-            require_chi_balance=True,
+            charge_fees=paid,
+            distribute_fee_rewards=paid,
+            require_chi_balance=paid,
             max_tx_chi=max_tx_chi,
             max_block_chi=max_block_chi,
         )
 
     @classmethod
-    def free_metered(
-        cls,
-        *,
-        max_tx_chi: int = DEFAULT_FREE_TX_MAX_CHI,
-        max_block_chi: int = DEFAULT_FREE_BLOCK_MAX_CHI,
-    ) -> "TxFeePolicy":
-        return cls(
-            mode=FREE_METERED,
-            meter_execution=True,
-            charge_fees=False,
-            distribute_fee_rewards=False,
-            require_chi_balance=False,
-            max_tx_chi=max_tx_chi,
-            max_block_chi=max_block_chi,
-        )
+    def paid_metered(cls, **caps: int) -> "TxFeePolicy":
+        return cls.metered(PAID_METERED, **caps)
+
+    @classmethod
+    def free_metered(cls, **caps: int) -> "TxFeePolicy":
+        return cls.metered(FREE_METERED, **caps)
 
     @classmethod
     def system_unmetered(cls) -> "TxFeePolicy":
@@ -161,21 +181,21 @@ class TxFeePolicy:
         chi_supplied = self.tx_chi_supplied(tx)
         # Metered user transactions must supply an explicit positive budget;
         # internal system transactions use a separate unmetered policy.
-        if self.meter_execution and chi_supplied <= 0:
-            raise TransactionException("Transaction chi_supplied must be greater than zero")
-        if self.max_tx_chi is None:
+        if not self.meter_execution:
             return
+        if chi_supplied <= 0:
+            raise TransactionException("Transaction chi_supplied must be greater than zero")
         if chi_supplied > self.max_tx_chi:
             raise TransactionException(
-                f"Transaction chi_supplied exceeds maximum configured limit of {self.max_tx_chi}"
+                f"Transaction chi_supplied {chi_supplied} exceeds the chain's "
+                f"per-transaction limit of {self.max_tx_chi} chi"
             )
 
     def validate_block_total(self, total_chi_supplied: int) -> None:
-        if self.max_block_chi is None:
-            return
-        if total_chi_supplied > self.max_block_chi:
+        if self.meter_execution and total_chi_supplied > self.max_block_chi:
             raise TransactionException(
-                f"Block chi_supplied exceeds maximum configured limit of {self.max_block_chi}"
+                f"Block chi_supplied {total_chi_supplied} would exceed the chain's "
+                f"per-block limit of {self.max_block_chi} chi"
             )
 
 
