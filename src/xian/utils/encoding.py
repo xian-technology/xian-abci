@@ -31,20 +31,6 @@ MAX_CANONICAL_JSON_INTEGER = 2**64 - 1
 MAX_CANONICAL_JSON_DEPTH = 128
 
 
-def _decimal_to_plain_string(value) -> str:
-    if isinstance(value, ContractingDecimal):
-        value = value._d
-    elif not isinstance(value, decimal.Decimal):
-        value = decimal.Decimal(str(value))
-
-    text = format(value, "f")
-    if "." in text:
-        text = text.rstrip("0").rstrip(".")
-    if text in {"", "-0"}:
-        return "0"
-    return text
-
-
 def encode_str(value):
     return value.encode("utf-8")
 
@@ -175,10 +161,8 @@ def convert_binary_to_hex(binary_data):
 
 def stringify_decimals(obj):
     try:
-        if isinstance(obj, ContractingDecimal):
-            return _decimal_to_plain_string(obj)
-        elif isinstance(obj, decimal.Decimal):
-            return _decimal_to_plain_string(obj)
+        if isinstance(obj, (ContractingDecimal, decimal.Decimal)):
+            return canonical_fixed(obj)
         elif isinstance(obj, dict):
             return {key: stringify_decimals(val) for key, val in obj.items()}
         elif isinstance(obj, list):

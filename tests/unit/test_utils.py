@@ -255,6 +255,46 @@ class TestAbciJsonDecimalFormatting(unittest.TestCase):
             {"amount": "5000", "fees": ["1.25", "0.000005"]},
         )
 
+    def test_stringify_decimals_spells_decimals_like_the_wire_format(self):
+        # Event attributes use the same plain spelling as {"__fixed__": ...} values.
+        cases = [
+            (ContractingDecimal("1000"), "1000"),
+            (ContractingDecimal("-2500000"), "-2500000"),
+            (ContractingDecimal("0.0000001"), "0.0000001"),
+            (ContractingDecimal("1e-30"), "0.000000000000000000000000000001"),
+            (ContractingDecimal("9" * 61 + "." + "9" * 30), "9" * 61 + "." + "9" * 30),
+            (ContractingDecimal("0"), "0"),
+            (decimal.Decimal("5E+3"), "5000"),
+            (decimal.Decimal("1.2500"), "1.25"),
+            (decimal.Decimal("-0.00"), "0"),
+            (decimal.Decimal("-0"), "0"),
+            (decimal.Decimal("-12.340"), "-12.34"),
+        ]
+        for value, expected in cases:
+            with self.subTest(value=value):
+                self.assertEqual(stringify_decimals(value), expected)
+                self.assertEqual(normalize_for_abci_json(value), {"__fixed__": expected})
+
+    def test_stringify_decimals_renders_event_values_as_text(self):
+        from xian_runtime_types.time import Datetime
+
+        self.assertEqual(
+            stringify_decimals(
+                {
+                    "when": Datetime(2026, 11, 13, 1, 2, 3),
+                    "memo": "caf\u00e9".encode(),
+                    "raw": b"\xff",
+                    "count": 7,
+                }
+            ),
+            {"when": "2026-11-13 01:02:03", "memo": "caf\u00e9", "raw": "b'\\xff'", "count": 7},
+        )
+
+    def test_stringify_decimals_blanks_values_without_a_wire_spelling(self):
+        # Outside the 61.30 range there is no {"__fixed__"} spelling either.
+        self.assertEqual(stringify_decimals(decimal.Decimal("1E+100")), "")
+        self.assertEqual(stringify_decimals([decimal.Decimal("1E-31")]), [""])
+
     def test_normalize_for_abci_json_uses_canonical_numeric_tags(self):
         value = {
             "amount": decimal.Decimal("5E+3"),
