@@ -153,11 +153,17 @@ class TxFeePolicyTests(unittest.TestCase):
             TxFeePolicy.paid_metered(max_tx_chi=1_000_001, max_block_chi=MAX_BLOCK_CHI_LIMIT)
 
     def test_a_vm_that_does_not_report_its_ceiling_is_refused(self):
-        vm_max_tx_chi.cache_clear()
         try:
-            with mock.patch("xian.fee_policy.runtime_info", return_value={}):
-                with self.assertRaisesRegex(ValueError, "does not report its per-transaction"):
-                    vm_max_tx_chi()
+            for info in ({}, {"max_tx_chi": 0}, {"max_tx_chi": -1}, {"max_tx_chi": "1000000"}):
+                with self.subTest(info=info):
+                    vm_max_tx_chi.cache_clear()
+                    with mock.patch("xian.fee_policy.runtime_info", return_value=info):
+                        with self.assertRaisesRegex(ValueError, "does not report its per-transaction"):
+                            vm_max_tx_chi()
+            # The smallest positive ceiling is a real ceiling, not a missing one.
+            vm_max_tx_chi.cache_clear()
+            with mock.patch("xian.fee_policy.runtime_info", return_value={"max_tx_chi": 1}):
+                self.assertEqual(vm_max_tx_chi(), 1)
         finally:
             vm_max_tx_chi.cache_clear()
 
