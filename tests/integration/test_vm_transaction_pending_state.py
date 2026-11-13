@@ -23,6 +23,7 @@ def _run(driver, *, function="record", budget=1000):
         chi_budget=budget,
         chi_cost=100,
         meter=True,
+        transaction_size_bytes=0,
     )
 
 

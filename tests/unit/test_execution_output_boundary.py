@@ -36,6 +36,7 @@ def execute_output(**fields):
             function_name="probe",
             kwargs={},
             environment={},
+            meter=False,
         )
 
 

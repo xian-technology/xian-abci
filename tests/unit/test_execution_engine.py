@@ -401,6 +401,7 @@ def hidden():
                 "block_hash": "abc123",
                 "chain_id": "xian-local",
             },
+            meter=False,
         )
 
         self.assertEqual(output.status_code, 1)
@@ -433,6 +434,7 @@ def hidden():
                 "block_hash": "abc123",
                 "chain_id": "xian-local",
             },
+            meter=False,
         )
 
         self.assertEqual(output.status_code, 1)
@@ -566,6 +568,7 @@ def hidden():
                 "block_hash": "abc123",
                 "chain_id": "xian-local",
             },
+            meter=False,
         )
 
         self.assertEqual(output.status_code, 0)
@@ -1447,6 +1450,7 @@ def hidden():
                     "block_hash": "abc",
                     "chain_id": "xian-local",
                 },
+                meter=False,
             )
 
         self.assertEqual(output.status_code, 1)
@@ -1490,6 +1494,7 @@ def hidden():
                     "block_hash": "abc",
                     "chain_id": "xian-local",
                 },
+                meter=False,
             )
 
         self.assertEqual(output.status_code, 0)
@@ -1518,6 +1523,7 @@ def hidden():
             function_name="ping",
             kwargs={},
             environment={},
+            meter=False,
         )
 
         self.assertEqual(output.status_code, 1)
@@ -1542,6 +1548,7 @@ def hidden():
                 "code": source,
             },
             environment={},
+            meter=False,
         )
 
         self.assertEqual(output.status_code, 1)

@@ -159,6 +159,7 @@ def test_direct_helper_preserves_its_explicit_failure_settlement_policy(tmp_path
             chi_cost=100,
             meter=True,
             apply_metering_on_success_only=not charge_failure,
+            transaction_size_bytes=0,
         )
         assert outcome.output.status_code == 1
         assert outcome.chi_used > 0
@@ -351,6 +352,7 @@ def test_fee_reservation_is_restored_when_vm_boundary_raises(tmp_path):
                     chi_budget=1000,
                     chi_cost=100,
                     meter=True,
+                    transaction_size_bytes=0,
                 )
         assert driver.snapshot_state() == before
         assert driver.get("currency.balances:alice") == 100
@@ -375,6 +377,7 @@ def test_direct_helper_checks_exact_affordability_with_fractional_rate(tmp_path)
                 chi_budget=1,
                 chi_cost=ContractingDecimal("1.5"),
                 meter=True,
+                transaction_size_bytes=0,
             )
         assert outcome.output.status_code == 1
         assert "not have enough chi" in str(outcome.output.result)
@@ -402,6 +405,7 @@ def test_canonical_chi_rate_export_rejects_fractional_rate_before_writing_state(
             chi_budget=0,
             chi_cost=100,
             meter=False,
+            transaction_size_bytes=0,
         )
         assert outcome.output.status_code == 1
         assert "int" in str(outcome.output.result)

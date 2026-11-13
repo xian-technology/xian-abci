@@ -67,6 +67,7 @@ def test_transaction_hash_is_used_and_ambient_state_is_irrelevant(tmp_path, mete
                         chi_budget=1_000_000,
                         chi_cost=1,
                         apply_metering_writes=False,
+                        transaction_size_bytes=0,
                     )
                     assert output.output.status_code == 0, output.output.result
                     assert output.output.result == expected

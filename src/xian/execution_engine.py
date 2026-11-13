@@ -334,7 +334,7 @@ def execute_vm_contract(
     function_name: str,
     kwargs: dict[str, Any],
     environment: dict[str, Any],
-    meter: bool = False,
+    meter: bool,
     chi_budget: int = 0,
     transaction_size_bytes: int = 0,
 ) -> VmExecutionResult:
@@ -451,7 +451,7 @@ def execute_vm_transaction(
     chi_budget: int,
     chi_cost: int,
     meter: bool,
-    transaction_size_bytes: int = 0,
+    transaction_size_bytes: int,
     apply_metering_on_success_only: bool = True,
     apply_metering_writes: bool = True,
     reserve_fee_budget: bool = True,
