@@ -1,9 +1,10 @@
 """Blocks executed by the Rust block executor against the per-transaction path.
 
 ``TxProcessor.process_block`` runs a block's transactions in Rust and hands
-the ones that need Python (contract submission, random, owner rejections)
-to ``process_tx`` in their place. Receipts, pending state and responses must
-be byte-identical to processing every transaction with ``process_tx``.
+the ones that need Python (contract submission, owner rejections, random
+calls the Rust host does not serve) to ``process_tx`` in their place.
+Receipts, pending state and responses must be byte-identical to processing
+every transaction with ``process_tx``.
 """
 
 from __future__ import annotations
@@ -213,6 +214,42 @@ def keep_bytes():
 def announce(seconds: int):
     Seen({"name": "x", "spans": set([datetime.timedelta(seconds=seconds)]), "raw": bytearray(b"q")})
 """
+RANDOM = """import con_probe
+draws = Hash()
+
+@export
+def draw(salt: Any, ops: list):
+    if salt != "unseeded":
+        random.seed(salt)
+    out = []
+    for op in ops:
+        out.append(apply(op))
+    draws[ctx.signer] = out
+    return out
+
+def apply(op: list):
+    name = op[0]
+    if name == "bits":
+        return random.getrandbits(op[1])
+    if name == "range":
+        return random.randrange(op[1])
+    if name == "int":
+        return random.randint(op[1], op[2])
+    if name == "choice":
+        return random.choice(op[1])
+    if name == "choices":
+        return random.choices(op[1], k=op[2])
+    if name == "shuffle":
+        items = op[1]
+        random.shuffle(items)
+        return items
+    if name == "reseed":
+        random.seed(aux_salt=op[1])
+        return None
+    if name == "nested":
+        return con_probe.lucky()
+    return random.random()
+"""
 ACCOUNTS = {"alice": 100_000, "bob": "250.5", "carol": None, "dave": "0.0003"}
 
 
@@ -241,6 +278,7 @@ def _setup(home, contracts=()):
     )
     driver.set_contract_from_source("con_times", TIMES, timestamp=submitted)
     driver.set_contract_from_source("validators", VALIDATORS, timestamp=submitted)
+    driver.set_contract_from_source("con_random", RANDOM, timestamp=submitted)
     for name, source, developer in contracts:
         driver.set_contract_from_source(
             name, source, developer=developer, timestamp=submitted, overwrite=True
@@ -285,9 +323,9 @@ OPERATIONS = [
     ("con_probe", "missing", lambda rng: {}, 1000),
     ("validators", "rotate", lambda rng: {"n": rng.randrange(0, 4)}, 1000),
 ]
-# Need Python once the fee is reserved: random, an owner rejection (bob owns
+# Need Python once the fee is reserved: an owner rejection (bob owns
 # con_owned), a function that is not exported, contract submission.
-PYTHON_ONLY = {("con_probe", "lucky"), ("con_owned", "ping"), ("con_probe", "missing")}
+PYTHON_ONLY = {("con_owned", "ping"), ("con_probe", "missing")}
 
 
 def _block(seed, size, height):
@@ -561,11 +599,8 @@ def test_hash_scans_and_contract_metadata_run_in_rust_like_the_python_path(tmp_p
     assert len(actual) == len(expected)
     for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
         assert left == right, index
-    # Only contract submission and random need Python.
-    assert python_runs == [
-        ("alice", "submission", "submit_contract"),
-        ("alice", "con_scan", "scan_then_random"),
-    ]
+    # Only contract submission needs Python.
+    assert python_runs == [("alice", "submission", "submit_contract")]
 
 
 def test_entry_results_are_charged_in_their_v2_encoding_like_the_python_path(tmp_path):
@@ -578,6 +613,70 @@ def test_entry_results_are_charged_in_their_v2_encoding_like_the_python_path(tmp
     expected, _ = _run(tmp_path / "python", [txs], native=False)
     actual, _ = _run(tmp_path / "rust", [txs], native=True)
     assert actual == expected
+
+
+# Seed salts the Rust host serves, and salts it leaves to the Python path.
+RANDOM_SALTS = ["abc", "", 7, -3, True, False, None, "unseeded"]
+PYTHON_SALTS = [{"__fixed__": "1.5"}, [1, "a"], {"a": 1}]
+POPULATIONS = [[], [1], [1, "a", {"x": 1}, [2]], list(range(9)), "", "héllo", "ab"]
+
+
+def _wire(number):
+    return number if abs(number) < 2**53 else {"__big_int__": str(number)}
+
+
+def _random_op(rng):
+    kind = rng.choice(
+        ["bits"] * 4 + ["range", "int", "choice", "choices", "shuffle", "reseed", "nested", "float"]
+    )
+    if kind == "bits":
+        return [kind, rng.choice([*range(0, 80), 256, 511, 512, 513, 600, -1])]
+    if kind == "range":
+        return [kind, _wire(rng.choice([-1, 0, 1, 2, 10, 1000, 2**64, 2**511]))]
+    if kind == "int":
+        low = rng.choice([-(2**200), -5, 0, 3, 7])
+        return [kind, _wire(low), _wire(low + rng.choice([-1, 0, 1, 6, 2**100]))]
+    if kind in ("choice", "choices"):
+        return [kind, rng.choice(POPULATIONS), rng.choice([-1, 0, 1, 3, True])]
+    if kind == "shuffle":
+        return [kind, list(range(rng.randrange(0, 12)))]
+    if kind == "reseed":
+        return [kind, rng.choice(RANDOM_SALTS[:-1])]
+    return [kind]
+
+
+def _random_blocks():
+    blocks = []
+    for height in (1, 2, 3):
+        rng = random.Random(500 + height)
+        txs = []
+        for index in range(60):
+            salts = PYTHON_SALTS if rng.random() < 0.08 else RANDOM_SALTS
+            kwargs = {
+                "salt": rng.choice(salts),
+                "ops": [_random_op(rng) for _ in range(rng.randrange(1, 10))],
+            }
+            txs.append(
+                _tx(500 + height, index, height, "alice", "con_random", "draw", kwargs, 20_000)
+            )
+        blocks.append(txs)
+    return blocks
+
+
+def test_random_runs_in_rust_like_the_python_path(tmp_path, monkeypatch):
+    blocks = _random_blocks()
+    expected, _ = _run(tmp_path / "python", blocks, native=False)
+    actual, python_runs = _run(tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch)
+    assert len(actual) == len(expected)
+    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
+        assert left == right, index
+    receipts = [json.loads(entry[0]) for entry in expected if isinstance(entry, tuple)]
+    assert 60 < sum(receipt["status"] == 0 for receipt in receipts) < len(receipts)
+    # Only the salts the Rust host leaves to Python ran there.
+    handed_back = [
+        tx for txs in blocks for tx in txs if tx["payload"]["kwargs"]["salt"] in PYTHON_SALTS
+    ]
+    assert len(python_runs) == len(handed_back) > 0
 
 
 # Largest and smallest Python timedelta, a negative one and a plain one.

@@ -66,50 +66,21 @@
   "owner/old_owner_rejected": "caller is not the owner"
  },
  "policy_free": {
-  "free/deploy": "contract submission",
-  "free/random": "host syscall random.seed"
+  "free/deploy": "contract submission"
  },
  "policy_unmetered": {
-  "unmetered/deploy": "contract submission",
-  "unmetered/out_of_chi": "host syscall random.seed",
-  "unmetered/random": "host syscall random.seed"
+  "unmetered/deploy": "contract submission"
  },
  "random": {
-  "random/error_choice": "host syscall random.seed",
-  "random/error_choices": "host syscall random.seed",
-  "random/error_getrandbits": "host syscall random.seed",
-  "random/error_randint": "host syscall random.seed",
-  "random/error_randrange": "host syscall random.seed",
-  "random/error_shuffle": "host syscall random.seed",
-  "random/float": "host syscall random.seed",
-  "random/internal_salt_bool": "host syscall random.seed",
-  "random/internal_salt_datetime": "host syscall random.seed",
-  "random/internal_salt_decimal": "host syscall random.seed",
-  "random/internal_salt_dict": "host syscall random.seed",
-  "random/internal_salt_list": "host syscall random.seed",
-  "random/internal_salt_timedelta": "host syscall random.seed",
-  "random/internal_salt_tuple": "host syscall random.seed",
-  "random/low_chi": "host syscall random.seed",
-  "random/nested_seeds_for_caller": "host syscall random.seed",
-  "random/nested_shares_seed": "host syscall random.seed",
-  "random/nested_unseeded": "host syscall random.getrandbits",
-  "random/plain": "host syscall random.seed",
-  "random/plain_other_signature": "host syscall random.seed",
-  "random/reseed": "host syscall random.seed",
-  "random/salt_big_int": "host syscall random.seed",
-  "random/salt_bool": "host syscall random.seed",
-  "random/salt_decimal": "host syscall random.seed",
-  "random/salt_dict": "host syscall random.seed",
-  "random/salt_empty_str": "host syscall random.seed",
-  "random/salt_int": "host syscall random.seed",
-  "random/salt_list": "host syscall random.seed",
-  "random/salt_negative_int": "host syscall random.seed",
-  "random/salt_none": "host syscall random.seed",
-  "random/salt_str": "host syscall random.seed",
-  "random/state_not_carried_over": "host syscall random.getrandbits",
-  "random/store_float": "host syscall random.seed",
-  "random/then_fail": "host syscall random.seed",
-  "random/unseeded": "host syscall random.randint"
+  "random/internal_salt_datetime": "random seed salt is a datetime",
+  "random/internal_salt_decimal": "random seed salt is a decimal",
+  "random/internal_salt_dict": "random seed salt is a dict",
+  "random/internal_salt_list": "random seed salt is a list",
+  "random/internal_salt_timedelta": "random seed salt is a timedelta",
+  "random/internal_salt_tuple": "random seed salt is a tuple",
+  "random/salt_decimal": "random seed salt is a decimal",
+  "random/salt_dict": "random seed salt is a dict",
+  "random/salt_list": "random seed salt is a list"
  },
  "rewards": {
   "rewards/active_dict_failure": "truthiness of dict",

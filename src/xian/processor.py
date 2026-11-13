@@ -208,6 +208,7 @@ class TxProcessor:
             "block_num": environment["block_num"],
             "block_hash": environment["block_hash"],
             "chain_id": environment["chain_id"],
+            "__input_hash": environment["__input_hash"],
         }
 
     def _native_response(self, tx, outcome, fee_policy: TxFeePolicy) -> dict:
