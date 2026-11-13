@@ -24,5 +24,6 @@ This file tracks follow-up work that still looks relevant on current `main`.
 
 ## Runtime Follow-Ups
 
-- parallel execution optimization beyond the current conservative design
+- parallel block execution (Block-STM-style, in Rust): deferred design in
+  `xian-meta/docs/XIAN_VM_PARALLEL_EXECUTION_PLAN.md` (step C)
 - monitoring and operator ergonomics

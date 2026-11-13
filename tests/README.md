@@ -9,7 +9,7 @@ This folder contains the verification surface for `xian-abci`.
 - `unit/`: isolated module, helper, CLI, and service behavior
 - `abci_methods/`: request-handler, query, startup, and finalize-block coverage
 - `integration/`: multi-component runtime behavior such as processor,
-  parallel-execution, rollback, and replay-parity flows
+  rollback, and replay-parity flows
 - `governance/`: governance paths that interact with node behavior
 - `system/`: higher-level contract/runtime scenarios
 

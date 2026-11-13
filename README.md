@@ -44,7 +44,6 @@ uv run xian-state-snapshot --help
 uv run xian-bds-reindex --help
 uv run xian-bds-snapshot --help
 uv run xian-bds-spool --help
-uv run xian-parallel-estimator-report --help
 ```
 
 Native V2 bindings are installed through the `xian-tech-contracting` dependency.

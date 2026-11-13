@@ -7,8 +7,9 @@ Main areas:
 
 - `src/xian/xian_abci.py`: runtime assembly, startup wiring, and ABCI dispatch
 - `src/xian/methods/`: ABCI request handlers and query surfaces
-- `src/xian/processor.py`, `execution_engine.py`, `execution_policy.py`,
-  `parallel_executor.py`, and `parallel_planner.py`: transaction execution flow
+- `src/xian/processor.py`, `execution_engine.py`, and `execution_policy.py`:
+  transaction execution flow; blocks run serially in the Rust `BlockExecutor`
+  (`processor.process_block`)
 - `src/xian/services/`: BDS and snapshot/state-sync services
 - `src/xian/dashboard/`, `metrics.py`, `simulator.py`, and
   `simulator_worker.py`: optional node-adjacent surfaces

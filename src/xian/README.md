@@ -10,9 +10,8 @@ subsystems around it.
 - `xian_abci.py`: runtime assembly, startup wiring, and ABCI request dispatch
 - `methods/`: request handlers for `CheckTx`, `FinalizeBlock`, query, proposal
   validation, and related ABCI methods
-- `processor.py`, `execution_engine.py`, `execution_policy.py`,
-  `parallel_executor.py`, and `parallel_planner.py`: transaction execution and
-  block-processing flow
+- `processor.py`, `execution_engine.py`, and `execution_policy.py`: transaction
+  execution and block-processing flow
 - `simulator.py`, `simulator_worker.py`, `metrics.py`, and
   `vm_observability.py`: simulation and observability helpers
 - `services/`: BDS and state-sync-related services

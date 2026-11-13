@@ -6,16 +6,12 @@ This file records the runtime properties that must hold before an
 ## Determinism
 
 - The same transaction sequence must produce the same transaction results,
-  events, and committed state on every native V2 node. Speculative parallel
-  execution must match serial execution.
+  events, and committed state on every native V2 node. Blocks execute serially
+  in canonical transaction order.
 - Validator replay must converge on the same app hash and contract state after
   restart, catch-up, and proposal processing.
 - Block time, block hash, and chain-id handling must remain deterministic across
   nodes.
-- Parallel execution must include fee and reward configuration reads in its
-  conflict checks, including cached chi prices. A configuration update earlier
-  in a block must affect later transactions exactly as it does in serial
-  execution.
 
 ## Failure Semantics
 
@@ -89,7 +85,6 @@ The enforcement surface in this repo includes:
 
 - `tests/integration/test_vm_replay_parity.py`
 - `tests/integration/test_vm_processor_fuzz.py`
-- `tests/integration/test_parallel_executor.py`
 - `tests/unit/test_execution_engine.py`
 - `tests/unit/test_execution_revision.py`
 - `tests/unit/test_state_root.py`
