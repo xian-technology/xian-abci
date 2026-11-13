@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from contracting.execution.runtime import rt
+from contracting.runtime_features import RUNTIME_FEATURE_ZK, runtime_feature_enabled
 from contracting.stdlib.bridge import zk as zk_bridge
 
 try:
@@ -304,7 +305,11 @@ def warm_shielded_proof_cache(
     driver,
     txs: list[dict],
 ) -> ShieldedPreverifyStats:
-    if not zk_bridge.is_available():
+    # With the chain's zk feature off these transactions fail before any proof
+    # is verified, so warming would only spend CPU on proofs nothing reads.
+    if not zk_bridge.is_available() or not runtime_feature_enabled(
+        driver, RUNTIME_FEATURE_ZK, default_enabled=True
+    ):
         return ShieldedPreverifyStats()
 
     requests = []

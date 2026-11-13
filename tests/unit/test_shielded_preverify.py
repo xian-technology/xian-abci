@@ -75,6 +75,28 @@ def test_warm_shielded_proof_cache_noops_when_zk_bridge_is_unavailable():
     assert stats == ShieldedPreverifyStats()
 
 
+def test_warm_shielded_proof_cache_noops_when_the_chain_zk_feature_is_off():
+    # Those transactions fail before verifying a proof; warming would only
+    # spend every validator's CPU on proofs no execution reads.
+    driver = _Driver({})
+    driver.get = {"__runtime_features.zk": False}.get
+    with (
+        patch("xian.shielded_preverify.zk_bridge.is_available", return_value=True),
+        patch(
+            "xian.shielded_preverify.build_verification_request",
+            return_value={"vk_id": "demo"},
+        ),
+        patch("xian.shielded_preverify.zk_bridge.warm_verified_proofs") as warm,
+    ):
+        stats = warm_shielded_proof_cache(
+            driver=driver,
+            txs=[{"payload": {"kwargs": {"proof_hex": "0xabcd"}}}],
+        )
+
+    assert stats == ShieldedPreverifyStats()
+    warm.assert_not_called()
+
+
 def test_warm_shielded_proof_cache_counts_failed_preverification():
     request = {
         "vk_id": "demo",
