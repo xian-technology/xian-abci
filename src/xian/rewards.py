@@ -3,6 +3,7 @@ from collections import defaultdict
 
 from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal
+from xian_vm_core import tx_rewards
 
 from xian.constants import Constants as c
 from xian.fee_policy import chain_chi_rate
@@ -358,6 +359,31 @@ class RewardsHandler:
         )
 
     def build_tx_reward_outputs(
+        self,
+        total_chi_to_split,
+        contract,
+        *,
+        contract_costs=None,
+    ):
+        """``(rewards, reward_deltas, reward_records)`` of one transaction.
+
+        Over node state the Rust port computes them; it hands every input it
+        does not cover, and every case where this code raises, back here.
+        """
+        storage = getattr(getattr(self.client, "raw_driver", None), "committed_storage", None)
+        storage = storage() if storage is not None else None
+        if storage is not None:
+            environment, overlay = storage
+            computed = tx_rewards(
+                environment, overlay, total_chi_to_split, contract, contract_costs
+            )
+            if computed is not None:
+                return computed
+        return self._build_tx_reward_outputs(
+            total_chi_to_split, contract, contract_costs=contract_costs
+        )
+
+    def _build_tx_reward_outputs(
         self,
         total_chi_to_split,
         contract,
