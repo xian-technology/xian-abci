@@ -67,6 +67,15 @@ EVERY_VALUE_TYPE = {
     },
     "con_t.dict:empty": {},
     "con_t.dict:set_value": {"s": ContractingSet({"b", "a"})},
+    "con_t.delta:day": Timedelta(days=1, seconds=5),
+    "con_t.delta:negative": Timedelta(days=-3, seconds=-5),
+    "con_t.delta:weeks": Timedelta(weeks=1),
+    "con_t.delta:zero": Timedelta(),
+    "con_t.delta:nested": {"d": [Timedelta(days=2)], "a": Timedelta(seconds=1)},
+    "con_t.bytearray:text": bytearray(b"ab"),
+    "con_t.bytearray:binary": bytearray(b"\xff\x00"),
+    "con_t.bytearray:empty": bytearray(),
+    "con_t.bytearray:nested": [bytearray(b"x"), {"b": bytearray(b"\xfe")}],
 }
 
 
@@ -166,23 +175,7 @@ def test_long_and_unicode_keys_order_like_python(tmp_path):
     assert_reference_root(committed(tmp_path, {key: index for index, key in enumerate(keys)}))
 
 
-@pytest.mark.parametrize(
-    "key, value",
-    [
-        ("con_t.bytearray", bytearray(b"ab")),
-        ("con_t.delta", Timedelta(days=1, seconds=5)),
-        ("con_t.nested_delta", {"d": [Timedelta(days=2)]}),
-    ],
-)
-def test_a_consensus_value_the_abci_encoding_refuses_fails_like_python(tmp_path, key, value):
-    driver = committed(tmp_path, {key: value, "con_t.ok": 1})
-    with pytest.raises(TypeError):
-        driver_root(driver)
-    with pytest.raises(TypeError):
-        StateRootCache.from_driver(driver)
-
-
-def test_node_local_values_the_abci_encoding_refuses_are_skipped(tmp_path):
+def test_node_local_timedeltas_and_bytearrays_are_skipped(tmp_path):
     values = {"__local.delta": Timedelta(days=1), "__local.raw": bytearray(b"x"), "con_t.a": 1}
     assert_reference_root(committed(tmp_path, values))
 
@@ -207,6 +200,8 @@ def random_value(rng: random.Random, depth: int = 0):
                          rng.randrange(24), rng.randrange(60), rng.randrange(60),
                          rng.choice([0, rng.randrange(10**6)])),
         lambda: rng.randbytes(rng.randrange(4)),
+        lambda: bytearray(rng.randbytes(rng.randrange(4))),
+        lambda: Timedelta(days=rng.randrange(-400, 400), seconds=rng.randrange(-86400, 86400)),
         lambda: ContractingSet({rng.randrange(50) for _ in range(rng.randrange(4))}),
         lambda: ContractingFrozenSet({f"m{rng.randrange(9)}" for _ in range(rng.randrange(3))}),
     ]
