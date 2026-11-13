@@ -75,18 +75,124 @@ def seed():
 def get():
     return v.get()
 """
+SCAN = """import con_probe
+items = Hash(default_value=0)
+copy = Hash()
+probe_items = ForeignHash(foreign_contract="con_probe", foreign_name="items")
+balances = ForeignHash(foreign_contract="currency", foreign_name="balances")
+
+@export
+def fill(group: str, n: int):
+    for i in range(n):
+        items[group, str(i)] = i
+    return len(items.all(group))
+
+@export
+def fill_text(group: str, n: int, size: int):
+    for i in range(n):
+        items[group, str(i)] = "z" * size
+
+@export
+def put(group: str, key: str, value: int):
+    items[group, key] = value
+
+@export
+def drop(group: str, key: str):
+    items[group, key] = None
+
+@export
+def scan(group: str):
+    return items.all(group)
+
+@export
+def scan_everything():
+    return items.all()
+
+@export
+def write_then_scan(group: str):
+    items[group, "w"] = 99
+    items[group, "0"] = None
+    return items.all(group)
+
+@export
+def clear(group: str):
+    items.clear(group)
+    return items.all()
+
+@export
+def clone():
+    copy.clone_from(items)
+    return copy.all()
+
+@export
+def foreign():
+    return [probe_items.all(), balances.all()]
+
+@export
+def nested_then_scan(key: str):
+    con_probe.put(key=key, value=3)
+    return probe_items.all()
+
+@export
+def clear_then_fail(group: str):
+    items.clear(group)
+    assert False, "rolled back"
+
+@export
+def scan_then_random(group: str):
+    values = items.all(group)
+    random.seed()
+    return [values, random.getrandbits(8)]
+
+@export
+def info(name: str):
+    return [importlib.contract_info(name), importlib.contract_info(contract=name)]
+
+@export
+def module_info(name: str):
+    module = importlib.import_module(name)
+    return [
+        importlib.contract_info(module),
+        importlib.code_hash(module, kind="source"),
+        importlib.owner_of(module),
+        importlib.exists(module),
+        importlib.has_export(module, "put"),
+    ]
+
+@export
+def module_kind(name: str):
+    return importlib.code_hash("con_scan", importlib.import_module(name))
+
+@export
+def hashes(name: str, kind: str):
+    return [importlib.code_hash(name), importlib.code_hash(name, kind), importlib.code_hash(name, kind=kind)]
+"""
 ACCOUNTS = {"alice": 100_000, "bob": "250.5", "carol": None, "dave": "0.0003"}
 
 
 def _setup(home):
     client = ContractingClient(vm_profile="xian_vm_v2", storage_home=home)
     driver = client.raw_driver
-    driver.set_contract_from_source(
-        "currency", (ROOT / "xian-configs/contracts/currency.s.py").read_text()
-    )
-    driver.set_contract_from_source("con_probe", PROBE, developer="dev")
-    driver.set_contract_from_source("con_owned", OWNED, owner="bob")
     from xian_runtime_types.decimal import ContractingDecimal
+    from xian_runtime_types.time import Datetime
+
+    # Fixed submission times: contract.info returns them.
+    submitted = Datetime(2026, 1, 2, 3, 4, 5)
+    driver.set_contract_from_source(
+        "currency",
+        (ROOT / "xian-configs/contracts/currency.s.py").read_text(),
+        timestamp=submitted,
+    )
+    driver.set_contract_from_source("con_probe", PROBE, developer="dev", timestamp=submitted)
+    driver.set_contract_from_source("con_owned", OWNED, owner="bob", timestamp=submitted)
+    driver.set_contract_from_source(
+        "con_scan",
+        SCAN,
+        developer="dev",
+        deployer="deployer",
+        initiator="initiator",
+        timestamp=submitted,
+    )
 
     for account, balance in ACCOUNTS.items():
         if balance is not None:
@@ -140,26 +246,28 @@ def _block(seed, size, height):
         if index == size // 2:
             contract, function, budget = "submission", "submit_contract", 100_000
             kwargs = lambda rng, h=height: {"name": f"con_new_{h}", "code": DEPLOYED}  # noqa: E731
-        txs.append(
-            {
-                "payload": {
-                    "sender": sender,
-                    "contract": contract,
-                    "function": function,
-                    "kwargs": kwargs(rng),
-                    "nonce": index,
-                    "chi_supplied": budget,
-                },
-                "metadata": {"signature": f"sig-{seed}-{index}"},
-                "b_meta": {
-                    "nanos": 1_700_000_000_000_000_000 + height,
-                    "height": height,
-                    "hash": f"block-{height}",
-                    "chain_id": "xian-local",
-                },
-            }
-        )
+        txs.append(_tx(seed, index, height, sender, contract, function, kwargs(rng), budget))
     return txs
+
+
+def _tx(seed, index, height, sender, contract, function, kwargs, budget):
+    return {
+        "payload": {
+            "sender": sender,
+            "contract": contract,
+            "function": function,
+            "kwargs": kwargs,
+            "nonce": index,
+            "chi_supplied": budget,
+        },
+        "metadata": {"signature": f"sig-{seed}-{index}"},
+        "b_meta": {
+            "nanos": 1_700_000_000_000_000_000 + height,
+            "height": height,
+            "hash": f"block-{height}",
+            "chain_id": "xian-local",
+        },
+    }
 
 
 def _run(home, blocks, *, native, monkeypatch=None):
@@ -223,3 +331,95 @@ def test_rust_block_execution_matches_the_per_transaction_path(tmp_path, monkeyp
     ]
     assert [run for run in python_runs if run[0] == "alice"] == alice
     assert len(python_runs) < sum(len(txs) for txs in blocks) // 2
+
+
+LONG = "x" * 600
+# (sender, function, kwargs, chi budget) per block; every call goes to con_scan
+# except the contract submission.
+SCAN_BLOCKS = [
+    [
+        ("alice", "fill", {"group": "a", "n": 5}, 5000),
+        ("alice", "fill", {"group": "b", "n": 3}, 5000),
+        ("alice", "scan", {"group": "a"}, 3000),
+        ("alice", "drop", {"group": "a", "key": "1"}, 3000),
+        ("alice", "scan", {"group": "a"}, 3000),
+        ("alice", "scan_everything", {}, 3000),
+        ("alice", "info", {"name": "con_scan"}, 3000),
+        ("alice", "info", {"name": "con_nope"}, 3000),
+        ("alice", "module_info", {"name": "con_probe"}, 3000),
+        ("alice", "module_info", {"name": "con_owned"}, 3000),
+        ("alice", "module_kind", {"name": "con_probe"}, 3000),
+        ("alice", "hashes", {"name": "con_scan", "kind": "ir"}, 3000),
+        ("alice", "hashes", {"name": "con_scan", "kind": "source"}, 3000),
+        ("alice", "hashes", {"name": "con_scan", "kind": "runtime"}, 3000),
+        ("alice", "hashes", {"name": "con_nope", "kind": "source"}, 3000),
+        ("alice", "hashes", {"name": "con_scan", "kind": "compiled"}, 3000),
+        ("alice", "hashes", {"name": "con_scan", "kind": ""}, 3000),
+        ("alice", "submit_contract", {"name": "con_new_1", "code": DEPLOYED}, 100_000),
+        ("alice", "info", {"name": "con_new_1"}, 3000),
+        ("alice", "hashes", {"name": "con_new_1", "kind": "source"}, 3000),
+        ("bob", "foreign", {}, 3000),
+        ("alice", "nested_then_scan", {"key": "q"}, 5000),
+        ("carol", "scan", {"group": "a"}, 3000),
+    ],
+    [
+        ("alice", "scan", {"group": "a"}, 3000),
+        ("alice", "put", {"group": "a", "key": "10", "value": 7}, 3000),
+        ("alice", "drop", {"group": "a", "key": "2"}, 3000),
+        ("alice", "scan", {"group": "a"}, 3000),
+        ("alice", "write_then_scan", {"group": "b"}, 3000),
+        ("alice", "clear", {"group": "b"}, 3000),
+        ("alice", "scan_everything", {}, 3000),
+        ("alice", "clone", {}, 5000),
+        ("alice", "clear_then_fail", {"group": "a"}, 3000),
+        ("alice", "scan_then_random", {"group": "a"}, 3000),
+        ("alice", "scan", {"group": "a"}, 3000),
+        ("dave", "foreign", {}, 3000),
+        ("bob", "foreign", {}, 3000),
+        ("alice", "info", {"name": LONG}, 3000),
+        ("alice", "hashes", {"name": LONG, "kind": "ir"}, 3000),
+        ("alice", "scan", {"group": LONG}, 3000),
+        ("alice", "scan", {"group": "y" * 500}, 3000),
+        ("alice", "scan", {"group": "nothing"}, 3000),
+    ],
+    [
+        ("alice", "fill", {"group": "big", "n": 300}, 60_000),
+        *[("alice", "scan", {"group": "big"}, budget) for budget in (40, 400, 812, 813, 2000)],
+        ("alice", "clear", {"group": "big"}, 300),
+        ("alice", "scan_everything", {}, 3000),
+        ("alice", "clear", {"group": "big"}, 30_000),
+        ("alice", "scan", {"group": "big"}, 3000),
+    ],
+    [
+        ("alice", "fill_text", {"group": "t1", "n": 20, "size": 4000}, 150_000),
+        ("alice", "fill_text", {"group": "t2", "n": 20, "size": 4000}, 150_000),
+        ("alice", "scan", {"group": "t1"}, 150_000),
+        ("alice", "scan_everything", {}, 150_000),
+        ("alice", "clear", {"group": "t2"}, 150_000),
+    ],
+]
+
+
+def _scan_blocks():
+    blocks = []
+    for height, calls in enumerate(SCAN_BLOCKS, start=1):
+        txs = []
+        for index, (sender, function, kwargs, budget) in enumerate(calls):
+            contract = "submission" if function == "submit_contract" else "con_scan"
+            txs.append(_tx(100 + height, index, height, sender, contract, function, kwargs, budget))
+        blocks.append(txs)
+    return blocks
+
+
+def test_hash_scans_and_contract_metadata_run_in_rust_like_the_python_path(tmp_path, monkeypatch):
+    blocks = _scan_blocks()
+    expected, _ = _run(tmp_path / "python", blocks, native=False)
+    actual, python_runs = _run(tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch)
+    assert len(actual) == len(expected)
+    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
+        assert left == right, index
+    # Only contract submission and random need Python.
+    assert python_runs == [
+        ("alice", "submission", "submit_contract"),
+        ("alice", "con_scan", "scan_then_random"),
+    ]
