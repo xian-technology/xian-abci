@@ -63,15 +63,6 @@
   "deploy/zk_contract": "contract submission"
  },
  "owner": {
-  "owner/change_developer": "contract submission",
-  "owner/change_developer_not_developer": "contract submission",
-  "owner/change_developer_to_empty": "contract submission",
-  "owner/change_owner": "contract submission",
-  "owner/change_owner_not_owner": "contract submission",
-  "owner/change_owner_of_missing": "contract submission",
-  "owner/change_owner_of_unowned": "contract submission",
-  "owner/change_owner_to_empty": "contract submission",
-  "owner/change_owner_too_little_chi": "contract submission",
   "owner/old_owner_rejected": "caller is not the owner"
  },
  "policy_free": {

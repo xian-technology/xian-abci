@@ -186,21 +186,29 @@ class TxProcessor:
                 payload["contract"],
                 payload["function"],
                 kwargs,
-                {
-                    "signer": payload["sender"],
-                    "caller": payload["sender"],
-                    "this": payload["contract"],
-                    "entry": (payload["contract"], payload["function"]),
-                    "submission_name": None,
-                    "now": environment["now"],
-                    "block_num": environment["block_num"],
-                    "block_hash": environment["block_hash"],
-                    "chain_id": environment["chain_id"],
-                },
+                self._vm_context(payload, kwargs, environment),
                 payload["chi_supplied"],
                 canonical_transaction_size_bytes(tx),
             )
         return executor
+
+    @staticmethod
+    def _vm_context(payload: dict, kwargs: dict | None, environment: dict) -> dict:
+        """The execution context ``execute_vm_contract`` gives a transaction
+        (without the owner, which the executor reads)."""
+        contract = payload["contract"]
+        submission = contract == "submission" and kwargs is not None
+        return {
+            "signer": payload["sender"],
+            "caller": payload["sender"],
+            "this": contract,
+            "entry": (contract, payload["function"]),
+            "submission_name": kwargs.get("name") if submission else None,
+            "now": environment["now"],
+            "block_num": environment["block_num"],
+            "block_hash": environment["block_hash"],
+            "chain_id": environment["chain_id"],
+        }
 
     def _native_response(self, tx, outcome, fee_policy: TxFeePolicy) -> dict:
         """The ``process_tx`` response for a transaction executed in Rust,

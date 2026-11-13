@@ -212,7 +212,7 @@ def announce(seconds: int):
 ACCOUNTS = {"alice": 100_000, "bob": "250.5", "carol": None, "dave": "0.0003"}
 
 
-def _setup(home):
+def _setup(home, contracts=()):
     client = ContractingClient(vm_profile="xian_vm_v2", storage_home=home)
     driver = client.raw_driver
     from xian_runtime_types.decimal import ContractingDecimal
@@ -237,6 +237,10 @@ def _setup(home):
     )
     driver.set_contract_from_source("con_times", TIMES, timestamp=submitted)
     driver.set_contract_from_source("validators", VALIDATORS, timestamp=submitted)
+    for name, source, developer in contracts:
+        driver.set_contract_from_source(
+            name, source, developer=developer, timestamp=submitted, overwrite=True
+        )
 
     for account, balance in ACCOUNTS.items():
         if balance is not None:
@@ -315,8 +319,8 @@ def _tx(seed, index, height, sender, contract, function, kwargs, budget):
     }
 
 
-def _run(home, blocks, *, native, monkeypatch=None, policy=None):
-    client, processor, rewards = _setup(home)
+def _run(home, blocks, *, native, monkeypatch=None, policy=None, contracts=()):
+    client, processor, rewards = _setup(home, contracts)
     policy = policy or TxFeePolicy.paid_metered()
     python_runs = []
     if monkeypatch is not None:
@@ -412,6 +416,60 @@ def test_unmetered_system_execution_matches_the_per_transaction_path(tmp_path, m
     ]
     assert python_runs == [call for call in calls if needs_python(*call)]
     assert len(python_runs) < len(calls) // 2
+
+
+# A submission contract that changes contract metadata (only submission may).
+METADATA = """@export
+def change(n: int, developer: str):
+    Contract.set_owner("con_scan", "o" * n)
+    Contract.set_developer("con_probe", developer)
+    return n
+"""
+# Host charges count for the transaction's entry contract: here the relay, so
+# the developer reward splits differently from the costs the VM measured.
+RELAY = """import submission
+
+@export
+def relay(n: int, developer: str):
+    return submission.change(n=n, developer=developer)
+"""
+POLICIES = {
+    "paid": TxFeePolicy.paid_metered,
+    "free": TxFeePolicy.free_metered,
+    "unmetered": TxFeePolicy.system_unmetered,
+}
+
+
+@pytest.mark.parametrize("policy", sorted(POLICIES))
+def test_contract_metadata_changes_run_in_rust_like_the_python_path(tmp_path, monkeypatch, policy):
+    # Each change stages its write and, metered, charges (encoded key +
+    # value) * 25 raw to the shared budget: around 50 chi for a 2000-byte
+    # owner, so the smaller budgets run out of chi in the host, the larger
+    # ones succeed and pay the developer reward of the entry contract.
+    calls = [
+        ("alice", "submission", "change", {"n": 2000, "developer": f"dev{budget}"}, budget)
+        for budget in range(20, 90, 3)
+    ]
+    calls += [
+        ("alice", "con_relay", "relay", {"n": 300, "developer": "relayed"}, 3000),
+        ("alice", "con_probe", "put", {"key": "a", "value": 1}, 3000),
+    ]
+    blocks = [[_tx(300, index, 1, *call) for index, call in enumerate(calls)]]
+    contracts = [("submission", METADATA, "submission_dev"), ("con_relay", RELAY, "relay_dev")]
+    options = {"policy": POLICIES[policy](), "contracts": contracts}
+    expected, _ = _run(tmp_path / "python", blocks, native=False, **options)
+    actual, python_runs = _run(
+        tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch, **options
+    )
+    assert actual == expected
+    assert python_runs == []
+    receipts = [json.loads(entry[0]) for entry in actual if isinstance(entry, tuple)]
+    results = {receipt["result"] for receipt in receipts[:-2]}
+    assert receipts[-2]["result"] == 300
+    if policy == "unmetered":
+        assert results == {2000}
+    else:
+        assert {"'VmRuntimeExecutionError: Out of chi.'", 2000} <= results
 
 
 LONG = "x" * 600
