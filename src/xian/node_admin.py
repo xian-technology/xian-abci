@@ -533,7 +533,10 @@ def configure_existing_home(
             node_config=node_config,
         )
 
-    request = options
+    return _configure_home(options)
+
+
+def _configure_home(request: ExistingHomeOptions) -> dict[str, str | list[str] | None]:
     node_config = request.node_config or NodeConfigOptions(moniker=request.moniker)
     config_path = request.home / "config" / "config.toml"
     existing_config = load_existing_cometbft_config(config_path)
@@ -571,46 +574,9 @@ def configure_existing_home(
     xian_config = rendered_configs["xian"]
     config = preserve_runtime_config(rendered_config, existing_config)
 
-    snapshot_archive_name: str | None = None
-    if request.snapshot_url:
-        snapshot_archive_name = apply_snapshot_archive(
-            request.snapshot_url,
-            request.home,
-            trusted_manifest_public_keys=list(request.snapshot_signing_public_keys) or None,
-            expected_chain_id=request.snapshot_expected_chain_id,
-        )
-
-    genesis_target_path: Path | None = None
-    if request.genesis_payload is not None or request.genesis_source is not None:
-        genesis_target_path = resolve_home_relative_path(
-            request.home,
-            config["genesis_file"],
-        )
-        genesis_target_path.parent.mkdir(parents=True, exist_ok=True)
-        if request.genesis_payload is not None:
-            write_json(
-                genesis_target_path,
-                request.genesis_payload,
-                overwrite=True,
-            )
-        elif request.genesis_source is not None:
-            genesis_source_path = resolve_genesis_source(request.genesis_source)
-            shutil.copy2(genesis_source_path, genesis_target_path)
-
-    priv_validator_key_path: Path | None = None
-    if request.validator_private_key_hex is not None:
-        priv_validator_key_path = resolve_home_relative_path(
-            request.home,
-            config["priv_validator_key_file"],
-        )
-        priv_validator_key = build_priv_validator_key(request.validator_private_key_hex)
-        priv_validator_key.pop("_private_key_hex", None)
-        write_json(
-            priv_validator_key_path,
-            priv_validator_key,
-            overwrite=True,
-            private=True,
-        )
+    snapshot_archive_name = _restore_snapshot(request)
+    genesis_target_path = _install_genesis(request, config["genesis_file"])
+    priv_validator_key_path = _install_validator_key(request, config["priv_validator_key_file"])
 
     xian_config_path = request.home / "config" / "xian.toml"
     write_toml(config_path, config, overwrite=True)
@@ -626,3 +592,36 @@ def configure_existing_home(
         "p2p_seeds": list(p2p_seeds),
         "p2p_persistent_peers": list(request.p2p_persistent_peers),
     }
+
+
+def _restore_snapshot(request: ExistingHomeOptions) -> str | None:
+    if not request.snapshot_url:
+        return None
+    return apply_snapshot_archive(
+        request.snapshot_url,
+        request.home,
+        trusted_manifest_public_keys=list(request.snapshot_signing_public_keys) or None,
+        expected_chain_id=request.snapshot_expected_chain_id,
+    )
+
+
+def _install_genesis(request: ExistingHomeOptions, genesis_file: str) -> Path | None:
+    if request.genesis_payload is None and request.genesis_source is None:
+        return None
+    genesis_target_path = resolve_home_relative_path(request.home, genesis_file)
+    genesis_target_path.parent.mkdir(parents=True, exist_ok=True)
+    if request.genesis_payload is not None:
+        write_json(genesis_target_path, request.genesis_payload, overwrite=True)
+    else:
+        shutil.copy2(resolve_genesis_source(request.genesis_source), genesis_target_path)
+    return genesis_target_path
+
+
+def _install_validator_key(request: ExistingHomeOptions, key_file: str) -> Path | None:
+    if request.validator_private_key_hex is None:
+        return None
+    priv_validator_key_path = resolve_home_relative_path(request.home, key_file)
+    priv_validator_key = build_priv_validator_key(request.validator_private_key_hex)
+    priv_validator_key.pop("_private_key_hex", None)
+    write_json(priv_validator_key_path, priv_validator_key, overwrite=True, private=True)
+    return priv_validator_key_path

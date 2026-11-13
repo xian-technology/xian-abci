@@ -71,19 +71,9 @@ def build_exported_state(
 ) -> dict[str, Any]:
     execution_policy = run_state.get(EXECUTION_POLICY_KEY)
     validate_execution_policy(execution_policy)
-    latest_app_hash = (
-        latest_block_hash if latest_block_hash is not None else get_latest_block_hash(storage_home)
-    )
-    block_height = (
-        latest_block_height
-        if latest_block_height is not None
-        else get_latest_block_height(storage_home)
-    )
-    block_nanos = (
-        latest_block_nanos
-        if latest_block_nanos is not None
-        else get_latest_block_nanos(storage_home)
-    )
+    latest_app_hash = _given_or_stored(latest_block_hash, get_latest_block_hash, storage_home)
+    block_height = _given_or_stored(latest_block_height, get_latest_block_height, storage_home)
+    block_nanos = _given_or_stored(latest_block_nanos, get_latest_block_nanos, storage_home)
 
     exported_state = {
         "hash": "",
@@ -120,13 +110,21 @@ def build_exported_state(
     exported_state["hash"] = state_root.hex()
 
     if founder_private_key:
-        founder_wallet = Ed25519Account(founder_private_key)
-        exported_state["origin"]["sender"] = founder_wallet.public_key
-        exported_state["origin"]["signature"] = founder_wallet.sign_msg(
-            hash_state_changes(exported_state["genesis"])
-        )
+        exported_state["origin"] = _signed_origin(founder_private_key, exported_state["genesis"])
 
     return exported_state
+
+
+def _given_or_stored(value, read_stored, storage_home: Path | None):
+    return value if value is not None else read_stored(storage_home)
+
+
+def _signed_origin(founder_private_key: str, genesis: list[dict]) -> dict[str, str]:
+    founder_wallet = Ed25519Account(founder_private_key)
+    return {
+        "signature": founder_wallet.sign_msg(hash_state_changes(genesis)),
+        "sender": founder_wallet.public_key,
+    }
 
 
 def export_state(
