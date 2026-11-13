@@ -27,7 +27,9 @@ def test_shared_sdk_transactions_pass_node_validation(monkeypatch, vector, nativ
     assert decoded["payload"] == vector["payload"]
 
 
-def _signed_wire(*, upper_sender: bool, upper_signature: bool) -> bytes:
+def _signed_wire(
+    *, upper_sender: bool = False, upper_signature: bool = False, kwargs=None
+) -> bytes:
     import nacl.encoding
     import nacl.signing
 
@@ -40,7 +42,7 @@ def _signed_wire(*, upper_sender: bool, upper_signature: bool) -> bytes:
         "chi_supplied": 100,
         "contract": "currency",
         "function": "transfer",
-        "kwargs": {"amount": 1, "to": "bob"},
+        "kwargs": kwargs or {"amount": 1, "to": "bob"},
         "nonce": 0,
         "sender": sender,
     }
@@ -87,3 +89,27 @@ def test_native_decode_result_is_held_to_the_canonical_identity_rule(sender, sig
         tx_module._require_canonical_identity(
             {"payload": {"sender": sender}, "metadata": {"signature": signature}}
         )
+
+
+@pytest.mark.parametrize("native", [False, True], ids=["python", "native"])
+@pytest.mark.parametrize(
+    "delta",
+    ["12", "\u0661\u0662", {"10": 0, "-5": 0}],
+    ids=["two-character-string", "non-ascii-digits", "two-key-object"],
+)
+def test_a_delta_argument_is_admitted_only_as_two_integers(monkeypatch, native, delta):
+    # CheckTx, ProcessProposal and FinalizeBlock share this admission. Since
+    # execution revision 14 a delta that tuple unpacking once read as
+    # Timedelta(days, seconds) is not canonical wire input.
+    if native and tx_module._native_decode_and_validate_transaction_static is None:
+        pytest.skip("native fastpath extension is not installed")
+    if not native:
+        monkeypatch.setattr(tx_module, "_native_decode_and_validate_transaction_static", None)
+    admit = tx_module.decode_and_validate_transaction_static_bytes
+    canonical = _signed_wire(kwargs={"d": {"__delta__": [1, 2]}})
+    assert admit(canonical, chain_id="xian-local")["payload"]["kwargs"] == {
+        "d": {"__delta__": [1, 2]}
+    }
+    wire = _signed_wire(kwargs={"d": {"__delta__": delta}})
+    with pytest.raises(tx_module.TransactionException, match="not canonical"):
+        admit(wire, chain_id="xian-local")
