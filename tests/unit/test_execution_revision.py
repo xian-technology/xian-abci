@@ -19,7 +19,7 @@ def policy_state(value=None):
 
 def test_policy_requires_exact_current_identifiers():
     expected = {
-        "execution_revision": "xvm-execution-12",
+        "execution_revision": "xvm-execution-13",
         "gas_schedule": "xvm-gas-6",
         "bytecode_version": "xvm-2",
         "set_codec": "xian-set-1",
@@ -173,6 +173,7 @@ def test_fresh_bootstrap_accepts_existing_empty_database(tmp_path):
         "xvm-execution-9",
         "xvm-execution-10",
         "xvm-execution-11",
+        "xvm-execution-12",
     ]
 )
 def previous_policy(request):
@@ -260,4 +261,4 @@ def test_installed_native_runtimes_match_the_node_policy():
     from xian.execution_engine import build_vm_runtime
 
     runtime = build_vm_runtime()
-    assert runtime.runtime_info["execution_revision"] == "xvm-execution-12"
+    assert runtime.runtime_info["execution_revision"] == "xvm-execution-13"
