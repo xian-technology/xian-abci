@@ -5,7 +5,8 @@ import json
 
 from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
 from xian_runtime_types.decimal import ContractingDecimal
-from xian_runtime_types.time import Datetime
+from xian_runtime_types.encoding import decode_wire_numbers, normalize_wire_numbers
+from xian_runtime_types.time import Datetime, Timedelta
 
 _TYPE_KEY = "__xian_ipc_type__"
 _SCALAR_TYPES = (
@@ -13,6 +14,9 @@ _SCALAR_TYPES = (
     (decimal.Decimal, "decimal", str),
     (Datetime, "datetime", str),
     (bytes, "bytes", bytes.hex),
+    # The tagged wire form, e.g. {"__delta__": [days, seconds]}.
+    (Timedelta, "timedelta", normalize_wire_numbers),
+    (bytearray, "bytearray", normalize_wire_numbers),
 )
 _COLLECTION_TYPES = (
     (decimal.DecimalTuple, "decimal_tuple"),
@@ -59,6 +63,8 @@ _SCALAR_DECODERS = {
     "decimal": decimal.Decimal,
     "datetime": _decode_datetime,
     "bytes": bytes.fromhex,
+    "timedelta": decode_wire_numbers,
+    "bytearray": decode_wire_numbers,
 }
 _COLLECTION_DECODERS = {tag: value_type for value_type, tag in _COLLECTION_TYPES}
 _COLLECTION_DECODERS.update(

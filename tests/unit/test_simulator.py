@@ -13,7 +13,7 @@ from contracting.local import ContractingClient
 from contracting.storage.driver import Driver
 from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
 from xian_runtime_types.decimal import ContractingDecimal
-from xian_runtime_types.time import Datetime
+from xian_runtime_types.time import Datetime, Timedelta
 from xian_vm_core import BlockState
 
 from xian import simulator_ipc
@@ -162,6 +162,9 @@ class SimulatorIpcTests(unittest.TestCase):
             "set": {"prefix.b", "prefix.a"},
             "tuple": ("left", "right"),
             "bytes": b"abc",
+            "bytearray": bytearray(b"\x00\xff"),
+            "timedelta": Timedelta(days=-999_999_999),
+            "nested": [Timedelta(days=1, seconds=2), (bytearray(),)],
         }
 
         decoded = simulator_ipc.loads(simulator_ipc.dumps(payload))
@@ -172,6 +175,10 @@ class SimulatorIpcTests(unittest.TestCase):
         self.assertEqual(decoded["set"], {"prefix.b", "prefix.a"})
         self.assertEqual(decoded["tuple"], ("left", "right"))
         self.assertEqual(decoded["bytes"], b"abc")
+        self.assertEqual(type(decoded["bytearray"]), bytearray)
+        self.assertEqual(decoded["bytearray"], bytearray(b"\x00\xff"))
+        self.assertEqual(decoded["timedelta"], Timedelta(days=-999_999_999))
+        self.assertEqual(decoded["nested"], [Timedelta(days=1, seconds=2), (bytearray(),)])
 
 
 class SimulatorTests(unittest.TestCase):

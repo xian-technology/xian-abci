@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from nacl.signing import SigningKey
 from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
+from xian_runtime_types.time import Timedelta
 
 from cometbft.abci.v1beta2.types_pb2 import ResponseProcessProposal
 from cometbft.abci.v1beta3.types_pb2 import (
@@ -72,14 +73,7 @@ def signed_tx(app, *, function, nonce, chi=2_000):
     )
 
 
-@pytest.mark.parametrize(
-    "expression",
-    [
-        "{1: 2}",
-        "bytearray(b'abc')",
-        "datetime.timedelta(days=1)",
-    ],
-)
+@pytest.mark.parametrize("expression", ["{1: 2}"])
 def test_finalize_rejects_invalid_state_and_commits_following_transaction(tmp_path, expression):
     source = (
         "value = Variable()\nvalid = Variable()\n\n"
@@ -146,6 +140,57 @@ def test_finalize_persists_wrapper_sets_and_reads_typed_members_next_block(tmp_p
             )
             assert second.tx_results[0].code == 0
             assert json.loads(second.tx_results[0].data)["result"] == [True, True]
+            await app.commit()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "expression, expected, wire",
+    [
+        (
+            "datetime.timedelta(days=-999999999)",
+            Timedelta(days=-999_999_999),
+            {"__delta__": [-999_999_999, 0]},
+        ),
+        ("bytearray(b'a\\xff')", bytearray(b"a\xff"), {"__bytearray__": "61ff"}),
+    ],
+)
+def test_finalize_persists_timedelta_and_bytearray_and_reads_them_next_block(
+    tmp_path, expression, expected, wire
+):
+    source = (
+        "value = Variable()\n"
+        f"@export\ndef store():\n    value.set({expression})\n"
+        "@export\ndef read():\n    return value.get()\n"
+    )
+
+    async def run():
+        async with isolated_app(tmp_path, source) as app:
+            first = await app.finalize_block(
+                RequestFinalizeBlock(
+                    height=1,
+                    hash=b"1" * 32,
+                    txs=[signed_tx(app, function="store", nonce=0)],
+                )
+            )
+            assert first.tx_results[0].code == 0
+            state = json.loads(first.tx_results[0].data)["state"]
+            assert {"key": "con_boundary.value", "value": wire} in state
+            await app.commit()
+            app.client.raw_driver.flush_cache()
+            stored = app.client.raw_driver.get("con_boundary.value")
+            assert type(stored) is type(expected) and stored == expected
+            assert StateRootCache.from_driver(app.client.raw_driver).root_hash == first.app_hash
+            second = await app.finalize_block(
+                RequestFinalizeBlock(
+                    height=2,
+                    hash=b"2" * 32,
+                    txs=[signed_tx(app, function="read", nonce=1)],
+                )
+            )
+            assert second.tx_results[0].code == 0
+            assert json.loads(second.tx_results[0].data)["result"] == wire
             await app.commit()
 
     asyncio.run(run())

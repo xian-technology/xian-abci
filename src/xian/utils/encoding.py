@@ -15,7 +15,7 @@ from xian_runtime_types.encoding import (
     safe_repr,
 )
 from xian_runtime_types.set_codec import RESERVED_TAGS
-from xian_runtime_types.time import Datetime
+from xian_runtime_types.time import Datetime, Timedelta
 
 from xian.log_safety import error_fields
 
@@ -184,38 +184,52 @@ class _NonStringKey(ValueError):
     pass
 
 
+def _abci_bytes(obj):
+    try:
+        return obj.decode("utf-8")
+    except UnicodeDecodeError:
+        return str(obj)
+
+
+def _abci_dict(obj):
+    if obj.keys() & RESERVED_TAGS:
+        return normalize_wire_numbers(obj)
+    normalized = []
+    for key, value in obj.items():
+        if not isinstance(key, str):
+            raise _NonStringKey("Non-string key types not allowed.")
+        normalized.append((key, normalize_for_abci_json(value)))
+    normalized.sort(key=lambda item: item[0])
+    return dict(normalized)
+
+
+def _abci_sequence(obj):
+    return [normalize_for_abci_json(elem) for elem in obj]
+
+
+# The JSON form of each runtime type in receipts and state-root leaves; the
+# first matching entry applies. Timedeltas and bytearrays keep the tagged wire
+# form the encoder writes.
+_ABCI_JSON_FORMS = (
+    (BaseException, lambda obj: safe_repr(obj) or str(obj)),
+    ((ContractingDecimal, decimal.Decimal), lambda obj: {"__fixed__": canonical_fixed(obj)}),
+    ((Timedelta, bytearray), normalize_wire_numbers),
+    (datetime, datetime.isoformat),
+    (Datetime, str),
+    (bytes, _abci_bytes),
+    (dict, _abci_dict),
+    ((tuple, list), _abci_sequence),
+)
+
+
 def normalize_for_abci_json(obj):
     if is_wrapper_set(obj):
         return normalize_wire_numbers(encode_set_value(obj))
-    if isinstance(obj, BaseException):
-        return safe_repr(obj) or str(obj)
-    if isinstance(obj, (ContractingDecimal, decimal.Decimal)):
-        return {"__fixed__": canonical_fixed(obj)}
     if type(obj) in (int, float):
         return normalize_wire_numbers(obj)
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    if isinstance(obj, Datetime):
-        return str(obj)
-    if isinstance(obj, bytes):
-        try:
-            return obj.decode("utf-8")
-        except UnicodeDecodeError:
-            return str(obj)
-    if isinstance(obj, dict):
-        if obj.keys() & RESERVED_TAGS:
-            return normalize_wire_numbers(obj)
-        normalized = []
-        for key, value in obj.items():
-            if not isinstance(key, str):
-                raise _NonStringKey("Non-string key types not allowed.")
-            normalized.append((key, normalize_for_abci_json(value)))
-        normalized.sort(key=lambda item: item[0])
-        return {key: value for key, value in normalized}
-    if isinstance(obj, tuple):
-        return [normalize_for_abci_json(elem) for elem in obj]
-    if isinstance(obj, list):
-        return [normalize_for_abci_json(elem) for elem in obj]
+    for types, render in _ABCI_JSON_FORMS:
+        if isinstance(obj, types):
+            return render(obj)
     return obj
 
 

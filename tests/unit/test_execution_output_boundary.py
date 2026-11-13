@@ -45,8 +45,6 @@ def execute_output(**fields):
     [
         {1: 2},
         [{"nested": {5: 1}}],
-        bytearray(b"abc"),
-        Timedelta(days=1),
     ],
 )
 @pytest.mark.parametrize("field", ["writes", "events"])
@@ -88,6 +86,8 @@ def test_supported_effects_and_return_only_dict_keep_their_original_values():
         "decimal": Decimal("1.25"),
         "fixed": ContractingDecimal("2.5"),
         "time": Datetime(2026, 10, 30),
+        "span": Timedelta(days=-1, seconds=5),
+        "raw": bytearray(b"abc"),
     }
     output = execute_output(
         writes={"con_demo.value": value}, events=[{"data": value}], result={1: 2}
@@ -106,6 +106,9 @@ def test_native_failure_keeps_its_original_error_and_cost():
     assert output.chi_used == 7
 
 
+STORED = {"bytearray(b'abc')": bytearray(b"abc"), "datetime.timedelta(days=1)": Timedelta(days=1)}
+
+
 @pytest.mark.parametrize(
     "expression",
     [
@@ -117,7 +120,7 @@ def test_native_failure_keeps_its_original_error_and_cost():
     ],
 )
 @pytest.mark.parametrize("store", [False, True])
-def test_processor_preserves_return_values_but_rejects_unencodable_state(
+def test_processor_stores_and_returns_wire_values_but_rejects_unencodable_state(
     tmp_path,
     expression,
     store,
@@ -148,7 +151,9 @@ def test_processor_preserves_return_values_but_rejects_unencodable_state(
         output = processor.process_tx(tx, fee_policy=TxFeePolicy.paid_metered())["tx_result"]
         assert output is not None
         wrapper = expression.startswith(("set(", "frozenset("))
-        failed = (store and not wrapper) or expression == "{1: 2}"
+        # Sets, bytearrays and timedeltas have a wire form; a dict with an
+        # int key has none and can only be returned (as text).
+        failed = expression == "{1: 2}"
         assert output["status"] == int(failed)
         assert output["chi_used"] > 0
         assert client.raw_driver.get("currency.balances:alice") < 100_000
@@ -160,14 +165,14 @@ def test_processor_preserves_return_values_but_rejects_unencodable_state(
                 stored,
                 ContractingFrozenSet if expression.startswith("frozenset") else ContractingSet,
             )
+        elif store and not failed:
+            assert stored == STORED[expression]
         else:
             assert stored is None
         if failed:
             assert isinstance(output["result"], str)
         elif store:
             assert output["result"] is None
-        elif wrapper:
-            assert isinstance(output["result"], dict)
         else:
-            assert isinstance(output["result"], str)
+            assert isinstance(output["result"], dict)
         encode_abci_json(output)

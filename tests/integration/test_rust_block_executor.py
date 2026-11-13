@@ -8,12 +8,14 @@ be byte-identical to processing every transaction with ``process_tx``.
 
 from __future__ import annotations
 
+import json
 import random
 from pathlib import Path
 
 import pytest
 from contracting.local import ContractingClient
-from xian_runtime_types.encoding import encode
+from xian_runtime_types.encoding import decode_wire_numbers, encode
+from xian_runtime_types.time import Timedelta
 
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
@@ -167,6 +169,35 @@ def module_kind(name: str):
 def hashes(name: str, kind: str):
     return [importlib.code_hash(name), importlib.code_hash(name, kind), importlib.code_hash(name, kind=kind)]
 """
+TIMES = """span = Variable()
+spans = Hash()
+raw = Variable()
+Seen = LogEvent("Seen", {"name": indexed(str), "spans": set, "raw": bytearray})
+
+@export
+def keep(days: int, seconds: int):
+    span.set(datetime.timedelta(days=days, seconds=seconds))
+    spans[days] = {"pair": [span.get(), datetime.timedelta(days=-days)]}
+    return span.get()
+
+@export
+def read(days: int):
+    return [span.get(), spans[days]]
+
+@export
+def keep_arg(d: datetime.timedelta):
+    spans["arg"] = d
+    return spans["arg"]
+
+@export
+def keep_bytes():
+    raw.set(bytearray(b"ab\\xff"))
+    return raw.get()
+
+@export
+def announce(seconds: int):
+    Seen({"name": "x", "spans": set([datetime.timedelta(seconds=seconds)]), "raw": bytearray(b"q")})
+"""
 ACCOUNTS = {"alice": 100_000, "bob": "250.5", "carol": None, "dave": "0.0003"}
 
 
@@ -193,6 +224,7 @@ def _setup(home):
         initiator="initiator",
         timestamp=submitted,
     )
+    driver.set_contract_from_source("con_times", TIMES, timestamp=submitted)
 
     for account, balance in ACCOUNTS.items():
         if balance is not None:
@@ -423,3 +455,64 @@ def test_hash_scans_and_contract_metadata_run_in_rust_like_the_python_path(tmp_p
         ("alice", "submission", "submit_contract"),
         ("alice", "con_scan", "scan_then_random"),
     ]
+# Largest and smallest Python timedelta, a negative one and a plain one.
+SPANS = [(1, 2), (-3, 5), (999_999_999, 86_399), (-999_999_999, 0)]
+
+
+def _times_block(height):
+    calls = [("keep", {"days": days, "seconds": seconds}) for days, seconds in SPANS]
+    calls += [("read", {"days": days}) for days, _ in SPANS]
+    calls += [
+        ("keep_arg", {"d": {"__delta__": [-1, 86_399]}}),
+        ("keep_bytes", {}),
+        ("announce", {"seconds": -7_200}),
+    ]
+    return [
+        {
+            "payload": {
+                "sender": "alice",
+                "contract": "con_times",
+                "function": function,
+                "kwargs": kwargs,
+                "nonce": index,
+                "chi_supplied": 5000,
+            },
+            "metadata": {"signature": f"times-{height}-{index}"},
+            "b_meta": {
+                "nanos": 1_700_000_000_000_000_000 + height,
+                "height": height,
+                "hash": f"block-{height}",
+                "chain_id": "xian-local",
+            },
+        }
+        for index, (function, kwargs) in enumerate(calls)
+    ]
+
+
+def test_timedelta_and_bytearray_values_are_stored_returned_and_emitted(tmp_path, monkeypatch):
+    blocks = [_times_block(1)]
+    expected, _ = _run(tmp_path / "python", blocks, native=False)
+    receipts = [json.loads(receipt) for receipt, _, _ in expected[:-1]]
+    assert [receipt["status"] for receipt in receipts] == [0] * len(receipts), receipts
+    results = [decode_wire_numbers(receipt["result"]) for receipt in receipts]
+    for index, (days, seconds) in enumerate(SPANS):
+        span = Timedelta(days=days, seconds=seconds)
+        negated = Timedelta(days=-days)
+        assert results[index] == span
+        # Variable and Hash both read the values back from committed state
+        # (the last keep wrote the Variable).
+        last = Timedelta(days=SPANS[-1][0], seconds=SPANS[-1][1])
+        assert results[len(SPANS) + index] == [last, {"pair": [span, negated]}]
+    assert results[-3:-1] == [Timedelta(seconds=-1), bytearray(b"ab\xff")]
+    assert receipts[-1]["events"][0]["data"] == {
+        "raw": {"__bytearray__": "71"},
+        "spans": {"__set__": {"codec": "xian-set-1", "items": [["timedelta", "-7200"]]}},
+    }
+    assert {"key": "con_times.span", "value": {"__delta__": [-999_999_999, 0]}} in receipts[3][
+        "state"
+    ]
+
+    actual, python_runs = _run(tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch)
+    assert actual == expected
+    # The Rust executor settles these values itself.
+    assert python_runs == []

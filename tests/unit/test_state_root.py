@@ -32,10 +32,7 @@ class StateRootTests(unittest.TestCase):
         self.assertEqual(first, second)
 
     def test_merkle_root_is_independent_of_insertion_order(self):
-        items = [
-            (f"currency.balances:{index}", index)
-            for index in range(100)
-        ]
+        items = [(f"currency.balances:{index}", index) for index in range(100)]
 
         self.assertEqual(
             merkle_root_from_items(items),
@@ -68,6 +65,36 @@ class StateRootTests(unittest.TestCase):
                     ("currency.balances:alice", 2),
                 ]
             )
+
+    def test_timedelta_and_bytearray_leaves_hash_their_wire_form(self):
+        from xian_runtime_types.encoding import convert_dict
+        from xian_runtime_types.time import Timedelta
+
+        span, raw = Timedelta(days=-1, seconds=86_399), bytearray(b"ab")
+        exported_state = {
+            "genesis": [
+                {"key": "con_t.span", "value": {"__delta__": [-1, 86_399]}},
+                {"key": "con_t.raw", "value": {"__bytearray__": "6162"}},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            driver = Driver(vm_profile="xian_vm_v2", storage_home=Path(tmp_dir))
+            driver.set("con_t.span", span)
+            driver.set("con_t.raw", raw)
+            driver.commit()
+            root = compute_driver_state_root(driver)
+
+        self.assertEqual(root, compute_exported_state_root(exported_state))
+        self.assertEqual(
+            root,
+            merkle_root_from_items(
+                (entry["key"], convert_dict(entry["value"])) for entry in exported_state["genesis"]
+            ),
+        )
+        # Text that merely looks like the value is a different leaf.
+        self.assertNotEqual(
+            root, merkle_root_from_items([("con_t.span", str(span)), ("con_t.raw", "ab")])
+        )
 
     def test_exported_state_root_matches_driver_root(self):
         nonce_key = f"alice{contracting_constants.DELIMITER}"
@@ -153,7 +180,9 @@ class StateRootTests(unittest.TestCase):
 
     def test_prepared_root_does_not_depend_on_write_order(self):
         base = [(f"con_x.v:{index}", index) for index in range(40)]
-        writes = [(f"con_x.v:{index}", index * 7 if index % 3 else None) for index in range(0, 60, 2)]
+        writes = [
+            (f"con_x.v:{index}", index * 7 if index % 3 else None) for index in range(0, 60, 2)
+        ]
         roots = set()
         for order in (writes, writes[::-1], sorted(writes, key=lambda item: hash(item[0]))):
             cache = StateRootCache(base)

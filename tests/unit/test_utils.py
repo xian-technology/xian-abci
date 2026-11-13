@@ -10,6 +10,7 @@ from xian_runtime_types.decimal import ContractingDecimal
 import xian.utils.encoding as encoding
 from xian.utils.encoding import (
     decode_transaction_bytes,
+    encode_abci_json,
     encode_transaction_bytes,
     extract_payload_string,
     normalize_for_abci_json,
@@ -310,6 +311,23 @@ class TestAbciJsonDecimalFormatting(unittest.TestCase):
                 "amount": {"__fixed__": "5000"},
                 "nested": {"small": {"__fixed__": "0.000005"}, "zero": {"__fixed__": "0"}},
             },
+        )
+
+    def test_normalize_for_abci_json_tags_timedeltas_and_bytearrays(self):
+        from xian_runtime_types.time import Timedelta
+
+        # A contract may store, return and emit these; receipts and state-root
+        # leaves need a JSON form for them, the wire form the encoder writes.
+        value = {
+            "span": Timedelta(days=-3, seconds=5),
+            "raw": bytearray(b"\x00\xff"),
+            "nested": [(Timedelta(days=999_999_999, seconds=86_399), bytearray())],
+        }
+
+        self.assertEqual(
+            encode_abci_json(value),
+            b'{"nested":[[{"__delta__":[999999999,86399]},{"__bytearray__":""}]],'
+            b'"raw":{"__bytearray__":"00ff"},"span":{"__delta__":[-3,5]}}',
         )
 
     def test_normalize_for_abci_json_preserves_sorted_keys(self):
