@@ -130,7 +130,9 @@ class TxProcessor:
             while start < len(txs):
                 outcomes, stop = executor.run(start)
                 for offset, outcome in enumerate(outcomes):
-                    responses.append(self._native_response(txs[start + offset], outcome))
+                    responses.append(
+                        self._native_response(txs[start + offset], outcome, fee_policy)
+                    )
                 if stop is None:
                     break
                 index, reason = stop
@@ -191,25 +193,19 @@ class TxProcessor:
             )
         return executor
 
-    def _native_response(self, tx, outcome) -> dict:
-        """The ``process_tx`` response for a transaction executed in Rust."""
-        status, result, exception, writes, events, chi_used, rewards = outcome
+    def _native_response(self, tx, outcome, fee_policy: TxFeePolicy) -> dict:
+        """The ``process_tx`` response for a transaction executed in Rust,
+        with the log records ``process_tx`` writes."""
+        (status, result, exception, writes, events, chi_used, rewards, chi_rate, output_writes) = (
+            outcome
+        )
+        if self.trace_logging:
+            self._log_execution(tx, chi_rate, fee_policy.meter_execution)
         if status:
             result = native_error_result(
                 status, result, vm_profile=VM_EXECUTION_MODE, exception=exception
             )
-            logger.bind(
-                **build_log_fields(
-                    stage="process_tx_output",
-                    tx=tx,
-                    status=status,
-                    extra={
-                        "chi_used": chi_used,
-                        "write_count": len(writes),
-                        "error_type": type(result).__name__,
-                    },
-                )
-            ).warning("Transaction execution returned a non-zero status")
+        self._log_output(tx, status, chi_used, output_writes, result)
         rewards, _reward_deltas, reward_records = rewards or (None, {}, [])
         tx_result = {
             "hash": tx_hash_from_tx(tx),
@@ -221,6 +217,8 @@ class TxProcessor:
             "rewards": rewards if rewards else None,
             "reward_records": reward_records or None,
         }
+        if self.trace_logging:
+            self._log_result(tx, tx_result)
         return {
             "tx_result": self.prune_tx_result(tx_result),
             "chi_rewards_amount": chi_used,
@@ -261,16 +259,7 @@ class TxProcessor:
     ):
         resolved_environment = environment or {}
         if self.trace_logging:
-            logger.bind(
-                **build_log_fields(
-                    stage="execute_tx",
-                    tx=transaction,
-                    extra={
-                        "chi_cost": chi_cost,
-                        "metering": metering,
-                    },
-                )
-            ).debug("Executing transaction")
+            self._log_execution(transaction, chi_cost, metering)
         started_ns = time.perf_counter_ns()
 
         try:
@@ -340,31 +329,13 @@ class TxProcessor:
     ):
         started_ns = time.perf_counter_ns()
         try:
-            if self.trace_logging:
-                logger.bind(
-                    **build_log_fields(
-                        stage="process_tx_output",
-                        tx=transaction,
-                        status=output["status_code"],
-                        extra={
-                            "chi_used": output["chi_used"],
-                            "write_count": len(output["writes"]),
-                        },
-                    )
-                ).debug("Processing executor output")
-            if output["status_code"] > 0:
-                logger.bind(
-                    **build_log_fields(
-                        stage="process_tx_output",
-                        tx=transaction,
-                        status=output["status_code"],
-                        extra={
-                            "chi_used": output["chi_used"],
-                            "write_count": len(output["writes"]),
-                            "error_type": type(output["result"]).__name__,
-                        },
-                    )
-                ).warning("Transaction execution returned a non-zero status")
+            self._log_output(
+                transaction,
+                output["status_code"],
+                output["chi_used"],
+                len(output["writes"]),
+                output["result"],
+            )
 
             tx_hash = tx_hash_from_tx(transaction)
 
@@ -409,19 +380,7 @@ class TxProcessor:
             }
 
             if self.trace_logging:
-                logger.bind(
-                    **build_log_fields(
-                        stage="tx_result",
-                        tx=transaction,
-                        tx_hash=tx_hash,
-                        status=output["status_code"],
-                        extra={
-                            "chi_used": output["chi_used"],
-                            "state_write_count": len(writes),
-                            "event_count": len(output["events"]),
-                        },
-                    )
-                ).debug("Produced transaction result")
+                self._log_result(transaction, tx_output)
 
             return {
                 "tx_result": tx_output,
@@ -434,6 +393,52 @@ class TxProcessor:
                     time.perf_counter_ns() - started_ns,
                     block_scoped=True,
                 )
+
+    # The per-transaction log records, written alike whether a transaction
+    # ran in Rust or on the Python path. The DEBUG records need trace logging.
+
+    @staticmethod
+    def _log_execution(tx, chi_cost, metering: bool) -> None:
+        logger.bind(
+            **build_log_fields(
+                stage="execute_tx",
+                tx=tx,
+                extra={"chi_cost": chi_cost, "metering": metering},
+            )
+        ).debug("Executing transaction")
+
+    def _log_output(self, tx, status: int, chi_used, write_count: int, result) -> None:
+        """The executor output; a failure is a warning whatever the level."""
+        extra = {"chi_used": chi_used, "write_count": write_count}
+        if self.trace_logging:
+            logger.bind(
+                **build_log_fields(stage="process_tx_output", tx=tx, status=status, extra=extra)
+            ).debug("Processing executor output")
+        if status > 0:
+            logger.bind(
+                **build_log_fields(
+                    stage="process_tx_output",
+                    tx=tx,
+                    status=status,
+                    extra={**extra, "error_type": type(result).__name__},
+                )
+            ).warning("Transaction execution returned a non-zero status")
+
+    @staticmethod
+    def _log_result(tx, tx_result: dict) -> None:
+        logger.bind(
+            **build_log_fields(
+                stage="tx_result",
+                tx=tx,
+                tx_hash=tx_result["hash"],
+                status=tx_result["status"],
+                extra={
+                    "chi_used": tx_result["chi_used"],
+                    "state_write_count": len(tx_result["state"]),
+                    "event_count": len(tx_result["events"]),
+                },
+            )
+        ).debug("Produced transaction result")
 
     def _stage_writes(self, writes: list[dict]) -> None:
         # All or nothing: apply_writes checks every key and value before it

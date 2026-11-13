@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 from contracting.local import ContractingClient
+from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, encode
 from xian_runtime_types.time import Timedelta
 
@@ -320,10 +321,7 @@ def _run(home, blocks, *, native, monkeypatch=None):
         if native:
             responses = processor.process_block(txs, fee_policy=policy, rewards_handler=rewards)
         else:
-            responses = [
-                processor.process_tx(tx, rewards, fee_policy=policy)
-                for tx in txs
-            ]
+            responses = [processor.process_tx(tx, rewards, fee_policy=policy) for tx in txs]
         for response in responses:
             receipts.append(
                 (
@@ -455,6 +453,8 @@ def test_hash_scans_and_contract_metadata_run_in_rust_like_the_python_path(tmp_p
         ("alice", "submission", "submit_contract"),
         ("alice", "con_scan", "scan_then_random"),
     ]
+
+
 # Largest and smallest Python timedelta, a negative one and a plain one.
 SPANS = [(1, 2), (-3, 5), (999_999_999, 86_399), (-999_999_999, 0)]
 
@@ -516,3 +516,56 @@ def test_timedelta_and_bytearray_values_are_stored_returned_and_emitted(tmp_path
     assert actual == expected
     # The Rust executor settles these values itself.
     assert python_runs == []
+
+
+# Every log record the per-transaction path writes (process_tx and the
+# functions it calls); "process_block" only notes a hand-back.
+PER_TX_STAGES = {"process_tx", "execute_tx", "process_tx_output", "tx_result"}
+
+
+def _per_tx_logs(home, blocks, *, native, trace_logging, policy):
+    client, processor, rewards = _setup(home)
+    processor.trace_logging = trace_logging
+    records = []
+
+    def capture(message):
+        record = message.record
+        records.append((record["level"].name, record["message"], dict(record["extra"])))
+
+    sink = logger.add(
+        capture, level="TRACE", filter=lambda record: record["extra"].get("stage") in PER_TX_STAGES
+    )
+    try:
+        for txs in blocks:
+            if native:
+                processor.process_block(txs, fee_policy=policy, rewards_handler=rewards)
+            else:
+                for tx in txs:
+                    processor.process_tx(tx, rewards, fee_policy=policy)
+            client.raw_driver.commit()
+    finally:
+        logger.remove(sink)
+        client.raw_driver.close()
+    return records
+
+
+@pytest.mark.parametrize("trace_logging", [True, False])
+@pytest.mark.parametrize("policy", ["paid", "free"])
+def test_rust_block_execution_writes_the_per_transaction_logs(tmp_path, trace_logging, policy):
+    fee_policy = {
+        "paid": TxFeePolicy.paid_metered(),
+        "free": TxFeePolicy.free_metered(),
+    }[policy]
+    blocks = [_block(seed, 30, height) for height, seed in enumerate((21, 22), start=1)]
+    blocks.append(_scan_blocks()[0])
+    expected = _per_tx_logs(
+        tmp_path / "python", blocks, native=False, trace_logging=trace_logging, policy=fee_policy
+    )
+    actual = _per_tx_logs(
+        tmp_path / "rust", blocks, native=True, trace_logging=trace_logging, policy=fee_policy
+    )
+    stages = {record[2]["stage"] for record in expected}
+    assert stages >= ({"execute_tx", "tx_result"} if trace_logging else {"process_tx_output"})
+    assert len(actual) == len(expected)
+    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
+        assert left == right, index
