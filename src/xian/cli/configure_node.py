@@ -307,7 +307,10 @@ def build_parser() -> ArgumentParser:
     parser.add_argument(
         "--simulation-max-chi",
         type=int,
-        help="chi budget cap used for readonly simulation requests",
+        help=(
+            "operator cap on the chi one readonly simulation may spend; "
+            "the chain's max_tx_chi always applies on top"
+        ),
         required=False,
         default=1_000_000,
     )

@@ -252,6 +252,7 @@ class Xian:
             logger.bind(**error_fields(exc)).error("Fee policy resolution failed")
             raise SystemExit() from exc
         self.enable_tx_fee = self.tx_fee_policy.charge_fees
+        self.simulation_max_chi = xian_config.get("simulation_max_chi", 1_000_000)
         self.simulator = QuerySimulationService(
             storage_home=constants.STORAGE_HOME,
             execution_runtime=self.execution_runtime,
@@ -261,7 +262,7 @@ class Xian:
             enabled=xian_config.get("simulation_enabled", True),
             max_concurrency=xian_config.get("simulation_max_concurrency", 2),
             timeout_ms=xian_config.get("simulation_timeout_ms", 3000),
-            max_chi=xian_config.get("simulation_max_chi", 1_000_000),
+            max_chi=self.simulation_chi_budget(),
             charge_fees=self.tx_fee_policy.charge_fees,
             runtime_features=self.runtime_features,
         )
@@ -407,7 +408,15 @@ class Xian:
             self.tx_fee_policy = TxFeePolicy.from_state(committed_value)
             self.enable_tx_fee = self.tx_fee_policy.charge_fees
             self.simulator.charge_fees = self.tx_fee_policy.charge_fees
+            self.simulator.max_chi = self.simulation_chi_budget()
         return self.tx_fee_policy
+
+    def simulation_chi_budget(self) -> int:
+        """Chi a readonly simulation may spend: the operator's cap, never above the chain's tx cap.
+
+        An estimate above max_tx_chi would describe a transaction CheckTx refuses.
+        """
+        return min(self.simulation_max_chi, self.tx_fee_policy.max_tx_chi)
 
     def _release_state_transition_lock(self):
         if self._state_transition_lock.locked():

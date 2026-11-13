@@ -152,6 +152,8 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                         app.simulator.charge_fees,
                         case["expected_charge_fees"],
                     )
+                    # Simulation never budgets more than the chain admits per transaction.
+                    self.assertEqual(app.simulator.max_chi, 150_000)
 
                     balance_key = f"currency.balances:{FOUNDER_PUBLIC_KEY}"
                     starting_balance = app.client.raw_driver.get(balance_key)
@@ -200,10 +202,16 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(SystemExit):
                 await Xian.create(constants=_fresh_runtime_constants(home))
 
-            write_toml(home / "config" / "xian.toml", configs["xian"], overwrite=True)
+            # The operator's simulation cap applies when it is below the chain's tx cap.
+            write_toml(
+                home / "config" / "xian.toml",
+                {**configs["xian"], "simulation_max_chi": 50_000},
+                overwrite=True,
+            )
             app = await Xian.create(constants=_fresh_runtime_constants(home))
             try:
                 self.assertEqual(app.tx_fee_policy.mode, "paid_metered")
+                self.assertEqual(app.simulator.max_chi, 50_000)
                 driver = app.client.raw_driver
                 await store_genesis_block(app.client, app.nonce_storage, app.genesis["abci_genesis"])
                 # A governed state change takes effect once it is committed.
@@ -214,6 +222,8 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(app.refresh_tx_fee_policy(), free)
                 self.assertFalse(app.enable_tx_fee)
                 self.assertFalse(app.simulator.charge_fees)
+                # A lower committed tx cap lowers the simulation budget with it.
+                self.assertEqual(app.simulator.max_chi, 7)
             finally:
                 await app.close()
 
