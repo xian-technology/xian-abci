@@ -16,6 +16,7 @@ from cometbft.abci.v1beta3.types_pb2 import (
     RequestFinalizeBlock,
     Response,
 )
+from xian.fee_policy import FEE_POLICY_KEY, TxFeePolicy
 from xian.utils.state_patches import resolve_state_patch_dir
 from xian.xian_abci import Xian
 
@@ -210,6 +211,39 @@ class GovernedStatePatchTests(unittest.IsolatedAsyncioTestCase):
         patched = self.app.client.get_contract_proxy("con_source_patch")
         patched.set_value(next_value="hello", signer="node1")
         self.assertEqual(patched.get_value(), "hello")
+
+    def node_fee_state(self, app) -> tuple:
+        return (app.tx_fee_policy, app.enable_tx_fee, app.simulator.charge_fees, app.simulator.max_chi)
+
+    async def test_patched_fee_policy_applies_from_the_next_block_on_every_node(self):
+        patched = TxFeePolicy.free_metered(max_tx_chi=100_000, max_block_chi=300_000)
+        self.write_bundle(
+            {
+                "version": 1,
+                "patch_id": "patch-fee-policy",
+                "activation_height": 12,
+                "changes": [{"key": FEE_POLICY_KEY, "value": patched.to_state()}],
+            }
+        )
+        await self.approve_patch(patch_id="patch-fee-policy", activation_height=12)
+        original = self.app.tx_fee_policy
+
+        await self.finalize_block(11)
+        self.assertEqual(self.app.tx_fee_policy, original)
+        # The activation block's transactions were admitted and run under the
+        # old policy; its Commit hands the new one to every later stage.
+        await self.finalize_block(12)
+        self.assertEqual(self.app.client.raw_driver.value_from_disk(FEE_POLICY_KEY), patched.to_state())
+        running = self.node_fee_state(self.app)
+        self.assertEqual(running, (patched, False, False, 100_000))
+
+        # A node started after the patch reads the same policy from committed state.
+        await self.app.close()
+        self.app.client.close()
+        restarted = await Xian.create(constants=self.constants)
+        self.addCleanup(restarted.client.close)
+        self.addAsyncCleanup(restarted.close)
+        self.assertEqual(self.node_fee_state(restarted), running)
 
     async def test_query_surfaces_local_and_scheduled_patch_inventory(self):
         self.write_bundle(

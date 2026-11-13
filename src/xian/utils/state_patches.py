@@ -7,12 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from contracting.artifacts import build_contract_artifacts
+from contracting.runtime_features import RUNTIME_FEATURE_STATE_PREFIX
 from contracting.storage.driver import XIAN_VM_V1_IR_KEY
 from contracting.storage.lmdb_environment import validate_storage_key
 from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, loads_wire_json
 
 from xian.execution_policy import EXECUTION_POLICY_KEY, VM_EXECUTION_MODE
+from xian.fee_policy import FEE_POLICY_KEY, TxFeePolicy
 from xian.utils.encoding import hash_bytes
 
 STATE_PATCH_BUNDLE_VERSION = 1
@@ -71,6 +73,86 @@ def _validate_patched_keys(bundle_file: Path, key: str) -> None:
             validate_storage_key(written_key)
         except ValueError as exc:
             raise ValueError(f"{bundle_file}: {exc}") from exc
+
+
+def _validate_patch_key(bundle_file: Path, key: str) -> None:
+    """Refuse a key no bundle may write."""
+    if key == EXECUTION_POLICY_KEY:
+        raise ValueError(f"{bundle_file} cannot patch the protected execution policy")
+    if key.startswith(RUNTIME_FEATURE_STATE_PREFIX):
+        raise ValueError(f"{bundle_file} cannot patch the protected runtime features")
+    if key.endswith(".__code__"):
+        raise ValueError(f"{bundle_file} cannot patch __code__ directly; use __source__")
+    if key.endswith(f".{XIAN_VM_V1_IR_KEY}"):
+        raise ValueError(f"{bundle_file} cannot patch {XIAN_VM_V1_IR_KEY} directly; use __source__")
+    _validate_patched_keys(bundle_file, key)
+
+
+def _validate_patch_value(bundle_file: Path, key: str, value: Any) -> None:
+    """Refuse a fee policy node startup would reject.
+
+    Every validator reads ``__fee_policy`` after the activation block's Commit,
+    so an invalid one would be committed and then halt the chain for good.
+    """
+    if key != FEE_POLICY_KEY:
+        return
+    try:
+        TxFeePolicy.from_state(value)
+    except ValueError as exc:
+        raise ValueError(f"{bundle_file}: {exc}") from exc
+
+
+def _normalize_change(bundle_file: Path, raw_change: object) -> dict[str, Any]:
+    if not isinstance(raw_change, dict):
+        raise ValueError(f"{bundle_file} contains a non-object patch change")
+    key = raw_change.get("key")
+    if not isinstance(key, str) or key == "":
+        raise ValueError(f"{bundle_file} contains a patch change with no key")
+    _validate_patch_key(bundle_file, key)
+    _validate_patch_value(bundle_file, key, decode_wire_numbers(raw_change.get("value")))
+    return {
+        "key": key,
+        "value": raw_change.get("value"),
+        "comment": raw_change.get("comment", ""),
+    }
+
+
+def _normalize_changes(bundle_file: Path, changes: object) -> list[dict[str, Any]]:
+    if not isinstance(changes, list) or len(changes) == 0:
+        raise ValueError(f"{bundle_file} must define a non-empty changes list")
+    normalized_changes: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for raw_change in changes:
+        change = _normalize_change(bundle_file, raw_change)
+        if change["key"] in seen_keys:
+            raise ValueError(f"{bundle_file} contains duplicate key {change['key']!r}")
+        seen_keys.add(change["key"])
+        normalized_changes.append(change)
+    return normalized_changes
+
+
+def _bundle_identity(bundle_file: Path, payload: dict[str, Any]) -> tuple[str, int]:
+    if payload.get("version") != STATE_PATCH_BUNDLE_VERSION:
+        raise ValueError(f"{bundle_file} has unsupported state patch bundle version")
+    patch_id = payload.get("patch_id")
+    if not isinstance(patch_id, str) or not PATCH_ID_PATTERN.fullmatch(patch_id):
+        raise ValueError(f"{bundle_file} has invalid patch_id")
+    activation_height = payload.get("activation_height")
+    if not isinstance(activation_height, int) or activation_height <= 0:
+        raise ValueError(f"{bundle_file} must set a positive activation_height")
+    return patch_id, activation_height
+
+
+def _bundle_target(
+    bundle_file: Path, payload: dict[str, Any], default_governance_contract: str
+) -> tuple[str, str | None]:
+    governance_contract = payload.get("governance_contract", default_governance_contract)
+    if not isinstance(governance_contract, str) or governance_contract == "":
+        raise ValueError(f"{bundle_file} has invalid governance_contract")
+    chain_id = payload.get("chain_id")
+    if chain_id is not None and (not isinstance(chain_id, str) or chain_id == ""):
+        raise ValueError(f"{bundle_file} has invalid chain_id")
+    return governance_contract, chain_id
 
 
 def hash_from_state_changes(state_changes: list[dict[str, Any]]) -> str:
@@ -248,57 +330,11 @@ class StatePatchManager:
 
     def _load_bundle_file(self, bundle_file: Path) -> StatePatchBundle:
         payload = loads_wire_json(bundle_file.read_bytes())
-        if payload.get("version") != STATE_PATCH_BUNDLE_VERSION:
-            raise ValueError(f"{bundle_file} has unsupported state patch bundle version")
-
-        patch_id = payload.get("patch_id")
-        if not isinstance(patch_id, str) or not PATCH_ID_PATTERN.fullmatch(patch_id):
-            raise ValueError(f"{bundle_file} has invalid patch_id")
-
-        activation_height = payload.get("activation_height")
-        if not isinstance(activation_height, int) or activation_height <= 0:
-            raise ValueError(f"{bundle_file} must set a positive activation_height")
-
-        governance_contract = payload.get("governance_contract", self.governance_contract)
-        if not isinstance(governance_contract, str) or governance_contract == "":
-            raise ValueError(f"{bundle_file} has invalid governance_contract")
-
-        chain_id = payload.get("chain_id")
-        if chain_id is not None and (not isinstance(chain_id, str) or chain_id == ""):
-            raise ValueError(f"{bundle_file} has invalid chain_id")
-
-        changes = payload.get("changes")
-        if not isinstance(changes, list) or len(changes) == 0:
-            raise ValueError(f"{bundle_file} must define a non-empty changes list")
-
-        normalized_changes: list[dict[str, Any]] = []
-        seen_keys: set[str] = set()
-        for raw_change in changes:
-            if not isinstance(raw_change, dict):
-                raise ValueError(f"{bundle_file} contains a non-object patch change")
-            key = raw_change.get("key")
-            if not isinstance(key, str) or key == "":
-                raise ValueError(f"{bundle_file} contains a patch change with no key")
-            if key in seen_keys:
-                raise ValueError(f"{bundle_file} contains duplicate key {key!r}")
-            if key == EXECUTION_POLICY_KEY:
-                raise ValueError(f"{bundle_file} cannot patch the protected execution policy")
-            if key.endswith(".__code__"):
-                raise ValueError(f"{bundle_file} cannot patch __code__ directly; use __source__")
-            if key.endswith(f".{XIAN_VM_V1_IR_KEY}"):
-                raise ValueError(
-                    f"{bundle_file} cannot patch {XIAN_VM_V1_IR_KEY} directly; use __source__"
-                )
-            _validate_patched_keys(bundle_file, key)
-            decode_wire_numbers(raw_change.get("value"))
-            seen_keys.add(key)
-            normalized_changes.append(
-                {
-                    "key": key,
-                    "value": raw_change.get("value"),
-                    "comment": raw_change.get("comment", ""),
-                }
-            )
+        patch_id, activation_height = _bundle_identity(bundle_file, payload)
+        governance_contract, chain_id = _bundle_target(
+            bundle_file, payload, self.governance_contract
+        )
+        normalized_changes = _normalize_changes(bundle_file, payload.get("changes"))
 
         bundle_hash = _hash_from_bundle_payload(
             {

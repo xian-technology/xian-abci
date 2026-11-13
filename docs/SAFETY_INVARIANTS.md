@@ -37,7 +37,13 @@ This file records the runtime properties that must hold before an
   before execution. A policy is valid only when
   `0 < max_tx_chi <= max_block_chi <= 10,000,000` and `max_tx_chi` does not
   exceed the VM's own per-transaction ceiling; genesis building and node
-  startup refuse anything else.
+  startup refuse anything else. A governed state patch may replace the policy
+  only with one that passes the same check: a node refuses to load a bundle
+  that writes an invalid or non-canonical `__fee_policy` or deletes it, because
+  every validator would commit it and then fail to read it. A patched policy
+  takes effect at the Commit of its activation block, so every stage of the
+  next block uses it on running and restarted nodes alike. Bundles cannot
+  write `__execution_policy` or `__runtime_features.*` at all.
 - Shielded proof-cache warming is optional acceleration. Rejected warm-up
   requests must not fail a block or bypass verification during execution.
 - Replay after failure must leave the same committed state on every node.

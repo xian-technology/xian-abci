@@ -90,6 +90,22 @@ additional artifacts automatically:
 - normalized `__source__`
 - `__xian_ir_v1__` for the native VM path
 
+## Node-Read Consensus Keys
+
+Three hashed node-owned keys hold chain settings that node startup validates,
+so bundles may not write them freely:
+
+- `__execution_policy` is protected: no bundle may write it.
+- `__runtime_features.*` is protected: runtime features are chosen at genesis.
+- `__fee_policy` may change, but only to a policy node startup accepts: the
+  canonical `tx_fee_mode`/`max_tx_chi`/`max_block_chi` object with
+  `0 < max_tx_chi <= max_block_chi <= 10,000,000` and `max_tx_chi` within the
+  VM ceiling. Deleting it is refused too. The node checks this when it loads the
+  bundle, so an invalid policy never enters the bundle inventory operators
+  compare before the vote and is never applied. The new policy governs admission, proposals, execution and
+  simulation from the block after the activation block, on running and
+  restarted nodes alike.
+
 ## Database Integration
 
 Applied state patches are persisted through BDS:

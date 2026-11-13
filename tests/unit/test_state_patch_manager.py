@@ -269,6 +269,70 @@ class StatePatchManagerTests(unittest.TestCase):
                     self.manager.load_patches(self.test_dir)
                 bundle.unlink()
 
+    def fee_policy_bundle(self, value) -> Path:
+        return self.write_bundle(
+            "fee-policy.json",
+            {
+                "version": 1,
+                "patch_id": "fee-policy-patch",
+                "activation_height": 12,
+                "changes": [{"key": "__fee_policy", "value": value}],
+            },
+        )
+
+    def test_bundle_fee_policy_must_be_one_startup_accepts(self):
+        # Startup refuses these, so a node that committed one could never start
+        # again: the patch would halt the chain for good.
+        valid = {"tx_fee_mode": "paid_metered", "max_tx_chi": 200_000, "max_block_chi": 500_000}
+        cases = {
+            "zero tx cap": {**valid, "max_tx_chi": 0},
+            "boolean tx cap": {**valid, "max_tx_chi": True},
+            "decimal tx cap": {**valid, "max_tx_chi": {"__fixed__": "200000"}},
+            "block cap below tx cap": {**valid, "max_block_chi": 100_000},
+            "block cap above limit": {**valid, "max_block_chi": 10_000_001},
+            "tx cap above VM ceiling": {**valid, "max_tx_chi": 1_000_001, "max_block_chi": 2_000_000},
+            "unsupported mode": {**valid, "tx_fee_mode": "system_unmetered"},
+            "non-canonical mode": {**valid, "tx_fee_mode": "PAID_METERED"},
+            "missing field": {"tx_fee_mode": "paid_metered", "max_tx_chi": 200_000},
+            "unknown field": {**valid, "chi_rate": 20},
+            "not a mapping": [valid],
+            "null": None,
+        }
+        for name, value in cases.items():
+            with self.subTest(name):
+                bundle = self.fee_policy_bundle(value)
+                with self.assertRaisesRegex(ValueError, "fee-policy.json"):
+                    self.manager.load_patches(self.test_dir)
+                self.assertFalse(self.manager.loaded)
+                bundle.unlink()
+
+    def test_bundle_may_change_the_fee_policy_to_a_valid_one(self):
+        value = {"tx_fee_mode": "free_metered", "max_tx_chi": 100_000, "max_block_chi": 300_000}
+        self.fee_policy_bundle(value)
+        self.manager.load_patches(self.test_dir)
+        bundle = self.manager.local_bundles["fee-policy-patch"]
+        self.schedule_bundle(patch_id=bundle.patch_id, bundle_hash=bundle.bundle_hash, height=12)
+
+        self.manager.apply_patches_for_block(12, 123456)
+
+        self.assertEqual(self.driver.state["__fee_policy"], value)
+
+    def test_bundle_cannot_patch_runtime_features(self):
+        for key in ("__runtime_features.zk", "__runtime_features.unknown"):
+            with self.subTest(key=key):
+                bundle = self.write_bundle(
+                    "runtime-feature.json",
+                    {
+                        "version": 1,
+                        "patch_id": "runtime-feature-patch",
+                        "activation_height": 12,
+                        "changes": [{"key": key, "value": True}],
+                    },
+                )
+                with self.assertRaisesRegex(ValueError, "runtime features"):
+                    self.manager.load_patches(self.test_dir)
+                bundle.unlink()
+
     def test_bundle_hash_mismatch_is_a_hard_error(self):
         self.write_bundle(
             "patch-a.json",
