@@ -710,9 +710,9 @@ def test_entry_results_are_charged_in_their_v2_encoding_like_the_python_path(tmp
     assert actual == expected
 
 
-# Seed salts the Rust host serves, and salts it leaves to the Python path.
+# Seed salts the Rust host serves, and salts the VM refuses (str/int/None only).
 RANDOM_SALTS = ["abc", "", 7, -3, True, False, None, "unseeded"]
-PYTHON_SALTS = [{"__fixed__": "1.5"}, [1, "a"], {"a": 1}]
+REFUSED_SALTS = [{"__fixed__": "1.5"}, [1, "a"], {"a": 1}]
 POPULATIONS = [[], [1], [1, "a", {"x": 1}, [2]], list(range(9)), "", "héllo", "ab"]
 
 
@@ -725,14 +725,15 @@ def _random_op(rng):
         ["bits"] * 4 + ["range", "int", "choice", "choices", "shuffle", "reseed", "nested", "float"]
     )
     if kind == "bits":
-        return [kind, rng.choice([*range(0, 80), 256, 511, 512, 513, 600, -1])]
+        return [kind, _wire(rng.choice([*range(0, 80), 256, 511, 512, 513, 600, -1, 2**40]))]
     if kind == "range":
         return [kind, _wire(rng.choice([-1, 0, 1, 2, 10, 1000, 2**64, 2**511]))]
     if kind == "int":
         low = rng.choice([-(2**200), -5, 0, 3, 7])
         return [kind, _wire(low), _wire(low + rng.choice([-1, 0, 1, 6, 2**100]))]
     if kind in ("choice", "choices"):
-        return [kind, rng.choice(POPULATIONS), rng.choice([-1, 0, 1, 3, True])]
+        draws = rng.choice([-1, 0, 1, 3, True, 128 * 1024 + 1, 2**40])
+        return [kind, rng.choice(POPULATIONS), _wire(draws)]
     if kind == "shuffle":
         return [kind, list(range(rng.randrange(0, 12)))]
     if kind == "reseed":
@@ -746,7 +747,7 @@ def _random_blocks():
         rng = random.Random(500 + height)
         txs = []
         for index in range(60):
-            salts = PYTHON_SALTS if rng.random() < 0.08 else RANDOM_SALTS
+            salts = REFUSED_SALTS if rng.random() < 0.08 else RANDOM_SALTS
             kwargs = {
                 "salt": rng.choice(salts),
                 "ops": [_random_op(rng) for _ in range(rng.randrange(1, 10))],
@@ -766,12 +767,11 @@ def test_random_runs_in_rust_like_the_python_path(tmp_path, monkeypatch):
     for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
         assert left == right, index
     receipts = [json.loads(entry[0]) for entry in expected if isinstance(entry, tuple)]
-    assert 60 < sum(receipt["status"] == 0 for receipt in receipts) < len(receipts)
-    # Only the salts the Rust host leaves to Python ran there.
-    handed_back = [
-        tx for txs in blocks for tx in txs if tx["payload"]["kwargs"]["salt"] in PYTHON_SALTS
-    ]
-    assert len(python_runs) == len(handed_back) > 0
+    assert 40 < sum(receipt["status"] == 0 for receipt in receipts) < len(receipts)
+    assert any("random.seed() salt must be" in receipt["result"] for receipt in receipts)
+    assert any("exceeds the maximum allowed allocation" in receipt["result"] for receipt in receipts)
+    # Every random call runs in Rust; the VM refuses what is out of bounds.
+    assert python_runs == []
 
 
 # Largest and smallest Python timedelta, a negative one and a plain one.

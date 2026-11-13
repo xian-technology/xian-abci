@@ -38,17 +38,7 @@
  },
  "policy_free": {},
  "policy_unmetered": {},
- "random": {
-  "random/internal_salt_datetime": "random seed salt is a datetime",
-  "random/internal_salt_decimal": "random seed salt is a decimal",
-  "random/internal_salt_dict": "random seed salt is a dict",
-  "random/internal_salt_list": "random seed salt is a list",
-  "random/internal_salt_timedelta": "random seed salt is a timedelta",
-  "random/internal_salt_tuple": "random seed salt is a tuple",
-  "random/salt_decimal": "random seed salt is a decimal",
-  "random/salt_dict": "random seed salt is a dict",
-  "random/salt_list": "random seed salt is a list"
- },
+ "random": {},
  "rewards": {
   "rewards/active_dict_failure": "truthiness of dict",
   "rewards/active_dict_success": "truthiness of dict",

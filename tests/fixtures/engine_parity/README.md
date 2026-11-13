@@ -41,6 +41,25 @@ Changing the corpus itself (new cases) also regenerates them; add cases
 without changing the outputs of existing ones, and check that the diff only
 adds.
 
+## Approved changes since the corpora were frozen
+
+Execution revision 14 (unreleased) folds in these consensus changes; the
+fixtures were regenerated with them and the diff reviewed case by case:
+
+- Random work bounds (single-engine plan, finding 8): `random.seed` accepts
+  only a str, int (bool included) or `None` salt (decision 4); any other salt
+  fails with `random.seed() salt must be a str, int or None`. Changed:
+  `random/salt_decimal`, `salt_list`, `salt_dict` and `random/internal_salt_`
+  `datetime`, `decimal`, `tuple`, `list`, `dict`, `timedelta` (now failures,
+  with their failure chi). Every later transaction of that block differs only
+  in the cascaded `currency.balances` values, and both block app hashes
+  change. `getrandbits` above 512 bits, `choices` above the sequence limit
+  and `choice`/`choices` of a population other than a list, tuple, str,
+  bytes or bytearray now fail before any host work; no frozen case reached
+  them (the differential tests and xian-contracting's
+  `test_native_vm_work_bounds.py` cover them). `importlib.code_hash` now
+  charges 4 raw chi per hashed byte; no frozen case calls it.
+
 ## The hand-back inventory
 
 `handback_inventory.json` shrinks as rules move into Rust. An increment that
