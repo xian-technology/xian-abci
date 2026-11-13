@@ -513,25 +513,7 @@ def _resolve_contract_listing(ctx: QueryContext) -> dict[str, Any]:
 
 
 def _resolve_perf_status(ctx: QueryContext) -> dict[str, Any]:
-    result = ctx.app.profiler.snapshot()
-    result["parallel_execution_enabled"] = bool(ctx.app.parallel_block_executor.enabled)
-    result["parallel_execution_workers"] = int(ctx.app.parallel_block_executor.workers)
-    result["parallel_execution_min_transactions"] = int(
-        ctx.app.parallel_block_executor.min_batch_size
-    )
-    result["parallel_execution_max_speculative_waves"] = int(
-        ctx.app.parallel_block_executor.max_speculative_waves
-    )
-    result["parallel_execution_min_wave_acceptance_ratio"] = float(
-        ctx.app.parallel_block_executor.min_wave_acceptance_ratio
-    )
-    result["parallel_execution_low_acceptance_min_wave_size"] = int(
-        ctx.app.parallel_block_executor.low_acceptance_min_wave_size
-    )
-    result["parallel_execution_access_estimates_enabled"] = bool(
-        ctx.app.parallel_block_executor.use_access_estimates
-    )
-    return result
+    return ctx.app.profiler.snapshot()
 
 
 def _resolve_pending_unbonds(ctx: QueryContext) -> list[dict] | None:

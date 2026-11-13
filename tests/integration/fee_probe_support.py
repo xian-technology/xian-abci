@@ -68,5 +68,4 @@ def process(processor, rewards, transaction, *, policy=None):
         transaction,
         rewards_handler=rewards,
         fee_policy=policy or TxFeePolicy.paid_metered(),
-        track_access=True,
     )

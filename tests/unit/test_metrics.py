@@ -7,7 +7,7 @@ from xian.metrics import XianMetricsCollector
 
 
 class BdsMetricsCollectorTests(unittest.TestCase):
-    def test_metrics_collector_exports_parallel_guardrail_metadata(
+    def test_metrics_collector_exports_latest_block_metadata(
         self,
     ) -> None:
         app = SimpleNamespace(
@@ -15,7 +15,6 @@ class BdsMetricsCollectorTests(unittest.TestCase):
             execution_mode="xian_vm_v2",
             execution_runtime=SimpleNamespace(mode="xian_vm_v2"),
             bds_enabled=False,
-            parallel_block_executor=SimpleNamespace(enabled=True),
             enable_tx_fee=True,
             current_block_meta={"height": 129},
             profiler=SimpleNamespace(
@@ -27,20 +26,8 @@ class BdsMetricsCollectorTests(unittest.TestCase):
                             "duration_ms": 12.0,
                             "metrics": {},
                             "metadata": {
+                                "state_patch_applied": True,
                                 "parallel_enabled": True,
-                                "parallel_worker_count": 4,
-                                "parallel_estimated_known_transactions": 8,
-                                "parallel_estimated_unknown_transactions": 0,
-                                "parallel_estimated_stage_count": 1,
-                                "parallel_estimated_parallelizable_transactions": 7,
-                                "parallel_planned_stage_count": 1,
-                                "parallel_planned_parallelizable_transactions": 7,
-                                "parallel_speculative_wave_count": 1,
-                                "parallel_speculative_accepted": 1,
-                                "parallel_speculative_rejected": 7,
-                                "parallel_serial_prefiltered": 0,
-                                "parallel_serial_fallbacks": 7,
-                                "parallel_guardrail_fallbacks": 7,
                             },
                         }
                     ],
@@ -69,17 +56,7 @@ class BdsMetricsCollectorTests(unittest.TestCase):
             if sample.name == "xian_perf_latest_block_metadata"
         }
 
-        self.assertEqual(latest_metadata["parallel_enabled"], 1.0)
-        self.assertEqual(
-            latest_metadata["parallel_estimated_known_transactions"], 8.0
-        )
-        self.assertEqual(
-            latest_metadata["parallel_estimated_parallelizable_transactions"],
-            7.0,
-        )
-        self.assertEqual(latest_metadata["parallel_speculative_rejected"], 7.0)
-        self.assertEqual(latest_metadata["parallel_guardrail_fallbacks"], 7.0)
-        self.assertEqual(latest_metadata["parallel_serial_fallbacks"], 7.0)
+        self.assertEqual(latest_metadata, {"state_patch_applied": 1.0})
 
     def test_metrics_collector_exports_bds_recovery_fields(self) -> None:
         app = SimpleNamespace(
@@ -87,7 +64,6 @@ class BdsMetricsCollectorTests(unittest.TestCase):
             execution_mode="xian_vm_v2",
             execution_runtime=SimpleNamespace(mode="xian_vm_v2"),
             bds_enabled=True,
-            parallel_block_executor=SimpleNamespace(enabled=False),
             enable_tx_fee=True,
             current_block_meta={"height": 128},
             profiler=SimpleNamespace(

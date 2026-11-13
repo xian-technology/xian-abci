@@ -710,13 +710,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.query.info, "json")
         self.assertEqual(payload["enabled"], False)
         self.assertEqual(payload["recent_blocks"], [])
-        self.assertFalse(payload["parallel_execution_enabled"])
-        self.assertEqual(payload["parallel_execution_workers"], 4)
-        self.assertEqual(payload["parallel_execution_min_transactions"], 8)
-        self.assertEqual(payload["parallel_execution_max_speculative_waves"], 4)
-        self.assertEqual(payload["parallel_execution_min_wave_acceptance_ratio"], 0.25)
-        self.assertEqual(payload["parallel_execution_low_acceptance_min_wave_size"], 8)
-        self.assertTrue(payload["parallel_execution_access_estimates_enabled"])
+        self.assertFalse([key for key in payload if key.startswith("parallel_")])
 
     async def test_validators_dashboard_queries(self):
         self.app.client.raw_driver.set("validators.total_votes", 2)

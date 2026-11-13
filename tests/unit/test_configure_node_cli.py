@@ -27,6 +27,11 @@ class ConfigureNodeCliTests(unittest.TestCase):
                 ]
             )
 
+    def test_parser_rejects_removed_parallel_execution_flags(self):
+        for flag in ("--parallel-execution-enabled", "--parallel-execution-workers=4"):
+            with self.subTest(flag=flag), self.assertRaises(SystemExit):
+                build_parser().parse_args(["--moniker", "validator-1", flag])
+
     def test_parser_accepts_current_chain_setup_flags(self):
         args = build_parser().parse_args(
             [

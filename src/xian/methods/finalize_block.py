@@ -85,7 +85,6 @@ def _maybe_run_validator_epoch_rebalance(self, *, height: int):
         rebalance_tx,
         rewards_handler=None,
         fee_policy=TxFeePolicy.system_unmetered(),
-        track_access=False,
     )
     tx_result = result.get("tx_result")
     if tx_result is None or tx_result.get("status") != 0:
@@ -278,9 +277,6 @@ def _decode_block_transactions(self, req, *, height: int, block_hash: str):
 
 
 def _preverify_shielded_for_serial_execution(self, decoded_txs: list[dict]):
-    if self.parallel_block_executor.is_enabled_for_batch(len(decoded_txs)):
-        return
-
     with self.profiler.scope("finalize_shielded_preverify", block_scoped=True):
         shielded_preverify_stats = warm_shielded_proof_cache(
             driver=self.tx_processor.client.raw_driver,
@@ -293,74 +289,9 @@ def _preverify_shielded_for_serial_execution(self, decoded_txs: list[dict]):
     )
 
 
-def _execute_transactions_in_parallel(
-    self,
-    decoded_txs: list[dict],
-    *,
-    height: int,
-    block_hash: str,
-):
-    with self.profiler.scope("finalize_parallel", block_scoped=True):
-        parallel_execution = self.parallel_block_executor.execute(
-            txs=decoded_txs,
-            tx_processor=self.tx_processor,
-            fee_policy=self.tx_fee_policy,
-            rewards_handler=self.rewards_handler,
-        )
-    if parallel_execution is None:
-        return None
-
-    processed_results, parallel_stats = parallel_execution
-    self.profiler.set_block_metadata(
-        parallel_enabled=True,
-        parallel_worker_count=parallel_stats.worker_count,
-        parallel_estimated_known_transactions=(parallel_stats.estimated_known_transactions),
-        parallel_estimated_unknown_transactions=(parallel_stats.estimated_unknown_transactions),
-        parallel_estimated_stage_count=parallel_stats.estimated_stage_count,
-        parallel_estimated_parallelizable_transactions=(
-            parallel_stats.estimated_parallelizable_transactions
-        ),
-        parallel_estimated_known_shapes=parallel_stats.estimated_known_shapes,
-        parallel_estimated_unknown_shapes=parallel_stats.estimated_unknown_shapes,
-        parallel_planned_stage_count=parallel_stats.planned_stage_count,
-        parallel_planned_parallelizable_transactions=(
-            parallel_stats.planned_parallelizable_transactions
-        ),
-        parallel_speculative_wave_count=parallel_stats.speculative_wave_count,
-        parallel_speculative_accepted=parallel_stats.speculative_accepted,
-        parallel_speculative_rejected=parallel_stats.speculative_rejected,
-        parallel_serial_prefiltered=parallel_stats.serial_prefiltered,
-        parallel_serial_fallbacks=parallel_stats.serial_fallbacks,
-        parallel_guardrail_fallbacks=parallel_stats.guardrail_fallbacks,
-    )
-    logger.bind(
-        **build_log_fields(
-            stage="finalize_parallel",
-            block_height=height,
-            block_hash=block_hash,
-            extra={
-                "speculative_accepted": parallel_stats.speculative_accepted,
-                "decoded_tx_count": len(decoded_txs),
-                "estimated_known_transactions": (parallel_stats.estimated_known_transactions),
-                "estimated_unknown_transactions": (parallel_stats.estimated_unknown_transactions),
-                "estimated_unknown_shapes": (parallel_stats.estimated_unknown_shapes),
-                "speculative_wave_count": parallel_stats.speculative_wave_count,
-                "serial_prefiltered": parallel_stats.serial_prefiltered,
-                "serial_fallbacks": parallel_stats.serial_fallbacks,
-                "guardrail_fallbacks": parallel_stats.guardrail_fallbacks,
-                "speculative_rejected": parallel_stats.speculative_rejected,
-                "planned_stage_count": parallel_stats.planned_stage_count,
-                "worker_count": parallel_stats.worker_count,
-            },
-        )
-    ).info("Parallel block execution summary")
-    return processed_results
-
-
 def _execute_block_transactions(
     self,
     decoded_entries: list[dict],
-    processed_results,
     *,
     height: int,
     block_hash: str,
@@ -370,13 +301,14 @@ def _execute_block_transactions(
         # The processor turns every deterministic failure into a receipt;
         # anything it raises is a host fault and must halt the node.
         decoded_txs = [entry["tx"] for entry in decoded_entries if "tx" in entry]
-        if processed_results is None and decoded_txs:
+        processed_results = []
+        if decoded_txs:
             processed_results = self.tx_processor.process_block(
                 decoded_txs,
                 fee_policy=self.tx_fee_policy,
                 rewards_handler=self.rewards_handler,
             )
-        processed_iter = iter(processed_results or [])
+        processed_iter = iter(processed_results)
         for block_tx_index, entry in enumerate(decoded_entries):
             if "error" in entry:
                 processed_entries.append({"error": entry["error"]})
@@ -613,18 +545,11 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         block_hash=block_hash,
     )
     _preverify_shielded_for_serial_execution(self, decoded_txs)
-    processed_results = _execute_transactions_in_parallel(
-        self,
-        decoded_txs,
-        height=height,
-        block_hash=block_hash,
-    )
 
     with self.profiler.scope("finalize_tx_loop", block_scoped=True):
         processed_entries = _execute_block_transactions(
             self,
             decoded_entries,
-            processed_results,
             height=height,
             block_hash=block_hash,
         )

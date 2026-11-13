@@ -18,19 +18,10 @@ from xian_accounts import is_valid_ed25519_key, verify_message
 from xian.config_paths import resolve_genesis_source
 from xian.constants import Constants as c
 from xian.node_setup import (
-    DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED,
-    DEFAULT_PARALLEL_EXECUTION_ENABLED,
-    DEFAULT_PARALLEL_EXECUTION_LOW_ACCEPTANCE_MIN_WAVE_SIZE,
-    DEFAULT_PARALLEL_EXECUTION_MAX_SPECULATIVE_WAVES,
-    DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
-    DEFAULT_PARALLEL_EXECUTION_MIN_WAVE_ACCEPTANCE_RATIO,
-    DEFAULT_PARALLEL_EXECUTION_WARM_WORKERS,
-    DEFAULT_PARALLEL_EXECUTION_WORKERS,
     AppLoggingOptions,
     BdsOptions,
     MetricsOptions,
     NodeConfigOptions,
-    ParallelExecutionOptions,
     SimulationOptions,
     StateSyncOptions,
     build_priv_validator_key,
@@ -406,22 +397,6 @@ def configure_existing_home(
     simulation_max_concurrency: int = 2,
     simulation_timeout_ms: int = 3000,
     simulation_max_chi: int = 1_000_000,
-    parallel_execution_enabled: bool = DEFAULT_PARALLEL_EXECUTION_ENABLED,
-    parallel_execution_workers: int = DEFAULT_PARALLEL_EXECUTION_WORKERS,
-    parallel_execution_min_transactions: int = (DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS),
-    parallel_execution_max_speculative_waves: int = (
-        DEFAULT_PARALLEL_EXECUTION_MAX_SPECULATIVE_WAVES
-    ),
-    parallel_execution_min_wave_acceptance_ratio: float = (
-        DEFAULT_PARALLEL_EXECUTION_MIN_WAVE_ACCEPTANCE_RATIO
-    ),
-    parallel_execution_low_acceptance_min_wave_size: int = (
-        DEFAULT_PARALLEL_EXECUTION_LOW_ACCEPTANCE_MIN_WAVE_SIZE
-    ),
-    parallel_execution_warm_workers: bool = (DEFAULT_PARALLEL_EXECUTION_WARM_WORKERS),
-    parallel_execution_access_estimates_enabled: bool = (
-        DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED
-    ),
     pending_nonce_reservation_ttl_seconds: float = 60.0,
     max_pending_nonces_per_sender: int = 128,
     bds_dsn: str = "",
@@ -482,16 +457,6 @@ def configure_existing_home(
                 max_concurrency=simulation_max_concurrency,
                 timeout_ms=simulation_timeout_ms,
                 max_chi=simulation_max_chi,
-            ),
-            parallel_execution=ParallelExecutionOptions(
-                enabled=parallel_execution_enabled,
-                workers=parallel_execution_workers,
-                min_transactions=parallel_execution_min_transactions,
-                max_speculative_waves=(parallel_execution_max_speculative_waves),
-                min_wave_acceptance_ratio=(parallel_execution_min_wave_acceptance_ratio),
-                low_acceptance_min_wave_size=(parallel_execution_low_acceptance_min_wave_size),
-                warm_workers=parallel_execution_warm_workers,
-                access_estimates_enabled=(parallel_execution_access_estimates_enabled),
             ),
             pending_nonce_reservation_ttl_seconds=(pending_nonce_reservation_ttl_seconds),
             max_pending_nonces_per_sender=max_pending_nonces_per_sender,
@@ -560,7 +525,6 @@ def _configure_home(request: ExistingHomeOptions) -> dict[str, str | list[str] |
             metrics=node_config.metrics,
             app_logging=node_config.app_logging,
             simulation=node_config.simulation,
-            parallel_execution=node_config.parallel_execution,
             pending_nonce_reservation_ttl_seconds=(
                 node_config.pending_nonce_reservation_ttl_seconds
             ),

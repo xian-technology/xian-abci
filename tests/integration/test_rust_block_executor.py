@@ -289,7 +289,7 @@ def _run(home, blocks, *, native, monkeypatch=None):
             responses = processor.process_block(txs, fee_policy=policy, rewards_handler=rewards)
         else:
             responses = [
-                processor.process_tx(tx, rewards, fee_policy=policy, track_access=False)
+                processor.process_tx(tx, rewards, fee_policy=policy)
                 for tx in txs
             ]
         for response in responses:

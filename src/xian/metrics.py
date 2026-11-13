@@ -67,23 +67,7 @@ class XianMetricsCollector:
         "p95_ms",
         "recent_sample_count",
     )
-    LATEST_BLOCK_METADATA_FIELDS = (
-        "parallel_enabled",
-        "parallel_worker_count",
-        "parallel_estimated_known_transactions",
-        "parallel_estimated_unknown_transactions",
-        "parallel_estimated_stage_count",
-        "parallel_estimated_parallelizable_transactions",
-        "parallel_planned_stage_count",
-        "parallel_planned_parallelizable_transactions",
-        "parallel_speculative_wave_count",
-        "parallel_speculative_accepted",
-        "parallel_speculative_rejected",
-        "parallel_serial_prefiltered",
-        "parallel_serial_fallbacks",
-        "parallel_guardrail_fallbacks",
-        "state_patch_applied",
-    )
+    LATEST_BLOCK_METADATA_FIELDS = ("state_patch_applied",)
 
     def __init__(self, service: MetricsService):
         self.service = service
@@ -118,7 +102,6 @@ class XianMetricsCollector:
                 "chain_id": str(app.chain_id),
                 "execution_mode": str(getattr(app, "execution_mode", "")),
                 "bds_enabled": str(app.bds_enabled).lower(),
-                "parallel_execution_enabled": str(app.parallel_block_executor.enabled).lower(),
                 "tx_fees_enabled": str(app.enable_tx_fee).lower(),
                 "tx_fee_mode": str(getattr(tx_fee_policy, "mode", "")),
             },

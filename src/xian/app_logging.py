@@ -175,17 +175,3 @@ def configure_logging(
         **settings,
         "logs_dir": str(logs_dir),
     }
-
-
-def configure_worker_logging() -> None:
-    """Spawned speculative workers own stderr only; parent owns node log files."""
-    logger.remove()
-    logger.configure(extra={"context": ""}, patcher=sanitize_record)
-    logger.add(
-        sys.stderr,
-        level="WARNING",
-        format=_PLAIN_LOG_FORMAT,
-        diagnose=False,
-        backtrace=False,
-        enqueue=True,
-    )

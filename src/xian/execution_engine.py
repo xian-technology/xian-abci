@@ -64,8 +64,6 @@ class VmTransactionResult:
     writes: dict[str, Any]
     chi_used: int
     contract_costs: dict[str, int]
-    reads: frozenset[str]
-    prefix_reads: frozenset[str]
 
 
 class _InsufficientFeeBalance(AssertionError):
@@ -487,8 +485,6 @@ def execute_vm_transaction(
             )
         except _InsufficientFeeBalance as exc:
             vm_output = _failed_vm_result(AssertionError(str(exc)))
-        finally:
-            vm_reads, vm_prefix_reads = driver.transaction_access()
 
     vm_output = _charge_failure(vm_output, meter=meter, chi_budget=chi_budget)
     chi_used = int(vm_output.chi_used or 0)
@@ -510,8 +506,6 @@ def execute_vm_transaction(
         writes=merged_writes,
         chi_used=chi_used,
         contract_costs=contract_costs,
-        reads=vm_reads,
-        prefix_reads=vm_prefix_reads,
     )
 
 

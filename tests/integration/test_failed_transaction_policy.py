@@ -35,8 +35,6 @@ def _assert_base_charge_receipt(response, driver, *, chi=TRANSACTION_BASE_CHI):
         {"key": "currency.balances:alice", "value": _balance_after_base_charge(chi=chi)}
     ]
     assert driver.get("currency.balances:alice") == _balance_after_base_charge(chi=chi)
-    assert response["access"] is not None
-    assert "currency.balances:alice" in response["access"].writes
     return result
 
 
@@ -130,64 +128,6 @@ def test_post_execution_processing_error_becomes_failed_receipt(tmp_path):
         assert driver.get("con_probe.value") is None
     finally:
         driver.close()
-
-
-@pytest.mark.parametrize("workers", [1, 2])
-def test_parallel_matches_serial_for_deploy_then_call_and_missing_contract(tmp_path, workers):
-    from copy import deepcopy
-
-    from xian_runtime_types.time import Datetime
-
-    from xian.fee_policy import TxFeePolicy
-    from xian.genesis_builder import _stage_native_submission_contract
-    from xian.parallel_executor import ParallelBlockExecutor
-
-    processors = {}
-    for name in ("serial", "parallel"):
-        processor, rewards = make_processor(tmp_path / name)
-        driver = processor.client.raw_driver
-        _stage_native_submission_contract(driver, submission_time=Datetime(2026, 1, 1))
-        driver.set("currency.balances:bob", 100)
-        driver.commit()
-        processors[name] = (processor, rewards)
-
-    source = "@export\ndef ping():\n    return 7\n"
-    transactions = [
-        tx(
-            contract="submission",
-            function="submit_contract",
-            kwargs={"name": "con_fresh", "code": source},
-            budget=5000,
-        ),
-        tx(sender="bob", contract="con_fresh", function="ping"),
-        tx(sender="bob", contract="con_missing", function="pong"),
-    ]
-    serial, serial_rewards = processors["serial"]
-    parallel, parallel_rewards = processors["parallel"]
-    executor = ParallelBlockExecutor(
-        storage_home=tmp_path / "parallel",
-        enabled=True,
-        workers=workers,
-        min_transactions=1,
-        access_estimates_enabled=False,
-    )
-    try:
-        expected = [process(serial, serial_rewards, t) for t in deepcopy(transactions)]
-        actual, _stats = executor.execute(
-            txs=deepcopy(transactions),
-            tx_processor=parallel,
-            fee_policy=TxFeePolicy.paid_metered(),
-            rewards_handler=parallel_rewards,
-        )
-        assert [r["tx_result"] for r in actual] == [r["tx_result"] for r in expected]
-        assert [r["tx_result"]["status"] for r in expected] == [0, 0, 1]
-        assert expected[2]["tx_result"]["chi_used"] == TRANSACTION_BASE_CHI
-        for key in ("currency.balances:alice", "currency.balances:bob"):
-            assert parallel.client.raw_driver.get(key) == serial.client.raw_driver.get(key)
-    finally:
-        executor.close()
-        serial.client.raw_driver.close()
-        parallel.client.raw_driver.close()
 
 
 def test_unmetered_system_failure_is_not_charged(tmp_path):

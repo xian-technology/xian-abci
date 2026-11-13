@@ -51,8 +51,6 @@ def test_a_write_set_that_fails_midway_stages_none_of_its_writes(tmp_path, bad_w
         "writes": {"con_probe.value": 7, **bad_write},
         "events": [],
         "chi_used": TRANSACTION_BASE_CHI,
-        "reads": {},
-        "prefix_reads": frozenset(),
         "contract_costs": {"con_probe": 5_000},
     }
     try:
@@ -64,17 +62,5 @@ def test_a_write_set_that_fails_midway_stages_none_of_its_writes(tmp_path, bad_w
         assert result["result"] == repr(RuntimeError(HOST_FAILURE_MESSAGE))
         assert driver.get("con_probe.value") is None
         assert not any(key.startswith("con_probe.") for key, _ in driver.pending_items())
-    finally:
-        driver.close()
-
-
-def test_applying_a_speculative_result_stages_all_of_its_writes_or_none(tmp_path):
-    processor, _ = make_processor(tmp_path)
-    driver = processor.client.raw_driver
-    state = [{"key": "con_probe.value", "value": 7}, {"key": "con_probe.zz", "value": object()}]
-    try:
-        with pytest.raises(TypeError):
-            processor.apply_tx_result({"state": state})
-        assert driver.get("con_probe.value") is None
     finally:
         driver.close()

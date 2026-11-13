@@ -366,7 +366,6 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             "chi_used": 1,
             "result": "ok",
         }
-        self.app.parallel_block_executor.enabled = False
 
         with (
             patch(

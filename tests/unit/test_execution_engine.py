@@ -1198,7 +1198,7 @@ def hidden():
         finally:
             client.flush()
 
-    def test_execute_native_hash_prefix_scan_tracks_reads_and_writes(self):
+    def test_execute_native_hash_prefix_scan_reads_and_writes(self):
         root_dir = Path(__file__).resolve().parents[3]
         source = (
             root_dir / "xian-stack" / "workloads" / "parallel_probe" / "con_parallel_probe.py"
@@ -1241,7 +1241,6 @@ def hidden():
                 outcome.output.writes["con_parallel_probe.observations:obs-1"],
                 13,
             )
-            self.assertIn("con_parallel_probe.values:g:", outcome.prefix_reads)
         finally:
             client.flush()
 

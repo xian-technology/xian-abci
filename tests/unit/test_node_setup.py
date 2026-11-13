@@ -10,7 +10,6 @@ from xian.node_setup import (
     BdsOptions,
     MetricsOptions,
     NodeConfigOptions,
-    ParallelExecutionOptions,
     SimulationOptions,
     StateSyncOptions,
     build_priv_validator_key,
@@ -74,16 +73,6 @@ class NodeSetupTests(unittest.TestCase):
                     timeout_ms=4500,
                     max_chi=750000,
                 ),
-                parallel_execution=ParallelExecutionOptions(
-                    enabled=True,
-                    workers=4,
-                    min_transactions=12,
-                    max_speculative_waves=3,
-                    min_wave_acceptance_ratio=0.4,
-                    low_acceptance_min_wave_size=6,
-                    warm_workers=False,
-                    access_estimates_enabled=False,
-                ),
                 pending_nonce_reservation_ttl_seconds=90.0,
                 max_pending_nonces_per_sender=64,
                 bds=BdsOptions(
@@ -122,11 +111,7 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(xian_config["pruning_enabled"])
         self.assertEqual(xian_config["metrics_port"], 9208)
         self.assertNotIn("execution", xian_config)
-        self.assertEqual(xian_config["parallel_execution_max_speculative_waves"], 3)
-        self.assertEqual(xian_config["parallel_execution_min_wave_acceptance_ratio"], 0.4)
-        self.assertEqual(xian_config["parallel_execution_low_acceptance_min_wave_size"], 6)
-        self.assertFalse(xian_config["parallel_execution_warm_workers"])
-        self.assertFalse(xian_config["parallel_execution_access_estimates_enabled"])
+        self.assertFalse([key for key in xian_config if key.startswith("parallel_execution_")])
         self.assertEqual(xian_config["bds"]["application_name"], "xian-bds-test")
 
     def test_render_config_applies_xian_settings(self):
@@ -144,11 +129,6 @@ class NodeSetupTests(unittest.TestCase):
                     max_concurrency=3,
                     timeout_ms=2500,
                     max_chi=500000,
-                ),
-                parallel_execution=ParallelExecutionOptions(
-                    enabled=True,
-                    workers=4,
-                    min_transactions=12,
                 ),
                 transaction_trace_logging=True,
                 app_logging=AppLoggingOptions(
@@ -189,14 +169,6 @@ class NodeSetupTests(unittest.TestCase):
         # The fee policy is chain state from genesis, never node config.
         for key in ("tx_fee_mode", "max_tx_chi", "max_block_chi"):
             self.assertNotIn(key, xian_config)
-        self.assertTrue(xian_config["parallel_execution_enabled"])
-        self.assertEqual(xian_config["parallel_execution_workers"], 4)
-        self.assertEqual(xian_config["parallel_execution_min_transactions"], 12)
-        self.assertEqual(xian_config["parallel_execution_max_speculative_waves"], 4)
-        self.assertEqual(xian_config["parallel_execution_min_wave_acceptance_ratio"], 0.25)
-        self.assertEqual(xian_config["parallel_execution_low_acceptance_min_wave_size"], 8)
-        self.assertTrue(xian_config["parallel_execution_warm_workers"])
-        self.assertTrue(xian_config["parallel_execution_access_estimates_enabled"])
         self.assertEqual(xian_config["bds"]["database"], "xian")
         self.assertEqual(xian_config["bds"]["application_name"], "xian-bds")
         self.assertEqual(xian_config["bds"]["acquire_timeout_ms"], 10000)
@@ -342,21 +314,6 @@ class NodeSetupTests(unittest.TestCase):
                 ],
                 trust_height=0,
                 trust_hash="ab" * 32,
-            )
-
-    def test_parallel_execution_requires_workers_when_enabled(self):
-        with self.assertRaisesRegex(
-            ValueError,
-            "parallel_execution_workers must be greater than zero when "
-            "parallel_execution_enabled is true",
-        ):
-            render_xian_config(
-                options=_node_options(
-                    parallel_execution=ParallelExecutionOptions(
-                        enabled=True,
-                        workers=0,
-                    )
-                )
             )
 
     def test_render_config_supports_periodic_block_policy(self):

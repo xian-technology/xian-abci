@@ -1,7 +1,6 @@
 import hashlib
 import time
 
-from contracting.execution.parallel import ExecutionAccess as TransactionAccess
 from contracting.stdlib.bridge import zk as zk_bridge
 from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, safe_repr
@@ -66,12 +65,12 @@ class TxProcessor:
         rewards_handler=None,
         *,
         fee_policy: TxFeePolicy | None = None,
-        track_access: bool = False,
     ):
         started_ns = time.perf_counter_ns()
         driver = self.client.raw_driver
+        # Nothing in the node consumes read tracking; execution runs without it.
         previous_read_tracking = driver.track_transaction_reads
-        driver.set_transaction_read_tracking(track_access)
+        driver.set_transaction_read_tracking(False)
         environment = self.get_environment(tx=tx)
         fee_policy = fee_policy or TxFeePolicy.system_unmetered()
         # Only a fee-charging policy prices chi; the others never use the rate.
@@ -86,9 +85,7 @@ class TxProcessor:
                     metering=fee_policy.meter_execution,
                     charge_fees=fee_policy.charge_fees,
                 )
-                processed = self._process_output(
-                    output, tx, chi_cost, rewards_handler, fee_policy, track_access
-                )
+                processed = self._process_output(output, tx, chi_cost, rewards_handler, fee_policy)
             except HOST_FAULT_EXCEPTIONS:
                 raise
             except Exception as exc:
@@ -100,35 +97,17 @@ class TxProcessor:
                     )
                 ).exception("Transaction processing failed; recording a failed receipt")
                 output = self._unexpected_failure_output(tx, fee_policy)
-                processed = self._process_output(
-                    output, tx, chi_cost, rewards_handler, fee_policy, track_access
-                )
+                processed = self._process_output(output, tx, chi_cost, rewards_handler, fee_policy)
 
             tx_result = processed["tx_result"]
             self.update_chi_cost_cache(processed["base_writes"])
             tx_result = self.prune_tx_result(tx_result)
 
-            response = {
+            return {
                 "tx_result": tx_result,
                 "chi_rewards_amount": output["chi_used"],
                 "chi_rewards_contract": tx["payload"]["contract"],
             }
-            if track_access:
-                response.update(
-                    {
-                        "base_writes": processed["base_writes"],
-                        "reward_deltas": processed["reward_deltas"],
-                        "access": self.build_access_record(
-                            tx=tx,
-                            status_code=output["status_code"],
-                            reads=processed["reads"],
-                            prefix_reads=processed["prefix_reads"],
-                            base_writes=processed["base_writes"],
-                            reward_deltas=processed["reward_deltas"],
-                        ),
-                    }
-                )
-            return response
         finally:
             driver.set_transaction_read_tracking(previous_read_tracking)
             if self.profiler is not None:
@@ -149,10 +128,7 @@ class TxProcessor:
         """
         executor = self._block_executor(txs, fee_policy, rewards_handler)
         if executor is None:
-            return [
-                self.process_tx(tx, rewards_handler, fee_policy=fee_policy, track_access=False)
-                for tx in txs
-            ]
+            return [self.process_tx(tx, rewards_handler, fee_policy=fee_policy) for tx in txs]
         driver = self.client.raw_driver
         previous_read_tracking = driver.track_transaction_reads
         driver.set_transaction_read_tracking(False)
@@ -174,9 +150,7 @@ class TxProcessor:
                 # The transactions Rust executed may have changed the chi rate.
                 self.cached_chi_cost = None
                 responses.append(
-                    self.process_tx(
-                        txs[index], rewards_handler, fee_policy=fee_policy, track_access=False
-                    )
+                    self.process_tx(txs[index], rewards_handler, fee_policy=fee_policy)
                 )
                 start = index + 1
         finally:
@@ -262,7 +236,7 @@ class TxProcessor:
             "chi_rewards_contract": tx["payload"]["contract"],
         }
 
-    def _process_output(self, output, tx, chi_cost, rewards_handler, fee_policy, track_access):
+    def _process_output(self, output, tx, chi_cost, rewards_handler, fee_policy):
         return self.process_tx_output(
             output=output,
             transaction=tx,
@@ -270,7 +244,6 @@ class TxProcessor:
             rewards_handler=rewards_handler,
             charge_fees=fee_policy.charge_fees,
             distribute_fee_rewards=fee_policy.distribute_fee_rewards,
-            track_access=track_access,
         )
 
     @staticmethod
@@ -284,8 +257,6 @@ class TxProcessor:
             "writes": {},
             "events": [],
             "chi_used": chi_used,
-            "reads": frozenset(),
-            "prefix_reads": frozenset(),
             "contract_costs": {},
         }
 
@@ -364,8 +335,6 @@ class TxProcessor:
             "writes": outcome.writes,
             "events": list(outcome.output.events),
             "chi_used": outcome.chi_used,
-            "reads": outcome.reads,
-            "prefix_reads": frozenset(getattr(outcome, "prefix_reads", frozenset()) or ()),
             "contract_costs": outcome.contract_costs,
         }
 
@@ -378,7 +347,6 @@ class TxProcessor:
         *,
         charge_fees: bool = True,
         distribute_fee_rewards: bool = True,
-        track_access: bool = False,
     ):
         started_ns = time.perf_counter_ns()
         try:
@@ -433,18 +401,6 @@ class TxProcessor:
                 charge_fees=charge_fees,
             )
             writes = self.materialize_writes(base_writes, reward_deltas)
-            reads = frozenset()
-            prefix_reads = frozenset()
-            if track_access:
-                # VM execution restores its driver snapshot before fee and reward
-                # accounting. Both sets of reads affect the speculative result.
-                settled_reads, settled_prefixes = self.client.raw_driver.transaction_access()
-                reads = frozenset(output.get("reads") or ()) | settled_reads
-                prefix_reads = frozenset(output.get("prefix_reads") or ()) | settled_prefixes
-                if charge_fees:
-                    # The block cache may have supplied this value without a read.
-                    reads |= {self.chi_cost_key}
-
             self._stage_writes(writes)
 
             tx_output = {
@@ -479,10 +435,7 @@ class TxProcessor:
 
             return {
                 "tx_result": tx_output,
-                "reads": reads,
-                "prefix_reads": prefix_reads,
                 "base_writes": base_writes,
-                "reward_deltas": reward_deltas,
             }
         finally:
             if self.profiler is not None:
@@ -491,9 +444,6 @@ class TxProcessor:
                     time.perf_counter_ns() - started_ns,
                     block_scoped=True,
                 )
-
-    def apply_tx_result(self, tx_result: dict) -> None:
-        self._stage_writes(tx_result["state"])
 
     def _stage_writes(self, writes: list[dict]) -> None:
         # All or nothing: apply_writes checks every key and value before it
@@ -576,113 +526,3 @@ class TxProcessor:
 
     def prune_tx_result(self, tx_result: dict):
         return tx_result
-
-    def estimate_access(self, tx: dict) -> TransactionAccess | None:
-        payload = tx.get("payload")
-        if not isinstance(payload, dict):
-            return None
-
-        sender = payload.get("sender")
-        contract = payload.get("contract")
-        function = payload.get("function")
-        kwargs = payload.get("kwargs") or {}
-        if (
-            not isinstance(sender, str)
-            or not isinstance(contract, str)
-            or not isinstance(function, str)
-            or not isinstance(kwargs, dict)
-        ):
-            return None
-
-        def make_key(variable: str, args: list[object]) -> str:
-            return self.client.raw_driver.make_key(contract, variable, args)
-
-        reads: set[str] = set()
-        writes: set[str] = set()
-
-        if function == "transfer":
-            to = kwargs.get("to")
-            if not isinstance(to, str):
-                return None
-            balance_keys = {
-                make_key(self.balances_hash, [sender]),
-                make_key(self.balances_hash, [to]),
-            }
-            reads.update(balance_keys)
-            writes.update(balance_keys)
-        elif function == "approve":
-            to = kwargs.get("to")
-            if not isinstance(to, str):
-                return None
-            writes.add(make_key("approvals", [sender, to]))
-        elif function == "approve_from_authorizer":
-            owner = kwargs.get("owner")
-            spender = kwargs.get("spender")
-            if not isinstance(owner, str) or not isinstance(spender, str):
-                return None
-            reads.add(make_key("metadata", ["permit_authorizer"]))
-            writes.add(make_key("approvals", [owner, spender]))
-        elif function == "transfer_from":
-            to = kwargs.get("to")
-            main_account = kwargs.get("main_account")
-            if not isinstance(to, str) or not isinstance(main_account, str):
-                return None
-            keys = {
-                make_key("approvals", [main_account, sender]),
-                make_key(self.balances_hash, [main_account]),
-                make_key(self.balances_hash, [to]),
-            }
-            reads.update(keys)
-            writes.update(keys)
-        elif function == "change_metadata":
-            key = kwargs.get("key")
-            if not isinstance(key, str):
-                return None
-            reads.add(make_key("metadata", ["operator"]))
-            writes.add(make_key("metadata", [key]))
-        elif function == "set_operator":
-            writes.add(make_key("metadata", ["operator"]))
-        elif function == "set_permit_authorizer":
-            writes.add(make_key("metadata", ["permit_authorizer"]))
-        elif function == "balance_of":
-            address = kwargs.get("address")
-            if not isinstance(address, str):
-                return None
-            reads.add(make_key(self.balances_hash, [address]))
-        elif contract in {"chi_cost", "rewards"} and function == "current_value":
-            reads.add(make_key("S", ["value"]))
-        elif contract in {"chi_cost", "rewards"} and function == "set_value":
-            writes.add(make_key("S", ["value"]))
-        else:
-            return None
-
-        return TransactionAccess(
-            index=-1,
-            sender=sender,
-            nonce=payload.get("nonce", 0),
-            reads=frozenset(reads),
-            prefix_reads=frozenset(),
-            writes=frozenset(writes),
-            additive_writes=frozenset(),
-            status=0,
-        )
-
-    def build_access_record(
-        self,
-        tx: dict,
-        status_code: int,
-        reads: frozenset[str],
-        prefix_reads: frozenset[str],
-        base_writes: dict,
-        reward_deltas: dict,
-    ) -> TransactionAccess:
-        return TransactionAccess(
-            index=-1,
-            sender=tx["payload"]["sender"],
-            nonce=tx["payload"].get("nonce", 0),
-            reads=reads,
-            prefix_reads=prefix_reads,
-            writes=frozenset(base_writes.keys()),
-            additive_writes=frozenset(reward_deltas.keys()),
-            status=status_code,
-        )

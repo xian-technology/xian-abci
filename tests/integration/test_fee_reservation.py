@@ -12,7 +12,6 @@ from xian_runtime_types.encoding import decode_wire_numbers
 
 from xian.execution_engine import VmRuntime, execute_vm_transaction
 from xian.fee_policy import TxFeePolicy
-from xian.parallel_executor import ParallelBlockExecutor
 from xian.simulator import TransactionSimulator
 
 
@@ -32,11 +31,8 @@ def test_unfunded_budget_has_no_execution_effects_fee_or_rewards(tmp_path, balan
         assert result["state"] == [{"key": "currency.balances:alice", "value": charged}]
         assert result["events"] == []
         assert result["rewards"] is None
-        assert response["reward_deltas"] == {}
         assert driver.get("con_probe.value") is None
         assert driver.get("currency.balances:alice") == charged
-        assert "currency.balances:alice" in response["access"].reads
-        assert "chi_cost.S:value" in response["access"].reads
     finally:
         driver.close()
 
@@ -260,73 +256,8 @@ def test_cached_chi_rate_update_changes_next_reservation(tmp_path):
         assert decode_wire_numbers(second["tx_result"]["result"]) == 95
         fee = ContractingDecimal(second["tx_result"]["chi_used"]) / 200
         assert driver.get("currency.balances:bob") == 100 - fee
-        assert "chi_cost.S:value" in second["access"].reads
     finally:
         driver.close()
-
-
-@pytest.mark.parametrize("receives_funds", [True, False])
-@pytest.mark.parametrize("workers", [1, 2])
-def test_paid_parallel_execution_matches_serial_after_funding_change(
-    tmp_path, receives_funds, workers
-):
-    balance = 9 if receives_funds else 11
-    serial, serial_rewards = make_processor(tmp_path / "serial", balance=balance)
-    parallel, parallel_rewards = make_processor(tmp_path / "parallel", balance=balance)
-    for processor in (serial, parallel):
-        processor.client.raw_driver.set("currency.balances:alice", 100)
-        processor.client.raw_driver.set("currency.approvals:bob:alice", 100)
-        processor.client.raw_driver.commit()
-    transactions = [
-        tx(
-            contract="currency",
-            function="transfer" if receives_funds else "transfer_from",
-            kwargs={"amount": 2, "to": "bob"}
-            if receives_funds
-            else {
-                "amount": 2,
-                "to": "alice",
-                "main_account": "bob",
-            },
-        ),
-        tx(sender="bob"),
-    ]
-    executor = ParallelBlockExecutor(
-        storage_home=tmp_path / "parallel",
-        enabled=True,
-        workers=workers,
-        min_transactions=1,
-        access_estimates_enabled=False,
-    )
-    try:
-        expected = [
-            process(serial, serial_rewards, transaction) for transaction in deepcopy(transactions)
-        ]
-        actual, stats = executor.execute(
-            txs=deepcopy(transactions),
-            tx_processor=parallel,
-            fee_policy=TxFeePolicy.paid_metered(),
-            rewards_handler=parallel_rewards,
-        )
-        assert [response["tx_result"] for response in actual] == [
-            response["tx_result"] for response in expected
-        ]
-        assert [response["tx_result"]["status"] for response in actual] == [
-            0,
-            0 if receives_funds else 1,
-        ]
-        assert stats.speculative_rejected >= 1
-        for key in (
-            "currency.balances:alice",
-            "currency.balances:bob",
-            "currency.balances:validator",
-            "con_probe.value",
-        ):
-            assert parallel.client.raw_driver.get(key) == serial.client.raw_driver.get(key)
-    finally:
-        executor.close()
-        serial.client.raw_driver.close()
-        parallel.client.raw_driver.close()
 
 
 def test_fee_reservation_is_restored_when_vm_boundary_raises(tmp_path):

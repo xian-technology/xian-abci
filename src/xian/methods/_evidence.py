@@ -127,7 +127,6 @@ def maybe_apply_evidence_penalties(self, req, *, height: int) -> bool:
             evidence_tx,
             rewards_handler=None,
             fee_policy=TxFeePolicy.system_unmetered(),
-            track_access=False,
         )
         tx_result = result.get("tx_result")
         if tx_result is None or tx_result.get("status") != 0:

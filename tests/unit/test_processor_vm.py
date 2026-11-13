@@ -4,26 +4,18 @@ from types import SimpleNamespace
 from unittest import mock
 
 from xian_runtime_types.time import Datetime
-from xian_vm_core import BlockState
 
 from xian.processor import TxProcessor
 
 
 def _driver():
-    pending = BlockState()
-    pending.set_tracking(True)
     driver = SimpleNamespace(
-        pending=pending,
-        transaction_access=pending.access,
         transaction_writes={},
         log_events=[],
     )
     driver.get_owner = lambda _contract: "alice"
     driver.clear_transaction_reads = lambda: None
     driver.clear_transaction_writes = lambda: None
-    driver.make_key = lambda contract, variable, args: (
-        f"{contract}.{variable}:" + ":".join(str(arg) for arg in args)
-    )
     return driver
 
 
@@ -51,53 +43,6 @@ def _transaction(**payload_overrides):
 
 
 class ProcessorVmExecutionTests(unittest.TestCase):
-    def test_access_includes_fee_and_reward_configuration_reads(self):
-        driver = _driver()
-        driver.apply_writes = lambda _writes: None
-        processor = _processor(driver)
-        processor.chi_cost_key = "chi_cost.S:value"
-        output = {
-            "status_code": 0,
-            "result": None,
-            "writes": {},
-            "events": [],
-            "chi_used": 1,
-            "reads": {"con_probe.value": 1},
-            "prefix_reads": frozenset({"con_probe.values:"}),
-        }
-
-        def reward_outputs(**_kwargs):
-            driver.pending.record_read("rewards.S:value")
-            driver.pending.record_read("foundation.owner")
-            driver.pending.record_prefix("validators.delegations:")
-            return None, {}, []
-
-        rewards_handler = SimpleNamespace(build_tx_reward_outputs=reward_outputs)
-        with mock.patch("xian.processor.tx_hash_from_tx", return_value="tx-hash"):
-            result = processor.process_tx_output(
-                output,
-                _transaction(contract="con_probe", function="run", kwargs={}),
-                chi_cost=20,
-                rewards_handler=rewards_handler,
-                track_access=True,
-            )
-
-        self.assertEqual(
-            result["reads"],
-            frozenset(
-                {
-                    "con_probe.value",
-                    "chi_cost.S:value",
-                    "rewards.S:value",
-                    "foundation.owner",
-                }
-            ),
-        )
-        self.assertEqual(
-            result["prefix_reads"],
-            frozenset({"con_probe.values:", "validators.delegations:"}),
-        )
-
     def test_nested_runtime_wrappers_are_converted_before_vm_execution(self):
         processor = _processor(_driver())
         transaction = _transaction(
@@ -130,8 +75,6 @@ class ProcessorVmExecutionTests(unittest.TestCase):
             output=SimpleNamespace(status_code=0, result="settled", events=[]),
             writes={},
             chi_used=1,
-            reads={},
-            prefix_reads=frozenset(),
             contract_costs={},
         )
         with (
@@ -152,56 +95,6 @@ class ProcessorVmExecutionTests(unittest.TestCase):
         self.assertGreater(execute.call_args.kwargs["transaction_size_bytes"], 0)
         self.assertEqual(transaction, original)
 
-    def test_estimate_access_for_token_transfer(self):
-        processor = _processor(_driver())
-
-        access = processor.estimate_access(_transaction())
-
-        expected_keys = frozenset(
-            {
-                "currency.balances:alice",
-                "currency.balances:bob",
-            }
-        )
-        self.assertIsNotNone(access)
-        self.assertEqual(access.sender, "alice")
-        self.assertEqual(access.reads, expected_keys)
-        self.assertEqual(access.writes, expected_keys)
-        self.assertEqual(access.prefix_reads, frozenset())
-
-    def test_estimate_access_returns_none_for_unknown_function(self):
-        processor = _processor(_driver())
-
-        access = processor.estimate_access(_transaction(function="custom", kwargs={}))
-
-        self.assertIsNone(access)
-
-    def test_estimate_access_for_core_value_reader(self):
-        processor = _processor(_driver())
-
-        access = processor.estimate_access(
-            _transaction(contract="chi_cost", function="current_value", kwargs={})
-        )
-
-        self.assertIsNotNone(access)
-        self.assertEqual(access.reads, frozenset({"chi_cost.S:value"}))
-        self.assertEqual(access.writes, frozenset())
-
-    def test_estimate_access_for_core_value_writer(self):
-        processor = _processor(_driver())
-
-        access = processor.estimate_access(
-            _transaction(
-                contract="rewards",
-                function="set_value",
-                kwargs={"new_value": [0.25, 0.25, 0.25, 0.25]},
-            )
-        )
-
-        self.assertIsNotNone(access)
-        self.assertEqual(access.reads, frozenset())
-        self.assertEqual(access.writes, frozenset({"rewards.S:value"}))
-
     def test_execute_tx_uses_fresh_environment_when_omitted(self):
         processor = _processor(_driver())
         observed_environments = []
@@ -217,8 +110,6 @@ class ProcessorVmExecutionTests(unittest.TestCase):
                 ),
                 writes={},
                 chi_used=1,
-                reads={},
-                prefix_reads=frozenset(),
                 contract_costs={},
             )
 
@@ -303,8 +194,6 @@ class ProcessorVmExecutionTests(unittest.TestCase):
                     ),
                     writes={"currency.balances:alice": 5},
                     chi_used=11,
-                    reads={"currency.balances:alice": 10},
-                    prefix_reads=frozenset({"currency.balances"}),
                     contract_costs={"currency": 100},
                 ),
             ) as native_execute,

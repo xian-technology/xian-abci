@@ -86,18 +86,7 @@ from xian.methods import (
     query,
 )
 from xian.metrics import MetricsService
-from xian.node_setup import (
-    DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED,
-    DEFAULT_PARALLEL_EXECUTION_ENABLED,
-    DEFAULT_PARALLEL_EXECUTION_LOW_ACCEPTANCE_MIN_WAVE_SIZE,
-    DEFAULT_PARALLEL_EXECUTION_MAX_SPECULATIVE_WAVES,
-    DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
-    DEFAULT_PARALLEL_EXECUTION_MIN_WAVE_ACCEPTANCE_RATIO,
-    DEFAULT_PARALLEL_EXECUTION_WARM_WORKERS,
-    DEFAULT_PARALLEL_EXECUTION_WORKERS,
-)
 from xian.nonce import NonceStorage
-from xian.parallel_executor import ParallelBlockExecutor
 from xian.perf import PerfTracker
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
@@ -294,44 +283,6 @@ class Xian:
         self.pruning_enabled = xian_config.get("pruning_enabled", False)
         # If pruning is enabled, this is the number of blocks to keep history for
         self.blocks_to_keep = xian_config.get("blocks_to_keep", 100000)
-        self.parallel_block_executor = ParallelBlockExecutor(
-            storage_home=constants.STORAGE_HOME,
-            enabled=xian_config.get(
-                "parallel_execution_enabled",
-                DEFAULT_PARALLEL_EXECUTION_ENABLED,
-            ),
-            workers=xian_config.get(
-                "parallel_execution_workers",
-                DEFAULT_PARALLEL_EXECUTION_WORKERS,
-            ),
-            min_transactions=xian_config.get(
-                "parallel_execution_min_transactions",
-                DEFAULT_PARALLEL_EXECUTION_MIN_TRANSACTIONS,
-            ),
-            max_speculative_waves=xian_config.get(
-                "parallel_execution_max_speculative_waves",
-                DEFAULT_PARALLEL_EXECUTION_MAX_SPECULATIVE_WAVES,
-            ),
-            min_wave_acceptance_ratio=xian_config.get(
-                "parallel_execution_min_wave_acceptance_ratio",
-                DEFAULT_PARALLEL_EXECUTION_MIN_WAVE_ACCEPTANCE_RATIO,
-            ),
-            low_acceptance_min_wave_size=xian_config.get(
-                "parallel_execution_low_acceptance_min_wave_size",
-                DEFAULT_PARALLEL_EXECUTION_LOW_ACCEPTANCE_MIN_WAVE_SIZE,
-            ),
-            access_estimates_enabled=xian_config.get(
-                "parallel_execution_access_estimates_enabled",
-                DEFAULT_PARALLEL_EXECUTION_ACCESS_ESTIMATES_ENABLED,
-            ),
-            execution_runtime=self.execution_runtime,
-            runtime_features=self.runtime_features,
-        )
-        if xian_config.get(
-            "parallel_execution_warm_workers",
-            DEFAULT_PARALLEL_EXECUTION_WARM_WORKERS,
-        ):
-            self.parallel_block_executor.warm(use_rewards_handler=True)
         self.app_version = 1
         self.metrics_service = MetricsService.from_runtime_settings(self, xian_config)
 
@@ -360,7 +311,6 @@ class Xian:
                     "runtime_features": ",".join(sorted(self.runtime_features)),
                     "runtime_features_source": self.runtime_feature_resolution.source,
                     "simulation_enabled": self.simulator.enabled,
-                    "parallel_execution_enabled": (self.parallel_block_executor.enabled),
                     "transaction_trace_logging": (self.transaction_trace_logging),
                     "transaction_trace_debug_logging": (self.transaction_trace_debug_logging),
                     "transaction_trace_full_logging": (self.transaction_trace_full_logging),
@@ -563,7 +513,6 @@ class Xian:
         return await query.query(self, req)
 
     async def close(self):
-        self.parallel_block_executor.close()
         self.simulator.close()
         await self.metrics_service.close()
         if self.bds_enabled and hasattr(self, "bds"):
