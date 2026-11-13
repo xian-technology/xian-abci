@@ -328,8 +328,7 @@ class TxProcessor:
                     # The block cache may have supplied this value without a read.
                     reads |= {self.chi_cost_key}
 
-            for write in writes:
-                self.client.raw_driver.set(key=write["key"], value=write["value"])
+            self._stage_writes(writes)
 
             tx_output = {
                 "hash": tx_hash,
@@ -377,8 +376,12 @@ class TxProcessor:
                 )
 
     def apply_tx_result(self, tx_result: dict) -> None:
-        for write in tx_result["state"]:
-            self.client.raw_driver.set(key=write["key"], value=write["value"])
+        self._stage_writes(tx_result["state"])
+
+    def _stage_writes(self, writes: list[dict]) -> None:
+        # All or nothing: apply_writes checks every key and value before it
+        # stages any, so a failure never leaves part of a transaction behind.
+        self.client.raw_driver.apply_writes({write["key"]: write["value"] for write in writes})
 
     def determine_writes_from_output(
         self,

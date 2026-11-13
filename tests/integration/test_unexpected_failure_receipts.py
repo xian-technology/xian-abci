@@ -32,3 +32,49 @@ def test_unexpected_error_receipt_charges_nothing_without_paid_fees(tmp_path, po
         assert driver.get("currency.balances:alice") == 100
     finally:
         driver.close()
+
+
+@pytest.mark.parametrize(
+    "bad_write",
+    [
+        pytest.param({"con_probe.x" + "x" * 600: 1}, id="key-lmdb-cannot-store"),
+        pytest.param({"con_probe.zz": object()}, id="unpersistable-value"),
+    ],
+)
+def test_a_write_set_that_fails_midway_stages_none_of_its_writes(tmp_path, bad_write):
+    processor, rewards = make_processor(tmp_path)
+    driver = processor.client.raw_driver
+    output = {
+        "status_code": 0,
+        "result": None,
+        # Writes are staged in key order: the valid one first, then the bad one.
+        "writes": {"con_probe.value": 7, **bad_write},
+        "events": [],
+        "chi_used": TRANSACTION_BASE_CHI,
+        "reads": {},
+        "prefix_reads": frozenset(),
+        "contract_costs": {"con_probe": 5_000},
+    }
+    try:
+        with patch.object(processor, "execute_tx", return_value=output):
+            response = process(processor, rewards, tx(), policy=TxFeePolicy.free_metered())
+
+        result = response["tx_result"]
+        assert result["status"] == 1
+        assert result["result"] == repr(RuntimeError(HOST_FAILURE_MESSAGE))
+        assert driver.get("con_probe.value") is None
+        assert not any(key.startswith("con_probe.") for key in driver.pending_writes)
+    finally:
+        driver.close()
+
+
+def test_applying_a_speculative_result_stages_all_of_its_writes_or_none(tmp_path):
+    processor, _ = make_processor(tmp_path)
+    driver = processor.client.raw_driver
+    state = [{"key": "con_probe.value", "value": 7}, {"key": "con_probe.zz", "value": object()}]
+    try:
+        with pytest.raises(TypeError):
+            processor.apply_tx_result({"state": state})
+        assert driver.get("con_probe.value") is None
+    finally:
+        driver.close()

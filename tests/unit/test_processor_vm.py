@@ -53,7 +53,7 @@ def _transaction(**payload_overrides):
 class ProcessorVmExecutionTests(unittest.TestCase):
     def test_access_includes_fee_and_reward_configuration_reads(self):
         driver = _driver()
-        driver.set = lambda **_kwargs: None
+        driver.apply_writes = lambda _writes: None
         processor = _processor(driver)
         processor.chi_cost_key = "chi_cost.S:value"
         output = {
