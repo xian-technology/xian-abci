@@ -187,16 +187,16 @@ def test_zero_chi_is_rejected_by_all_transaction_entrypoints(
 
 # LMDB refuses keys over 511 bytes. Each write below forms a 512-byte storage
 # key ("con_boundary.data:" is 18 bytes); the last one forms exactly 511.
+# V2 admission keeps every variable key within the limit, so only hash keys can
+# exceed it at runtime.
 _TARGET = "t" * 98
-_LONG_VARIABLE = "v" * 499
 STORAGE_KEY_SOURCE = (
-    f"data = Hash(default_value=0)\n{_TARGET} = Hash()\n{_LONG_VARIABLE} = Variable()\n"
+    f"data = Hash(default_value=0)\n{_TARGET} = Hash()\n"
     "ok = Variable()\n\n"
     "@export\ndef hash_key():\n    data['x' * 494] = 1\n"
     "@export\ndef mutate_key():\n    data['x' * 494] += 1\n"
     "@export\ndef utf8_key():\n    data['\\u00e9' * 247] = 1\n"
     "@export\ndef multi_key():\n    data['x' * 246, 'y' * 247] = 1\n"
-    f"@export\ndef variable_key():\n    {_LONG_VARIABLE}.set(1)\n"
     f"@export\ndef clone_key():\n    data['k' * 400] = 1\n    {_TARGET}.clone_from(data)\n"
     "@export\ndef largest_key():\n    data['x' * 493] = 1\n"
     "@export\ndef good():\n    ok.set(7)\n"
@@ -204,7 +204,7 @@ STORAGE_KEY_SOURCE = (
 
 
 @pytest.mark.parametrize(
-    "function", ["hash_key", "mutate_key", "utf8_key", "multi_key", "variable_key", "clone_key"]
+    "function", ["hash_key", "mutate_key", "utf8_key", "multi_key", "clone_key"]
 )
 def test_finalize_fails_a_write_lmdb_cannot_store_and_commits_the_block(tmp_path, function):
     async def run():

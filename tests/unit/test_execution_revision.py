@@ -23,7 +23,7 @@ def test_policy_requires_exact_current_identifiers():
         "gas_schedule": "xvm-gas-6",
         "bytecode_version": "xvm-2",
         "set_codec": "xian-set-1",
-        "compiler_admission_revision": "xian-admission-2",
+        "compiler_admission_revision": "xian-admission-3",
         "tx_admission_revision": "xian-fastpath-admission-2",
     }
     assert policy.current_execution_policy() == expected
@@ -180,6 +180,14 @@ def previous_policy(request):
     return policy.current_execution_policy() | {"execution_revision": request.param}
 
 
+def test_previous_compiler_admission_revision_is_rejected():
+    previous = policy.current_execution_policy() | {
+        "compiler_admission_revision": "xian-admission-2"
+    }
+    with pytest.raises(ValueError, match="execution policy"):
+        policy.validate_execution_policy(previous)
+
+
 def test_previous_revision_is_rejected_even_with_matching_gas_and_codec(previous_policy):
     with pytest.raises(ValueError, match="execution policy"):
         policy.validate_execution_policy(previous_policy)
@@ -234,7 +242,7 @@ def test_startup_fences_compiler_and_fastpath_admission_revisions():
             compiler_version=lambda: {"admission_revisions": {"xian_vm_v2": revision}}
         )
 
-    current_compiler = compiler("xian-admission-2")
+    current_compiler = compiler("xian-admission-3")
     current_fastpath = SimpleNamespace(ADMISSION_REVISION="xian-fastpath-admission-2")
     execution_engine.validate_admission_runtimes(
         compiler=current_compiler, fastpath=current_fastpath
@@ -242,10 +250,11 @@ def test_startup_fences_compiler_and_fastpath_admission_revisions():
     # Without the extension the Python fallback, which applies the same
     # canonical admission rule, is authoritative.
     execution_engine.validate_admission_runtimes(compiler=current_compiler, fastpath=None)
-    with pytest.raises(ValueError, match="compiler admission"):
-        execution_engine.validate_admission_runtimes(
-            compiler=compiler("xian-admission-1"), fastpath=current_fastpath
-        )
+    for previous in ("xian-admission-1", "xian-admission-2"):
+        with pytest.raises(ValueError, match="compiler admission"):
+            execution_engine.validate_admission_runtimes(
+                compiler=compiler(previous), fastpath=current_fastpath
+            )
     with pytest.raises(ValueError, match="fastpath admission"):
         execution_engine.validate_admission_runtimes(
             compiler=current_compiler,
