@@ -34,3 +34,22 @@ class VmExecutionConfigTests(unittest.TestCase):
                     }
                 },
             )
+
+    def test_validate_vm_execution_config_rejects_removed_parallel_execution_keys(self):
+        with self.assertRaises(ValueError) as raised:
+            validate_vm_execution_config(
+                {
+                    "bds_enabled": False,
+                    "parallel_execution_workers": 4,
+                    "parallel_execution_enabled": False,
+                }
+            )
+        message = str(raised.exception)
+        self.assertIn("parallel_execution_enabled, parallel_execution_workers", message)
+        self.assertIn("remove", message)
+
+    def test_validate_vm_execution_config_accepts_the_generated_template(self):
+        from xian.node_setup import DEFAULT_XIAN_CONFIG_TOML
+        from xian import toml_utils
+
+        self.assertIsNone(validate_vm_execution_config(toml_utils.loads(DEFAULT_XIAN_CONFIG_TOML)))
