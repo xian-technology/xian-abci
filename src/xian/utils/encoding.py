@@ -207,8 +207,8 @@ def _abci_sequence(obj):
     return [normalize_for_abci_json(elem) for elem in obj]
 
 
-# The JSON form of each runtime type in receipts and state-root leaves; the
-# first matching entry applies. Timedeltas and bytearrays keep the tagged wire
+# The JSON form of each runtime type in receipts (state-root leaves hash the
+# stored bytes instead); the first matching entry applies. Timedeltas and bytearrays keep the tagged wire
 # form the encoder writes.
 _ABCI_JSON_FORMS = (
     (BaseException, lambda obj: safe_repr(obj) or str(obj)),

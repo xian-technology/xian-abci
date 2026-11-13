@@ -27,7 +27,7 @@ def test_effective_set_survives_commit_restart_and_state_export_import(tmp_path)
         driver.set("validators.active_validators", ["con_invalid"])
         assert handler(driver).build_validator_updates(1) == []
         assert driver.value_from_disk(CONSENSUS_VALIDATORS_KEY) is None
-        prepared_root = state_root.prepare(driver.pending_items())
+        prepared_root = state_root.prepare(driver.pending_stored_items())
         driver.commit()
         assert StateRootCache.from_driver(driver).root_hash == prepared_root
 

@@ -464,7 +464,7 @@ def _prepare_commit_boundary(
             # Commit boundary: pending writes are now represented by app_hash,
             # but only the commit step may persist and clear them.
             self.merkle_root_hash = self.state_root_cache.prepare(
-                self.client.raw_driver.pending_items()
+                self.client.raw_driver.pending_stored_items()
             )
     return validator_updates, patch_hash, applied_patches
 

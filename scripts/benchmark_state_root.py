@@ -14,6 +14,7 @@ from xian.state_root import (
     StateRootCache,
     compute_driver_state_root,
     merkle_root_from_items,
+    stored_bytes,
 )
 
 
@@ -63,13 +64,11 @@ def time_cached_updates(
 ) -> list[float]:
     materialized_items = list(items)
     cache = StateRootCache(materialized_items)
-    writes = {
-        key: {
-            "amount": index + 1_000_000,
-            "owner": f"updated-vk-{index}",
-        }
+    # prepare() takes the bytes Commit stores (Driver.pending_stored_items).
+    writes = [
+        (key, stored_bytes({"amount": index + 1_000_000, "owner": f"updated-vk-{index}"}))
         for index, (key, _value) in enumerate(materialized_items[: max(update_count, 0)])
-    }
+    ]
     durations = []
     for _ in range(repeats):
         started = time.perf_counter()

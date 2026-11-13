@@ -70,20 +70,25 @@ archive. It contains:
 - contract key/value state
 - nonce state
 
-The current application hash is a raw 32-byte `state-root-v2` Merkle root over
-the canonical Xian consensus key/value state. The root includes contract state
-and committed nonce keys such as `__n.<sender>`, and excludes local runtime keys
-that are not part of consensus state.
+The current application hash is a raw 32-byte `xian-state-root-v3` Merkle root
+over the canonical Xian consensus key/value state. The root includes contract
+state and committed nonce keys such as `__n.<sender>`, and excludes local runtime
+keys that are not part of consensus state.
 
-State-root leaves are domain-separated and hash the canonical ABCI JSON
-encoding of each value. They are organized in a deterministic Merkle treap keyed
-by state key with cryptographic priorities derived from those keys. During
-block finalization, Xian updates an in-memory root cache from the block's
-pending consensus writes instead of scanning the whole database. The cache is
-rebuilt from committed state on startup, genesis, and state-sync import. The
-treap and its hashing live in vm-core (`xian_vm_core.StateRootTree`); a rebuild
-reads committed LMDB state in Rust with the GIL released and hands only values
-whose ABCI JSON Python must render (or reject) back to Python.
+State-root leaves are domain-separated and hash each key with the exact bytes
+LMDB stores for its value: the canonical V2 storage encoding, which the Python
+and Rust encoders write byte-identically. A leaf therefore commits to the value
+and its type (a datetime and its text, or bytes and equal text, are different
+leaves). A stored JSON `null` counts as an absent key. Leaves are organized in a
+deterministic Merkle treap keyed by state key with cryptographic priorities
+derived from those keys. During block finalization, Xian updates an in-memory
+root cache from the block's pending writes, hashing the same bytes Commit then
+stores (`Driver.pending_stored_items`), instead of scanning the whole database.
+The cache is rebuilt from committed state on startup, genesis, and state-sync
+import. The treap and its hashing live in vm-core (`xian_vm_core.StateRootTree`);
+a rebuild reads committed LMDB bytes in Rust with the GIL released and does not
+decode values. Exported state is hashed by encoding each value as the node
+stores it. V1 state keeps the rules of its pinned archival runtime.
 
 On import, Xian rebuilds:
 

@@ -1,9 +1,10 @@
-"""Reference state root: the pure-Python treap the node used before the Rust tree.
+"""Reference state root (``xian-state-root-v3``) in plain Python, as a test oracle.
 
-Frozen copy of the consensus definition (``xian-state-root-v2``), kept only as a
-test oracle: the node's root must equal what this computes over the same state.
-It decodes every stored value in Python (``Driver.items``) and hashes the ABCI
-JSON of each consensus value into a treap keyed by key, prioritised by hash.
+A leaf commits to a hashed key and the exact bytes LMDB stores for it (the V2
+stored encoding the Python and Rust encoders write byte-identically). Leaves
+sit in a treap keyed by key and prioritised by a hash of the key; each node
+hashes its left subtree, its leaf and its right subtree. A stored JSON
+``null`` reads as an absent key. The node's root must equal this one.
 """
 
 from __future__ import annotations
@@ -13,16 +14,17 @@ from dataclasses import dataclass
 
 from contracting import constants as contracting_constants
 from contracting.runtime_features import RUNTIME_FEATURE_STATE_PREFIX
+from xian_runtime_types.encoding import encode
 
 from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.fee_policy import FEE_POLICY_KEY
-from xian.utils.encoding import encode_abci_json
 
-VERSION = "xian-state-root-v2"
+VERSION = "xian-state-root-v3"
 EMPTY = hashlib.sha256(f"{VERSION}:empty".encode()).digest()
 LEAF = f"{VERSION}:leaf:".encode()
 NODE = f"{VERSION}:node:".encode()
 PRIORITY = f"{VERSION}:priority:".encode()
+ABSENT = (None, b"null")
 
 
 def is_hashed(key: str) -> bool:
@@ -39,10 +41,12 @@ def _framed(payload: bytes) -> bytes:
     return len(payload).to_bytes(8, "big") + payload
 
 
-def leaf_hash(key: str, value) -> bytes:
-    return hashlib.sha256(
-        LEAF + _framed(key.encode()) + _framed(encode_abci_json(value))
-    ).digest()
+def stored(value) -> bytes:
+    return encode(value).encode()
+
+
+def leaf_hash(key: str, stored_bytes: bytes) -> bytes:
+    return hashlib.sha256(LEAF + _framed(key.encode()) + _framed(stored_bytes)).digest()
 
 
 @dataclass(slots=True)
@@ -85,26 +89,25 @@ def _insert(node: _Node | None, key: str, leaf: bytes) -> _Node:
     return _refresh(node)
 
 
-def root_of_leaves(leaves) -> bytes:
-    root = None
-    for key, leaf in leaves:
-        root = _insert(root, key, leaf)
-    return _hash(root)
-
-
-def consensus_leaves(items) -> list[tuple[str, bytes]]:
-    return [
-        (key, leaf_hash(key, value))
-        for key, value in items
-        if value is not None and is_hashed(key)
-    ]
+def root_of_stored(entries) -> tuple[bytes, int]:
+    """(root, leaf count) of ``(key, stored bytes or None)`` entries."""
+    root, count = None, 0
+    for key, raw in entries:
+        if raw not in ABSENT and is_hashed(key):
+            root = _insert(root, key, leaf_hash(key, raw))
+            count += 1
+    return _hash(root), count
 
 
 def root_of_items(items) -> bytes:
-    return root_of_leaves(consensus_leaves(items))
+    """Root of ``(key, Python value)`` items, stored with the V2 encoder."""
+    entries = [(key, None if value is None else stored(value)) for key, value in items]
+    return root_of_stored(entries)[0]
 
 
 def driver_root(driver) -> tuple[bytes, int]:
-    """(root, leaf count) of the driver's merged state, decoded in Python."""
-    leaves = consensus_leaves(driver.items().items())
-    return root_of_leaves(leaves), len(leaves)
+    """(root, leaf count) of the driver's committed bytes with its pending bytes on top."""
+    environment = driver.committed_storage()[0]
+    merged = {key.decode("utf-8"): raw for key, raw in environment.items(b"")}
+    merged.update(driver.pending_stored_items())
+    return root_of_stored(sorted(merged.items()))

@@ -1,8 +1,9 @@
 """The state root built from committed storage equals the Python reference root.
 
 ``StateRootCache.from_driver`` reads LMDB in Rust; ``state_root_reference``
-decodes the same state in Python and hashes it with the pre-Rust treap. Every
-corpus here must give the same root and leaf count, or raise the same error.
+hashes the same stored bytes with a plain Python treap. Every corpus here must
+give the same root and leaf count, or raise the same error. A leaf commits to
+the stored bytes, so values are never decoded to build the root.
 """
 
 import random
@@ -19,7 +20,7 @@ from xian_runtime_types.time import Datetime, Timedelta
 
 from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.fee_policy import FEE_POLICY_KEY
-from xian.state_root import StateRootCache
+from xian.state_root import StateRootCache, stored_bytes
 
 NONCE_PREFIX = f"__n{contracting_constants.INDEX_SEPARATOR}"
 
@@ -116,7 +117,7 @@ def test_each_value_type_alone_hashes_like_python(tmp_path, key, value):
     assert_reference_root(committed(tmp_path, {key: value}))
 
 
-def test_stored_text_python_reads_but_rust_does_not_hashes_like_python(tmp_path):
+def test_stored_text_is_hashed_as_stored_whatever_its_spelling(tmp_path):
     raw = {
         b"con_t.str:lone_surrogate": b'"\\ud800"',
         b"con_t.dict:surrogate_key": b'{"\\udfff":1,"a":"\\ud83d"}',
@@ -181,12 +182,31 @@ def test_node_local_timedeltas_and_bytearrays_are_skipped(tmp_path):
 
 
 @pytest.mark.parametrize("key", [b"con_t.corrupt", b"__local.corrupt"])
-def test_undecodable_stored_values_fail_like_python(tmp_path, key):
-    driver = committed(tmp_path, {"con_t.ok": 1}, {key: b'{"a":1.5}'})
+def test_values_are_hashed_without_decoding_them(tmp_path, key):
+    assert_reference_root(committed(tmp_path, {"con_t.ok": 1}, {key: b'{"a":1.5}'}))
+
+
+def test_a_stored_key_that_is_not_text_is_refused(tmp_path):
+    driver = committed(tmp_path, {"con_t.ok": 1}, {b"con_t.\xff": b"1"})
     with pytest.raises(ValueError):
         driver_root(driver)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not UTF-8"):
         StateRootCache.from_driver(driver)
+
+
+def test_prepared_leaves_are_the_bytes_commit_writes(tmp_path):
+    driver = committed(tmp_path, {"con_t.kept": 1, "con_t.gone": 2})
+    cache = StateRootCache.from_driver(driver)
+    for key, value in EVERY_VALUE_TYPE.items():
+        driver.set(key, value)
+    driver.set("con_t.gone", None)
+    pending = driver.pending_stored_items()
+    prepared_root = cache.prepare(pending)
+    driver.commit()
+    environment = driver.committed_storage()[0]
+    assert all(environment.get(key.encode()) == stored for key, stored in pending)
+    assert StateRootCache.from_driver(driver).root_hash == prepared_root
+    assert driver_root(driver)[0] == prepared_root
 
 
 def random_value(rng: random.Random, depth: int = 0):
@@ -194,11 +214,17 @@ def random_value(rng: random.Random, depth: int = 0):
         lambda: rng.randrange(-(2**60), 2**60),
         lambda: rng.randrange(-100, 100),
         lambda: rng.choice([True, False]),
-        lambda: "".join(rng.choice("ab\"\\\né \U0001f600 ") for _ in range(rng.randrange(6))),
+        lambda: "".join(rng.choice('ab"\\\né \U0001f600 ') for _ in range(rng.randrange(6))),
         lambda: ContractingDecimal(f"{rng.randrange(-(10**12), 10**12)}.{rng.randrange(10**6)}"),
-        lambda: Datetime(rng.randrange(1, 9999), rng.randrange(1, 13), rng.randrange(1, 29),
-                         rng.randrange(24), rng.randrange(60), rng.randrange(60),
-                         rng.choice([0, rng.randrange(10**6)])),
+        lambda: Datetime(
+            rng.randrange(1, 9999),
+            rng.randrange(1, 13),
+            rng.randrange(1, 29),
+            rng.randrange(24),
+            rng.randrange(60),
+            rng.randrange(60),
+            rng.choice([0, rng.randrange(10**6)]),
+        ),
         lambda: rng.randbytes(rng.randrange(4)),
         lambda: bytearray(rng.randbytes(rng.randrange(4))),
         lambda: Timedelta(days=rng.randrange(-400, 400), seconds=rng.randrange(-86400, 86400)),
@@ -250,17 +276,18 @@ def test_blocks_after_startup_keep_the_reference_root(tmp_path):
             merged.pop(key, None)
         else:
             merged[key] = value
-    assert cache.prepare(writes) == root_of_items(merged.items())
+    stored_writes = [(key, stored_bytes(value)) for key, value in writes]
+    assert cache.prepare(stored_writes) == root_of_items(merged.items())
     cache.rollback()
     assert cache.root_hash == start_root
-    cache.prepare(writes)
+    cache.prepare(stored_writes)
     cache.commit()
     assert cache.root_hash == root_of_items(merged.items())
 
 
-def test_the_legacy_profile_builds_the_root_in_python(tmp_path):
+def test_v1_state_is_left_to_its_pinned_runtime(tmp_path):
     driver = Driver(storage_home=tmp_path, vm_profile="xian_vm_v1")
     driver.set("con_t.a", 1)
-    driver.set("con_t.b", {"y": 2, "x": "é"})
     driver.commit()
-    assert_reference_root(driver)
+    with pytest.raises(ValueError, match="V1 state"):
+        StateRootCache.from_driver(driver)
