@@ -1,0 +1,49 @@
+{
+ "view/decimal": {
+  "type": "decimal",
+  "value": "2500"
+ },
+ "view/deploy": {
+  "type": null,
+  "value": null
+ },
+ "view/dict": {
+  "type": "dict",
+  "value": "{\"counter\":1,\"key\":\"v\"}"
+ },
+ "view/failure": {
+  "type": null,
+  "value": null
+ },
+ "view/import_cycle": {
+  "error": "ContractPreparationError"
+ },
+ "view/metadata": {
+  "type": "dict",
+  "value": "{\"deployer\":null,\"developer\":\"dev\",\"initiator\":null,\"name\":\"con_probe\",\"owner\":null,\"submitted\":\"2026-01-02 03:04:05\"}"
+ },
+ "view/missing_contract": {
+  "type": null,
+  "value": null
+ },
+ "view/not_exported": {
+  "type": null,
+  "value": null
+ },
+ "view/owner_allowed": {
+  "type": "str",
+  "value": "bob"
+ },
+ "view/owner_rejected": {
+  "type": null,
+  "value": null
+ },
+ "view/random": {
+  "type": "list",
+  "value": "[2,\"a\",[\"y\",\"x\",\"y\"],[7,1,6,5,4,3,2],{\"__big_int__\":\"104368841600653328086\"},3,0]"
+ },
+ "view/zk": {
+  "type": "bool",
+  "value": "True"
+ }
+}

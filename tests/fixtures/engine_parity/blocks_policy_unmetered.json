@@ -1,0 +1,43 @@
+{
+ "blocks": [
+  {
+   "app_hash": "a729089529489829578b8f489df69d2ae730a830a14f467e9ab1cbc509010155",
+   "height": 1,
+   "txs": [
+    {
+     "case": "unmetered/success",
+     "code": 0,
+     "data": "{\"chi_used\":5,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"p\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"600ea3fbcc56faa6445c9e992757b4b5e3510ad78e9729cdde7c78d14e59871f\",\"result\":{\"counter\":1,\"key\":\"p\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":1},{\"key\":\"con_probe.items:p\",\"value\":1}],\"status\":0}"
+    },
+    {
+     "case": "unmetered/failure",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"2407abae44c1728cb5f65e42b17d407a46298ab69aec1421f2d76748e701cad9\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    },
+    {
+     "case": "unmetered/deploy",
+     "code": 0,
+     "data": "{\"chi_used\":10,\"events\":[{\"caller\":\"carol\",\"contract\":\"submission\",\"data\":{\"owner\":\"\"},\"data_indexed\":{\"developer\":\"carol\",\"name\":\"con_p1\"},\"event\":\"ContractDeployed\",\"signer\":\"carol\"}],\"hash\":\"0b522e39d66ea4ea6b37dd7948b6f8a7609af5da2c386c9c16cf3e276e28914f\",\"result\":null,\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_p1.__deployer__\",\"value\":\"carol\"},{\"key\":\"con_p1.__developer__\",\"value\":\"carol\"},{\"key\":\"con_p1.__initiator__\",\"value\":\"carol\"},{\"key\":\"con_p1.__owner__\",\"value\":null},{\"key\":\"con_p1.__source__\",\"value\":\"v = Variable()\\n\\n@construct\\ndef seed(start: int=7):\\n    v.set(start)\\n\\n@export\\ndef get():\\n    return v.get()\"},{\"key\":\"con_p1.__submitted__\",\"value\":\"2023-11-14 22:13:21\"},{\"key\":\"con_p1.__xian_ir_v1__\",\"value\":\"{\\\"docstring\\\": null, \\\"functions\\\": [{\\\"body\\\": [{\\\"node\\\": \\\"expr\\\", \\\"span\\\": {\\\"col\\\": 4, \\\"end_col\\\": 16, \\\"end_line\\\": 5, \\\"line\\\": 5}, \\\"value\\\": {\\\"args\\\": [{\\\"host_binding_id\\\": null, \\\"id\\\": \\\"start\\\", \\\"node\\\": \\\"name\\\", \\\"span\\\": {\\\"col\\\": 10, \\\"end_col\\\": 15, \\\"end_line\\\": 5, \\\"line\\\": 5}}], \\\"func\\\": {\\\"attr\\\": \\\"set\\\", \\\"host_binding_id\\\": null, \\\"node\\\": \\\"attribute\\\", \\\"path\\\": \\\"v.set\\\", \\\"span\\\": {\\\"col\\\": 4, \\\"end_col\\\": 9, \\\"end_line\\\": 5, \\\"line\\\": 5}, \\\"value\\\": {\\\"host_binding_id\\\": null, \\\"id\\\": \\\"v\\\", \\\"node\\\": \\\"name\\\", \\\"span\\\": {\\\"col\\\": 4, \\\"end_col\\\": 5, \\\"end_line\\\": 5, \\\"line\\\": 5}}}, \\\"keywords\\\": [], \\\"method\\\": \\\"set\\\", \\\"node\\\": \\\"call\\\", \\\"receiver_binding\\\": \\\"v\\\", \\\"receiver_type\\\": \\\"Variable\\\", \\\"span\\\": {\\\"col\\\": 4, \\\"end_col\\\": 16, \\\"end_line\\\": 5, \\\"line\\\": 5}, \\\"syscall_id\\\": \\\"storage.variable.set\\\"}}], \\\"decorator\\\": {\\\"args\\\": [], \\\"keywords\\\": [], \\\"name\\\": \\\"construct\\\", \\\"node\\\": \\\"decorator\\\", \\\"span\\\": {\\\"col\\\": 1, \\\"end_col\\\": 10, \\\"end_line\\\": 3, \\\"line\\\": 3}}, \\\"docstring\\\": null, \\\"name\\\": \\\"seed\\\", \\\"node\\\": \\\"function\\\", \\\"parameters\\\": [{\\\"annotation\\\": \\\"int\\\", \\\"default\\\": {\\\"node\\\": \\\"constant\\\", \\\"span\\\": {\\\"col\\\": 20, \\\"end_col\\\": 21, \\\"end_line\\\": 4, \\\"line\\\": 4}, \\\"value\\\": 7, \\\"value_type\\\": \\\"int\\\"}, \\\"kind\\\": \\\"positional_or_keyword\\\", \\\"name\\\": \\\"start\\\", \\\"span\\\": {\\\"col\\\": 9, \\\"end_col\\\": 19, \\\"end_line\\\": 4, \\\"line\\\": 4}}], \\\"returns\\\": null, \\\"span\\\": {\\\"col\\\": 0, \\\"end_col\\\": 16, \\\"end_line\\\": 5, \\\"line\\\": 4}, \\\"visibility\\\": \\\"construct\\\"}, {\\\"body\\\": [{\\\"node\\\": \\\"return\\\", \\\"span\\\": {\\\"col\\\": 4, \\\"end_col\\\": 18, \\\"end_line\\\": 9, \\\"line\\\": 9}, \\\"value\\\": {\\\"args\\\": [], \\\"func\\\": {\\\"attr\\\": \\\"get\\\", \\\"host_binding_id\\\": null, \\\"node\\\": \\\"attribute\\\", \\\"path\\\": \\\"v.get\\\", \\\"span\\\": {\\\"col\\\": 11, \\\"end_col\\\": 16, \\\"end_line\\\": 9, \\\"line\\\": 9}, \\\"value\\\": {\\\"host_binding_id\\\": null, \\\"id\\\": \\\"v\\\", \\\"node\\\": \\\"name\\\", \\\"span\\\": {\\\"col\\\": 11, \\\"end_col\\\": 12, \\\"end_line\\\": 9, \\\"line\\\": 9}}}, \\\"keywords\\\": [], \\\"method\\\": \\\"get\\\", \\\"node\\\": \\\"call\\\", \\\"receiver_binding\\\": \\\"v\\\", \\\"receiver_type\\\": \\\"Variable\\\", \\\"span\\\": {\\\"col\\\": 11, \\\"end_col\\\": 18, \\\"end_line\\\": 9, \\\"line\\\": 9}, \\\"syscall_id\\\": \\\"storage.variable.get\\\"}}], \\\"decorator\\\": {\\\"args\\\": [], \\\"keywords\\\": [], \\\"name\\\": \\\"export\\\", \\\"node\\\": \\\"decorator\\\", \\\"span\\\": {\\\"col\\\": 1, \\\"end_col\\\": 7, \\\"end_line\\\": 7, \\\"line\\\": 7}}, \\\"docstring\\\": null, \\\"name\\\": \\\"get\\\", \\\"node\\\": \\\"function\\\", \\\"parameters\\\": [], \\\"returns\\\": null, \\\"span\\\": {\\\"col\\\": 0, \\\"end_col\\\": 18, \\\"end_line\\\": 9, \\\"line\\\": 8}, \\\"visibility\\\": \\\"export\\\"}], \\\"global_declarations\\\": [{\\\"args\\\": [], \\\"keywords\\\": [], \\\"name\\\": \\\"v\\\", \\\"node\\\": \\\"storage_decl\\\", \\\"span\\\": {\\\"col\\\": 0, \\\"end_col\\\": 14, \\\"end_line\\\": 1, \\\"line\\\": 1}, \\\"storage_type\\\": \\\"Variable\\\", \\\"syscall_id\\\": \\\"storage.variable.new\\\"}], \\\"host_catalog_version\\\": \\\"xian_vm_v1_host_v1\\\", \\\"host_dependencies\\\": [{\\\"binding\\\": \\\"Variable.get\\\", \\\"category\\\": \\\"storage\\\", \\\"id\\\": \\\"storage.variable.get\\\", \\\"kind\\\": \\\"syscall\\\"}, {\\\"binding\\\": \\\"Variable\\\", \\\"category\\\": \\\"storage\\\", \\\"id\\\": \\\"storage.variable.new\\\", \\\"kind\\\": \\\"syscall\\\"}, {\\\"binding\\\": \\\"Variable.set\\\", \\\"category\\\": \\\"storage\\\", \\\"id\\\": \\\"storage.variable.set\\\", \\\"kind\\\": \\\"syscall\\\"}], \\\"imports\\\": [], \\\"ir_version\\\": \\\"xian_ir_v1\\\", \\\"module_body\\\": [], \\\"module_name\\\": \\\"con_p1\\\", \\\"source_hash\\\": \\\"ad86a88d645c3b04ab3ea17df41a66cdfba15661212a58643996b1faf282219f\\\", \\\"vm_profile\\\": \\\"xian_vm_v2\\\"}\"},{\"key\":\"con_p1.v\",\"value\":7}],\"status\":0}"
+    },
+    {
+     "case": "unmetered/random",
+     "code": 0,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"18a0acc817632eb6f1f4383139cf24df00ee93f031cb992c8ce406c20c0f84ca\",\"result\":[6,\"a\",[\"y\",\"x\",\"y\"],[6,1,3,4,5,2,7],{\"__big_int__\":\"570995494784436455231\"},2,0],\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":0}"
+    },
+    {
+     "case": "unmetered/rotate_validators",
+     "code": 0,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"b8ed8f075c300dc45f734bd28f84a1ca8cffe9de06cb900479b9be7c61ddca5a\",\"result\":null,\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"validators.active_validators\",\"value\":[\"val1\",\"val2\",\"val3\"]},{\"key\":\"validators.powers:val3\",\"value\":3}],\"status\":0}"
+    },
+    {
+     "case": "unmetered/out_of_chi",
+     "code": 0,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"c2c37a57c3e945d9cc0f9d4df5449d60cc8f121981f54aa8c27e084a52ab2e73\",\"result\":[4,\"a\",[\"x\",\"x\",\"y\"],[5,7,2,4,3,6,1],{\"__big_int__\":\"349168856507866067159\"},3,0],\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":0}"
+    }
+   ],
+   "write_count": 12,
+   "writes_sha256": "1eb8486ab02ceda65452123fa138f56646b2a3de02c892719e79a0743b0468b7"
+  }
+ ],
+ "policy": "unmetered"
+}
