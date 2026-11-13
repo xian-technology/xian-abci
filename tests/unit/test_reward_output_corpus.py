@@ -6,6 +6,10 @@ conversion and division by the chi rate). The cases are generated from a
 fixed seed; ``tests/fixtures/reward_outputs.json`` holds what the current
 Python code computes for them, encoded as wire JSON.
 
+``tests/fixtures/failed_reward_outputs.json`` pins the payout of a failed
+transaction over the same configurations: no developer reward, and a paid
+chi that is a ``ContractingDecimal`` when the sender paid its whole balance.
+
 Regenerate (only for an intended behaviour change):
     python -m tests.unit.test_reward_output_corpus --write
 """
@@ -23,6 +27,7 @@ from xian_runtime_types.encoding import encode
 from xian.rewards import RewardsHandler
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "reward_outputs.json"
+FAILED_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "failed_reward_outputs.json"
 SEED = 20261113
 CASES = 160
 
@@ -109,12 +114,38 @@ def cases():
     return [_case(rng, index) for index in range(CASES)]
 
 
+# What a failed transaction paid: chi used, or a whole balance priced in chi.
+FAILED_TOTALS = [
+    0,
+    5,
+    213,
+    99_999,
+    "0.006",
+    "2.46913578024691357802469135782",
+    "0.000000000000000000000000000003",
+    "20000000.000000000000000000000020",
+]
+
+
+def failed_cases():
+    rng = random.Random(SEED + 1)
+    return [
+        {**case, "total_chi_to_split": _total(rng.choice(FAILED_TOTALS)), "pay_developers": False}
+        for case in cases()
+    ]
+
+
+def _total(value):
+    return ContractingDecimal(value) if isinstance(value, str) else value
+
+
 def outputs(case):
     handler = RewardsHandler(_Client(case["state"]))
     rewards, deltas, records = handler.build_tx_reward_outputs(
         total_chi_to_split=case["total_chi_to_split"],
         contract=case["contract"],
         contract_costs=case["contract_costs"],
+        pay_developers=case.get("pay_developers", True),
     )
     return json.loads(encode([rewards, deltas, records], vm_profile="xian_vm_v2"))
 
@@ -126,6 +157,30 @@ def test_reward_outputs_match_the_pinned_corpus():
         assert outputs(case) == expected[index], index
 
 
+def test_failed_transaction_reward_outputs_match_the_pinned_corpus():
+    expected = json.loads(FAILED_FIXTURE.read_text())
+    assert len(expected) == CASES
+    for index, case in enumerate(failed_cases()):
+        assert outputs(case) == expected[index], index
+
+
+def test_a_failed_transaction_pays_its_developer_share_to_the_validators():
+    developer_paid = 0
+    for case in failed_cases():
+        rewards, _deltas, records = outputs(case)
+        assert not (rewards or {}).get("developer_reward"), case
+        assert all(record["type"] != "developer_reward" for record in records)
+        succeeded = outputs({**case, "pay_developers": True})
+        developer_paid += bool((succeeded[0] or {}).get("developer_reward"))
+    # The corpus has configurations where a success would pay developers.
+    assert developer_paid > 20
+
+
+def _write(path, corpus):
+    lines = (json.dumps(outputs(case), separators=(",", ":")) for case in corpus)
+    path.write_text("[\n" + ",\n".join(lines) + "\n]\n")
+
+
 if __name__ == "__main__" and sys.argv[1:] == ["--write"]:
-    lines = (json.dumps(outputs(case), separators=(",", ":")) for case in cases())
-    FIXTURE.write_text("[\n" + ",\n".join(lines) + "\n]\n")
+    _write(FIXTURE, cases())
+    _write(FAILED_FIXTURE, failed_cases())

@@ -55,6 +55,13 @@ This file records the runtime properties that must hold before an
 - Fee-accounting balance writes may still apply on failure when the runtime
   policy intentionally charges failed execution, but they must remain
   deterministic across nodes and runtimes.
+- A charged fee never disappears silently. In the paid fee mode a failed
+  transaction's fee is paid out through the governed reward split exactly like
+  a successful one's, except that the developer share goes to the validators.
+  When the sender cannot cover the failure fee, the whole balance is charged
+  and exactly that amount is paid out. Only the governed burn share leaves the
+  native supply. The Python per-transaction path and the Rust block executor
+  must produce byte-identical receipts and state for this.
 
 ## Validator Selection
 

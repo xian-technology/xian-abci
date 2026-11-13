@@ -10,6 +10,30 @@ from xian.fee_policy import chain_chi_rate
 from xian.log_safety import error_fields
 
 
+def _add_credit(credits: dict, recipient, amount) -> None:
+    existing = credits.get(recipient)
+    credits[recipient] = amount if existing is None else existing + amount
+
+
+def _priced_record(kind: str, recipient, source_contract, amount) -> dict:
+    """A reward record with its amount in tokens."""
+    return {
+        "type": kind,
+        "recipient_key": recipient,
+        "source_contract": source_contract,
+        "value": amount,
+    }
+
+
+def _priced_validator_record(record: dict, amount) -> dict:
+    """A validator or delegator record with its amount in tokens."""
+    priced = _priced_record(record["type"], record["recipient_key"], None, amount)
+    for key in ("validator_key", "delegator_key"):
+        if key in record:
+            priced[key] = record[key]
+    return priced
+
+
 class RewardsHandler:
     def __init__(self, client):
         self.client = client
@@ -255,29 +279,35 @@ class RewardsHandler:
 
         return dict(reward_mapping), reward_records
 
-    def find_developer_and_reward(
-        self,
-        total_chi_to_split,
-        contract,
-        developer_ratio,
-        contract_costs=None,
-    ):
-        developer_ratio = self._as_decimal(developer_ratio)
-        developer_total = self._as_decimal(total_chi_to_split) * developer_ratio
-
-        send_map = defaultdict(lambda: ContractingDecimal("0"))
-        developer_records = []
-        redirected_validator_reward = decimal.Decimal("0")
+    def _developer_weights(self, contract, contract_costs):
+        """The contracts a developer share is split over: those with a
+        positive execution cost, in name order, else the entry contract."""
         weights = []
         if isinstance(contract_costs, dict):
             for source_contract, weight in sorted(contract_costs.items()):
                 normalized_weight = self._as_decimal(weight)
                 if normalized_weight > 0:
                     weights.append((source_contract, normalized_weight))
+        return weights or [(contract, decimal.Decimal("1"))]
 
-        if not weights:
-            weights = [(contract, decimal.Decimal("1"))]
+    def find_developer_and_reward(
+        self,
+        total_chi_to_split,
+        contract,
+        developer_ratio,
+        contract_costs=None,
+        *,
+        pay_developers,
+    ):
+        developer_ratio = self._as_decimal(developer_ratio)
+        developer_total = self._as_decimal(total_chi_to_split) * developer_ratio
+        if not pay_developers:
+            return {}, [], developer_total
 
+        send_map = defaultdict(lambda: ContractingDecimal("0"))
+        developer_records = []
+        redirected_validator_reward = decimal.Decimal("0")
+        weights = self._developer_weights(contract, contract_costs)
         total_weight = sum(weight for _, weight in weights)
         allocated = decimal.Decimal("0")
 
@@ -312,6 +342,7 @@ class RewardsHandler:
         contract,
         *,
         contract_costs=None,
+        pay_developers,
     ):
         if not self.client.get_var(contract="rewards", variable="S", arguments=["value"]):
             logger.error("Rewards not set up.")
@@ -340,6 +371,7 @@ class RewardsHandler:
             contract=contract,
             developer_ratio=developer_ratio,
             contract_costs=contract_costs,
+            pay_developers=pay_developers,
         )
 
         validators = self.client.get_var(contract="validators", variable="active_validators") or []
@@ -364,8 +396,14 @@ class RewardsHandler:
         contract,
         *,
         contract_costs=None,
+        pay_developers=True,
     ):
         """``(rewards, reward_deltas, reward_records)`` of one transaction.
+
+        ``total_chi_to_split`` is the chi whose fee was paid: an int, or a
+        ``ContractingDecimal`` when a failed transaction paid its whole
+        balance. Without ``pay_developers`` (a failed call) the developer
+        share goes to the validators.
 
         Over node state the Rust port computes them; it hands every input it
         does not cover, and every case where this code raises, back here.
@@ -375,12 +413,20 @@ class RewardsHandler:
         if storage is not None:
             environment, overlay = storage
             computed = tx_rewards(
-                environment, overlay, total_chi_to_split, contract, contract_costs
+                environment,
+                overlay,
+                total_chi_to_split,
+                contract,
+                contract_costs,
+                pay_developers=pay_developers,
             )
             if computed is not None:
                 return computed
         return self._build_tx_reward_outputs(
-            total_chi_to_split, contract, contract_costs=contract_costs
+            total_chi_to_split,
+            contract,
+            contract_costs=contract_costs,
+            pay_developers=pay_developers,
         )
 
     def _build_tx_reward_outputs(
@@ -388,7 +434,8 @@ class RewardsHandler:
         total_chi_to_split,
         contract,
         *,
-        contract_costs=None,
+        contract_costs,
+        pay_developers,
     ):
         reward_split = self.client.get_var(contract="rewards", variable="S", arguments=["value"])
         if not reward_split or total_chi_to_split <= 0:
@@ -410,6 +457,7 @@ class RewardsHandler:
             total_chi_to_split=total_chi_to_split,
             contract=contract,
             contract_costs=contract_costs,
+            pay_developers=pay_developers,
         )
 
         rewards = {
@@ -426,12 +474,7 @@ class RewardsHandler:
             rewards["foundation_reward"][foundation_owner] = foundation_amount
             reward_deltas[f"currency.balances:{foundation_owner}"] += foundation_amount
             reward_records.append(
-                {
-                    "type": "foundation_reward",
-                    "recipient_key": foundation_owner,
-                    "source_contract": None,
-                    "value": foundation_amount,
-                }
+                _priced_record("foundation_reward", foundation_owner, None, foundation_amount)
             )
 
         for record in validator_records:
@@ -440,42 +483,25 @@ class RewardsHandler:
             reward_bucket = (
                 "delegator_reward" if record["type"] == "delegator_reward" else "validator_reward"
             )
-            existing_amount = rewards[reward_bucket].get(recipient_key)
-            if existing_amount is None:
-                rewards[reward_bucket][recipient_key] = validator_amount
-            else:
-                rewards[reward_bucket][recipient_key] = existing_amount + validator_amount
+            _add_credit(rewards[reward_bucket], recipient_key, validator_amount)
             reward_deltas[f"currency.balances:{recipient_key}"] += validator_amount
-            normalized_record = {
-                "type": record["type"],
-                "recipient_key": recipient_key,
-                "source_contract": None,
-                "value": validator_amount,
-            }
-            if "validator_key" in record:
-                normalized_record["validator_key"] = record["validator_key"]
-            if "delegator_key" in record:
-                normalized_record["delegator_key"] = record["delegator_key"]
-            reward_records.append(normalized_record)
+            reward_records.append(_priced_validator_record(record, validator_amount))
 
         for developer, reward in developer_mapping.items():
             developer_amount = ContractingDecimal(str(reward / chi_rate))
-            existing_amount = rewards["developer_reward"].get(developer)
-            if existing_amount is None:
-                rewards["developer_reward"][developer] = developer_amount
-            else:
-                rewards["developer_reward"][developer] = existing_amount + developer_amount
+            _add_credit(rewards["developer_reward"], developer, developer_amount)
             reward_deltas[f"currency.balances:{developer}"] += developer_amount
 
-        for record in developer_records:
-            reward_records.append(
-                {
-                    "type": record["type"],
-                    "recipient_key": record["recipient_key"],
-                    "source_contract": record["source_contract"],
-                    "value": ContractingDecimal(str(record["value"] / chi_rate)),
-                }
+        # Developer records are priced one by one, after the per-developer sums.
+        reward_records.extend(
+            _priced_record(
+                record["type"],
+                record["recipient_key"],
+                record["source_contract"],
+                ContractingDecimal(str(record["value"] / chi_rate)),
             )
+            for record in developer_records
+        )
 
         if not any(rewards.values()):
             return None, {}, reward_records

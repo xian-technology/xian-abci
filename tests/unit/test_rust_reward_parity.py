@@ -11,7 +11,7 @@ from __future__ import annotations
 import random
 
 import pytest
-from test_reward_output_corpus import FIXTURE, _Client, cases
+from test_reward_output_corpus import FAILED_FIXTURE, FIXTURE, _Client, cases, failed_cases
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import encode
 
@@ -26,7 +26,11 @@ def _encoded(result):
 
 def _rust(case):
     return native._tx_rewards_debug(
-        case["state"], case["total_chi_to_split"], case["contract"], case["contract_costs"]
+        case["state"],
+        case["total_chi_to_split"],
+        case["contract"],
+        case["contract_costs"],
+        pay_developers=case.get("pay_developers", True),
     )
 
 
@@ -36,14 +40,16 @@ def _python(case):
         total_chi_to_split=case["total_chi_to_split"],
         contract=case["contract"],
         contract_costs=case["contract_costs"],
+        pay_developers=case.get("pay_developers", True),
     )
 
 
-def test_rust_rewards_reproduce_the_pinned_corpus():
+@pytest.mark.parametrize("fixture, corpus", [(FIXTURE, cases), (FAILED_FIXTURE, failed_cases)])
+def test_rust_rewards_reproduce_the_pinned_corpus(fixture, corpus):
     import json
 
-    expected = json.loads(FIXTURE.read_text())
-    for index, case in enumerate(cases()):
+    expected = json.loads(fixture.read_text())
+    for index, case in enumerate(corpus()):
         result = _rust(case)
         assert result is not None, index
         assert json.loads(_encoded(result)) == expected[index], index
@@ -123,9 +129,13 @@ def _wide_case(rng, index):
     )
     return {
         "state": state,
-        "total_chi_to_split": rng.choice([0, 1, 213, 99_999, 10**7, -5, 10**50]),
+        "total_chi_to_split": rng.choice(
+            [0, 1, 213, 99_999, 10**7, -5, 10**50]
+            + [ContractingDecimal(text) for text in ("0.006", "-0.5", "3E-30", "9" * 60)]
+        ),
         "contract": contracts[0],
         "contract_costs": costs,
+        "pay_developers": rng.random() < 0.5,
     }
 
 
@@ -146,7 +156,7 @@ def test_rust_rewards_answer_only_what_python_answers_the_same():
 def test_node_rewards_are_computed_in_rust_over_pending_and_committed_state(tmp_path, monkeypatch):
     from contracting.local import ContractingClient
 
-    corpus = cases()[:40]
+    corpus = cases()[:40] + failed_cases()[:40]
     with ContractingClient(vm_profile="xian_vm_v2", storage_home=tmp_path / "state") as client:
         driver = client.raw_driver
         handler = RewardsHandler(client)
@@ -165,6 +175,7 @@ def test_node_rewards_are_computed_in_rust_over_pending_and_committed_state(tmp_
                 total_chi_to_split=case["total_chi_to_split"],
                 contract=case["contract"],
                 contract_costs=case["contract_costs"],
+                pay_developers=case.get("pay_developers", True),
             )
             assert _encoded(result) == expected[index], index
             driver.apply_writes({key: None for key, _ in items})

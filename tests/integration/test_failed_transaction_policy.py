@@ -1,9 +1,9 @@
 """One failed-receipt policy for every user transaction that cannot run.
 
 Failures before or around contract execution must be deterministic receipts
-that charge the transaction base chi and consume the nonce. Host faults whose
-outcome depends on the machine must halt the node instead of becoming
-receipts.
+that charge the transaction base chi, pay that fee out to the validators and
+consume the nonce. Host faults whose outcome depends on the machine must halt
+the node instead of becoming receipts.
 """
 
 from types import SimpleNamespace
@@ -24,16 +24,23 @@ def _balance_after_base_charge(balance=100, chi=TRANSACTION_BASE_CHI):
     return balance - ContractingDecimal(chi) / RATE
 
 
-def _assert_base_charge_receipt(response, driver, *, chi=TRANSACTION_BASE_CHI):
+def _assert_base_charge_receipt(response, driver, *, chi=TRANSACTION_BASE_CHI, paid_out=True):
+    """The base charge, paid out whole to the one validator (split 1/0/0/0)."""
     result = response["tx_result"]
     assert result is not None
     assert result["status"] == 1
     assert result["chi_used"] == chi
     assert result["events"] == []
-    assert result["rewards"] is None
-    assert result["state"] == [
-        {"key": "currency.balances:alice", "value": _balance_after_base_charge(chi=chi)}
-    ]
+    charged = {"key": "currency.balances:alice", "value": _balance_after_base_charge(chi=chi)}
+    fee = ContractingDecimal(chi) / RATE
+    if paid_out:
+        assert result["rewards"]["validator_reward"] == {"validator": fee}
+        assert result["state"] == [charged, {"key": "currency.balances:validator", "value": fee}]
+        assert driver.get("currency.balances:validator") == fee
+    else:
+        assert result["rewards"] is None
+        assert result["state"] == [charged]
+        assert driver.get("currency.balances:validator") is None
     assert driver.get("currency.balances:alice") == _balance_after_base_charge(chi=chi)
     return result
 
@@ -117,15 +124,34 @@ def test_post_execution_processing_error_becomes_failed_receipt(tmp_path):
     processor, rewards = make_processor(tmp_path)
     driver = processor.client.raw_driver
     try:
+        # The failed receipt's own payout raises too: its fee is charged
+        # without a payout rather than halting the chain.
         with patch.object(
             rewards,
             "build_tx_reward_outputs",
             side_effect=ArithmeticError("reward overflow"),
         ):
             response = process(processor, rewards, tx())
-        result = _assert_base_charge_receipt(response, driver)
+        result = _assert_base_charge_receipt(response, driver, paid_out=False)
         assert result["result"] == repr(RuntimeError(HOST_FAILURE_MESSAGE))
         assert driver.get("con_probe.value") is None
+    finally:
+        driver.close()
+
+
+def test_host_fault_while_paying_out_a_failed_receipt_halts(tmp_path):
+    processor, rewards = make_processor(tmp_path)
+    driver = processor.client.raw_driver
+    try:
+        with patch.object(
+            rewards,
+            "build_tx_reward_outputs",
+            side_effect=[ArithmeticError("reward overflow"), MemoryError()],
+        ):
+            with pytest.raises(MemoryError):
+                process(processor, rewards, tx())
+        assert driver.get("currency.balances:alice") == 100
+        assert driver.get("currency.balances:validator") is None
     finally:
         driver.close()
 

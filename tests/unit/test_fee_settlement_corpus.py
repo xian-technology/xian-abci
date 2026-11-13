@@ -1,8 +1,9 @@
-"""Pin fee reservation, refunds and failure metering over many inputs.
+"""Pin fee reservation, refunds and failure charges over many inputs.
 
 Step B moves fee settlement into Rust; the port must reproduce these outputs
 exactly (exact-ratio reservation check, ContractingDecimal truncation, the
-integer 0 that ``max(balance - fee, 0)`` yields for a negative balance).
+integer 0 that ``max(balance - fee, 0)`` yields for a negative balance, and
+the chi a failure paid: ``chi_used``, or the whole balance priced in chi).
 ``tests/fixtures/fee_outputs.json`` holds what the current Python code
 computes, encoded as wire JSON. The Rust port must answer every pinned case
 identically, and on a wider corpus with odd value types it may only hand a
@@ -26,7 +27,7 @@ from xian_runtime_types.encoding import encode
 from xian.execution_engine import (
     _InsufficientFeeBalance,
     _reserve_vm_fee_budget,
-    vm_metering_writes,
+    vm_failure_charge,
 )
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "fee_outputs.json"
@@ -99,8 +100,8 @@ def case_list(seed=SEED, count=CASES, balances=BALANCES, written=WRITTEN):
 
 
 def python_outcome(case):
-    """The reservation, the refunded balance and the failure metering, or
-    the name of the exception the Python code raises."""
+    """The reservation, the refunded balance and the failure charge, or the
+    name of the exception the Python code raises."""
     try:
         return _python_outcome(case)
     except Exception as exc:  # noqa: BLE001 - the corpus pins which cases raise
@@ -126,10 +127,16 @@ def _python_outcome(case):
         refunded = reservation.refund_writes(
             written, chi_used=case["chi_used"], chi_cost=case["rate"]
         )[KEY]
-    metered = vm_metering_writes(
+    metered, paid = vm_failure_charge(
         driver, sender="sender", chi_used=case["chi_used"], chi_cost=case["rate"]
     )
-    return {"reserved": reserved, "refunded": refunded, "metered": metered.get(KEY, "unchanged")}
+    return {
+        "reserved": reserved,
+        "refunded": refunded,
+        "metered": metered.get(KEY, "unchanged"),
+        # The reward code reads the paid chi as decimal.Decimal(str(paid)).
+        "paid": str(paid),
+    }
 
 
 def rust_outcome(native, case):
@@ -155,6 +162,7 @@ def rust_outcome(native, case):
         "reserved": None if reserved == ("insufficient",) else list(reserved),
         "refunded": refunded,
         "metered": metered[1] if metered[0] == "write" else "unchanged",
+        "paid": metered[2] if metered[0] == "write" else "0",
     }
 
 

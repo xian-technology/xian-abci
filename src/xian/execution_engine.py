@@ -157,7 +157,12 @@ def metering_write_keys(
     return {key}
 
 
-def vm_metering_writes(
+def vm_metering_writes(driver, **charge) -> dict[str, object]:
+    """The sender's balance write of ``vm_failure_charge``."""
+    return vm_failure_charge(driver, **charge)[0]
+
+
+def vm_failure_charge(
     driver,
     *,
     sender: str,
@@ -167,9 +172,14 @@ def vm_metering_writes(
     base_writes: dict[str, Any] | None = None,
     currency_contract: str = "currency",
     balances_hash: str = "balances",
-) -> dict[str, object]:
+) -> tuple[dict[str, object], int | ContractingDecimal]:
+    """A failed transaction's fee: the sender's balance write and the chi paid.
+
+    The fee is ``chi_used / chi_cost``. A balance that cannot cover it is
+    taken whole (the integer 0 remains) and pays its own worth in chi.
+    """
     if chi_used <= 0:
-        return {}
+        return {}, 0
     balances_key = next(
         iter(
             metering_write_keys(
@@ -187,9 +197,10 @@ def vm_metering_writes(
     else:
         driver_get = getattr(driver, "get", lambda _key: None)
         balance = coerce_balance(driver_get(balances_key))
-    to_deduct = ContractingDecimal(chi_used) / ContractingDecimal(chi_cost)
-    balance = max(balance - to_deduct, 0)
-    return {balances_key: balance}
+    remaining = balance - ContractingDecimal(chi_used) / ContractingDecimal(chi_cost)
+    if remaining >= 0:
+        return {balances_key: remaining}, chi_used
+    return {balances_key: 0}, max(balance, 0) * chi_cost
 
 
 def _coerce_balance_value(balance):

@@ -15,7 +15,7 @@ from xian.execution_engine import (
     VmRuntime,
     execute_vm_transaction,
     failed_transaction_chi,
-    vm_metering_writes,
+    vm_failure_charge,
 )
 from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.fee_policy import TxFeePolicy, chain_chi_rate
@@ -93,7 +93,9 @@ class TxProcessor:
                     )
                 ).exception("Transaction processing failed; recording a failed receipt")
                 output = self._unexpected_failure_output(tx, fee_policy)
-                processed = self._process_output(output, tx, chi_cost, rewards_handler, fee_policy)
+                processed = self._process_failure_output(
+                    output, tx, chi_cost, rewards_handler, fee_policy
+                )
 
             tx_result = processed["tx_result"]
             self.update_chi_cost_cache(processed["base_writes"])
@@ -235,6 +237,22 @@ class TxProcessor:
             distribute_fee_rewards=fee_policy.distribute_fee_rewards,
         )
 
+    def _process_failure_output(self, output, tx, chi_cost, rewards_handler, fee_policy):
+        """The failed receipt of a transaction whose processing raised. If
+        paying out its fee raises as well, the fee is charged without a
+        payout, so a broken reward configuration cannot halt the chain."""
+        try:
+            return self._process_output(output, tx, chi_cost, rewards_handler, fee_policy)
+        except HOST_FAULT_EXCEPTIONS:
+            raise
+        except Exception as exc:
+            logger.bind(
+                **build_log_fields(
+                    stage="process_tx", tx=tx, extra={"error_type": type(exc).__name__}
+                )
+            ).exception("Failed-transaction fee payout failed; charging the fee without one")
+            return self._process_output(output, tx, chi_cost, None, fee_policy)
+
     @staticmethod
     def _unexpected_failure_output(tx: dict, fee_policy: TxFeePolicy) -> dict:
         chi_used = 0
@@ -339,21 +357,7 @@ class TxProcessor:
 
             tx_hash = tx_hash_from_tx(transaction)
 
-            rewards = None
-            reward_deltas = {}
-            reward_records = []
-            if (
-                distribute_fee_rewards
-                and output["status_code"] == 0
-                and rewards_handler is not None
-            ):
-                rewards, reward_deltas, reward_records = rewards_handler.build_tx_reward_outputs(
-                    total_chi_to_split=output["chi_used"],
-                    contract=transaction["payload"]["contract"],
-                    contract_costs=output.get("contract_costs"),
-                )
-
-            base_writes = self.determine_writes_from_output(
+            base_writes, paid_chi = self.determine_writes_from_output(
                 status_code=output["status_code"],
                 ouput_writes=output["writes"],
                 chi_used=output["chi_used"],
@@ -361,6 +365,17 @@ class TxProcessor:
                 tx_sender=transaction["payload"]["sender"],
                 charge_fees=charge_fees,
             )
+            rewards = None
+            reward_deltas = {}
+            reward_records = []
+            if distribute_fee_rewards and rewards_handler is not None:
+                # A failed call earns no developer reward.
+                rewards, reward_deltas, reward_records = rewards_handler.build_tx_reward_outputs(
+                    total_chi_to_split=paid_chi,
+                    contract=transaction["payload"]["contract"],
+                    contract_costs=output.get("contract_costs"),
+                    pay_developers=output["status_code"] == 0,
+                )
             writes = self.materialize_writes(base_writes, reward_deltas)
             self._stage_writes(writes)
 
@@ -454,20 +469,21 @@ class TxProcessor:
         tx_sender,
         charge_fees=True,
     ):
-        # Only apply the writes if the tx passes
+        """The writes a transaction leaves and the chi whose fee is paid out:
+        a success's writes and chi used, or a failure's fee charge alone
+        (nothing when no fee is charged)."""
         if status_code == 0:
-            return dict(ouput_writes)
+            return dict(ouput_writes), chi_used
         if not charge_fees:
-            return {}
-        else:
-            return vm_metering_writes(
-                self.client.raw_driver,
-                sender=tx_sender,
-                chi_used=chi_used,
-                chi_cost=chi_cost,
-                currency_contract=self.currency_contract,
-                balances_hash=self.balances_hash,
-            )
+            return {}, 0
+        return vm_failure_charge(
+            self.client.raw_driver,
+            sender=tx_sender,
+            chi_used=chi_used,
+            chi_cost=chi_cost,
+            currency_contract=self.currency_contract,
+            balances_hash=self.balances_hash,
+        )
 
     def materialize_writes(self, base_writes, reward_deltas):
         writes_map = dict(base_writes)

@@ -26,7 +26,9 @@ def create_block_meta(dt: datetime = datetime.now()):
 @pytest.mark.usefixtures("node_fixture")
 class TestProcessor(unittest.TestCase):
     def setUp(self):
-        self.c = ContractingClient(vm_profile="xian_vm_v2", storage_home=self.constants.STORAGE_HOME)
+        self.c = ContractingClient(
+            vm_profile="xian_vm_v2", storage_home=self.constants.STORAGE_HOME
+        )
         self.addCleanup(self.c.close)
         self.d = self.c.raw_driver
         self.c.flush()
@@ -35,9 +37,7 @@ class TestProcessor(unittest.TestCase):
         self.tx_processor = TxProcessor(client=self.c)
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
 
-        token_path = os.path.join(
-            self.script_dir, "contracts", "token_contract.py"
-        )
+        token_path = os.path.join(self.script_dir, "contracts", "token_contract.py")
         with open(token_path) as f:
             code = f.read()
             self.c.submit(code, name="currency_1")
@@ -195,7 +195,7 @@ class TestProcessor(unittest.TestCase):
     def test_failed_tx_chi_deduction_floors_balance_at_zero(self):
         self.d.set("currency.balances:bob", 1)
 
-        writes = self.tx_processor.determine_writes_from_output(
+        writes, paid_chi = self.tx_processor.determine_writes_from_output(
             status_code=1,
             ouput_writes={},
             chi_used=100,
@@ -204,6 +204,8 @@ class TestProcessor(unittest.TestCase):
         )
 
         self.assertEqual(writes, {"currency.balances:bob": 0})
+        # The whole balance is paid: 1 token at 20 chi per token.
+        self.assertEqual(paid_chi, 20)
 
     def test_process_tx_meters_transaction_bytes(self):
         self.d.set("currency.balances:bob", 100000)
@@ -274,9 +276,7 @@ class TestProcessor(unittest.TestCase):
         rewards_handler.build_tx_reward_outputs.assert_not_called()
 
     def test_reset_block_cache_clears_verified_proof_cache(self):
-        with patch(
-            "xian.processor.zk_bridge.clear_verified_proof_cache"
-        ) as clear_cache:
+        with patch("xian.processor.zk_bridge.clear_verified_proof_cache") as clear_cache:
             self.tx_processor.reset_block_cache()
 
         clear_cache.assert_called_once_with()

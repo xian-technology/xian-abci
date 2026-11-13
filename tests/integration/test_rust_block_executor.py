@@ -68,6 +68,16 @@ OWNED = """@export
 def ping():
     return 1
 """
+# Stands in for the validators contract: transactions in a block change the
+# active set the fee rewards (of failures too) are paid to.
+VALIDATORS = """active_validators = Variable()
+powers = Hash()
+
+@export
+def rotate(n: int):
+    active_validators.set(["val1", "val2", "val3"][:n])
+    powers["val3"] = n
+"""
 DEPLOYED = """v = Variable()
 
 @construct
@@ -226,6 +236,7 @@ def _setup(home):
         timestamp=submitted,
     )
     driver.set_contract_from_source("con_times", TIMES, timestamp=submitted)
+    driver.set_contract_from_source("validators", VALIDATORS, timestamp=submitted)
 
     for account, balance in ACCOUNTS.items():
         if balance is not None:
@@ -264,6 +275,7 @@ OPERATIONS = [
     ("con_owned", "ping", lambda rng: {}, 1000),
     ("currency", "transfer", lambda rng: {"amount": {"__fixed__": "0.1"}, "to": "erin"}, 1000),
     ("con_probe", "missing", lambda rng: {}, 1000),
+    ("validators", "rotate", lambda rng: {"n": rng.randrange(0, 4)}, 1000),
 ]
 # Need Python once the fee is reserved: random, an owner rejection (bob owns
 # con_owned), a function that is not exported, contract submission.
@@ -343,6 +355,12 @@ def test_rust_block_execution_matches_the_per_transaction_path(tmp_path, monkeyp
     assert len(actual) == len(expected)
     for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
         assert left == right, index
+    # Failures pay their fee out too, also to a validator set changed earlier
+    # in the block.
+    receipts = [json.loads(entry[0]) for entry in actual if isinstance(entry, tuple)]
+    paid_failures = [r for r in receipts if r["status"] == 1 and r["rewards"]]
+    assert len(paid_failures) > 10
+    assert any("val3" in r["rewards"]["validator_reward"] for r in paid_failures)
 
     # Only transactions that need Python ran through process_tx, and all of
     # alice's (she can always pay the fee).

@@ -16,7 +16,7 @@ from xian.simulator import TransactionSimulator
 
 
 @pytest.mark.parametrize("balance", [0, 9])
-def test_unfunded_budget_has_no_execution_effects_fee_or_rewards(tmp_path, balance):
+def test_unfunded_budget_has_no_execution_effects_and_pays_out_its_fee(tmp_path, balance):
     processor, rewards = make_processor(tmp_path, balance=balance)
     driver = processor.client.raw_driver
     try:
@@ -28,11 +28,18 @@ def test_unfunded_budget_has_no_execution_effects_fee_or_rewards(tmp_path, balan
         # A failed transaction pays base chi from whatever balance remains.
         charged = max(balance - ContractingDecimal(TRANSACTION_BASE_CHI) / 100, 0)
         assert result["chi_used"] == TRANSACTION_BASE_CHI
-        assert result["state"] == [{"key": "currency.balances:alice", "value": charged}]
         assert result["events"] == []
-        assert result["rewards"] is None
         assert driver.get("con_probe.value") is None
         assert driver.get("currency.balances:alice") == charged
+        if balance == 0:
+            # Nothing was paid, so nothing is paid out.
+            assert result["state"] == [{"key": "currency.balances:alice", "value": charged}]
+            assert result["rewards"] is None
+        else:
+            # The fee goes to the one validator (split 1/0/0/0).
+            fee = balance - charged
+            assert result["rewards"]["validator_reward"] == {"validator": fee}
+            assert driver.get("currency.balances:validator") == fee
     finally:
         driver.close()
 
@@ -65,7 +72,8 @@ def test_paid_exhaustion_charges_reserved_budget_and_discards_contract_effects(t
         assert driver.get("currency.balances:alice") == ContractingDecimal("99.99")
         assert driver.get("con_probe.value") is None
         assert result["events"] == []
-        assert result["rewards"] is None
+        assert result["rewards"]["validator_reward"] == {"validator": ContractingDecimal("0.01")}
+        assert driver.get("currency.balances:validator") == ContractingDecimal("0.01")
     finally:
         driver.close()
 
@@ -186,8 +194,13 @@ def test_contract_failure_rolls_back_spending_and_charges_only_consumed_chi(
         assert driver.get("currency.balances:recipient") is None
         assert driver.get("con_probe.value") is None
         assert result["events"] == []
-        assert result["rewards"] is None
-        assert {write["key"] for write in result["state"]} == {"currency.balances:alice"}
+        # The charged fee is paid out, to the validator alone.
+        assert result["rewards"]["validator_reward"] == {"validator": fee}
+        assert driver.get("currency.balances:validator") == fee
+        assert {write["key"] for write in result["state"]} == {
+            "currency.balances:alice",
+            "currency.balances:validator",
+        }
     finally:
         driver.close()
 
