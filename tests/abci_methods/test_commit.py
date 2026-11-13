@@ -51,6 +51,19 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
         hard_apply.assert_called_once_with("0")
         self.assertEqual(self.app.nonce_storage.pending_nonces, {})
 
+    async def test_pruning_retains_exactly_blocks_to_keep(self):
+        self.app.pruning_enabled = True
+        self.app.blocks_to_keep = 10
+        retained = []
+        for height in (10, 11, 15):
+            self.app.current_block_meta = {"height": height, "nanos": height}
+            self.app.merkle_root_hash = bytes.fromhex(f"{height:02x}" * 32)
+            with patch.object(self.app.client.raw_driver, "hard_apply"):
+                response = await self.process_request(Request(commit=RequestCommit()))
+            retained.append(response.commit.retain_height)
+
+        self.assertEqual(retained, [0, 1, 5])
+
     async def test_commit_preserves_future_pending_nonces(self):
         self.app.nonce_storage.set_nonce("alice", 3)
         self.app.nonce_storage.set_pending_nonce("alice", 5)
