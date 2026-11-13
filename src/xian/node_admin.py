@@ -5,7 +5,7 @@ import json
 import shutil
 import tarfile
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from time import sleep
 from typing import Any
@@ -18,12 +18,7 @@ from xian_accounts import is_valid_ed25519_key, verify_message
 from xian.config_paths import resolve_genesis_source
 from xian.constants import Constants as c
 from xian.node_setup import (
-    AppLoggingOptions,
-    BdsOptions,
-    MetricsOptions,
     NodeConfigOptions,
-    SimulationOptions,
-    StateSyncOptions,
     build_priv_validator_key,
     render_node_configs,
     write_json,
@@ -356,152 +351,7 @@ def resolve_home_relative_path(home: Path, configured_path: str) -> Path:
     return home / path
 
 
-def configure_existing_home(
-    *,
-    options: ExistingHomeOptions | None = None,
-    moniker: str | None = None,
-    validator_private_key_hex: str | None = None,
-    home: Path = c.COMETBFT_HOME,
-    allow_cors: bool = True,
-    discover_seeds: list[str] | None = None,
-    p2p_seeds: list[str] | None = None,
-    p2p_persistent_peers: list[str] | None = None,
-    snapshot_url: str | None = None,
-    snapshot_signing_public_keys: list[str] | None = None,
-    snapshot_expected_chain_id: str | None = None,
-    genesis_source: str | None = None,
-    genesis_payload: dict[str, Any] | None = None,
-    prometheus: bool = True,
-    bds_enabled: bool = False,
-    enable_pruning: bool = False,
-    blocks_to_keep: int = 100000,
-    block_policy_mode: str = "on_demand",
-    block_policy_interval: str = "0s",
-    statesync_enable: bool = False,
-    statesync_rpc_servers: list[str] | None = None,
-    statesync_trust_height: int = 0,
-    statesync_trust_hash: str = "",
-    statesync_trust_period: str = "168h0m0s",
-    metrics_enabled: bool = True,
-    metrics_host: str = "127.0.0.1",
-    metrics_port: int = 9108,
-    metrics_bds_refresh_seconds: float = 5.0,
-    transaction_trace_logging: bool = False,
-    app_log_level: str = "INFO",
-    app_log_json: bool = False,
-    app_log_rotation_hours: int = 1,
-    app_log_retention_days: int = 7,
-    app_log_max_file_mb: int = 50,
-    app_log_max_total_mb: int = 250,
-    simulation_enabled: bool = True,
-    simulation_max_concurrency: int = 2,
-    simulation_timeout_ms: int = 3000,
-    simulation_max_chi: int = 1_000_000,
-    pending_nonce_reservation_ttl_seconds: float = 60.0,
-    max_pending_nonces_per_sender: int = 128,
-    bds_dsn: str = "",
-    bds_host: str = "",
-    bds_port: int = 5432,
-    bds_database: str = "xian",
-    bds_user: str = "",
-    bds_password: str = "",
-    bds_pool_min_size: int = 1,
-    bds_pool_max_size: int = 10,
-    bds_statement_timeout_ms: int = 0,
-    bds_acquire_timeout_ms: int = 10_000,
-    bds_application_name: str = "xian-bds",
-    bds_queue_max_size: int = 128,
-    bds_catchup_enabled: bool = True,
-    bds_catchup_poll_seconds: float = 1.0,
-    bds_rpc_url: str = "",
-    bds_spool_dir: str = "",
-    bds_spool_warn_entries: int = 256,
-    bds_spool_warn_bytes: int = 536_870_912,
-    bds_disk_free_warn_bytes: int = 2_147_483_648,
-) -> dict[str, str | list[str] | None]:
-    if options is None:
-        if moniker is None:
-            raise TypeError("moniker is required when options is not provided")
-        node_config = NodeConfigOptions(
-            moniker=moniker,
-            allow_cors=allow_cors,
-            bds_enabled=bds_enabled,
-            enable_pruning=enable_pruning,
-            blocks_to_keep=blocks_to_keep,
-            transaction_trace_logging=transaction_trace_logging,
-            block_policy_mode=block_policy_mode,
-            block_policy_interval=block_policy_interval,
-            statesync=StateSyncOptions(
-                enable=statesync_enable,
-                rpc_servers=tuple(statesync_rpc_servers or ()),
-                trust_height=statesync_trust_height,
-                trust_hash=statesync_trust_hash,
-                trust_period=statesync_trust_period,
-            ),
-            metrics=MetricsOptions(
-                enabled=metrics_enabled,
-                host=metrics_host,
-                port=metrics_port,
-                bds_refresh_seconds=metrics_bds_refresh_seconds,
-            ),
-            app_logging=AppLoggingOptions(
-                level=app_log_level,
-                json_logging=app_log_json,
-                rotation_hours=app_log_rotation_hours,
-                retention_days=app_log_retention_days,
-                max_file_mb=app_log_max_file_mb,
-                max_total_mb=app_log_max_total_mb,
-            ),
-            simulation=SimulationOptions(
-                enabled=simulation_enabled,
-                max_concurrency=simulation_max_concurrency,
-                timeout_ms=simulation_timeout_ms,
-                max_chi=simulation_max_chi,
-            ),
-            pending_nonce_reservation_ttl_seconds=(pending_nonce_reservation_ttl_seconds),
-            max_pending_nonces_per_sender=max_pending_nonces_per_sender,
-            bds=BdsOptions(
-                dsn=bds_dsn,
-                host=bds_host,
-                port=bds_port,
-                database=bds_database,
-                user=bds_user,
-                password=bds_password,
-                pool_min_size=bds_pool_min_size,
-                pool_max_size=bds_pool_max_size,
-                statement_timeout_ms=bds_statement_timeout_ms,
-                acquire_timeout_ms=bds_acquire_timeout_ms,
-                application_name=bds_application_name,
-                queue_max_size=bds_queue_max_size,
-                catchup_enabled=bds_catchup_enabled,
-                catchup_poll_seconds=bds_catchup_poll_seconds,
-                rpc_url=bds_rpc_url,
-                spool_dir=bds_spool_dir,
-                spool_warn_entries=bds_spool_warn_entries,
-                spool_warn_bytes=bds_spool_warn_bytes,
-                disk_free_warn_bytes=bds_disk_free_warn_bytes,
-            ),
-            prometheus=prometheus,
-        )
-        options = ExistingHomeOptions(
-            moniker=moniker,
-            validator_private_key_hex=validator_private_key_hex,
-            home=home,
-            discover_seeds=tuple(discover_seeds or ()),
-            p2p_seeds=tuple(p2p_seeds or ()),
-            p2p_persistent_peers=tuple(p2p_persistent_peers or ()),
-            snapshot_url=snapshot_url,
-            snapshot_signing_public_keys=tuple(snapshot_signing_public_keys or ()),
-            snapshot_expected_chain_id=snapshot_expected_chain_id,
-            genesis_source=genesis_source,
-            genesis_payload=genesis_payload,
-            node_config=node_config,
-        )
-
-    return _configure_home(options)
-
-
-def _configure_home(request: ExistingHomeOptions) -> dict[str, str | list[str] | None]:
+def configure_existing_home(request: ExistingHomeOptions) -> dict[str, str | list[str] | None]:
     node_config = request.node_config or NodeConfigOptions(moniker=request.moniker)
     config_path = request.home / "config" / "config.toml"
     existing_config = load_existing_cometbft_config(config_path)
@@ -510,28 +360,10 @@ def _configure_home(request: ExistingHomeOptions) -> dict[str, str | list[str] |
         p2p_seeds=request.p2p_seeds,
     )
     rendered_configs = render_node_configs(
-        options=NodeConfigOptions(
-            moniker=node_config.moniker,
+        options=replace(
+            node_config,
             p2p_seeds=tuple(p2p_seeds),
             p2p_persistent_peers=request.p2p_persistent_peers,
-            allow_cors=node_config.allow_cors,
-            bds_enabled=node_config.bds_enabled,
-            enable_pruning=node_config.enable_pruning,
-            blocks_to_keep=node_config.blocks_to_keep,
-            transaction_trace_logging=node_config.transaction_trace_logging,
-            block_policy_mode=node_config.block_policy_mode,
-            block_policy_interval=node_config.block_policy_interval,
-            statesync=node_config.statesync,
-            metrics=node_config.metrics,
-            app_logging=node_config.app_logging,
-            simulation=node_config.simulation,
-            pending_nonce_reservation_ttl_seconds=(
-                node_config.pending_nonce_reservation_ttl_seconds
-            ),
-            max_pending_nonces_per_sender=(node_config.max_pending_nonces_per_sender),
-            bds=node_config.bds,
-            proxy_app=node_config.proxy_app,
-            prometheus=node_config.prometheus,
         )
     )
     rendered_config = rendered_configs["cometbft"]

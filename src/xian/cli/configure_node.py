@@ -523,7 +523,7 @@ def main(argv: list[str] | None = None) -> int:
             fee_policy=fee_policy,
         )
     result = configure_existing_home(
-        options=ExistingHomeOptions(
+        ExistingHomeOptions(
             moniker=args.moniker,
             validator_private_key_hex=args.validator_privkey,
             discover_seeds=tuple(args.discover_seed or ()),

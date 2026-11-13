@@ -20,9 +20,12 @@ from xian.node_admin import (
     resolve_p2p_seeds,
 )
 from xian.node_setup import (
+    AppLoggingOptions,
     BdsOptions,
     MetricsOptions,
     NodeConfigOptions,
+    SimulationOptions,
+    StateSyncOptions,
     write_toml,
 )
 from xian.toml_utils import load as load_toml
@@ -327,58 +330,73 @@ prometheus = false
 
             with patch.dict("os.environ", {"XIAN_CONFIGS_DIR": str(configs_dir)}):
                 result = configure_existing_home(
-                    home=home,
-                    moniker="updated-node",
-                    validator_private_key_hex=(
-                        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                    ),
-                    p2p_seeds=["seed-1@127.0.0.1:26656"],
-                    p2p_persistent_peers=["peer-1@127.0.0.1:26656"],
-                    genesis_source="local",
-                    enable_pruning=True,
-                    blocks_to_keep=5000,
-                    allow_cors=False,
-                    statesync_enable=True,
-                    statesync_rpc_servers=[
-                        "http://rpc-1.internal:26657",
-                        "http://rpc-2.internal:26657",
-                    ],
-                    statesync_trust_height=120,
-                    statesync_trust_hash="ab" * 32,
-                    statesync_trust_period="336h0m0s",
-                    metrics_enabled=True,
-                    metrics_host="0.0.0.0",
-                    metrics_port=9208,
-                    metrics_bds_refresh_seconds=7.5,
-                    transaction_trace_logging=True,
-                    app_log_level="warning",
-                    app_log_json=True,
-                    app_log_rotation_hours=4,
-                    app_log_retention_days=12,
-                    app_log_max_file_mb=20,
-                    app_log_max_total_mb=100,
-                    simulation_enabled=False,
-                    simulation_max_concurrency=4,
-                    simulation_timeout_ms=4500,
-                    simulation_max_chi=750000,
-                    bds_host="postgres",
-                    bds_port=5544,
-                    bds_database="xian_index",
-                    bds_user="indexer",
-                    bds_password="secret",
-                    bds_pool_min_size=2,
-                    bds_pool_max_size=6,
-                    bds_statement_timeout_ms=5000,
-                    bds_acquire_timeout_ms=15000,
-                    bds_application_name="xian-bds-test",
-                    bds_queue_max_size=321,
-                    bds_catchup_enabled=False,
-                    bds_catchup_poll_seconds=2.5,
-                    bds_rpc_url="http://rpc.internal:26657",
-                    bds_spool_dir="/var/lib/xian/bds-spool",
-                    bds_spool_warn_entries=512,
-                    bds_spool_warn_bytes=1_073_741_824,
-                    bds_disk_free_warn_bytes=4_294_967_296,
+                    ExistingHomeOptions(
+                        moniker="updated-node",
+                        home=home,
+                        validator_private_key_hex=(
+                            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                        ),
+                        p2p_seeds=("seed-1@127.0.0.1:26656",),
+                        p2p_persistent_peers=("peer-1@127.0.0.1:26656",),
+                        genesis_source="local",
+                        node_config=NodeConfigOptions(
+                            moniker="updated-node",
+                            enable_pruning=True,
+                            blocks_to_keep=5000,
+                            allow_cors=False,
+                            statesync=StateSyncOptions(
+                                enable=True,
+                                rpc_servers=(
+                                    "http://rpc-1.internal:26657",
+                                    "http://rpc-2.internal:26657",
+                                ),
+                                trust_height=120,
+                                trust_hash="ab" * 32,
+                                trust_period="336h0m0s",
+                            ),
+                            metrics=MetricsOptions(
+                                enabled=True,
+                                host="0.0.0.0",
+                                port=9208,
+                                bds_refresh_seconds=7.5,
+                            ),
+                            transaction_trace_logging=True,
+                            app_logging=AppLoggingOptions(
+                                level="warning",
+                                json_logging=True,
+                                rotation_hours=4,
+                                retention_days=12,
+                                max_file_mb=20,
+                                max_total_mb=100,
+                            ),
+                            simulation=SimulationOptions(
+                                enabled=False,
+                                max_concurrency=4,
+                                timeout_ms=4500,
+                                max_chi=750000,
+                            ),
+                            bds=BdsOptions(
+                                host="postgres",
+                                port=5544,
+                                database="xian_index",
+                                user="indexer",
+                                password="secret",
+                                pool_min_size=2,
+                                pool_max_size=6,
+                                statement_timeout_ms=5000,
+                                acquire_timeout_ms=15000,
+                                application_name="xian-bds-test",
+                                queue_max_size=321,
+                                catchup_enabled=False,
+                                catchup_poll_seconds=2.5,
+                                rpc_url="http://rpc.internal:26657",
+                                spool_dir="/var/lib/xian/bds-spool",
+                                spool_warn_entries=512,
+                                spool_warn_bytes=1_073_741_824,
+                                disk_free_warn_bytes=4_294_967_296,
+                            ),
+                        ),
+                    )
                 )
 
             rendered_config = load_toml(config_path)
@@ -516,7 +534,7 @@ seeds = ""
             write_toml(config_path, existing_config)
 
             result = configure_existing_home(
-                options=ExistingHomeOptions(
+                ExistingHomeOptions(
                     moniker="updated-node",
                     validator_private_key_hex=(
                         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -592,7 +610,7 @@ seeds = ""
             previous_umask = os.umask(0o022)
             try:
                 result = configure_existing_home(
-                    options=ExistingHomeOptions(
+                    ExistingHomeOptions(
                         moniker="updated-node",
                         validator_private_key_hex="01" * 32,
                         home=home,
@@ -666,10 +684,11 @@ prometheus = false
 
             with patch.dict("os.environ", {"XIAN_CONFIGS_DIR": str(configs_dir)}):
                 result = configure_existing_home(
-                    home=home,
-                    moniker="updated-node",
-                    validator_private_key_hex=None,
-                    genesis_source="mainnet",
+                    ExistingHomeOptions(
+                        moniker="updated-node",
+                        home=home,
+                        genesis_source="mainnet",
+                    )
                 )
 
             rendered_genesis = json.loads(
@@ -744,10 +763,11 @@ prometheus = false
             }
 
             result = configure_existing_home(
-                home=home,
-                moniker="updated-node",
-                validator_private_key_hex=None,
-                genesis_payload=genesis_payload,
+                ExistingHomeOptions(
+                    moniker="updated-node",
+                    home=home,
+                    genesis_payload=genesis_payload,
+                )
             )
 
             rendered_genesis = json.loads(

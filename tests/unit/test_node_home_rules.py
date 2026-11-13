@@ -59,17 +59,11 @@ def _initialized_home(root: Path) -> Path:
 
 
 class ConfigureExistingHomeRules(unittest.TestCase):
-    def test_keyword_call_without_moniker_or_options_is_rejected(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            home = _initialized_home(Path(tmp_dir))
-            with self.assertRaisesRegex(TypeError, "moniker is required"):
-                configure_existing_home(home=home)
-
     def test_without_genesis_or_validator_key_writes_neither(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             home = _initialized_home(Path(tmp_dir))
 
-            result = configure_existing_home(home=home, moniker="node")
+            result = configure_existing_home(ExistingHomeOptions(moniker="node", home=home))
 
             self.assertIsNone(result["genesis_path"])
             self.assertIsNone(result["priv_validator_key_path"])
@@ -85,7 +79,7 @@ class ConfigureExistingHomeRules(unittest.TestCase):
             source.write_text(json.dumps({"chain_id": "from-source"}), encoding="utf-8")
 
             configure_existing_home(
-                options=ExistingHomeOptions(
+                ExistingHomeOptions(
                     moniker="node",
                     home=home,
                     genesis_source=str(source),
@@ -108,7 +102,7 @@ class ConfigureExistingHomeRules(unittest.TestCase):
             patch("xian.node_admin._download_binary_url", return_value=archive_bytes),
         ):
             return configure_existing_home(
-                options=ExistingHomeOptions(
+                ExistingHomeOptions(
                     moniker="node",
                     home=home,
                     snapshot_url="https://example.invalid/snapshot-manifest.json",
