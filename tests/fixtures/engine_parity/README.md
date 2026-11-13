@@ -18,7 +18,7 @@ and the production path both reproduce them byte for byte.
 | `simulations.json` | The `simulate_tx` query response value of each simulation. |
 | `contract_views.json` | The query response value of each contract view (`_call_contract_view`); `error` when the query raises. |
 | `system_blocks.json` | `FinalizeBlock` + `Commit` of blocks with evidence penalties and epoch rebalances: the system transactions' receipts, the serialized `ResponseFinalizeBlock` and the app hash. |
-| `handback_inventory.json` | Not golden: the cases the production path still runs on the Python path, with the reason (`process_block` hand-backs measured; simulation, contract views and system transactions by entry point). |
+| `handback_inventory.json` | Not golden: the cases the production path still runs on the Python path, with the reason (`process_block` and system transaction hand-backs measured; simulation and contract views by entry point). |
 | `inputs/groth16_bn254_demo.json` | Input: the demo Groth16 key, proof and public input (from `xian-zk`). |
 
 The zk corpus needs the native verifier (`--extra zk`); without it the test

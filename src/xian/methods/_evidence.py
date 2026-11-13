@@ -12,7 +12,6 @@ import hashlib
 from loguru import logger
 
 from xian.app_logging import build_log_fields
-from xian.fee_policy import TxFeePolicy
 
 SYSTEM_EVIDENCE_SENDER = "__evidence_penalty_driver__"
 MISBEHAVIOR_TYPE_NAMES = {
@@ -101,60 +100,67 @@ def maybe_apply_evidence_penalties(self, req, *, height: int) -> bool:
             ).warning("Could not resolve validator key for misbehavior evidence")
             continue
 
-        evidence_id = _misbehavior_evidence_id(misbehavior, validator_key)
-        evidence_tx = {
-            "payload": {
-                "sender": SYSTEM_EVIDENCE_SENDER,
-                "contract": "validators",
-                "function": "apply_evidence_penalty",
-                "kwargs": {
-                    "member": validator_key,
-                    "infraction_type": infraction_type,
-                    "evidence_id": evidence_id,
-                    "evidence_height": misbehavior.height,
-                },
-                "chi_supplied": 0,
-            },
-            "metadata": {
-                "signature": f"evidence-penalty:{evidence_id}",
-            },
-            "b_meta": self.current_block_meta,
-        }
-        result = self.tx_processor.process_tx(
-            evidence_tx,
-            rewards_handler=None,
-            fee_policy=TxFeePolicy.system_unmetered(),
-        )
-        tx_result = result.get("tx_result")
-        if tx_result is None or tx_result.get("status") != 0:
-            logger.bind(
-                **build_log_fields(
-                    stage="finalize_evidence",
-                    block_height=height,
-                    block_hash=self.current_block_meta["hash"],
-                    status=(tx_result or {}).get("status"),
-                    extra={
-                        "misbehavior_type": infraction_type,
-                        "validator_key": validator_key,
-                    },
-                )
-            ).warning("Evidence penalty did not apply")
-            continue
-
-        state_write_count = len(tx_result.get("state", []))
-        if state_write_count > 0:
+        if _apply_evidence_penalty(
+            self, misbehavior, validator_key, infraction_type, height=height
+        ):
             any_applied = True
-            logger.bind(
-                **build_log_fields(
-                    stage="finalize_evidence",
-                    block_height=height,
-                    block_hash=self.current_block_meta["hash"],
-                    extra={
-                        "misbehavior_type": infraction_type,
-                        "validator_key": validator_key,
-                        "state_write_count": state_write_count,
-                    },
-                )
-            ).info("Applied validator evidence penalty")
 
     return any_applied
+
+
+def _apply_evidence_penalty(
+    self, misbehavior, validator_key: str, infraction_type: str, *, height: int
+) -> bool:
+    """Run one evidence penalty system transaction; True if it wrote state."""
+    evidence_id = _misbehavior_evidence_id(misbehavior, validator_key)
+    evidence_tx = {
+        "payload": {
+            "sender": SYSTEM_EVIDENCE_SENDER,
+            "contract": "validators",
+            "function": "apply_evidence_penalty",
+            "kwargs": {
+                "member": validator_key,
+                "infraction_type": infraction_type,
+                "evidence_id": evidence_id,
+                "evidence_height": misbehavior.height,
+            },
+            "chi_supplied": 0,
+        },
+        "metadata": {
+            "signature": f"evidence-penalty:{evidence_id}",
+        },
+        "b_meta": self.current_block_meta,
+    }
+    tx_result = self.tx_processor.process_system_tx(evidence_tx).get("tx_result")
+    log_fields = {
+        "stage": "finalize_evidence",
+        "block_height": height,
+        "block_hash": self.current_block_meta["hash"],
+    }
+    if tx_result is None or tx_result.get("status") != 0:
+        logger.bind(
+            **build_log_fields(
+                **log_fields,
+                status=(tx_result or {}).get("status"),
+                extra={
+                    "misbehavior_type": infraction_type,
+                    "validator_key": validator_key,
+                },
+            )
+        ).warning("Evidence penalty did not apply")
+        return False
+
+    state_write_count = len(tx_result.get("state", []))
+    if state_write_count == 0:
+        return False
+    logger.bind(
+        **build_log_fields(
+            **log_fields,
+            extra={
+                "misbehavior_type": infraction_type,
+                "validator_key": validator_key,
+                "state_write_count": state_write_count,
+            },
+        )
+    ).info("Applied validator evidence penalty")
+    return True

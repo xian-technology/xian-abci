@@ -1337,6 +1337,10 @@ def system_blocks() -> tuple[SystemBlock, ...]:
         SystemBlock(6),
         SystemBlock(10, patch={"validators.config:power_mode": "bogus"}),
         SystemBlock(11, evidence=((1, NODE_3, 11),)),
+        # A penalty that fails (a corrupted bond): a failed system receipt.
+        SystemBlock(
+            12, evidence=((1, NODE_2, 12),), patch={f"validators.self_bond:{NODE_2}": "bogus"}
+        ),
     )
 
 
@@ -1445,7 +1449,22 @@ async def _finalize(handler, block: SystemBlock):
     return response
 
 
-async def _run_system_blocks(constants, *, python: bool) -> dict:
+# The system transaction cases, by the prefix of their signature.
+SYSTEM_CASES = {
+    "validator-epoch-rebalance": "system/epoch_rebalance",
+    "evidence-penalty": "system/evidence_penalty",
+}
+
+
+def _system_routes(ran_in_python: list[tuple[str, str | None]]) -> dict[str, str]:
+    """The system transaction cases that ran on the Python path."""
+    return {
+        SYSTEM_CASES[signature.split(":", 1)[0]]: reason or PER_TX_PATH
+        for signature, reason in ran_in_python
+    }
+
+
+async def _run_system_blocks(constants, *, python: bool) -> tuple[dict, dict[str, str]]:
     from abci.server import ProtocolHandler
     from xian.utils.encoding import encode_abci_json
     from xian.xian_abci import Xian
@@ -1455,10 +1474,10 @@ async def _run_system_blocks(constants, *, python: bool) -> dict:
         handler = ProtocolHandler(app)
         _deploy_system_contracts(app.client)
         receipts: list[str] = []
-        process_tx = app.tx_processor.process_tx
+        process_system_tx = app.tx_processor.process_system_tx
 
-        def recorded(tx, *args, **kwargs):
-            response = process_tx(tx, *args, **kwargs)
+        def recorded(tx):
+            response = process_system_tx(tx)
             receipts.append(encode_abci_json(response["tx_result"]).decode("utf-8"))
             return response
 
@@ -1466,7 +1485,8 @@ async def _run_system_blocks(constants, *, python: bool) -> dict:
         with ExitStack() as stack:
             if python:
                 stack.enter_context(python_path())
-            stack.enter_context(mock.patch.object(app.tx_processor, "process_tx", recorded))
+            ran_in_python = stack.enter_context(_route_recorder(app.tx_processor))
+            stack.enter_context(mock.patch.object(app.tx_processor, "process_system_tx", recorded))
             for block in system_blocks():
                 for key, value in block.patch.items():
                     app.client.raw_driver.set(key, value)
@@ -1480,13 +1500,15 @@ async def _run_system_blocks(constants, *, python: bool) -> dict:
                         "app_hash": response.app_hash.hex(),
                     }
                 )
-        return {"blocks": blocks}
+        return {"blocks": blocks}, _system_routes(ran_in_python)
     finally:
         app.client.close()
         await app.close()
 
 
-def run_system_blocks(*, python: bool) -> dict:
+def run_system_blocks(*, python: bool) -> tuple[dict, dict[str, str]]:
+    """The system blocks' outputs on one path, and the system transaction
+    cases that ran on the Python path."""
     with _node_home() as constants:
         return asyncio.run(_run_system_blocks(constants, python=python))
 
@@ -1522,16 +1544,12 @@ def python_path_outputs(tmp: Path) -> dict[str, dict]:
         )
     outputs["simulations"] = run_simulations(tmp / "simulations", python=True)
     outputs["contract_views"] = run_contract_views(tmp / "views", python=True)
-    outputs["system_blocks"] = run_system_blocks(python=True)
+    outputs["system_blocks"], _routes = run_system_blocks(python=True)
     return outputs
 
 
 # What runs outside ``process_block`` today, and where.
 OUTSIDE_BLOCK_EXECUTOR = {
-    "system_blocks": {
-        "system/epoch_rebalance": "process_tx (system_unmetered: no block executor)",
-        "system/evidence_penalty": "process_tx (system_unmetered: no block executor)",
-    },
     "simulations": "simulator worker: execute_vm_transaction",
     "contract_views": "execute_vm_contract",
 }
@@ -1539,12 +1557,12 @@ OUTSIDE_BLOCK_EXECUTOR = {
 
 def handback_inventory(tmp: Path) -> dict[str, dict[str, str]]:
     """The cases the production path runs on the Python path, by corpus:
-    measured for blocks, by entry point for the rest."""
+    measured for blocks and system transactions, by entry point for the rest."""
     inventory = {
         corpus.name: handed_back(run_corpus(tmp / corpus.name, corpus, python=False)[1])
         for corpus in corpora()
     }
-    inventory["system_blocks"] = dict(OUTSIDE_BLOCK_EXECUTOR["system_blocks"])
+    inventory["system_blocks"] = run_system_blocks(python=False)[1]
     inventory["simulations"] = {
         simulation.case: OUTSIDE_BLOCK_EXECUTOR["simulations"] for simulation in simulations()
     }

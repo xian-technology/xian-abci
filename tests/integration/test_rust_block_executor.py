@@ -315,9 +315,9 @@ def _tx(seed, index, height, sender, contract, function, kwargs, budget):
     }
 
 
-def _run(home, blocks, *, native, monkeypatch=None):
+def _run(home, blocks, *, native, monkeypatch=None, policy=None):
     client, processor, rewards = _setup(home)
-    policy = TxFeePolicy.paid_metered()
+    policy = policy or TxFeePolicy.paid_metered()
     python_runs = []
     if monkeypatch is not None:
         process_tx = processor.process_tx
@@ -379,6 +379,39 @@ def test_rust_block_execution_matches_the_per_transaction_path(tmp_path, monkeyp
     ]
     assert [run for run in python_runs if run[0] == "alice"] == alice
     assert len(python_runs) < sum(len(txs) for txs in blocks) // 2
+
+
+def test_unmetered_system_execution_matches_the_per_transaction_path(tmp_path, monkeypatch):
+    # System transactions (epoch rebalance, evidence penalties) run in Rust
+    # unmetered: no chi budget (burn's 40 chi do not run out), no failure
+    # charge, no fee, no rewards.
+    policy = TxFeePolicy.system_unmetered()
+    blocks = [_block(seed, 40, height) for height, seed in enumerate((31, 32), start=1)]
+    expected, _ = _run(tmp_path / "python", blocks, native=False, policy=policy)
+    actual, python_runs = _run(
+        tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch, policy=policy
+    )
+    assert len(actual) == len(expected)
+    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
+        assert left == right, index
+    receipts = [json.loads(entry[0]) for entry in actual if isinstance(entry, tuple)]
+    assert {receipt["status"] for receipt in receipts} == {0, 1}
+    assert not any(receipt["rewards"] for receipt in receipts)
+
+    # Only the hand-backs ran through process_tx: without a fee to reserve,
+    # every sender reaches them.
+    def needs_python(sender, contract, function):
+        if (contract, function) == ("con_owned", "ping"):
+            return sender != "bob"
+        return contract == "submission" or (contract, function) in PYTHON_ONLY
+
+    calls = [
+        (tx["payload"]["sender"], tx["payload"]["contract"], tx["payload"]["function"])
+        for txs in blocks
+        for tx in txs
+    ]
+    assert python_runs == [call for call in calls if needs_python(*call)]
+    assert len(python_runs) < len(calls) // 2
 
 
 LONG = "x" * 600

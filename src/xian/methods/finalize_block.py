@@ -6,7 +6,6 @@ from cometbft.abci.v1beta2.types_pb2 import Event, EventAttribute
 from cometbft.abci.v1beta3.types_pb2 import ExecTxResult, ResponseFinalizeBlock
 from xian.app_logging import build_log_fields
 from xian.constants import Constants as c
-from xian.fee_policy import TxFeePolicy
 from xian.log_safety import error_fields
 from xian.methods._evidence import maybe_apply_evidence_penalties
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
@@ -78,11 +77,7 @@ def _maybe_run_validator_epoch_rebalance(self, *, height: int):
         },
         "b_meta": self.current_block_meta,
     }
-    result = self.tx_processor.process_tx(
-        rebalance_tx,
-        rewards_handler=None,
-        fee_policy=TxFeePolicy.system_unmetered(),
-    )
+    result = self.tx_processor.process_system_tx(rebalance_tx)
     tx_result = result.get("tx_result")
     if tx_result is None or tx_result.get("status") != 0:
         logger.bind(

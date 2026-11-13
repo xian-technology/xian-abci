@@ -79,12 +79,9 @@
   "free/random": "host syscall random.seed"
  },
  "policy_unmetered": {
-  "unmetered/deploy": "per-transaction path",
-  "unmetered/failure": "per-transaction path",
-  "unmetered/out_of_chi": "per-transaction path",
-  "unmetered/random": "per-transaction path",
-  "unmetered/rotate_validators": "per-transaction path",
-  "unmetered/success": "per-transaction path"
+  "unmetered/deploy": "contract submission",
+  "unmetered/out_of_chi": "host syscall random.seed",
+  "unmetered/random": "host syscall random.seed"
  },
  "random": {
   "random/error_choice": "host syscall random.seed",
@@ -170,10 +167,7 @@
   "simulate/unseeded_random": "simulator worker: execute_vm_transaction",
   "simulate/zk_registry": "simulator worker: execute_vm_transaction"
  },
- "system_blocks": {
-  "system/epoch_rebalance": "process_tx (system_unmetered: no block executor)",
-  "system/evidence_penalty": "process_tx (system_unmetered: no block executor)"
- },
+ "system_blocks": {},
  "values": {
   "entry/import_cycle": "import graph contains a cycle",
   "entry/invalid_ir": "expected ident at line 1 column 2",

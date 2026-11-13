@@ -114,11 +114,17 @@ class TxProcessor:
                     block_scoped=True,
                 )
 
+    def process_system_tx(self, tx) -> dict:
+        """The ``process_tx`` response for a system transaction (epoch
+        rebalance, evidence penalty): unmetered, no fees, no rewards."""
+        [response] = self.process_block([tx], fee_policy=TxFeePolicy.system_unmetered())
+        return response
+
     def process_block(self, txs, *, fee_policy: TxFeePolicy, rewards_handler=None) -> list[dict]:
         """``process_tx`` responses for a block's transactions, in order.
 
-        A metered chain policy runs the transactions in Rust over the block
-        overlay with the GIL released; each transaction that needs Python
+        The transactions run in Rust over the block overlay with the GIL
+        released; each transaction that needs Python
         (see ``xian_vm_core.BlockExecutor``) runs through ``process_tx`` in
         its place in the block, and Rust continues after it. The outcomes are
         byte-identical either way.
@@ -155,12 +161,13 @@ class TxProcessor:
 
     def _block_executor(self, txs, fee_policy: TxFeePolicy, rewards_handler):
         storage = self.client.raw_driver.committed_storage()
-        if storage is None or not fee_policy.meter_execution:
+        if storage is None:
             return None
         environment, overlay = storage
         executor = BlockExecutor(
             environment,
             overlay,
+            meter_execution=fee_policy.meter_execution,
             charge_fees=fee_policy.charge_fees,
             distribute_fee_rewards=(
                 fee_policy.distribute_fee_rewards and rewards_handler is not None

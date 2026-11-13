@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 from engine_parity_corpus import (
     PER_TX_PATH,
+    SYSTEM_CASES,
     corpora,
     handback_inventory,
     handed_back,
@@ -80,4 +81,11 @@ def test_contract_views_match_the_golden_fixture(tmp_path, python):
 @pytest.mark.usefixtures("node_home")
 @pytest.mark.parametrize("python", [True, False], ids=["python", "production"])
 def test_system_transactions_match_the_golden_fixture(python):
-    assert run_system_blocks(python=python) == load_fixture("system_blocks")
+    outputs, routes = run_system_blocks(python=python)
+
+    assert outputs == load_fixture("system_blocks")
+    if python:
+        assert set(routes.values()) == {PER_TX_PATH}
+        assert set(routes) == set(SYSTEM_CASES.values())
+    else:
+        assert routes == load_fixture("handback_inventory")["system_blocks"]
