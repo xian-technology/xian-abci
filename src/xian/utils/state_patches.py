@@ -8,6 +8,7 @@ from typing import Any
 
 from contracting.artifacts import build_contract_artifacts
 from contracting.storage.driver import XIAN_VM_V1_IR_KEY
+from contracting.storage.lmdb_environment import validate_storage_key
 from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, loads_wire_json
 
@@ -57,6 +58,19 @@ def build_contract_artifacts_from_source(
         artifacts["source"],
         artifacts["vm_ir_json"],
     )
+
+
+def _validate_patched_keys(bundle_file: Path, key: str) -> None:
+    """Refuse a change whose writes LMDB cannot store: it would fail at Commit."""
+    contract_name, _, variable = key.partition(".")
+    written = [key]
+    if variable.split(".", 1)[0] == "__source__":
+        written.append(f"{contract_name}.{XIAN_VM_V1_IR_KEY}")
+    for written_key in written:
+        try:
+            validate_storage_key(written_key)
+        except ValueError as exc:
+            raise ValueError(f"{bundle_file}: {exc}") from exc
 
 
 def hash_from_state_changes(state_changes: list[dict[str, Any]]) -> str:
@@ -275,6 +289,7 @@ class StatePatchManager:
                 raise ValueError(
                     f"{bundle_file} cannot patch {XIAN_VM_V1_IR_KEY} directly; use __source__"
                 )
+            _validate_patched_keys(bundle_file, key)
             decode_wire_numbers(raw_change.get("value"))
             seen_keys.add(key)
             normalized_changes.append(

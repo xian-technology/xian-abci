@@ -250,6 +250,25 @@ class StatePatchManagerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.manager.load_patches(self.test_dir)
 
+    def test_bundle_cannot_patch_a_key_lmdb_cannot_store(self):
+        # A 512-byte key would be applied and hashed, then refused by LMDB at
+        # Commit. A source patch also writes the contract's 4-byte-longer IR key.
+        for key in ("con_long.data:" + "x" * 498, "c" * 500 + ".__source__"):
+            with self.subTest(key=key[-20:]):
+                bundle = self.write_bundle(
+                    "long-key.json",
+                    {
+                        "version": 1,
+                        "patch_id": "long-key-patch",
+                        "activation_height": 12,
+                        "changes": [{"key": key, "value": "@export\ndef f():\n    return 1\n"}],
+                    },
+                )
+
+                with self.assertRaisesRegex(ValueError, "Max is 511"):
+                    self.manager.load_patches(self.test_dir)
+                bundle.unlink()
+
     def test_bundle_hash_mismatch_is_a_hard_error(self):
         self.write_bundle(
             "patch-a.json",

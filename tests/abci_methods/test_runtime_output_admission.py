@@ -183,3 +183,81 @@ def test_zero_chi_is_rejected_by_all_transaction_entrypoints(
             assert "chi_supplied" in json.loads(result.tx_results[0].data)["error"]
 
     asyncio.run(run())
+
+
+# LMDB refuses keys over 511 bytes. Each write below forms a 512-byte storage
+# key ("con_boundary.data:" is 18 bytes); the last one forms exactly 511.
+_TARGET = "t" * 98
+_LONG_VARIABLE = "v" * 499
+STORAGE_KEY_SOURCE = (
+    f"data = Hash(default_value=0)\n{_TARGET} = Hash()\n{_LONG_VARIABLE} = Variable()\n"
+    "ok = Variable()\n\n"
+    "@export\ndef hash_key():\n    data['x' * 494] = 1\n"
+    "@export\ndef mutate_key():\n    data['x' * 494] += 1\n"
+    "@export\ndef utf8_key():\n    data['\\u00e9' * 247] = 1\n"
+    "@export\ndef multi_key():\n    data['x' * 246, 'y' * 247] = 1\n"
+    f"@export\ndef variable_key():\n    {_LONG_VARIABLE}.set(1)\n"
+    f"@export\ndef clone_key():\n    data['k' * 400] = 1\n    {_TARGET}.clone_from(data)\n"
+    "@export\ndef largest_key():\n    data['x' * 493] = 1\n"
+    "@export\ndef good():\n    ok.set(7)\n"
+)
+
+
+@pytest.mark.parametrize(
+    "function", ["hash_key", "mutate_key", "utf8_key", "multi_key", "variable_key", "clone_key"]
+)
+def test_finalize_fails_a_write_lmdb_cannot_store_and_commits_the_block(tmp_path, function):
+    async def run():
+        async with isolated_app(tmp_path, STORAGE_KEY_SOURCE) as app:
+            txs = [
+                signed_tx(app, function=function, nonce=0),
+                signed_tx(app, function="good", nonce=1),
+            ]
+            result = await app.finalize_block(
+                RequestFinalizeBlock(height=1, hash=b"1" * 32, txs=txs)
+            )
+            assert [tx.code for tx in result.tx_results] == [1, 0]
+            failed = json.loads(result.tx_results[0].data)
+            assert "511" in failed["result"]
+            assert failed["chi_used"] > 0
+            assert not any(write["key"].startswith("con_boundary.") for write in failed["state"])
+            await app.commit()
+            assert app.client.raw_driver.get("con_boundary.ok") == 7
+            assert StateRootCache.from_driver(app.client.raw_driver).root_hash == result.app_hash
+
+    asyncio.run(run())
+
+
+def test_finalize_commits_the_largest_storable_key(tmp_path):
+    async def run():
+        async with isolated_app(tmp_path, STORAGE_KEY_SOURCE) as app:
+            result = await app.finalize_block(
+                RequestFinalizeBlock(
+                    height=1, hash=b"1" * 32, txs=[signed_tx(app, function="largest_key", nonce=0)]
+                )
+            )
+            assert result.tx_results[0].code == 0
+            await app.commit()
+            app.client.raw_driver.flush_cache()
+            key = "con_boundary.data:" + "x" * 493
+            assert len(key.encode()) == 511
+            assert app.client.raw_driver.get(key) == 1
+
+    asyncio.run(run())
+
+
+def test_finalize_refuses_a_block_state_root_over_a_key_lmdb_cannot_store(tmp_path):
+    # Defense in depth: a pending write that bypassed every write check still
+    # never gets an app hash, so it can never fail later, at Commit.
+    async def run():
+        async with isolated_app(tmp_path, STORAGE_KEY_SOURCE) as app:
+            app.client.raw_driver.pending_writes["__local." + "x" * 504] = 1
+            with pytest.raises(ValueError, match="Max is 511"):
+                await app.finalize_block(
+                    RequestFinalizeBlock(
+                        height=1, hash=b"1" * 32, txs=[signed_tx(app, function="good", nonce=0)]
+                    )
+                )
+            assert app.merkle_root_hash is None
+
+    asyncio.run(run())

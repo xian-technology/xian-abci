@@ -48,3 +48,14 @@ def test_reserved_tag_dictionary_effects_fail_before_application(tag):
 def test_protected_execution_policy_cannot_be_written_by_contract_output():
     output = _validated_vm_result(VmExecutionResult(0, None, {"__execution_policy": {}}, [], 9))
     assert output.status_code == 1 and output.writes == {}
+
+
+def test_a_key_lmdb_cannot_store_fails_before_application():
+    # LMDB stores keys of at most 511 bytes; a longer one would only fail at Commit.
+    largest = "con_demo.value:" + "é" * 248
+    assert len(largest.encode()) == 511
+    assert _validated_vm_result(VmExecutionResult(0, None, {largest: 1}, [], 9)).status_code == 0
+
+    output = _validated_vm_result(VmExecutionResult(0, None, {largest + "x": 1}, [], 9))
+    assert output.status_code == 1 and output.writes == {} and output.events == []
+    assert output.chi_used == 9

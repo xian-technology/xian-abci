@@ -15,7 +15,7 @@ from contracting.runtime_features import (
     runtime_feature_enabled,
 )
 from contracting.storage.content_cache import ContentKeyedCache
-from contracting.storage.lmdb_environment import LMDBError
+from contracting.storage.lmdb_environment import LMDBError, validate_storage_key
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import validate_persistent_value
 
@@ -427,7 +427,8 @@ def _validated_vm_result(output: VmExecutionResult) -> VmExecutionResult:
         normalize_contract_result(output.result)
         encode_abci_json((output.writes, output.events))
         for key in output.writes:
-            key.encode("utf-8")
+            # Also refuses a key LMDB cannot store, which would fail only at Commit.
+            validate_storage_key(key)
     except (ArithmeticError, AssertionError, TypeError, ValueError, RecursionError):
         return replace(
             output,

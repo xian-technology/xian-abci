@@ -141,6 +141,16 @@ class StateRootTests(unittest.TestCase):
             merkle_root_from_items([("currency.balances:alice", 1)]),
         )
 
+    def test_state_root_cache_refuses_to_prepare_a_key_lmdb_cannot_store(self):
+        # Node-local keys are not hashed but are still written at Commit.
+        cache = StateRootCache([("currency.balances:alice", 1)])
+        original_root = cache.root_hash
+        for key in ("con_demo.data:" + "x" * 498, "__local." + "x" * 504):
+            with self.subTest(key=key[:12]):
+                with self.assertRaisesRegex(ValueError, "Max is 511"):
+                    cache.prepare({"currency.balances:alice": 5, key: 1})
+                self.assertEqual(cache.root_hash, original_root)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,7 @@ from typing import Any
 
 from contracting import constants as contracting_constants
 from contracting.runtime_features import RUNTIME_FEATURE_STATE_PREFIX
+from contracting.storage.lmdb_environment import validate_storage_key
 
 from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.fee_policy import FEE_POLICY_KEY
@@ -185,9 +186,13 @@ class StateRootCache:
 
     def prepare(self, writes: dict[str, Any]) -> bytes:
         self.rollback()
-        for key, value in writes.items():
+        # Commit persists every pending key, hashed or node-local. A key LMDB
+        # cannot store is refused here, before the block has a state root.
+        for key in writes:
             if not isinstance(key, str):
                 raise TypeError("state root keys must be strings")
+            validate_storage_key(key)
+        for key, value in writes.items():
             if not is_consensus_state_key(key):
                 continue
             new_leaf_hash = None if value is None else _hash_leaf(key, value)
