@@ -26,3 +26,24 @@ def test_a_name_argument_does_not_become_the_submission_name(tmp_path):
         assert result["result"] == [None, "alice", "alice", "con_context"]
     finally:
         driver.close()
+
+
+def test_an_empty_stored_ir_is_treated_as_missing(tmp_path):
+    processor, rewards = make_processor(tmp_path)
+    driver = processor.client.raw_driver
+    try:
+        driver.set_contract_from_source("con_context", CONTEXT)
+        driver.set("con_context.__xian_ir_v1__", "")
+        driver.commit()
+
+        response = process(
+            processor,
+            rewards,
+            tx(contract="con_context", function="seen", kwargs={"name": "x"}),
+        )
+
+        result = response["tx_result"]
+        assert result["status"] == 1
+        assert "requires persisted __xian_ir_v1__" in result["result"]
+    finally:
+        driver.close()
