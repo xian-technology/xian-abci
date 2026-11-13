@@ -4,8 +4,10 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
-import lmdb
-from contracting.storage.lmdb_environment import DEFAULT_ENVIRONMENT_POOL
+from contracting.storage.lmdb_environment import (
+    DEFAULT_ENVIRONMENT_POOL,
+    standalone_environment,
+)
 
 VM_EXECUTION_MODE = "xian_vm_v2"
 VM_BYTECODE_VERSION = "xvm-2"
@@ -58,9 +60,8 @@ def validate_persisted_execution_policy(storage_home: Path) -> bool:
         return False
     existing = DEFAULT_ENVIRONMENT_POOL.read_existing_value(path, EXECUTION_POLICY_KEY.encode())
     if existing is None:
-        with lmdb.open(str(path), readonly=True, create=False, lock=False) as env:
-            with env.begin() as tx:
-                existing = tx.get(EXECUTION_POLICY_KEY.encode()), tx.stat()["entries"]
+        with standalone_environment(path, readonly=True, lock=False) as env:
+            existing = env.get_with_entries(EXECUTION_POLICY_KEY.encode())
     raw, entries = existing
     if entries == 0:
         return False
@@ -78,12 +79,10 @@ def initialize_execution_policy(storage_home: Path) -> None:
         return
     path = Path(storage_home) / "lmdb"
     path.mkdir(parents=True, exist_ok=True)
-    with lmdb.open(str(path)) as env:
-        with env.begin(write=True) as tx:
-            if tx.stat()["entries"]:
-                raise ValueError("state changed during execution policy initialization")
-            encoded = json.dumps(current_execution_policy(), separators=(",", ":")).encode()
-            tx.put(EXECUTION_POLICY_KEY.encode(), encoded)
+    encoded = json.dumps(current_execution_policy(), separators=(",", ":")).encode()
+    with standalone_environment(path) as env:
+        if not env.write_if_empty([(EXECUTION_POLICY_KEY.encode(), encoded)]):
+            raise ValueError("state changed during execution policy initialization")
 
 
 def validate_vm_execution_mode(*, mode: str | None = None) -> None:

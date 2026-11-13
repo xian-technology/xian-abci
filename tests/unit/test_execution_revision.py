@@ -1,8 +1,8 @@
 import json
 from unittest.mock import patch
 
-import lmdb
 import pytest
+from contracting.storage.lmdb_environment import standalone_environment
 
 from xian import execution_policy as policy
 from xian.state_export import import_state
@@ -52,11 +52,11 @@ def test_policy_is_part_of_the_state_commitment():
 def test_legacy_storage_is_rejected_without_mutation(tmp_path, stored_policy):
     path = tmp_path / "lmdb"
     path.mkdir()
-    with lmdb.open(str(path)) as env:
-        with env.begin(write=True) as tx:
-            tx.put(b"con_demo.value", b"7")
-            if stored_policy is not None:
-                tx.put(b"__execution_policy", json.dumps(stored_policy).encode())
+    changes = [(b"con_demo.value", b"7")]
+    if stored_policy is not None:
+        changes.append((b"__execution_policy", json.dumps(stored_policy).encode()))
+    with standalone_environment(path) as env:
+        env.write(changes)
     before = (path / "data.mdb").read_bytes()
     with pytest.raises(ValueError, match="execution policy"):
         policy.validate_persisted_execution_policy(tmp_path)
@@ -154,7 +154,7 @@ def test_fresh_bootstrap_creates_missing_ancestors(tmp_path):
 def test_fresh_bootstrap_accepts_existing_empty_database(tmp_path):
     path = tmp_path / "lmdb"
     path.mkdir()
-    with lmdb.open(str(path)):
+    with standalone_environment(path):
         pass
     assert policy.validate_persisted_execution_policy(tmp_path) is False
     policy.initialize_execution_policy(tmp_path)
@@ -189,10 +189,13 @@ def test_previous_revision_is_rejected_even_with_matching_gas_and_codec(previous
 def test_previous_revision_database_is_rejected_without_mutation(tmp_path, previous_policy):
     path = tmp_path / "lmdb"
     path.mkdir()
-    with lmdb.open(str(path)) as env:
-        with env.begin(write=True) as transaction:
-            transaction.put(b"con_demo.value", b"7")
-            transaction.put(b"__execution_policy", json.dumps(previous_policy).encode())
+    with standalone_environment(path) as env:
+        env.write(
+            [
+                (b"con_demo.value", b"7"),
+                (b"__execution_policy", json.dumps(previous_policy).encode()),
+            ]
+        )
     before = (path / "data.mdb").read_bytes()
     with pytest.raises(ValueError, match="execution policy"):
         policy.initialize_execution_policy(tmp_path)

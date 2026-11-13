@@ -8,7 +8,6 @@ from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any
 
-import lmdb
 from contracting.constants import TRANSACTION_BASE_CHI
 from contracting.runtime_features import (
     RUNTIME_FEATURE_ZK,
@@ -16,6 +15,7 @@ from contracting.runtime_features import (
     runtime_feature_enabled,
 )
 from contracting.storage.content_cache import ContentKeyedCache
+from contracting.storage.lmdb_environment import LMDBError
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import validate_persistent_value
 
@@ -92,7 +92,7 @@ HOST_FAILURE_MESSAGE = "Transaction failed in the host runtime."
 
 # Faults that depend on the machine rather than on the transaction. They halt
 # the node; recording them in a receipt would let validators disagree.
-HOST_FAULT_EXCEPTIONS = (MemoryError, OSError, RecursionError, SystemError, lmdb.Error)
+HOST_FAULT_EXCEPTIONS = (MemoryError, OSError, RecursionError, SystemError, LMDBError)
 
 
 class ContractPreparationError(ValueError):

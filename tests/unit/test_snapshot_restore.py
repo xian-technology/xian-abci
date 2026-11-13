@@ -8,8 +8,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import lmdb
 import pytest
+from contracting.storage.lmdb_environment import standalone_environment
 
 from xian.execution_policy import initialize_execution_policy
 from xian.node_admin import apply_snapshot_archive
@@ -428,9 +428,8 @@ def test_missing_snapshot_revision_leaves_destination_unchanged(home):
 def test_current_snapshot_rejects_legacy_destination_without_mutation(home):
     path = home / "xian/lmdb"
     path.mkdir()
-    with lmdb.open(str(path)) as env:
-        with env.begin(write=True) as tx:
-            tx.put(b"con_old.value", b"7")
+    with standalone_environment(path) as env:
+        env.write([(b"con_old.value", b"7")])
     before = (path / "data.mdb").read_bytes()
     with pytest.raises(ValueError, match="execution policy"):
         restore(home, [("data/new", "new blocks")])
