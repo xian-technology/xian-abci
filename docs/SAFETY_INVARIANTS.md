@@ -88,4 +88,6 @@ The enforcement surface in this repo includes:
 - `tests/unit/test_execution_engine.py`
 - `tests/unit/test_execution_revision.py`
 - `tests/unit/test_state_root.py`
+- `tests/unit/test_state_root_from_storage.py` (the Rust rebuild against the
+  frozen Python reference treap)
 - the ABCI-method integration tests under `tests/abci_methods/`

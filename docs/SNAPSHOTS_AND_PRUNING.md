@@ -80,7 +80,10 @@ encoding of each value. They are organized in a deterministic Merkle treap keyed
 by state key with cryptographic priorities derived from those keys. During
 block finalization, Xian updates an in-memory root cache from the block's
 pending consensus writes instead of scanning the whole database. The cache is
-rebuilt from committed state on startup, genesis, and state-sync import.
+rebuilt from committed state on startup, genesis, and state-sync import. The
+treap and its hashing live in vm-core (`xian_vm_core.StateRootTree`); a rebuild
+reads committed LMDB state in Rust with the GIL released and hands only values
+whose ABCI JSON Python must render (or reject) back to Python.
 
 On import, Xian rebuilds:
 
