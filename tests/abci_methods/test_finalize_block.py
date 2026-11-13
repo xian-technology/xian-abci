@@ -19,6 +19,11 @@ from xian.xian_abci import Xian
 logging.disable(logging.CRITICAL)
 
 
+def per_tx(process_tx):
+    """A ``process_block`` stand-in that processes each transaction alone."""
+    return lambda txs, **kwargs: [process_tx(tx) for tx in txs]
+
+
 async def deserialize(raw: bytes) -> Response:
     return next(read_messages(BytesIO(raw), Response))
 
@@ -31,7 +36,6 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(self.app.close)
         self.app.current_block_meta = {"height": 0, "nanos": 0}
         self.handler = ProtocolHandler(self.app)
-
 
     async def process_request(self, req):
         raw = await self.handler.process("finalize_block", req)
@@ -64,8 +68,8 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
             patch.object(
                 self.app.tx_processor,
-                "process_tx",
-                return_value={"tx_result": tx_result},
+                "process_block",
+                side_effect=per_tx(lambda tx: {"tx_result": tx_result}),
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):
@@ -109,8 +113,8 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
             patch.object(
                 self.app.tx_processor,
-                "process_tx",
-                return_value={"tx_result": tx_result},
+                "process_block",
+                side_effect=per_tx(lambda tx: {"tx_result": tx_result}),
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):
@@ -155,8 +159,8 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
             patch.object(
                 self.app.tx_processor,
-                "process_tx",
-                side_effect=process_tx,
+                "process_block",
+                side_effect=per_tx(process_tx),
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):
@@ -207,8 +211,8 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                     ),
                     patch.object(
                         self.app.tx_processor,
-                        "process_tx",
-                        return_value={"tx_result": tx_result},
+                        "process_block",
+                        side_effect=per_tx(lambda tx: {"tx_result": tx_result}),
                     ),
                     patch.object(self.app.nonce_storage, "set_nonce_by_tx") as set_nonce,
                 ):
@@ -258,8 +262,8 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                 patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
                 patch.object(
                     self.app.tx_processor,
-                    "process_tx",
-                    side_effect=lambda *args, **kwargs: process_result(tx_result),
+                    "process_block",
+                    side_effect=per_tx(lambda tx: process_result(tx_result)),
                 ),
                 patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
             ):
@@ -309,8 +313,8 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
             patch.object(
                 self.app.tx_processor,
-                "process_tx",
-                side_effect=lambda *args, **kwargs: process_result(),
+                "process_block",
+                side_effect=per_tx(lambda tx: process_result()),
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):
@@ -373,8 +377,8 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             patch("xian.methods.finalize_block.warm_shielded_proof_cache") as warm_cache,
             patch.object(
                 self.app.tx_processor,
-                "process_tx",
-                return_value={"tx_result": tx_result},
+                "process_block",
+                side_effect=per_tx(lambda tx: {"tx_result": tx_result}),
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):
@@ -422,8 +426,8 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
             patch.object(
                 self.app.tx_processor,
-                "process_tx",
-                return_value={"tx_result": tx_result},
+                "process_block",
+                side_effect=per_tx(lambda tx: {"tx_result": tx_result}),
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):
@@ -450,7 +454,10 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         self.app.bds = type(
             "FakeBDS",
             (),
-            {"enqueue_block": AsyncMock(side_effect=RuntimeError("bds down")), "close": AsyncMock()},
+            {
+                "enqueue_block": AsyncMock(side_effect=RuntimeError("bds down")),
+                "close": AsyncMock(),
+            },
         )()
 
         with (
@@ -470,8 +477,8 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
             patch.object(
                 self.app.tx_processor,
-                "process_tx",
-                return_value={"tx_result": tx_result},
+                "process_block",
+                side_effect=per_tx(lambda tx: {"tx_result": tx_result}),
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):

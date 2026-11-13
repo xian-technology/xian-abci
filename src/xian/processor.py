@@ -6,16 +6,19 @@ from contracting.stdlib.bridge import zk as zk_bridge
 from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, safe_repr
 from xian_runtime_types.time import Datetime
+from xian_vm_core import BlockExecutor, coerce_call_kwargs, native_error_result
 
 from xian.app_logging import build_log_fields
 from xian.execution_engine import (
     HOST_FAILURE_MESSAGE,
     HOST_FAULT_EXCEPTIONS,
+    VM_EXECUTION_MODE,
     VmRuntime,
     execute_vm_transaction,
     failed_transaction_chi,
     vm_metering_writes,
 )
+from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.fee_policy import TxFeePolicy, chain_chi_rate
 from xian.utils.block import nanoseconds_to_utc_datetime
 from xian.utils.encoding import normalize_contract_result
@@ -134,6 +137,130 @@ class TxProcessor:
                     time.perf_counter_ns() - started_ns,
                     block_scoped=True,
                 )
+
+    def process_block(self, txs, *, fee_policy: TxFeePolicy, rewards_handler=None) -> list[dict]:
+        """``process_tx`` responses for a block's transactions, in order.
+
+        A metered chain policy runs the transactions in Rust over the block
+        overlay with the GIL released; each transaction that needs Python
+        (see ``xian_vm_core.BlockExecutor``) runs through ``process_tx`` in
+        its place in the block, and Rust continues after it. The outcomes are
+        byte-identical either way.
+        """
+        executor = self._block_executor(txs, fee_policy, rewards_handler)
+        if executor is None:
+            return [
+                self.process_tx(tx, rewards_handler, fee_policy=fee_policy, track_access=False)
+                for tx in txs
+            ]
+        driver = self.client.raw_driver
+        previous_read_tracking = driver.track_transaction_reads
+        driver.set_transaction_read_tracking(False)
+        responses = []
+        start = 0
+        try:
+            while start < len(txs):
+                outcomes, stop = executor.run(start)
+                for offset, outcome in enumerate(outcomes):
+                    responses.append(self._native_response(txs[start + offset], outcome))
+                if stop is None:
+                    break
+                index, reason = stop
+                logger.bind(
+                    **build_log_fields(
+                        stage="process_block", tx=txs[index], extra={"reason": reason}
+                    )
+                ).debug("Transaction runs on the Python path")
+                # The transactions Rust executed may have changed the chi rate.
+                self.cached_chi_cost = None
+                responses.append(
+                    self.process_tx(
+                        txs[index], rewards_handler, fee_policy=fee_policy, track_access=False
+                    )
+                )
+                start = index + 1
+        finally:
+            self.cached_chi_cost = None
+            driver.set_transaction_read_tracking(previous_read_tracking)
+        return responses
+
+    def _block_executor(self, txs, fee_policy: TxFeePolicy, rewards_handler):
+        storage = self.client.raw_driver.committed_storage()
+        if storage is None or not fee_policy.meter_execution:
+            return None
+        environment, overlay = storage
+        executor = BlockExecutor(
+            environment,
+            overlay,
+            charge_fees=fee_policy.charge_fees,
+            distribute_fee_rewards=(
+                fee_policy.distribute_fee_rewards and rewards_handler is not None
+            ),
+            protected_keys=[EXECUTION_POLICY_KEY],
+        )
+        for tx in txs:
+            payload = tx["payload"]
+            environment = self.get_environment(tx=tx)
+            try:
+                kwargs = coerce_call_kwargs(decode_wire_numbers(payload["kwargs"]))
+            except Exception:  # noqa: BLE001 - process_tx records this failure
+                kwargs = None
+            executor.add(
+                payload["sender"],
+                payload["contract"],
+                payload["function"],
+                kwargs,
+                {
+                    "signer": payload["sender"],
+                    "caller": payload["sender"],
+                    "this": payload["contract"],
+                    "entry": (payload["contract"], payload["function"]),
+                    "submission_name": None,
+                    "now": environment["now"],
+                    "block_num": environment["block_num"],
+                    "block_hash": environment["block_hash"],
+                    "chain_id": environment["chain_id"],
+                },
+                payload["chi_supplied"],
+                canonical_transaction_size_bytes(tx),
+            )
+        return executor
+
+    def _native_response(self, tx, outcome) -> dict:
+        """The ``process_tx`` response for a transaction executed in Rust."""
+        status, result, exception, writes, events, chi_used, rewards = outcome
+        if status:
+            result = native_error_result(
+                status, result, vm_profile=VM_EXECUTION_MODE, exception=exception
+            )
+            logger.bind(
+                **build_log_fields(
+                    stage="process_tx_output",
+                    tx=tx,
+                    status=status,
+                    extra={
+                        "chi_used": chi_used,
+                        "write_count": len(writes),
+                        "error_type": type(result).__name__,
+                    },
+                )
+            ).warning("Transaction execution returned a non-zero status")
+        rewards, _reward_deltas, reward_records = rewards or (None, {}, [])
+        tx_result = {
+            "hash": tx_hash_from_tx(tx),
+            "status": status,
+            "state": [{"key": key, "value": value} for key, value in writes],
+            "events": events,
+            "chi_used": chi_used,
+            "result": safe_repr(result) if status else normalize_contract_result(result),
+            "rewards": rewards if rewards else None,
+            "reward_records": reward_records or None,
+        }
+        return {
+            "tx_result": self.prune_tx_result(tx_result),
+            "chi_rewards_amount": chi_used,
+            "chi_rewards_contract": tx["payload"]["contract"],
+        }
 
     def _process_output(self, output, tx, chi_cost, rewards_handler, fee_policy, track_access):
         return self.process_tx_output(

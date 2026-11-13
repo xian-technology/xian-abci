@@ -365,9 +365,18 @@ def _execute_block_transactions(
     height: int,
     block_hash: str,
 ):
-    processed_iter = iter(processed_results or [])
     processed_entries = []
     with self.profiler.scope("finalize_execute", block_scoped=True):
+        # The processor turns every deterministic failure into a receipt;
+        # anything it raises is a host fault and must halt the node.
+        decoded_txs = [entry["tx"] for entry in decoded_entries if "tx" in entry]
+        if processed_results is None and decoded_txs:
+            processed_results = self.tx_processor.process_block(
+                decoded_txs,
+                fee_policy=self.tx_fee_policy,
+                rewards_handler=self.rewards_handler,
+            )
+        processed_iter = iter(processed_results or [])
         for block_tx_index, entry in enumerate(decoded_entries):
             if "error" in entry:
                 processed_entries.append({"error": entry["error"]})
@@ -375,17 +384,7 @@ def _execute_block_transactions(
 
             tx = entry["tx"]
             tx_bytes = entry["tx_bytes"]
-            # The processor turns every deterministic failure into a receipt;
-            # anything it raises is a host fault and must halt the node.
-            if processed_results is not None:
-                result = next(processed_iter)
-            else:
-                result = self.tx_processor.process_tx(
-                    tx,
-                    fee_policy=self.tx_fee_policy,
-                    rewards_handler=self.rewards_handler,
-                    track_access=False,
-                )
+            result = next(processed_iter)
             tx_result = result.get("tx_result")
             if tx_result is None or not tx_result.get("hash"):
                 raise RuntimeError("transaction processor returned no receipt")
