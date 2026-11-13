@@ -3,7 +3,9 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from xian.runtime_features import RuntimeFeatureUnsupportedError
 from xian.utils.state_patches import StatePatchManager, hash_from_state_changes
 
 
@@ -317,21 +319,65 @@ class StatePatchManagerTests(unittest.TestCase):
 
         self.assertEqual(self.driver.state["__fee_policy"], value)
 
-    def test_bundle_cannot_patch_runtime_features(self):
-        for key in ("__runtime_features.zk", "__runtime_features.unknown"):
-            with self.subTest(key=key):
-                bundle = self.write_bundle(
-                    "runtime-feature.json",
-                    {
-                        "version": 1,
-                        "patch_id": "runtime-feature-patch",
-                        "activation_height": 12,
-                        "changes": [{"key": key, "value": True}],
-                    },
-                )
-                with self.assertRaisesRegex(ValueError, "runtime features"):
+    def runtime_feature_bundle(self, key, value) -> Path:
+        return self.write_bundle(
+            "runtime-feature.json",
+            {
+                "version": 1,
+                "patch_id": "runtime-feature-patch",
+                "activation_height": 12,
+                "changes": [{"key": key, "value": value}],
+            },
+        )
+
+    def test_bundle_runtime_feature_must_be_one_genesis_writes(self):
+        # Genesis writes a supported feature as a JSON boolean; anything else
+        # would be read differently (or refused) by running and restarted nodes.
+        cases = {
+            "unknown feature": ("__runtime_features.unknown", True),
+            "empty feature": ("__runtime_features.", True),
+            "nested key": ("__runtime_features.zk.extra", True),
+            "string value": ("__runtime_features.zk", "true"),
+            "integer value": ("__runtime_features.zk", 1),
+            "mapping value": ("__runtime_features.zk", {"enabled": True}),
+            "null": ("__runtime_features.zk", None),
+        }
+        for name, (key, value) in cases.items():
+            with self.subTest(name):
+                bundle = self.runtime_feature_bundle(key, value)
+                with self.assertRaisesRegex(ValueError, "runtime-feature.json"):
                     self.manager.load_patches(self.test_dir)
+                self.assertFalse(self.manager.loaded)
                 bundle.unlink()
+
+    def apply_runtime_feature_patch(self, value: bool, *, verifier_available: bool):
+        self.runtime_feature_bundle("__runtime_features.zk", value)
+        self.manager.load_patches(self.test_dir)
+        bundle = self.manager.local_bundles["runtime-feature-patch"]
+        self.schedule_bundle(patch_id=bundle.patch_id, bundle_hash=bundle.bundle_hash, height=12)
+        with patch("contracting.stdlib.bridge.zk.is_available", return_value=verifier_available):
+            self.manager.apply_patches_for_block(12, 123456)
+
+    def test_bundle_may_switch_zk_on_and_off(self):
+        for value in (True, False):
+            with self.subTest(value=value):
+                self.driver.state.clear()
+                self.apply_runtime_feature_patch(value, verifier_available=True)
+                self.assertIs(self.driver.state["__runtime_features.zk"], value)
+
+    def test_a_node_without_the_zk_verifier_refuses_to_activate_zk(self):
+        # Applying it would commit a chain state this node cannot execute.
+        with self.assertRaisesRegex(RuntimeFeatureUnsupportedError, "zk verifier"):
+            self.apply_runtime_feature_patch(True, verifier_available=False)
+        self.assertNotIn("__runtime_features.zk", self.driver.state)
+        self.assertEqual(
+            self.driver.get_var("governance", "patches", ["runtime-feature-patch", "status"]),
+            "approved",
+        )
+
+    def test_a_node_without_the_zk_verifier_may_deactivate_zk(self):
+        self.apply_runtime_feature_patch(False, verifier_available=False)
+        self.assertIs(self.driver.state["__runtime_features.zk"], False)
 
     def test_bundle_hash_mismatch_is_a_hard_error(self):
         self.write_bundle(

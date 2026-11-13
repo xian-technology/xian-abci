@@ -6,10 +6,48 @@ from typing import Any
 
 from contracting.runtime_features import (
     DEFAULT_CHAIN_RUNTIME_FEATURES,
+    RUNTIME_FEATURE_STATE_PREFIX,
+    RUNTIME_FEATURE_ZK,
     normalize_runtime_features,
     runtime_feature_state_key,
     set_driver_runtime_features,
 )
+from contracting.stdlib.bridge import zk as zk_bridge
+
+ZK_VERIFIER_MISSING = (
+    "this node has no native zk verifier but the chain's zk runtime feature is on. "
+    "Shielded-contract proof verification is consensus critical; a node missing the "
+    "backend would fork the network. Install xian-tech-abci[zk] "
+    "(or xian-tech-contracting[zk])."
+)
+
+
+class RuntimeFeatureUnsupportedError(RuntimeError):
+    """This node cannot execute the chain under its runtime features."""
+
+
+def require_runtime_feature_support(features: Mapping[str, bool]) -> None:
+    """Refuse runtime features this node cannot execute.
+
+    Shielded contracts call ``zk.verify_groth16(...)`` on the consensus path;
+    without the native backend that call raises instead of returning a
+    verdict, so the node would compute different transaction outcomes.
+    """
+    if features.get(RUNTIME_FEATURE_ZK, False) and not zk_bridge.is_available():
+        raise RuntimeFeatureUnsupportedError(ZK_VERIFIER_MISSING)
+
+
+def runtime_feature_change(key: str, value: Any) -> tuple[str, bool]:
+    """The feature and value a write of ``value`` to state ``key`` sets.
+
+    Only a supported feature's own key and a JSON boolean, which is what
+    genesis writes, are accepted.
+    """
+    feature = key.removeprefix(RUNTIME_FEATURE_STATE_PREFIX)
+    runtime_feature_state_key(feature)
+    if not isinstance(value, bool):
+        raise ValueError(f"runtime feature {feature!r} must be true or false")
+    return feature, value
 
 
 @dataclass(frozen=True, slots=True)

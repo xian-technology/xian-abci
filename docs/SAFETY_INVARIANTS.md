@@ -43,9 +43,24 @@ This file records the runtime properties that must hold before an
   every validator would commit it and then fail to read it. A patched policy
   takes effect at the Commit of its activation block, so every stage of the
   next block uses it on running and restarted nodes alike. Bundles cannot
-  write `__execution_policy` or `__runtime_features.*` at all.
+  write `__execution_policy` at all.
+- A runtime feature (`__runtime_features.<feature>`) is chain state, read on
+  every contract preparation and deployment, never from a node-local copy. A
+  governed state patch may switch a supported feature on or off, but only to a
+  JSON boolean (what genesis writes); a node refuses to load a bundle that
+  writes another value, an unknown feature or deletes the key. A node never
+  executes blocks under a feature it cannot support: startup, snapshot import
+  and Commit refuse a zk-enabled state without the native zk verifier, and a
+  node without the verifier halts at a zk-enabling patch's activation block
+  before computing its state root, so its committed state stays untouched until
+  the verifier is installed and the block is replayed. While zk is off, every
+  transaction that deploys or calls a contract using zk host syscalls (directly
+  or through an import) fails with an ordinary failed receipt and charge; it
+  never faults or halts the node. The switch takes effect at the Commit of the
+  activation block on running and restarted nodes alike.
 - Shielded proof-cache warming is optional acceleration. Rejected warm-up
-  requests must not fail a block or bypass verification during execution.
+  requests must not fail a block or bypass verification during execution. It
+  is skipped while the chain's zk feature is off.
 - Replay after failure must leave the same committed state on every node.
 - A committed block's height and app hash must become durable in the same LMDB
   transaction as its state writes. `Info` must never advertise metadata for

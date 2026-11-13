@@ -15,6 +15,7 @@ from xian_runtime_types.encoding import decode_wire_numbers, loads_wire_json
 
 from xian.execution_policy import EXECUTION_POLICY_KEY, VM_EXECUTION_MODE
 from xian.fee_policy import FEE_POLICY_KEY, TxFeePolicy
+from xian.runtime_features import require_runtime_feature_support, runtime_feature_change
 from xian.utils.encoding import hash_bytes
 
 STATE_PATCH_BUNDLE_VERSION = 1
@@ -79,8 +80,6 @@ def _validate_patch_key(bundle_file: Path, key: str) -> None:
     """Refuse a key no bundle may write."""
     if key == EXECUTION_POLICY_KEY:
         raise ValueError(f"{bundle_file} cannot patch the protected execution policy")
-    if key.startswith(RUNTIME_FEATURE_STATE_PREFIX):
-        raise ValueError(f"{bundle_file} cannot patch the protected runtime features")
     if key.endswith(".__code__"):
         raise ValueError(f"{bundle_file} cannot patch __code__ directly; use __source__")
     if key.endswith(f".{XIAN_VM_V1_IR_KEY}"):
@@ -89,17 +88,34 @@ def _validate_patch_key(bundle_file: Path, key: str) -> None:
 
 
 def _validate_patch_value(bundle_file: Path, key: str, value: Any) -> None:
-    """Refuse a fee policy node startup would reject.
+    """Refuse a fee policy or runtime feature that genesis and startup would reject.
 
-    Every validator reads ``__fee_policy`` after the activation block's Commit,
-    so an invalid one would be committed and then halt the chain for good.
+    Every node reads these after the activation block's Commit, so an invalid
+    value would be committed and then halt the chain for good.
     """
-    if key != FEE_POLICY_KEY:
-        return
     try:
-        TxFeePolicy.from_state(value)
+        if key == FEE_POLICY_KEY:
+            TxFeePolicy.from_state(value)
+        elif key.startswith(RUNTIME_FEATURE_STATE_PREFIX):
+            runtime_feature_change(key, value)
     except ValueError as exc:
         raise ValueError(f"{bundle_file}: {exc}") from exc
+
+
+def _require_runtime_feature_support(bundle: StatePatchBundle) -> None:
+    """Refuse to activate a runtime feature this node cannot execute.
+
+    Raising before the block's state root halts this node at the activation
+    block with its committed state untouched; once the operator installs the
+    missing support, the node replays the block.
+    """
+    require_runtime_feature_support(
+        dict(
+            runtime_feature_change(change["key"], change["value"])
+            for change in bundle.changes
+            if change["key"].startswith(RUNTIME_FEATURE_STATE_PREFIX)
+        )
+    )
 
 
 def _normalize_change(bundle_file: Path, raw_change: object) -> dict[str, Any]:
@@ -614,6 +630,8 @@ class StatePatchManager:
         if not executions:
             return None, []
 
+        for execution in executions:
+            _require_runtime_feature_support(execution.bundle)
         for execution in executions:
             self._apply_single_bundle(execution)
             self._mark_patch_applied(

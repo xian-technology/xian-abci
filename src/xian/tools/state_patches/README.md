@@ -92,11 +92,21 @@ additional artifacts automatically:
 
 ## Node-Read Consensus Keys
 
-Three hashed node-owned keys hold chain settings that node startup validates,
-so bundles may not write them freely:
+Three kinds of hashed node-owned keys hold chain settings that node startup
+validates, so bundles may not write them freely:
 
 - `__execution_policy` is protected: no bundle may write it.
-- `__runtime_features.*` is protected: runtime features are chosen at genesis.
+- `__runtime_features.<feature>` may switch a supported feature (today `zk`)
+  on or off, but only to a JSON `true` or `false`, the value genesis writes.
+  Unknown features, other values and deletions are refused when the bundle is
+  loaded. A node that cannot support an enabled feature (for `zk`, a node
+  without the native zk verifier) refuses to apply the patch: it halts at the
+  activation block before computing its state root and resumes once the
+  operator installs the support (`xian-tech-abci[zk]`) and restarts it. The new
+  value governs execution, deployment and simulation from the block after the
+  activation block, on running and restarted nodes alike. While `zk` is off,
+  transactions that deploy or call contracts using zk host syscalls fail with
+  an ordinary failed receipt; shielded funds stay locked until it is on again.
 - `__fee_policy` may change, but only to a policy node startup accepts: the
   canonical `tx_fee_mode`/`max_tx_chi`/`max_block_chi` object with
   `0 < max_tx_chi <= max_block_chi <= 10,000,000` and `max_tx_chi` within the

@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from xian.runtime_features import RuntimeFeatureUnsupportedError
 from xian.utils.block import (
     get_latest_block_height,
     set_latest_block,
@@ -10,7 +11,7 @@ from xian.utils.block import (
 )
 from xian.xian_abci import (
     Xian,
-    _require_zk_verifier_if_enabled,
+    _require_runtime_feature_support,
     resolve_abci_socket_path,
 )
 
@@ -30,12 +31,12 @@ class AbciSocketPathTests(unittest.TestCase):
     def test_zk_verifier_gate_noops_when_feature_disabled(self):
         is_available = Mock(side_effect=AssertionError("should not be called"))
         with patch("contracting.stdlib.bridge.zk.is_available", is_available):
-            _require_zk_verifier_if_enabled({"zk": False})
+            _require_runtime_feature_support({"zk": False})
 
     def test_zk_verifier_gate_exits_when_enabled_and_unavailable(self):
         with patch("contracting.stdlib.bridge.zk.is_available", return_value=False):
             with self.assertRaises(SystemExit):
-                _require_zk_verifier_if_enabled({"zk": True})
+                _require_runtime_feature_support({"zk": True})
 
 
 @pytest.mark.usefixtures("node_fixture")
@@ -75,6 +76,22 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
         fake_bds.start.assert_awaited_once()
         fake_metrics.start.assert_awaited_once()
         self.assertTrue(self.app._bds_storage_initialized)
+
+    async def test_refresh_refuses_committed_zk_without_the_verifier(self):
+        # E.g. a snapshot imported from a chain that switched zk on by patch.
+        driver = self.app.client.raw_driver
+        driver.set("__runtime_features.zk", True)
+        driver.commit()
+
+        with patch("contracting.stdlib.bridge.zk.is_available", return_value=False):
+            with self.assertRaisesRegex(RuntimeFeatureUnsupportedError, "zk verifier"):
+                self.app.refresh_runtime_features()
+        self.assertEqual(self.app.runtime_features, {"zk": False})
+        self.assertEqual(self.app.simulator.runtime_features, {"zk": False})
+
+        with patch("contracting.stdlib.bridge.zk.is_available", return_value=True):
+            self.assertEqual(self.app.refresh_runtime_features(), {"zk": True})
+        self.assertEqual(self.app.simulator.runtime_features, {"zk": True})
 
     async def test_startup_uses_authoritative_marker_when_mirror_repair_fails(self):
         storage_home = self.app.client.raw_driver.storage_home

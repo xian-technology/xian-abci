@@ -286,6 +286,7 @@ class StateSyncTests(unittest.TestCase):
                         state_root_cache=StateRootCache.from_driver(driver),
                         app_version=1,
                         refresh_tx_fee_policy=Mock(),
+                        refresh_runtime_features=Mock(),
                     )
                     offered = target.offer_snapshot_response(
                         record.to_proto(), app_hash=bytes.fromhex(record.app_hash_hex), current_height=0
@@ -501,6 +502,7 @@ class StateSyncTests(unittest.TestCase):
                 state_root_cache=StateRootCache(),
                 app_version=1,
                 refresh_tx_fee_policy=Mock(),
+                refresh_runtime_features=Mock(),
             )
             target.offer_snapshot_response(
                 record.to_proto(), app_hash=bytes.fromhex(record.app_hash_hex), current_height=0
@@ -520,8 +522,9 @@ class StateSyncTests(unittest.TestCase):
             self.assertEqual(response.last_block_app_hash, bytes.fromhex(record.app_hash_hex))
             self.assertEqual(live_driver.get("demo.count"), 7)
             self.assertEqual(live_driver.get("__n.alice:"), 5)
-            # Imported state may carry a different chain fee policy.
+            # Imported state may carry a different chain fee policy and runtime features.
             app.refresh_tx_fee_policy.assert_called()
+            app.refresh_runtime_features.assert_called()
             # Another startup must retain the imported marker rather than reset to zero.
             app.client.raw_driver = Driver(vm_profile="xian_vm_v2", storage_home=target_home)
             restarted = asyncio.run(info(app, None))

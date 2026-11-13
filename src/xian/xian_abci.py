@@ -23,24 +23,17 @@ def _refuse_optimized_python() -> None:
         sys.exit(2)
 
 
-def _require_zk_verifier_if_enabled(runtime_features: dict | None) -> None:
-    if not (runtime_features or {}).get("zk", False):
-        return
+def _require_runtime_feature_support(runtime_features: dict) -> None:
+    """Refuse to boot a chain whose runtime features this node cannot execute."""
+    from xian.runtime_features import (
+        RuntimeFeatureUnsupportedError,
+        require_runtime_feature_support,
+    )
 
-    # Refuse to boot zk-enabled chains without the native verifier. Shielded
-    # contracts call `zk.verify_groth16(...)` on the consensus path; if the
-    # native backend is absent, that call raises instead of returning a verdict,
-    # so a node without it would compute a different transaction outcome and
-    # fork the chain.
-    from contracting.stdlib.bridge import zk as zk_bridge
-
-    if not zk_bridge.is_available():
-        sys.stderr.write(
-            "xian-abci refuses to run this zk-enabled chain without the native "
-            "zk verifier. Shielded-contract proof verification is consensus "
-            "critical; a node missing the backend would fork the network. "
-            "Install xian-tech-abci[zk] (or xian-tech-contracting[zk]).\n"
-        )
+    try:
+        require_runtime_feature_support(runtime_features)
+    except RuntimeFeatureUnsupportedError as exc:
+        sys.stderr.write(f"xian-abci refuses to run: {exc}\n")
         sys.exit(2)
 
 
@@ -92,6 +85,7 @@ from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
 from xian.runtime_features import (
     install_driver_runtime_features,
+    require_runtime_feature_support,
     resolve_runtime_features,
 )
 from xian.services.bds.bds import BDS
@@ -180,7 +174,7 @@ class Xian:
             self.client.raw_driver,
             self.runtime_feature_resolution,
         )
-        _require_zk_verifier_if_enabled(self.runtime_features)
+        _require_runtime_feature_support(self.runtime_features)
         self.state_root_cache = StateRootCache.from_driver(self.client.raw_driver)
         self.chain_id = self.genesis.get("chain_id", None)
         if self.chain_id is None:
@@ -361,6 +355,20 @@ class Xian:
             self.simulator.max_chi = self.simulation_chi_budget()
         return self.tx_fee_policy
 
+    def refresh_runtime_features(self) -> dict[str, bool]:
+        """Adopt the runtime features in committed state, e.g. after a governed patch.
+
+        Raises ``RuntimeFeatureUnsupportedError`` when this node cannot
+        execute them, e.g. after importing a snapshot of a zk-enabled chain
+        without the zk verifier.
+        """
+        resolution = resolve_runtime_features(driver=self.client.raw_driver, genesis=self.genesis)
+        require_runtime_feature_support(resolution.features)
+        self.runtime_feature_resolution = resolution
+        self.runtime_features = install_driver_runtime_features(self.client.raw_driver, resolution)
+        self.simulator.runtime_features = dict(self.runtime_features)
+        return self.runtime_features
+
     def simulation_chi_budget(self) -> int:
         """Chi a readonly simulation may spend: the chain's tx cap, lowered by an operator cap.
 
@@ -504,6 +512,7 @@ class Xian:
             self.nonce_storage.flush_pending()
             self.state_root_cache.rebuild_from_driver(self.client.raw_driver)
             self.refresh_tx_fee_policy()
+            self.refresh_runtime_features()
         return response
 
     async def query(self, req):
