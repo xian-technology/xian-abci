@@ -73,10 +73,10 @@ def test_staged_deployment_matches_existing_builder(bundle, tmp_path):
     expected = build_genesis_block(**bundle, genesis_time=INSTANT)
     with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path / "staged") as driver:
         deploy_bundle_contracts(driver, **bundle, submission_time=parse_genesis_time(INSTANT))
-        assert driver.pending_writes
+        assert driver.pending_items()
         assert driver._store.items() == {}  # Deployment has not committed to storage.
         result = finalize_genesis_block(driver, founder_private_key=SEED)
-        assert not driver.pending_writes
+        assert not driver.pending_items()
         assert encode(result) == encode(expected)
         state = {entry["key"]: entry["value"] for entry in result["genesis"]}
         for key in ("submission.__submitted__", "clock_state.__submitted__", "clock_state.created"):

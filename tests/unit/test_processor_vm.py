@@ -4,17 +4,17 @@ from types import SimpleNamespace
 from unittest import mock
 
 from xian_runtime_types.time import Datetime
+from xian_vm_core import BlockState
 
 from xian.processor import TxProcessor
 
 
 def _driver():
+    pending = BlockState()
+    pending.set_tracking(True)
     driver = SimpleNamespace(
-        pending_writes={},
-        pending_reads={},
-        pending_deltas={},
-        transaction_reads={},
-        transaction_read_prefixes=set(),
+        pending=pending,
+        transaction_access=pending.access,
         transaction_writes={},
         log_events=[],
     )
@@ -67,10 +67,9 @@ class ProcessorVmExecutionTests(unittest.TestCase):
         }
 
         def reward_outputs(**_kwargs):
-            driver.transaction_reads.update(
-                {"rewards.S:value": [1, 0, 0, 0], "foundation.owner": "foundation"}
-            )
-            driver.transaction_read_prefixes.add("validators.delegations:")
+            driver.pending.record_read("rewards.S:value")
+            driver.pending.record_read("foundation.owner")
+            driver.pending.record_prefix("validators.delegations:")
             return None, {}, []
 
         rewards_handler = SimpleNamespace(build_tx_reward_outputs=reward_outputs)

@@ -115,7 +115,7 @@ class LatestBlockUtilsTests(unittest.TestCase):
                 height=4,
                 nanos=400,
             )
-            driver.hard_apply("400")
+            driver.commit()
             write_latest_block(old_block, storage_home)
 
             driver.apply_writes({"currency.balances:alice": 99})
@@ -174,7 +174,7 @@ class LatestBlockUtilsTests(unittest.TestCase):
                 height=8,
                 nanos=800,
             )
-            driver.hard_apply("800")
+            driver.commit()
             driver.close()
 
             # This is the crash boundary: LMDB committed the state and marker,
@@ -210,7 +210,7 @@ class LatestBlockUtilsTests(unittest.TestCase):
                     }
                 }
             )
-            driver.hard_apply("900")
+            driver.commit()
             try:
                 with self.assertRaisesRegex(ValueError, "invalid app hash"):
                     reconcile_latest_block(driver, storage_home)
@@ -227,13 +227,13 @@ def ping():
         class _RawDriver:
             def __init__(self):
                 self.pending_writes = {}
-                self.hard_apply_calls = []
+                self.commits = 0
 
             def set(self, key, value):
                 self.pending_writes[key] = value
 
-            def hard_apply(self, nanos):
-                self.hard_apply_calls.append(nanos)
+            def commit(self):
+                self.commits += 1
 
         class _NonceStorage:
             def __init__(self):
@@ -262,7 +262,7 @@ def ping():
         )
         self.assertNotIn("con_test.__code__", raw_driver.pending_writes)
         self.assertNotIn("con_test.__xian_ir_v1__", raw_driver.pending_writes)
-        self.assertEqual(raw_driver.hard_apply_calls, [1234])
+        self.assertEqual(raw_driver.commits, 1)
 
 
 if __name__ == "__main__":

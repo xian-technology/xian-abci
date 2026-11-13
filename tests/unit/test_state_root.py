@@ -103,10 +103,10 @@ class StateRootTests(unittest.TestCase):
         original_root = cache.root_hash
 
         prepared_root = cache.prepare(
-            {
-                "currency.balances:alice": 5,
-                "__local.cache": 99,
-            }
+            [
+                ("currency.balances:alice", 5),
+                ("__local.cache", 99),
+            ]
         )
         expected_root = merkle_root_from_items(
             [
@@ -120,7 +120,7 @@ class StateRootTests(unittest.TestCase):
         cache.rollback()
         self.assertEqual(cache.root_hash, original_root)
 
-        cache.prepare({"currency.balances:alice": 5})
+        cache.prepare([("currency.balances:alice", 5)])
         cache.commit()
         self.assertEqual(cache.root_hash, expected_root)
         cache.rollback()
@@ -134,7 +134,7 @@ class StateRootTests(unittest.TestCase):
             ]
         )
 
-        prepared_root = cache.prepare({"currency.balances:bob": None})
+        prepared_root = cache.prepare([("currency.balances:bob", None)])
 
         self.assertEqual(
             prepared_root,
@@ -148,8 +148,20 @@ class StateRootTests(unittest.TestCase):
         for key in ("con_demo.data:" + "x" * 498, "__local." + "x" * 504):
             with self.subTest(key=key[:12]):
                 with self.assertRaisesRegex(ValueError, "Max is 511"):
-                    cache.prepare({"currency.balances:alice": 5, key: 1})
+                    cache.prepare([("currency.balances:alice", 5), (key, 1)])
                 self.assertEqual(cache.root_hash, original_root)
+
+    def test_prepared_root_does_not_depend_on_write_order(self):
+        base = [(f"con_x.v:{index}", index) for index in range(40)]
+        writes = [(f"con_x.v:{index}", index * 7 if index % 3 else None) for index in range(0, 60, 2)]
+        roots = set()
+        for order in (writes, writes[::-1], sorted(writes, key=lambda item: hash(item[0]))):
+            cache = StateRootCache(base)
+            roots.add(cache.prepare(order))
+            cache.rollback()
+            roots_after_rollback = cache.root_hash
+            self.assertEqual(roots_after_rollback, StateRootCache(base).root_hash)
+        self.assertEqual(len(roots), 1)
 
 
 if __name__ == "__main__":

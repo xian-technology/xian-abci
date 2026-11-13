@@ -196,7 +196,6 @@ def apply_state_changes_from_block(client, nonce_storage, block):
     state_changes = block.get("genesis", [])
     rewards = block.get("rewards", [])
 
-    nanos = block.get("hlc_timestamp")
     nonces = block.get("nonces", [])
 
     for change in state_changes:
@@ -208,7 +207,7 @@ def apply_state_changes_from_block(client, nonce_storage, block):
     for change in rewards:
         client.raw_driver.set(change["key"], decode_wire_numbers(change["value"]))
 
-    client.raw_driver.hard_apply(nanos)
+    client.raw_driver.commit()
 
 
 async def store_genesis_block(client, nonce_storage, genesis_block: dict):

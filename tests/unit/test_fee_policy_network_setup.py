@@ -218,7 +218,7 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                 free = TxFeePolicy.free_metered(max_tx_chi=7, max_block_chi=70)
                 driver.set(FEE_POLICY_KEY, free.to_state())
                 self.assertEqual(app.refresh_tx_fee_policy().mode, "paid_metered")
-                driver.hard_apply("1")
+                driver.commit()
                 self.assertEqual(app.refresh_tx_fee_policy(), free)
                 self.assertFalse(app.enable_tx_fee)
                 self.assertFalse(app.simulator.charge_fees)

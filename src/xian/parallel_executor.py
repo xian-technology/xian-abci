@@ -69,9 +69,7 @@ def _get_worker_runtime(
     if runtime is not None:
         return runtime
 
-    driver = Driver(
-        vm_profile=VM_EXECUTION_MODE, storage_home=Path(storage_home), bypass_cache=True
-    )
+    driver = Driver(vm_profile=VM_EXECUTION_MODE, storage_home=Path(storage_home))
     client = ContractingClient(
         vm_profile=VM_EXECUTION_MODE,
         storage_home=Path(storage_home),
@@ -233,7 +231,7 @@ class ParallelBlockExecutor(SpeculativeExecutionController):
 
     def _get_base_pending_writes(self) -> dict[str, object]:
         assert self._batch_tx_processor is not None
-        return deepcopy(self._batch_tx_processor.client.raw_driver.pending_writes)
+        return dict(self._batch_tx_processor.client.raw_driver.pending_items())
 
     def _execute_serial_request(self, request: object) -> dict:
         assert self._batch_tx_processor is not None

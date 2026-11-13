@@ -44,11 +44,11 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
         self.app.nonce_storage.set_pending_nonce("alice", 3)
         request = Request(commit=RequestCommit())
 
-        with patch.object(self.app.client.raw_driver, "hard_apply") as hard_apply:
+        with patch.object(self.app.client.raw_driver, "commit") as driver_commit:
             response = await self.process_request(request)
 
         self.assertEqual(response.commit.retain_height, 0)
-        hard_apply.assert_called_once_with("0")
+        driver_commit.assert_called_once_with()
         self.assertEqual(self.app.nonce_storage.pending_nonces, {})
 
     async def test_pruning_retains_exactly_blocks_to_keep(self):
@@ -58,7 +58,7 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
         for height in (10, 11, 15):
             self.app.current_block_meta = {"height": height, "nanos": height}
             self.app.merkle_root_hash = bytes.fromhex(f"{height:02x}" * 32)
-            with patch.object(self.app.client.raw_driver, "hard_apply"):
+            with patch.object(self.app.client.raw_driver, "commit"):
                 response = await self.process_request(Request(commit=RequestCommit()))
             retained.append(response.commit.retain_height)
 
@@ -69,11 +69,11 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
         self.app.nonce_storage.set_pending_nonce("alice", 5)
         request = Request(commit=RequestCommit())
 
-        with patch.object(self.app.client.raw_driver, "hard_apply") as hard_apply:
+        with patch.object(self.app.client.raw_driver, "commit") as driver_commit:
             response = await self.process_request(request)
 
         self.assertEqual(response.commit.retain_height, 0)
-        hard_apply.assert_called_once_with("0")
+        driver_commit.assert_called_once_with()
         self.assertEqual(self.app.nonce_storage.get_pending_nonce("alice"), 5)
         self.assertEqual(self.app.nonce_storage.get_next_nonce("alice"), 6)
 
@@ -87,15 +87,15 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
         )
         self.app.current_block_meta = {"height": 4, "nanos": 400}
         self.app.merkle_root_hash = bytes.fromhex("22" * 32)
-        original_hard_apply = self.app.client.raw_driver.hard_apply
+        original_commit = self.app.client.raw_driver.commit
 
-        def assert_metadata_has_not_advanced(nanos):
+        def assert_metadata_has_not_advanced():
             self.assertEqual(get_latest_block_height(storage_home), 3)
-            return original_hard_apply(nanos)
+            return original_commit()
 
         with patch.object(
             self.app.client.raw_driver,
-            "hard_apply",
+            "commit",
             side_effect=assert_metadata_has_not_advanced,
         ):
             await self.process_request(Request(commit=RequestCommit()))
@@ -106,7 +106,7 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
             {"hash": "22" * 32, "height": 4, "nanos": 400},
         )
 
-    async def test_hard_apply_failure_keeps_old_metadata_and_retryable_writes(self):
+    async def test_commit_failure_keeps_old_metadata_and_retryable_writes(self):
         storage_home = self.app.client.raw_driver.storage_home
         set_latest_block(
             block_hash=bytes.fromhex("33" * 32),
@@ -121,7 +121,7 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(
                 self.app.client.raw_driver._store,
-                "batch_set",
+                "commit_overlay",
                 side_effect=RuntimeError("injected persistence failure"),
             ),
             self.assertRaises(RuntimeError),
@@ -129,12 +129,10 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
             await self.process_request(Request(commit=RequestCommit()))
 
         self.assertEqual(get_latest_block_height(storage_home), 5)
+        pending = dict(self.app.client.raw_driver.pending_items())
+        self.assertEqual(pending["currency.balances:alice"], 10)
         self.assertEqual(
-            self.app.client.raw_driver.pending_writes["currency.balances:alice"],
-            10,
-        )
-        self.assertEqual(
-            self.app.client.raw_driver.pending_writes[self.constants.LATEST_BLOCK_KEY],
+            pending[self.constants.LATEST_BLOCK_KEY],
             {"hash": "44" * 32, "height": 6, "nanos": 600},
         )
         self.assertIsNone(self.app.client.raw_driver.value_from_disk(self.constants.LATEST_BLOCK_KEY))

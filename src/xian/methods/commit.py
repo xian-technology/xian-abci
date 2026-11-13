@@ -12,20 +12,9 @@ async def commit(self) -> ResponseCommit:
         nanos=self.current_block_meta["nanos"],
     )
 
-    # `hard_apply` clears these containers before it opens the LMDB write. Keep
-    # shallow backups so a failed transaction remains retryable without deep-
-    # copying every value in a potentially large block.
-    pending_writes = self.client.raw_driver.pending_writes.copy()
-    pending_reads = self.client.raw_driver.pending_reads.copy()
-    try:
-        self.client.raw_driver.hard_apply(str(self.current_block_meta["nanos"]))
-    except Exception:
-        # LMDB commits atomically. Restore the in-memory batch so a transient
-        # failure can be retried without losing the finalized block writes.
-        self.client.raw_driver.rollback(str(self.current_block_meta["nanos"]))
-        self.client.raw_driver.pending_writes = pending_writes
-        self.client.raw_driver.pending_reads = pending_reads
-        raise
+    # One atomic LMDB write; on failure the finalized block writes stay pending,
+    # so the commit can be retried.
+    self.client.raw_driver.commit()
     self.state_root_cache.commit()
     self.nonce_storage.reconcile_pending()
     # The next block runs under the fee policy this block committed.

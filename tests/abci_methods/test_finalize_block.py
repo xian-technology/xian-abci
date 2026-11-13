@@ -144,7 +144,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
 
         def process_tx(*args, **kwargs):
             del args, kwargs
-            self.app.client.raw_driver.pending_writes["currency.balances:alice"] = 99
+            self.app.client.raw_driver.apply_writes({"currency.balances:alice": 99})
             return {"tx_result": tx_result}
 
         with (
@@ -163,11 +163,11 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             await self.process_request(Request(finalize_block=RequestFinalizeBlock(txs=[b"dummy"])))
 
         self.assertFalse(self.app._state_transition_lock.locked())
-        self.assertEqual(self.app.client.raw_driver.pending_writes, {})
+        self.assertEqual(self.app.client.raw_driver.pending_items(), [])
         self.assertIsNotNone(self.app._pending_commit_driver_state)
         self.assertEqual(
-            self.app._pending_commit_driver_state["pending_writes"],
-            {"currency.balances:alice": 99},
+            [key for key, _ in self.app._pending_commit_driver_state["pending"].items()],
+            ["currency.balances:alice"],
         )
         self.assertIsNone(self.app.client.raw_driver.get("currency.balances:alice", save=False))
 

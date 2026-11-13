@@ -248,7 +248,7 @@ class GenesisBuilderTests(unittest.TestCase):
             )
             self.assertEqual(native_output.status_code, 0)
             native_driver.apply_writes(native_output.writes)
-            native_driver.hard_apply("0")
+            native_driver.commit()
             native_driver.flush_cache()
 
         genesis_state = {

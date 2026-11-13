@@ -205,7 +205,7 @@ def test_import_commit_failure_preserves_original_durable_state(tmp_path):
         stage_latest_block(driver, block_hash=bytes.fromhex("ab" * 32), height=5, nanos=10)
         driver.commit()
         with patch(
-            "contracting.storage.lmdb_store.LMDBStore.batch_set",
+            "contracting.storage.lmdb_store.LMDBStore.commit_overlay",
             side_effect=OSError("injected commit failure"),
         ), pytest.raises(OSError, match="injected commit failure"):
             import_state(exported_state=_valid_import_payload(), storage_home=tmp_path)

@@ -77,7 +77,7 @@ class TestInfo(unittest.IsolatedAsyncioTestCase):
             height=10,
             nanos=1000,
         )
-        self.app.client.raw_driver.hard_apply("1000")
+        self.app.client.raw_driver.commit()
 
         self.assertEqual(get_latest_block_height(storage_home), 9)
         response = await self.process_request("info", Request(info=RequestInfo()))
@@ -103,7 +103,7 @@ class TestInfo(unittest.IsolatedAsyncioTestCase):
             height=12,
             nanos=1200,
         )
-        self.app.client.raw_driver.hard_apply("1200")
+        self.app.client.raw_driver.commit()
 
         with (
             patch(

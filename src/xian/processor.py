@@ -157,7 +157,7 @@ class TxProcessor:
             "writes": {},
             "events": [],
             "chi_used": chi_used,
-            "reads": {},
+            "reads": frozenset(),
             "prefix_reads": frozenset(),
             "contract_costs": {},
         }
@@ -212,15 +212,8 @@ class TxProcessor:
         charge_fees: bool,
     ) -> dict:
         driver = self.client.raw_driver
-        if hasattr(driver, "clear_transaction_reads"):
-            driver.clear_transaction_reads()
-        else:
-            getattr(driver, "transaction_reads", {}).clear()
-            getattr(driver, "transaction_read_prefixes", set()).clear()
-        if hasattr(driver, "clear_transaction_writes"):
-            driver.clear_transaction_writes()
-        else:
-            getattr(driver, "transaction_writes", {}).clear()
+        driver.clear_transaction_reads()
+        driver.clear_transaction_writes()
         outcome = execute_vm_transaction(
             self.execution_runtime,
             driver,
@@ -244,7 +237,7 @@ class TxProcessor:
             "writes": outcome.writes,
             "events": list(outcome.output.events),
             "chi_used": outcome.chi_used,
-            "reads": dict(getattr(outcome, "reads", {}) or {}),
+            "reads": outcome.reads,
             "prefix_reads": frozenset(getattr(outcome, "prefix_reads", frozenset()) or ()),
             "contract_costs": outcome.contract_costs,
         }
@@ -318,12 +311,9 @@ class TxProcessor:
             if track_access:
                 # VM execution restores its driver snapshot before fee and reward
                 # accounting. Both sets of reads affect the speculative result.
-                reads = frozenset(output.get("reads") or ()) | frozenset(
-                    self.client.raw_driver.transaction_reads
-                )
-                prefix_reads = frozenset(output.get("prefix_reads") or ()) | frozenset(
-                    self.client.raw_driver.transaction_read_prefixes
-                )
+                settled_reads, settled_prefixes = self.client.raw_driver.transaction_access()
+                reads = frozenset(output.get("reads") or ()) | settled_reads
+                prefix_reads = frozenset(output.get("prefix_reads") or ()) | settled_prefixes
                 if charge_fees:
                     # The block cache may have supplied this value without a read.
                     reads |= {self.chi_cost_key}

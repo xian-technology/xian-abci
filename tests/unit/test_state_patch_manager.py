@@ -10,7 +10,7 @@ from xian.utils.state_patches import StatePatchManager, hash_from_state_changes
 class FakeRawDriver:
     def __init__(self):
         self.state = {}
-        self.hard_apply_calls = []
+        self.commits = 0
 
     def items(self, prefix=""):
         return {
@@ -34,8 +34,8 @@ class FakeRawDriver:
     def set(self, key, value):
         self.state[key] = value
 
-    def hard_apply(self, nanos):
-        self.hard_apply_calls.append(nanos)
+    def commit(self):
+        self.commits += 1
 
 
 class StatePatchManagerTests(unittest.TestCase):
@@ -150,7 +150,7 @@ class StatePatchManagerTests(unittest.TestCase):
             ),
             "ABC123",
         )
-        self.assertEqual(self.driver.hard_apply_calls, [])
+        self.assertEqual(self.driver.commits, 0)
 
     def test_build_applied_patches_for_source_patch_includes_vm_ir(self):
         self.write_bundle(

@@ -183,7 +183,7 @@ def _check_sequence(operations):
                 # separately. No expected cost is derived from the VM's output.
                 assert tx_result["rewards"] is None
                 assert tx_result["reward_records"] is None
-                client.raw_driver.hard_apply(tx["b_meta"]["nanos"])
+                client.raw_driver.commit()
                 assert typed_value(client.raw_driver.items()) == typed_value(
                     deployment_state | model.state
                 )

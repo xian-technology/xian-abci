@@ -3,7 +3,6 @@ from __future__ import annotations
 import decimal
 import hashlib
 import json
-from copy import deepcopy
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any
@@ -65,7 +64,7 @@ class VmTransactionResult:
     writes: dict[str, Any]
     chi_used: int
     contract_costs: dict[str, int]
-    reads: dict[str, Any]
+    reads: frozenset[str]
     prefix_reads: frozenset[str]
 
 
@@ -489,8 +488,7 @@ def execute_vm_transaction(
         except _InsufficientFeeBalance as exc:
             vm_output = _failed_vm_result(AssertionError(str(exc)))
         finally:
-            vm_reads = deepcopy(driver.transaction_reads)
-            vm_prefix_reads = frozenset(getattr(driver, "transaction_read_prefixes", set()))
+            vm_reads, vm_prefix_reads = driver.transaction_access()
 
     vm_output = _charge_failure(vm_output, meter=meter, chi_budget=chi_budget)
     chi_used = int(vm_output.chi_used or 0)

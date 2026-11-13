@@ -90,7 +90,7 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
             height=14,
             nanos=1400,
         )
-        self.app.client.raw_driver.hard_apply("1400")
+        self.app.client.raw_driver.commit()
 
         with (
             patch(

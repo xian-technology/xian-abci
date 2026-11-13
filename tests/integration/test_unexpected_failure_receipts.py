@@ -63,7 +63,7 @@ def test_a_write_set_that_fails_midway_stages_none_of_its_writes(tmp_path, bad_w
         assert result["status"] == 1
         assert result["result"] == repr(RuntimeError(HOST_FAILURE_MESSAGE))
         assert driver.get("con_probe.value") is None
-        assert not any(key.startswith("con_probe.") for key in driver.pending_writes)
+        assert not any(key.startswith("con_probe.") for key, _ in driver.pending_items())
     finally:
         driver.close()
 

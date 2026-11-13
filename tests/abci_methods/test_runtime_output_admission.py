@@ -251,7 +251,8 @@ def test_finalize_refuses_a_block_state_root_over_a_key_lmdb_cannot_store(tmp_pa
     # never gets an app hash, so it can never fail later, at Commit.
     async def run():
         async with isolated_app(tmp_path, STORAGE_KEY_SOURCE) as app:
-            app.client.raw_driver.pending_writes["__local." + "x" * 504] = 1
+            # The block overlay itself does not check keys; stage one directly.
+            app.client.raw_driver._pending.write("__local." + "x" * 504, b"1")
             with pytest.raises(ValueError, match="Max is 511"):
                 await app.finalize_block(
                     RequestFinalizeBlock(

@@ -281,8 +281,7 @@ def finalize_genesis_block(
         },
     }
 
-    driver.hard_apply("0")
-    driver.flush_cache()
+    driver.commit()
     for key, value in driver.items().items():
         genesis_block["genesis"].append({"key": key, "value": value})
     genesis_block["genesis"] = sorted(

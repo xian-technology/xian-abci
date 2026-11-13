@@ -142,17 +142,13 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
     async def test_check_tx_does_not_mark_consensus_driver_reads(self):
         self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
         driver = self.app.client.raw_driver
-        driver.pending_reads.clear()
-        driver.transaction_reads.clear()
-        driver.transaction_read_prefixes.clear()
+        driver.clear_transaction_reads()
 
         response = await self.process_request(self.make_request())
 
         self.assertEqual(response.check_tx.code, self.constants.OkCode)
         self.assertIn(VALID_NONCE, self.app.nonce_storage.pending_nonces[SENDER])
-        self.assertFalse(driver.pending_reads)
-        self.assertFalse(driver.transaction_reads)
-        self.assertFalse(driver.transaction_read_prefixes)
+        self.assertEqual(driver.transaction_access(), (frozenset(), frozenset()))
 
     async def test_check_tx_rejects_skipped_nonce(self):
         self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 2)

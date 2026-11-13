@@ -487,7 +487,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
     async def test_query_height_uses_durable_marker_not_mirror_or_pending_block(self):
         driver = self.app.client.raw_driver
         stage_latest_block(driver, block_hash=b"\x11" * 32, height=12, nanos=1200)
-        driver.hard_apply("1200")
+        driver.commit()
         set_latest_block(
             block_hash=b"\x22" * 32,
             height=9,
@@ -514,7 +514,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
     async def test_query_rejects_unavailable_heights_and_proofs_before_dispatch(self):
         driver = self.app.client.raw_driver
         stage_latest_block(driver, block_hash=b"\x11" * 32, height=12, nanos=1200)
-        driver.hard_apply("1200")
+        driver.commit()
         for requested_height, prove, message in [
             (-1, False, "Unsupported query height -1"),
             (11, False, "Unsupported query height 11"),
@@ -541,7 +541,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
     async def test_query_errors_include_committed_height(self):
         driver = self.app.client.raw_driver
         stage_latest_block(driver, block_hash=b"\x11" * 32, height=12, nanos=1200)
-        driver.hard_apply("1200")
+        driver.commit()
         for path in ("/unknown_route", "/get"):
             with self.subTest(path=path):
                 response = await self.process_request(Request(query=RequestQuery(path=path)))

@@ -14,6 +14,7 @@ from contracting.storage.driver import Driver
 from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.time import Datetime
+from xian_vm_core import BlockState
 
 from xian import simulator_ipc
 from xian.execution_engine import build_vm_runtime, execute_vm_transaction
@@ -28,22 +29,19 @@ class _FakeDriver(SimpleNamespace):
     snapshot_state = Driver.snapshot_state
     restore_state = Driver.restore_state
     discarding_changes = Driver.discarding_changes
-    _pending_containers = Driver._pending_containers
+    transaction_access = Driver.transaction_access
 
 
 def _driver(storage_home: Path | None = None):
-    driver = _FakeDriver(
+    pending = BlockState()
+    pending.set_tracking(True)
+    return _FakeDriver(
         storage_home=storage_home or Path("/tmp"),
-        pending_writes={},
-        pending_reads={},
-        pending_deltas={},
-        transaction_reads={},
-        transaction_read_prefixes=set(),
+        _pending=pending,
         transaction_writes={},
         log_events=[],
         _undo=None,
     )
-    return driver
 
 
 def _simulator(driver=None, *, chain_id: str | None = None):

@@ -184,15 +184,17 @@ class StateRootCache:
             self._set_leaf_hash(key, _hash_leaf(key, value))
         return self.root_hash
 
-    def prepare(self, writes: dict[str, Any]) -> bytes:
+    def prepare(self, writes: Iterable[tuple[str, Any]]) -> bytes:
+        """Stage pending ``(key, value)`` writes (None deletes); any order."""
         self.rollback()
+        writes = list(writes)
         # Commit persists every pending key, hashed or node-local. A key LMDB
         # cannot store is refused here, before the block has a state root.
-        for key in writes:
+        for key, _ in writes:
             if not isinstance(key, str):
                 raise TypeError("state root keys must be strings")
             validate_storage_key(key)
-        for key, value in writes.items():
+        for key, value in writes:
             if not is_consensus_state_key(key):
                 continue
             new_leaf_hash = None if value is None else _hash_leaf(key, value)

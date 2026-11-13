@@ -53,34 +53,34 @@ class TestStateRollback(unittest.TestCase):
         with open(f"{base_dir}/con_mutator_fail.py") as f:
             code = f.read()
         self.client.submit(code, name="con_mutator_fail")
-        # Persist submissions to disk and clear caches so driver.pending_writes is clean
-        self.driver.hard_apply(0)
+        # Persist submissions to disk and clear caches so no writes are pending
+        self.driver.commit()
 
     def tearDown(self):
         self.client.flush()
 
     def assert_no_driver_writes(self, where: str = ""):
-        self.assertEqual(self.driver.pending_writes, {}, f"pending_writes not empty {where}")
+        self.assertEqual(self.driver.pending_items(), [], f"pending writes not empty {where}")
         self.assertEqual(self.driver.transaction_writes, {}, f"transaction_writes not empty {where}")
 
-    def hard_apply_block(self, b_meta):
+    def commit_block(self, b_meta):
         # Mirror block boundary commit behavior
-        self.driver.hard_apply(b_meta["nanos"])
+        self.driver.commit()
 
     def driver_read_nested(self, key: str):
         # Directly query the driver for on-disk/cached state
         return self.driver.get(self.driver.make_key("con_mutable_map", "nested", [key]))
 
     def assert_no_contract_writes(self, where: str = ""):
-        leaked = [k for k in self.driver.pending_writes.keys() if k.startswith("con_mutable_map.")]
+        leaked = [k for k in dict(self.driver.pending_items()) if k.startswith("con_mutable_map.")]
         self.assertEqual(leaked, [], f"unexpected con_mutable_map writes {where}: {leaked}")
 
     def assert_currency_write_present(self, sender: str = "alice", where: str = ""):
-        keys = list(self.driver.pending_writes.keys())
+        keys = list(dict(self.driver.pending_items()))
         self.assertTrue(any(k.startswith(f"currency.balances:{sender}") for k in keys), f"expected chi write missing {where}: {keys}")
 
     def assert_contract_keys_equal(self, expected_keys, where: str = ""):
-        actual = sorted([k for k in self.driver.pending_writes.keys() if k.startswith("con_mutable_map.")])
+        actual = sorted([k for k in dict(self.driver.pending_items()) if k.startswith("con_mutable_map.")])
         self.assertEqual(actual, sorted(expected_keys), f"unexpected con_mutable_map writes {where}: {actual}")
 
     def test_in_place_mutation_rollback(self):
@@ -106,7 +106,7 @@ class TestStateRollback(unittest.TestCase):
         self.assertEqual(self.contract.nested["k"]["count"], 1)
         self.assertEqual(self.contract.nested["k"]["items"], [1])
         # Commit end of block and verify driver state
-        self.hard_apply_block(bm1)
+        self.commit_block(bm1)
         self.assertEqual(self.driver_read_nested("k"), {"count": 1, "items": [1]})
         self.assert_no_contract_writes("after commit bm1")
 
@@ -153,7 +153,7 @@ class TestStateRollback(unittest.TestCase):
 
         # Tx 2: same block, mutate then fail
         # Snapshot current contract writes before failure
-        pre_keys = sorted([k for k in self.driver.pending_writes.keys() if k.startswith("con_mutable_map.")])
+        pre_keys = sorted([k for k in dict(self.driver.pending_items()) if k.startswith("con_mutable_map.")])
         res = self.txp.process_tx(
             tx={
                 "payload": {
@@ -168,7 +168,7 @@ class TestStateRollback(unittest.TestCase):
             }
         )
         self.assertNotEqual(res.get("tx_result", {}).get("status"), 0)
-        post_keys = sorted([k for k in self.driver.pending_writes.keys() if k.startswith("con_mutable_map.")])
+        post_keys = sorted([k for k in dict(self.driver.pending_items()) if k.startswith("con_mutable_map.")])
         self.assertEqual(pre_keys, post_keys, "same-block failure introduced unexpected contract writes")
         # In same block, the init write remains pending; assert no extra contract writes leaked
         self.assert_contract_keys_equal(["con_mutable_map.nested:k_sb"], "after same-block mutate + fail")
@@ -196,7 +196,7 @@ class TestStateRollback(unittest.TestCase):
         self.assertEqual(self.contract.nested["k_nested"]["child"]["x"], 1)
         self.assertEqual(self.contract.nested["k_nested"]["items"], [{"v": 1}])
         # Commit block so no pending writes carry into the failing tx
-        self.hard_apply_block(bm1)
+        self.commit_block(bm1)
         self.assert_no_contract_writes("after commit bm1 nested")
 
         # mutate deep and fail
@@ -274,7 +274,7 @@ class TestStateRollback(unittest.TestCase):
         self.assert_contract_keys_equal(["con_mutable_map.aliased:a1", "con_mutable_map.aliased:a2"], "after alias_set a2 success")
 
         # mutate a1 then fail; ensure a2 unchanged and a1 rolled back
-        pre_keys = sorted([k for k in self.driver.pending_writes.keys() if k.startswith("con_mutable_map.")])
+        pre_keys = sorted([k for k in dict(self.driver.pending_items()) if k.startswith("con_mutable_map.")])
         res = self.txp.process_tx(
             tx={
                 "payload": {
@@ -289,7 +289,7 @@ class TestStateRollback(unittest.TestCase):
             }
         )
         self.assertNotEqual(res.get("tx_result", {}).get("status"), 0)
-        post_keys = sorted([k for k in self.driver.pending_writes.keys() if k.startswith("con_mutable_map.")])
+        post_keys = sorted([k for k in dict(self.driver.pending_items()) if k.startswith("con_mutable_map.")])
         self.assertEqual(pre_keys, post_keys, "alias failure introduced unexpected contract writes")
         self.assertEqual(self.contract.aliased["a1"], {"count": 0, "items": []})
         self.assertEqual(self.contract.aliased["a2"], {"count": 0, "items": []})
@@ -390,7 +390,7 @@ class TestStateRollback(unittest.TestCase):
         self.assertEqual(self.contract.nested["k_multi"]["items"], [1])
 
         # Commit end of this block before next-block failure
-        self.hard_apply_block(bm2)
+        self.commit_block(bm2)
         self.assert_no_contract_writes("after commit bm2 before next block")
 
         # failing tx in next block
@@ -453,7 +453,7 @@ class TestStateRollback(unittest.TestCase):
         self.assertEqual(self.contract.nested["k_tok"]["count"], 1)
         self.assertEqual(self.contract.nested["k_tok"]["items"], [1])
         # Commit before failing tx
-        self.hard_apply_block(bm1)
+        self.commit_block(bm1)
         self.assert_no_contract_writes("after commit bm1 overdraw")
 
         # call failer that mutates then calls token transfer, causing overdraw failure
@@ -559,7 +559,7 @@ class TestStateRollback(unittest.TestCase):
         self.assertEqual(self.contract.nested["k_fees"]["count"], 1)
         self.assertEqual(self.contract.nested["k_fees"]["items"], [1])
         # Commit before failing tx
-        self.hard_apply_block(bm1)
+        self.commit_block(bm1)
         self.assert_no_contract_writes("after commit bm1 fees")
 
         # failing tx with paid metering

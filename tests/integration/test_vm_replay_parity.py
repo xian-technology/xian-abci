@@ -139,7 +139,7 @@ class TestNativeReplayDeterminism(unittest.TestCase):
         client = ContractingClient(vm_profile="xian_vm_v2", storage_home=home)
         self.addCleanup(client.close)
         client.submit(PARITY_PROBE_SOURCE, name="con_vm_parity_probe")
-        client.raw_driver.hard_apply(0)
+        client.raw_driver.commit()
         return client
 
     def assert_semantics(self, actual, expected):
@@ -190,7 +190,7 @@ class TestNativeReplayDeterminism(unittest.TestCase):
                     expected_state.update(
                         {entry["key"]: entry["value"] for entry in receipt["state"]}
                     )
-                    client.raw_driver.hard_apply(tx["b_meta"]["nanos"])
+                    client.raw_driver.commit()
                     self.assertEqual(
                         typed_value(client.raw_driver.items()), typed_value(expected_state)
                     )
@@ -275,7 +275,7 @@ class TestNativeReplayDeterminism(unittest.TestCase):
                     for entry in deployed["state"]
                     if entry["value"] is not None
                 }
-                client.raw_driver.hard_apply(deployment["b_meta"]["nanos"])
+                client.raw_driver.commit()
                 self.assertEqual(
                     typed_value(client.raw_driver.items()), typed_value(expected_state)
                 )
@@ -301,7 +301,7 @@ class TestNativeReplayDeterminism(unittest.TestCase):
                         },
                     )
                     expected_state["con_vm_replay_child.counter"] = expected_value
-                    client.raw_driver.hard_apply(tx["b_meta"]["nanos"])
+                    client.raw_driver.commit()
                     self.assertEqual(
                         typed_value(client.raw_driver.items()), typed_value(expected_state)
                     )
