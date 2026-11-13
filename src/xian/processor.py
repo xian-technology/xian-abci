@@ -1,6 +1,7 @@
 import hashlib
 import time
 
+from contracting.runtime_features import RUNTIME_FEATURE_ZK, runtime_feature_without_state
 from contracting.stdlib.bridge import zk as zk_bridge
 from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, safe_repr
@@ -173,6 +174,9 @@ class TxProcessor:
                 fee_policy.distribute_fee_rewards and rewards_handler is not None
             ),
             protected_keys=[EXECUTION_POLICY_KEY],
+            zk_enabled_without_state=runtime_feature_without_state(
+                self.client.raw_driver, RUNTIME_FEATURE_ZK
+            ),
         )
         for tx in txs:
             payload = tx["payload"]

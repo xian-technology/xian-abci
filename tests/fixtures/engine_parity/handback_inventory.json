@@ -31,46 +31,13 @@
   "deploy/call_failed_deploy": "contract has no persisted IR",
   "deploy/call_owned_by_other": "caller is not the owner",
   "deploy/call_rolled_back_factory_deploy": "contract has no persisted IR",
-  "deploy/constructor_args": "contract submission",
-  "deploy/constructor_bad_arg": "contract submission",
-  "deploy/constructor_default": "contract submission",
-  "deploy/constructor_events": "contract submission",
-  "deploy/constructor_fails": "contract submission",
-  "deploy/constructor_unknown_arg": "contract submission",
-  "deploy/empty_code": "contract submission",
-  "deploy/factory": "host syscall contract.deploy",
-  "deploy/factory_deploy_then_call": "host syscall contract.deploy",
-  "deploy/factory_then_fail": "host syscall contract.deploy",
-  "deploy/factory_twice": "host syscall contract.deploy",
-  "deploy/imports_deployed": "contract submission",
-  "deploy/large": "contract submission",
-  "deploy/lint_forbidden_name": "contract submission",
-  "deploy/lint_no_export": "contract submission",
-  "deploy/missing_code": "contract submission",
-  "deploy/name_collision": "contract submission",
-  "deploy/name_of_rolled_back_deploy": "contract submission",
-  "deploy/name_of_system_contract": "contract submission",
-  "deploy/name_too_long": "contract submission",
-  "deploy/name_uppercase": "contract submission",
-  "deploy/name_without_prefix": "contract submission",
-  "deploy/no_constructor": "contract submission",
-  "deploy/out_of_chi": "contract submission",
-  "deploy/owner": "contract submission",
-  "deploy/owner_empty": "contract submission",
-  "deploy/str_balance_sender": "contract submission",
-  "deploy/syntax_error": "contract submission",
-  "deploy/unfunded_sender": "contract submission",
-  "deploy/zk_contract": "contract submission"
+  "deploy/str_balance_sender": "str balance"
  },
  "owner": {
   "owner/old_owner_rejected": "caller is not the owner"
  },
- "policy_free": {
-  "free/deploy": "contract submission"
- },
- "policy_unmetered": {
-  "unmetered/deploy": "contract submission"
- },
+ "policy_free": {},
+ "policy_unmetered": {},
  "random": {
   "random/internal_salt_datetime": "random seed salt is a datetime",
   "random/internal_salt_decimal": "random seed salt is a decimal",

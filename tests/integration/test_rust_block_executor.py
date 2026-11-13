@@ -1,10 +1,10 @@
 """Blocks executed by the Rust block executor against the per-transaction path.
 
 ``TxProcessor.process_block`` runs a block's transactions in Rust and hands
-the ones that need Python (contract submission, owner rejections, random
-calls the Rust host does not serve) to ``process_tx`` in their place.
-Receipts, pending state and responses must be byte-identical to processing
-every transaction with ``process_tx``.
+the ones that need Python (owner rejections, random calls the Rust host
+does not serve) to ``process_tx`` in their place. Receipts, pending state
+and responses must be byte-identical to processing every transaction with
+``process_tx``.
 """
 
 from __future__ import annotations
@@ -324,7 +324,7 @@ OPERATIONS = [
     ("validators", "rotate", lambda rng: {"n": rng.randrange(0, 4)}, 1000),
 ]
 # Need Python once the fee is reserved: an owner rejection (bob owns
-# con_owned), a function that is not exported, contract submission.
+# con_owned), a function that is not exported.
 PYTHON_ONLY = {("con_owned", "ping"), ("con_probe", "missing")}
 
 
@@ -411,8 +411,8 @@ def test_rust_block_execution_matches_the_per_transaction_path(tmp_path, monkeyp
     # Only transactions that need Python ran through process_tx, and all of
     # alice's (she can always pay the fee).
     def needs_python(sender, contract, function):
-        if contract == "submission" or (contract, function) == ("con_owned", "ping"):
-            return contract == "submission" or sender != "bob"
+        if (contract, function) == ("con_owned", "ping"):
+            return sender != "bob"
         return (contract, function) in PYTHON_ONLY
 
     assert all(needs_python(*run) for run in python_runs)
@@ -449,7 +449,7 @@ def test_unmetered_system_execution_matches_the_per_transaction_path(tmp_path, m
     def needs_python(sender, contract, function):
         if (contract, function) == ("con_owned", "ping"):
             return sender != "bob"
-        return contract == "submission" or (contract, function) in PYTHON_ONLY
+        return (contract, function) in PYTHON_ONLY
 
     calls = [
         (tx["payload"]["sender"], tx["payload"]["contract"], tx["payload"]["function"])
@@ -512,6 +512,101 @@ def test_contract_metadata_changes_run_in_rust_like_the_python_path(tmp_path, mo
         assert results == {2000}
     else:
         assert {"'VmRuntimeExecutionError: Out of chi.'", 2000} <= results
+
+
+# A submission contract that deploys without naming the developer, deployer
+# or initiator: the host takes them from the transaction (signer and caller),
+# not from the calling frame.
+DEPLOYER = """@export
+def make(name: str, code: str, args: dict = None, owner: str = None):
+    Contract.deploy(name=name, code=code, constructor_args=args, owner=owner)
+    return Contract.get_info(name)
+"""
+CONSTRUCTED = """v = Variable()
+seen = Variable()
+
+@construct
+def seed(start: int = 1, amount: decimal = None, items: list = None, nested: dict = None):
+    assert start > 0, "bad start"
+    v.set(start)
+    # While it constructs, the module loads as the contract but the contract
+    # does not exist yet and has no code hash.
+    seen.set([
+        ctx.caller, ctx.signer, ctx.owner, ctx.this, amount, items, nested,
+        importlib.exists(ctx.this), importlib.has_export(ctx.this, "get"),
+        importlib.code_hash(ctx.this),
+    ])
+
+@export
+def get():
+    return [v.get(), seen.get()]
+"""
+RELAY_DEPLOY = """import submission
+
+@export
+def relay(name: str, code: str):
+    return submission.make(name=name, code=code)
+"""
+
+
+@pytest.mark.parametrize("policy", sorted(POLICIES))
+def test_deployments_run_in_rust_like_the_python_path(tmp_path, monkeypatch, policy):
+    # Budgets from too small for the call to enough for the deployment: each
+    # failure point (VM, constructor, metadata writes, deployment cost) is
+    # crossed. Then constructor arguments, owners and a relayed deployment.
+    calls = [
+        ("alice", "submission", "make", {"name": f"con_b{budget}", "code": DEPLOYED}, budget)
+        for budget in range(20, 420, 5)
+    ]
+    arguments = {
+        "start": 3,
+        "amount": {"__fixed__": "1.5"},
+        "items": [1, "a", [True, None]],
+        "nested": {"k": {"j": [2]}},
+    }
+    calls += [
+        (
+            "alice",
+            "submission",
+            "make",
+            {"name": "con_a1", "code": CONSTRUCTED, "args": arguments},
+            50_000,
+        ),
+        (
+            "alice",
+            "submission",
+            "make",
+            {"name": "con_a2", "code": CONSTRUCTED, "args": {"start": 0}},
+            50_000,
+        ),
+        (
+            "alice",
+            "submission",
+            "make",
+            {"name": "con_a3", "code": CONSTRUCTED, "owner": "bob"},
+            50_000,
+        ),
+        ("alice", "con_relay", "relay", {"name": "con_a4", "code": CONSTRUCTED}, 50_000),
+        ("alice", "con_a1", "get", {}, 3000),
+        ("bob", "con_a3", "get", {}, 3000),
+        ("alice", "con_a4", "get", {}, 3000),
+    ]
+    blocks = [[_tx(400, index, 1, *call) for index, call in enumerate(calls)]]
+    contracts = [("submission", DEPLOYER, "sub_dev"), ("con_relay", RELAY_DEPLOY, "relay_dev")]
+    options = {"policy": POLICIES[policy](), "contracts": contracts}
+    expected, _ = _run(tmp_path / "python", blocks, native=False, **options)
+    actual, python_runs = _run(
+        tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch, **options
+    )
+    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
+        assert left == right, index
+    assert python_runs == []
+    receipts = [json.loads(entry[0]) for entry in actual if isinstance(entry, tuple)]
+    statuses = [receipt["status"] for receipt in receipts]
+    assert statuses[-7:] == [0, 1, 0, 0, 0, 0, 0]
+    if policy != "unmetered":
+        failures = {receipt["result"] for receipt in receipts[:80] if receipt["status"]}
+        assert len(failures) > 2, failures
 
 
 LONG = "x" * 600
@@ -599,8 +694,8 @@ def test_hash_scans_and_contract_metadata_run_in_rust_like_the_python_path(tmp_p
     assert len(actual) == len(expected)
     for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
         assert left == right, index
-    # Only contract submission needs Python.
-    assert python_runs == [("alice", "submission", "submit_contract")]
+    # Nothing needs Python.
+    assert python_runs == []
 
 
 def test_entry_results_are_charged_in_their_v2_encoding_like_the_python_path(tmp_path):
