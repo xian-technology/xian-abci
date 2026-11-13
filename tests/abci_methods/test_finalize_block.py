@@ -434,6 +434,8 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload.block_meta["height"], 0)
         self.assertEqual(payload.transactions[0].tx_index, 0)
         self.assertEqual(payload.transactions[0].payload["sender"], "alice")
+        # The indexed envelope is the signed transaction without block metadata.
+        self.assertEqual(set(payload.transactions[0].envelope), {"payload", "metadata"})
 
     async def test_finalize_block_ignores_bds_enqueue_failures(self):
         tx_result = {
@@ -479,4 +481,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(response.finalize_block.tx_results), 1)
         self.assertEqual(response.finalize_block.tx_results[0].code, self.constants.OkCode)
+        # gas fields enter CometBFT's LastResultsHash; chi is reported in data.
+        self.assertEqual(response.finalize_block.tx_results[0].gas_used, 0)
+        self.assertEqual(response.finalize_block.tx_results[0].gas_wanted, 0)
         self.app.bds.enqueue_block.assert_awaited_once()
