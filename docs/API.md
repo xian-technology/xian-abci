@@ -59,6 +59,11 @@ The simulator uses the latest known block metadata when available so that
 `now`, `block_num`, `chain_id`, and execution mode match real execution as
 closely as possible.
 
+Its chi budget is `min(simulation_max_chi, max_tx_chi)`: the operator setting
+can only lower the chain's per-transaction cap from `__fee_policy`, and a
+committed fee-policy change applies to later simulations. A dry run therefore
+never reports success for more chi than CheckTx admits.
+
 ## BDS-Backed Indexed Queries
 
 When BDS is enabled, `xian-abci` also exposes indexed/history reads.
