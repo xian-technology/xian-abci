@@ -58,6 +58,10 @@ def lucky():
     return random.getrandbits(16)
 
 @export
+def big_ints(n: int):
+    return [1152921504606846976 + i for i in range(n)]
+
+@export
 def burn(n: int):
     x = 7
     for i in range(n):
@@ -562,6 +566,18 @@ def test_hash_scans_and_contract_metadata_run_in_rust_like_the_python_path(tmp_p
         ("alice", "submission", "submit_contract"),
         ("alice", "con_scan", "scan_then_random"),
     ]
+
+
+def test_entry_results_are_charged_in_their_v2_encoding_like_the_python_path(tmp_path):
+    # Ints of 54 to 63 bits leave the VM as {"__big_int__": ...}; the result
+    # charge counts those bytes on both paths.
+    txs = [
+        _tx(31, index, 1, "alice", "con_probe", "big_ints", {"n": n}, 5000)
+        for index, n in enumerate((1, 200))
+    ]
+    expected, _ = _run(tmp_path / "python", [txs], native=False)
+    actual, _ = _run(tmp_path / "rust", [txs], native=True)
+    assert actual == expected
 
 
 # Largest and smallest Python timedelta, a negative one and a plain one.
