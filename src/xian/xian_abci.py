@@ -499,7 +499,7 @@ class Xian:
             # Drop cached pre-import reads before serving Info/queries/execution.
             self.client.raw_driver.flush_cache()
             self.nonce_storage.flush_pending()
-            self.state_root_cache.rebuild(self.client.raw_driver.items().items())
+            self.state_root_cache.rebuild_from_driver(self.client.raw_driver)
             self.refresh_tx_fee_policy()
         return response
 
