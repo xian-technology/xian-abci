@@ -174,6 +174,14 @@ SCENARIOS = [
         id="transfer-to-existing-recipient",
     ),
     pytest.param(_swap(CAROL, "33.3"), 1_234_567, id="swap-with-event"),
+    # Its raw cost sits just above a whole chi: the simulator must not size
+    # the envelope larger than the signed transaction (nonce 0, the estimate
+    # as chi_supplied), or execution charges one chi less than estimated.
+    pytest.param(
+        (ALICE, "currency", "transfer", {"amount": 1, "to": "d" * 50}),
+        0,
+        id="transfer-at-a-chi-boundary",
+    ),
     pytest.param(
         (ALICE, "submission", "submit_contract", {"name": "con_deployed", "code": DEPLOYED}),
         3,

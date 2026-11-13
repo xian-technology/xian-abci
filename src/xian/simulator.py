@@ -41,10 +41,12 @@ def _simulation_error_result(
     }
 
 
-def _estimated_transaction_size(payload: dict, *, chain_id: str | None, max_chi: int | None) -> int:
-    # Simulation precedes nonce reservation/signing. Include the real argument
-    # bytes and a standard signature/envelope rather than charging zero bytes.
-    # The final nonce/budget and state can change; this remains an estimate.
+def _estimated_transaction_size(payload: dict, *, chain_id: str | None) -> int:
+    # Simulation precedes nonce reservation/signing. Charge the real argument
+    # bytes in the smallest signed envelope (nonce 0, a one-digit chi_supplied):
+    # the signed transaction is never smaller, so execution with the estimate
+    # as chi_supplied charges the estimate rather than one chi less when the
+    # cost sits just above a whole chi.
     return canonical_transaction_size_bytes(
         {
             "metadata": {"signature": "0" * 128},
@@ -52,7 +54,7 @@ def _estimated_transaction_size(payload: dict, *, chain_id: str | None, max_chi:
                 **payload,
                 "chain_id": chain_id or "",
                 "nonce": 0,
-                "chi_supplied": max(int(max_chi or 1_000_000), 1),
+                "chi_supplied": 1,
             },
         }
     )
@@ -163,7 +165,7 @@ class TransactionSimulator:
             environment=environment,
             chi_budget=max(int(max_chi or 1_000_000), 1),
             transaction_size_bytes=_estimated_transaction_size(
-                payload, chain_id=environment.get("chain_id"), max_chi=max_chi
+                payload, chain_id=environment.get("chain_id")
             ),
             chi_cost=chi_cost,
             meter=True,
