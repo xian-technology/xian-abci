@@ -7,6 +7,7 @@ from functools import cache
 from xian_vm_core import runtime_info
 
 from xian.exceptions import TransactionException
+from xian.execution_policy import VM_EXECUTION_MODE
 
 PAID_METERED = "paid_metered"
 FREE_METERED = "free_metered"
@@ -45,12 +46,12 @@ def _positive_int(value: object, *, name: str) -> int:
 
 
 @cache
-def vm_max_tx_chi() -> int | None:
-    """Per-transaction chi ceiling of the installed VM, when the VM reports it."""
-    # TODO(coordinator, revision 11): xvm-execution-10 does not report its
-    # ceiling (VM_MAX_RAW_CHI). Once the revision-11 VM exposes it, confirm the
-    # runtime_info key (proposed: "max_tx_chi", in chi) and make it required.
-    return runtime_info().get("max_tx_chi")
+def vm_max_tx_chi() -> int:
+    """Per-transaction chi ceiling the installed VM enforces for the node's profile."""
+    ceiling = runtime_info(VM_EXECUTION_MODE).get("max_tx_chi")
+    if type(ceiling) is not int or ceiling <= 0:
+        raise ValueError("the installed VM does not report its per-transaction chi ceiling")
+    return ceiling
 
 
 def _validate_chi_caps(max_tx_chi: object, max_block_chi: object) -> None:
@@ -61,7 +62,7 @@ def _validate_chi_caps(max_tx_chi: object, max_block_chi: object) -> None:
     if max_block_chi > MAX_BLOCK_CHI_LIMIT:
         raise ValueError(f"max_block_chi must not exceed {MAX_BLOCK_CHI_LIMIT} chi")
     ceiling = vm_max_tx_chi()
-    if ceiling is not None and max_tx_chi > ceiling:
+    if max_tx_chi > ceiling:
         raise ValueError(f"max_tx_chi {max_tx_chi} exceeds the VM ceiling of {ceiling} chi")
 
 

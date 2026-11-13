@@ -11,6 +11,7 @@ from xian.fee_policy import (
     fee_policy_state,
     reject_node_local_fee_settings,
     resolve_chain_fee_policy,
+    vm_max_tx_chi,
 )
 from xian.state_root import is_consensus_state_key
 
@@ -144,6 +145,21 @@ class TxFeePolicyTests(unittest.TestCase):
     def test_block_cap_upper_bound_is_inclusive(self):
         policy = TxFeePolicy.paid_metered(max_tx_chi=1, max_block_chi=MAX_BLOCK_CHI_LIMIT)
         self.assertEqual(policy.max_block_chi, MAX_BLOCK_CHI_LIMIT)
+
+    def test_vm_ceiling_comes_from_the_installed_vm(self):
+        # Revision 11 lowers the VM's own per-transaction ceiling to 1M chi.
+        self.assertEqual(vm_max_tx_chi(), 1_000_000)
+        with self.assertRaisesRegex(ValueError, "VM ceiling of 1000000 chi"):
+            TxFeePolicy.paid_metered(max_tx_chi=1_000_001, max_block_chi=MAX_BLOCK_CHI_LIMIT)
+
+    def test_a_vm_that_does_not_report_its_ceiling_is_refused(self):
+        vm_max_tx_chi.cache_clear()
+        try:
+            with mock.patch("xian.fee_policy.runtime_info", return_value={}):
+                with self.assertRaisesRegex(ValueError, "does not report its per-transaction"):
+                    vm_max_tx_chi()
+        finally:
+            vm_max_tx_chi.cache_clear()
 
     def test_tx_cap_must_not_exceed_the_vm_ceiling(self):
         with mock.patch("xian.fee_policy.vm_max_tx_chi", return_value=100):
