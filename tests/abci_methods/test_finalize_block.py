@@ -173,7 +173,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             [key for key, _ in self.app._pending_commit_driver_state["pending"].items()],
             ["currency.balances:alice"],
         )
-        self.assertIsNone(self.app.client.raw_driver.get("currency.balances:alice", save=False))
+        self.assertIsNone(self.app.client.raw_driver.get("currency.balances:alice"))
 
         raw = await self.handler.process("commit", Request(commit=RequestCommit()))
         response = await deserialize(raw)
@@ -181,7 +181,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.commit.retain_height, 0)
         self.assertIsNone(self.app._pending_commit_driver_state)
         self.assertEqual(
-            self.app.client.raw_driver.get("currency.balances:alice", save=False),
+            self.app.client.raw_driver.get("currency.balances:alice"),
             99,
         )
 

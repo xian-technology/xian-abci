@@ -67,10 +67,6 @@ class TxProcessor:
         fee_policy: TxFeePolicy | None = None,
     ):
         started_ns = time.perf_counter_ns()
-        driver = self.client.raw_driver
-        # Nothing in the node consumes read tracking; execution runs without it.
-        previous_read_tracking = driver.track_transaction_reads
-        driver.set_transaction_read_tracking(False)
         environment = self.get_environment(tx=tx)
         fee_policy = fee_policy or TxFeePolicy.system_unmetered()
         # Only a fee-charging policy prices chi; the others never use the rate.
@@ -109,7 +105,6 @@ class TxProcessor:
                 "chi_rewards_contract": tx["payload"]["contract"],
             }
         finally:
-            driver.set_transaction_read_tracking(previous_read_tracking)
             if self.profiler is not None:
                 self.profiler.observe(
                     "tx_process_total",
@@ -129,9 +124,6 @@ class TxProcessor:
         executor = self._block_executor(txs, fee_policy, rewards_handler)
         if executor is None:
             return [self.process_tx(tx, rewards_handler, fee_policy=fee_policy) for tx in txs]
-        driver = self.client.raw_driver
-        previous_read_tracking = driver.track_transaction_reads
-        driver.set_transaction_read_tracking(False)
         responses = []
         start = 0
         try:
@@ -155,7 +147,6 @@ class TxProcessor:
                 start = index + 1
         finally:
             self.cached_chi_cost = None
-            driver.set_transaction_read_tracking(previous_read_tracking)
         return responses
 
     def _block_executor(self, txs, fee_policy: TxFeePolicy, rewards_handler):
@@ -310,7 +301,6 @@ class TxProcessor:
         charge_fees: bool,
     ) -> dict:
         driver = self.client.raw_driver
-        driver.clear_transaction_reads()
         driver.clear_transaction_writes()
         outcome = execute_vm_transaction(
             self.execution_runtime,
@@ -482,7 +472,7 @@ class TxProcessor:
                 writes_map[key] += delta
                 continue
 
-            current_value = self.client.raw_driver.get(key, save=False)
+            current_value = self.client.raw_driver.get(key)
             if current_value is None:
                 current_value = 0
             writes_map[key] = current_value + delta

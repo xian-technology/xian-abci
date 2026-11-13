@@ -29,15 +29,12 @@ class _FakeDriver(SimpleNamespace):
     snapshot_state = Driver.snapshot_state
     restore_state = Driver.restore_state
     discarding_changes = Driver.discarding_changes
-    transaction_access = Driver.transaction_access
 
 
 def _driver(storage_home: Path | None = None):
-    pending = BlockState()
-    pending.set_tracking(True)
     return _FakeDriver(
         storage_home=storage_home or Path("/tmp"),
-        _pending=pending,
+        _pending=BlockState(),
         transaction_writes={},
         log_events=[],
         _undo=None,
@@ -667,7 +664,7 @@ class QuerySimulationServiceTests(unittest.IsolatedAsyncioTestCase):
 
         result = await service._wait_for_task_result(
             process,
-            {"driver_state": {"transaction_read_prefixes": {"prefix.a"}}},
+            {"driver_state": {"probe_keys": {"prefix.a"}}},
         )
 
         self.assertEqual(result, {"ok": True})

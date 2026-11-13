@@ -56,7 +56,7 @@ class _Client:
     def __init__(self, state):
         self.state = state
 
-    def get_var(self, contract, variable, arguments=None, mark=True):
+    def get_var(self, contract, variable, arguments=None):
         key = f"{contract}.{variable}"
         if arguments:
             key += ":" + ":".join(str(argument) for argument in arguments)

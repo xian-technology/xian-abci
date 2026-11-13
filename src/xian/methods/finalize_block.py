@@ -52,19 +52,16 @@ def _safe_positive_int(value, default: int) -> int:
 
 def _maybe_run_validator_epoch_rebalance(self, *, height: int):
     driver = self.client.raw_driver
-    selection_mode = driver.get("validators.config:selection_mode", save=False)
+    selection_mode = driver.get("validators.config:selection_mode")
     if selection_mode in (None, "manual"):
         return None, False
 
     rebalance_interval = _safe_positive_int(
-        driver.get("validators.config:rebalance_interval", save=False),
+        driver.get("validators.config:rebalance_interval"),
         1,
     )
     current_epoch = height // rebalance_interval
-    last_rebalance_epoch = driver.get(
-        "validators.last_rebalance_epoch",
-        save=False,
-    )
+    last_rebalance_epoch = driver.get("validators.last_rebalance_epoch")
     if last_rebalance_epoch is not None and current_epoch <= last_rebalance_epoch:
         return None, False
 

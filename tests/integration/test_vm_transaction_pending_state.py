@@ -67,12 +67,12 @@ def test_execution_effects_are_returned_not_left_on_the_driver(tmp_path):
 def test_failed_execution_leaves_the_block_state_as_it_was(tmp_path):
     driver = _block_with_pending_state(tmp_path)
     try:
-        before = (driver.pending_items(), driver.transaction_access())
+        before = driver.pending_items()
 
         outcome = _run(driver, function="spend", budget=1)
 
         assert outcome.output.status_code == 1
-        assert (driver.pending_items(), driver.transaction_access()) == before
+        assert driver.pending_items() == before
     finally:
         driver.close()
 

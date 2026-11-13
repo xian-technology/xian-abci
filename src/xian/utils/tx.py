@@ -223,13 +223,12 @@ def validate_transaction_after_static(
             contract="currency",
             variable="balances",
             arguments=[tx["payload"]["sender"]],
-            mark=False,
         )
     except Exception as e:
         raise TransactionException(f"Failed to retrieve 'currency' balance for sender: {e}")
 
     try:
-        chi_rate = chain_chi_rate(client, mark=False)
+        chi_rate = chain_chi_rate(client)
     except Exception as e:
         raise TransactionException(f"Failed to get chi cost: {e}")
 

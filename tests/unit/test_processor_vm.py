@@ -14,7 +14,6 @@ def _driver():
         log_events=[],
     )
     driver.get_owner = lambda _contract: "alice"
-    driver.clear_transaction_reads = lambda: None
     driver.clear_transaction_writes = lambda: None
     return driver
 

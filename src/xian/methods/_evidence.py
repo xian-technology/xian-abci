@@ -32,11 +32,8 @@ def _resolve_misbehaving_validator_key(self, validator_address: bytes) -> str | 
     if not validator_address:
         return None
     known_validators = (
-        self.client.raw_driver.get(
-            "validators.validator_registry",
-            save=False,
-        )
-        or self.client.raw_driver.get("validators.active_validators", save=False)
+        self.client.raw_driver.get("validators.validator_registry")
+        or self.client.raw_driver.get("validators.active_validators")
         or []
     )
     for validator_key in known_validators:

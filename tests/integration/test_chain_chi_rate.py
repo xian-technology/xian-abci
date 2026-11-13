@@ -23,7 +23,7 @@ class _Client:
     def __init__(self, value):
         self.value = value
 
-    def get_var(self, contract, variable, arguments=None, mark=True):
+    def get_var(self, contract, variable, arguments=None):
         assert (contract, variable, arguments) == ("chi_cost", "S", ["value"])
         return self.value
 
