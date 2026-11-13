@@ -13,7 +13,6 @@ app_log_retention_days = 7
 simulation_enabled = true
 simulation_max_concurrency = 2
 simulation_timeout_ms = 3000
-simulation_max_chi = 1000000
 pending_nonce_reservation_ttl_seconds = 60.0
 max_pending_nonces_per_sender = 128
 

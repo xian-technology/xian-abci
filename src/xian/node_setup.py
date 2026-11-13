@@ -154,7 +154,6 @@ app_log_max_total_mb = 250
 simulation_enabled = true
 simulation_max_concurrency = 2
 simulation_timeout_ms = 3000
-simulation_max_chi = 1000000
 pending_nonce_reservation_ttl_seconds = 60.0
 max_pending_nonces_per_sender = 128
 
@@ -224,7 +223,9 @@ class SimulationOptions:
     enabled: bool = True
     max_concurrency: int = 2
     timeout_ms: int = 3000
-    max_chi: int = 1_000_000
+    # Operator cap on one readonly simulation. None leaves the chain's
+    # max_tx_chi in charge; a value only ever lowers it.
+    max_chi: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,13 +303,13 @@ def resolve_simulation_settings(
     enabled: bool = True,
     max_concurrency: int = 2,
     timeout_ms: int = 3000,
-    max_chi: int = 1_000_000,
+    max_chi: int | None = None,
 ) -> dict[str, Any]:
     if max_concurrency <= 0:
         raise ValueError("simulation_max_concurrency must be greater than zero")
     if timeout_ms <= 0:
         raise ValueError("simulation_timeout_ms must be greater than zero")
-    if max_chi <= 0:
+    if max_chi is not None and max_chi <= 0:
         raise ValueError("simulation_max_chi must be greater than zero")
     return {
         "enabled": enabled,
@@ -563,7 +564,8 @@ def render_node_configs(
     xian_config["simulation_enabled"] = resolved_simulation["enabled"]
     xian_config["simulation_max_concurrency"] = resolved_simulation["max_concurrency"]
     xian_config["simulation_timeout_ms"] = resolved_simulation["timeout_ms"]
-    xian_config["simulation_max_chi"] = resolved_simulation["max_chi"]
+    if resolved_simulation["max_chi"] is not None:
+        xian_config["simulation_max_chi"] = resolved_simulation["max_chi"]
     xian_config["pending_nonce_reservation_ttl_seconds"] = (
         options.pending_nonce_reservation_ttl_seconds
     )

@@ -264,6 +264,12 @@ class NodeSetupTests(unittest.TestCase):
         self.assertEqual(config["statesync"]["trust_hash"], "ab" * 32)
         self.assertEqual(config["statesync"]["trust_period"], "336h0m0s")
 
+    def test_default_xian_config_leaves_the_simulation_cap_to_the_chain(self):
+        # Unset, a readonly simulation may spend the chain's max_tx_chi; the
+        # operator setting can only lower that, so the default writes none.
+        xian_config = render_xian_config(options=NodeConfigOptions(moniker="node"))
+        self.assertNotIn("simulation_max_chi", xian_config)
+
     def test_resolve_simulation_settings_requires_positive_limits(self):
         with self.assertRaises(ValueError):
             resolve_simulation_settings(max_concurrency=0)

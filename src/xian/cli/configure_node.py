@@ -301,10 +301,10 @@ def build_parser() -> ArgumentParser:
         type=int,
         help=(
             "operator cap on the chi one readonly simulation may spend; "
-            "the chain's max_tx_chi always applies on top"
+            "unset, the chain's max_tx_chi applies, and a cap only lowers it"
         ),
         required=False,
-        default=1_000_000,
+        default=None,
     )
     parser.add_argument(
         "--tx-fee-mode",
