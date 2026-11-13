@@ -34,7 +34,8 @@ class _FakeClient:
                 Decimal("0"),
                 Decimal("1"),
             ],
-            ("chi_cost", "S", ("value",)): Decimal("20"),
+            # chi_cost.set_value takes an int, so the chain rate is an int.
+            ("chi_cost", "S", ("value",)): 20,
             ("foundation", "owner", ()): "foundation",
             ("validators", "active_validators", ()): validators,
         }

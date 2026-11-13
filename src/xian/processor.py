@@ -16,7 +16,7 @@ from xian.execution_engine import (
     failed_transaction_chi,
     vm_metering_writes,
 )
-from xian.fee_policy import TxFeePolicy
+from xian.fee_policy import TxFeePolicy, chain_chi_rate
 from xian.utils.block import nanoseconds_to_utc_datetime
 from xian.utils.encoding import normalize_contract_result
 from xian.utils.tx import canonical_transaction_size_bytes, tx_hash_from_tx
@@ -50,14 +50,7 @@ class TxProcessor:
 
     def get_chi_cost(self):
         if self.cached_chi_cost is None:
-            self.cached_chi_cost = (
-                self.client.get_var(
-                    contract="chi_cost",
-                    variable="S",
-                    arguments=["value"],
-                )
-                or 1
-            )
+            self.cached_chi_cost = chain_chi_rate(self.client)
         return self.cached_chi_cost
 
     def update_chi_cost_cache(self, base_writes: dict) -> None:
@@ -77,8 +70,9 @@ class TxProcessor:
         previous_read_tracking = driver.track_transaction_reads
         driver.set_transaction_read_tracking(track_access)
         environment = self.get_environment(tx=tx)
-        chi_cost = self.get_chi_cost()
         fee_policy = fee_policy or TxFeePolicy.system_unmetered()
+        # Only a fee-charging policy prices chi; the others never use the rate.
+        chi_cost = self.get_chi_cost() if fee_policy.charge_fees else None
 
         try:
             try:

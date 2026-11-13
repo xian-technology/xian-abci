@@ -55,6 +55,7 @@ def _simulator(driver=None, *, chain_id: str | None = None):
     simulator.execution_runtime = SimpleNamespace(mode="xian_vm_v2")
     simulator.get_block_meta = lambda: None
     simulator.chain_id = chain_id
+    simulator.charge_fees = True
     return simulator
 
 
@@ -459,6 +460,7 @@ class SimulatorTests(unittest.TestCase):
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         self.addCleanup(client.close)
         client.flush()
+        client.raw_driver.set("chi_cost.S:value", 20)
         try:
             simulator = TransactionSimulator(
                 client=client,
@@ -494,6 +496,7 @@ class SimulatorTests(unittest.TestCase):
         client = ContractingClient(vm_profile="xian_vm_v2", environment={"chain_id": "test-chain"})
         self.addCleanup(client.close)
         client.flush()
+        client.raw_driver.set("chi_cost.S:value", 20)
         try:
             simulator = TransactionSimulator(
                 client=client, execution_runtime=build_vm_runtime(), chain_id="test-chain"

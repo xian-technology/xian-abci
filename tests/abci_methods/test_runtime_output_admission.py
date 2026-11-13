@@ -42,6 +42,7 @@ async def isolated_app(tmp_path, source):
     try:
         app.client.submit(source, name="con_boundary", owner=None)
         app.client.raw_driver.set(f"currency.balances:{SENDER}", 100_000)
+        app.client.raw_driver.set("chi_cost.S:value", 20)
         app.client.raw_driver.commit()
         app.state_root_cache = StateRootCache.from_driver(app.client.raw_driver)
         yield app

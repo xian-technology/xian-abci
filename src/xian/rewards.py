@@ -5,6 +5,7 @@ from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.constants import Constants as c
+from xian.fee_policy import chain_chi_rate
 from xian.log_safety import error_fields
 
 
@@ -367,9 +368,9 @@ class RewardsHandler:
         if not reward_split or total_chi_to_split <= 0:
             return None, {}, []
 
-        chi_rate = self.client.get_var(contract="chi_cost", variable="S", arguments=["value"])
+        chi_rate = chain_chi_rate(self.client)
         foundation_owner = self.client.get_var(contract="foundation", variable="owner")
-        if chi_rate in (None, 0) or foundation_owner is None:
+        if foundation_owner is None:
             logger.error("Reward configuration is incomplete.")
             return None, {}, []
 
@@ -454,60 +455,3 @@ class RewardsHandler:
             return None, {}, reward_records
 
         return rewards, dict(reward_deltas), reward_records
-
-    def distribute_rewards(self, chi_rewards_amount, chi_rewards_contract):
-        if (
-            not self.client.get_var(contract="rewards", variable="S", arguments=["value"])
-            or chi_rewards_amount <= 0
-        ):
-            return []
-
-        driver = self.client.raw_driver
-        (
-            validator_mapping,
-            _validator_records,
-            foundation_reward,
-            developer_mapping,
-            _developer_records,
-        ) = self.calculate_tx_output_rewards(
-            total_chi_to_split=chi_rewards_amount,
-            contract=chi_rewards_contract,
-        )
-
-        chi_cost = driver.get("chi_cost.S:value")
-        foundation_reward /= chi_cost
-
-        rewards = self._distribute_validator_rewards(driver, validator_mapping, chi_cost)
-        rewards.append(self._distribute_foundation_reward(driver, foundation_reward))
-        rewards.extend(self._distribute_developer_rewards(driver, developer_mapping, chi_cost))
-
-        return rewards
-
-    def _distribute_validator_rewards(self, driver, validator_mapping, chi_cost):
-        rewards = []
-        for recipient_key, reward in validator_mapping.items():
-            normalized_reward = reward / chi_cost
-            m_balance = driver.get(f"currency.balances:{recipient_key}") or 0
-            m_balance_after = round(m_balance + normalized_reward, c.DUST_EXPONENT)
-            rewards.append(
-                driver.set(
-                    f"currency.balances:{recipient_key}",
-                    m_balance_after,
-                )
-            )
-        return rewards
-
-    def _distribute_foundation_reward(self, driver, foundation_reward):
-        foundation_wallet = driver.get("foundation.owner")
-        foundation_balance = driver.get(f"currency.balances:{foundation_wallet}") or 0
-        foundation_balance_after = round(foundation_balance + foundation_reward, c.DUST_EXPONENT)
-        return driver.set(f"currency.balances:{foundation_wallet}", foundation_balance_after)
-
-    def _distribute_developer_rewards(self, driver, developer_mapping, chi_cost):
-        rewards = []
-        for recipient, amount in developer_mapping.items():
-            dev_reward = round(amount / chi_cost, c.DUST_EXPONENT)
-            recipient_balance = driver.get(f"currency.balances:{recipient}") or 0
-            recipient_balance_after = round(recipient_balance + dev_reward, c.DUST_EXPONENT)
-            rewards.append(driver.set(f"currency.balances:{recipient}", recipient_balance_after))
-        return rewards

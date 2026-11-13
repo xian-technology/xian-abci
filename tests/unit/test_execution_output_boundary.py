@@ -129,6 +129,7 @@ def test_processor_preserves_return_values_but_rejects_unencodable_state(
     with ContractingClient(vm_profile="xian_vm_v2", storage_home=tmp_path / "state") as client:
         client.submit(source, name="con_boundary", owner=None)
         client.raw_driver.set("currency.balances:alice", 100_000)
+        client.raw_driver.set("chi_cost.S:value", 1)
         client.raw_driver.commit()
         processor = TxProcessor(client, execution_runtime=build_vm_runtime())
         tx = {

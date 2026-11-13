@@ -66,6 +66,21 @@ def _validate_chi_caps(max_tx_chi: object, max_block_chi: object) -> None:
         raise ValueError(f"max_tx_chi {max_tx_chi} exceeds the VM ceiling of {ceiling} chi")
 
 
+def chain_chi_rate(client, *, mark: bool = True) -> int:
+    """The chain's chi price (chi per native token), from chi_cost.S:value.
+
+    Genesis seeds the rate and only the validators contract changes it, so it
+    is chain state like ``__fee_policy``: admission, execution and simulation
+    all read it here. A missing or invalid rate is a broken chain, not a
+    reason to guess a price, so it is refused.
+    """
+    read = {} if mark else {"mark": False}
+    value = client.get_var(contract="chi_cost", variable="S", arguments=["value"], **read)
+    if type(value) is not int or value <= 0:
+        raise ValueError(f"chain state has no valid chi rate (chi_cost.S:value = {value!r})")
+    return value
+
+
 def fee_policy_state(settings: Mapping[str, object] | None = None) -> dict[str, object]:
     """Canonical ``__fee_policy`` genesis value for the given settings."""
     return TxFeePolicy.from_settings(settings).to_state()

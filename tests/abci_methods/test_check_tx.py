@@ -97,6 +97,8 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         self.app.current_block_meta = {"height": 0, "nanos": 0}
         self.app.chain_id = "xian-testnet-1"
         self.app.client.raw_driver.set(f"currency.balances:{SENDER}", 100000)
+        # The fixture genesis rate; these tests run without InitChain.
+        self.app.client.raw_driver.set("chi_cost.S:value", 20)
         self.handler = ProtocolHandler(self.app)
 
     async def process_request(self, req):

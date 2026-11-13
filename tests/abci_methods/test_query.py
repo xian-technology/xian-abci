@@ -462,6 +462,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             f"currency.balances:{ACCOUNT}",
             ContractingDecimal("123.45"),
         )
+        self.app.client.raw_driver.set("chi_cost.S:value", 20)
         self.handler = ProtocolHandler(self.app)
 
     async def asyncTearDown(self):

@@ -18,6 +18,7 @@ from xian.execution_engine import (
     VmRuntime,
     execute_vm_transaction,
 )
+from xian.fee_policy import chain_chi_rate
 from xian.utils.block import (
     get_latest_block_nanos,
     nanoseconds_to_utc_datetime,
@@ -123,17 +124,8 @@ class TransactionSimulator:
     ) -> dict:
         state_snapshot = self._snapshot_driver_state()
         try:
-            chi_cost = int(
-                self.client.get_var(
-                    contract="chi_cost",
-                    variable="S",
-                    arguments=["value"],
-                )
-            )
-        except Exception:
-            chi_cost = 20
-
-        try:
+            # Read inside the snapshot so the estimate leaves no tracked reads.
+            chi_cost = chain_chi_rate(self.client) if self.charge_fees else None
             converted_kwargs = decode_wire_numbers(payload.get("kwargs", {}))
             environment = self._make_environment(payload, block_meta=block_meta)
             return self._execute_vm_simulation(

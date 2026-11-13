@@ -9,6 +9,7 @@ from xian_runtime_types.encoding import decode_wire_numbers, encode_wire
 
 from xian.exceptions import TransactionException
 from xian.execution_policy import VM_EXECUTION_MODE
+from xian.fee_policy import chain_chi_rate
 from xian.formatting import (
     TRANSACTION_PAYLOAD_RULES,
     TRANSACTION_RULES,
@@ -228,11 +229,7 @@ def validate_transaction_after_static(
         raise TransactionException(f"Failed to retrieve 'currency' balance for sender: {e}")
 
     try:
-        chi_rate = client.get_var(
-            contract="chi_cost", variable="S", arguments=["value"], mark=False
-        )
-        if chi_rate is None:
-            chi_rate = 20
+        chi_rate = chain_chi_rate(client, mark=False)
     except Exception as e:
         raise TransactionException(f"Failed to get chi cost: {e}")
 

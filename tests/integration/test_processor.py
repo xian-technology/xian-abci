@@ -30,6 +30,8 @@ class TestProcessor(unittest.TestCase):
         self.addCleanup(self.c.close)
         self.d = self.c.raw_driver
         self.c.flush()
+        # Paid cases price chi at 1 per token (the rate genesis would seed).
+        self.d.set("chi_cost.S:value", 1)
         self.tx_processor = TxProcessor(client=self.c)
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
 
