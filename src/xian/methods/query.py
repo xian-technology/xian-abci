@@ -306,16 +306,8 @@ def _call_contract_view(
     *,
     kwargs: dict[str, Any] | None = None,
 ) -> Any:
-    runtime = ctx.app.execution_runtime
-    has_contract = getattr(ctx.raw_driver, "has_contract", None)
-    if has_contract is not None and not has_contract(contract_name):
+    if not _has_contract(ctx.raw_driver, contract_name):
         return None
-    if has_contract is None:
-        get_contract_ir = getattr(ctx.raw_driver, "get_contract_ir", None)
-        contract_ir = get_contract_ir(contract_name) if get_contract_ir else None
-        if ctx.raw_driver.get_contract_source(contract_name) is None and contract_ir is None:
-            return None
-
     call = {
         "sender": ctx.key or "__query__",
         "contract_name": contract_name,
@@ -325,7 +317,7 @@ def _call_contract_view(
     }
     run = _run_contract_view(ctx.raw_driver, call)
     if isinstance(run, HandedBack):
-        run = _python_contract_view(runtime, ctx.raw_driver, call)
+        run = _python_contract_view(ctx.app.execution_runtime, ctx.raw_driver, call)
     elif run.unprepared:
         raise ContractPreparationError(str(run.result))
     if run.status_code != 0:
@@ -337,6 +329,15 @@ def _call_contract_view(
         ).error("VM query failed")
         return None
     return run.result
+
+
+def _has_contract(driver, contract_name: str) -> bool:
+    has_contract = getattr(driver, "has_contract", None)
+    if has_contract is not None:
+        return has_contract(contract_name)
+    get_contract_ir = getattr(driver, "get_contract_ir", None)
+    contract_ir = get_contract_ir(contract_name) if get_contract_ir else None
+    return driver.get_contract_source(contract_name) is not None or contract_ir is not None
 
 
 def _run_contract_view(driver, call: dict[str, Any]):
