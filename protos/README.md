@@ -11,6 +11,12 @@ generate the checked-in Python protobuf modules under `src/`.
   schemas
 - `buf.yaml` and `buf.lock`: pinned upstream module metadata
 
+## Licenses
+
+The vendored files keep their upstream licenses: CometBFT's schemas are
+Apache-2.0 (`cometbft/LICENSE`), `gogo.proto` is BSD-3-Clause (license in its
+header). See `THIRD_PARTY_NOTICES.md` in the repo root.
+
 ## Workflow
 
 When the vendored schemas change:
