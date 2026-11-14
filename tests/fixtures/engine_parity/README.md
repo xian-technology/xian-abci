@@ -59,6 +59,13 @@ fixtures were regenerated with them and the diff reviewed case by case:
   `test_native_vm_work_bounds.py` cover them). `importlib.code_hash` now
   charges 4 raw chi per hashed byte; no frozen case calls it.
 
+- Transaction admission revision 3 (`xian-fastpath-admission-3`, unreleased):
+  admission refuses documents with keys beside `metadata` and `payload`. No
+  corpus transaction had such keys; the genesis fixtures' `__execution_policy`
+  entry names the new revision, so only `system_blocks.json` changes: every
+  block's app hash (and the `ResponseFinalizeBlock` bytes that carry it). The
+  system receipts are identical.
+
 ## The hand-back inventory
 
 `handback_inventory.json` shrinks as rules move into Rust. An increment that

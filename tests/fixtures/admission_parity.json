@@ -4866,22 +4866,22 @@
  },
  "keys/top_extra": {
   "outcome": [
-   "ok",
-   "6ecca30e3db46a79"
+   "error",
+   "Transaction has unexpected or missing keys"
   ],
   "raw": "2d3aaef3225b5252"
  },
  "keys/top_extra_b_meta": {
   "outcome": [
-   "ok",
-   "455e95f1f10443a4"
+   "error",
+   "Transaction has unexpected or missing keys"
   ],
   "raw": "82b3511656c078e7"
  },
  "keys/top_extra_first": {
   "outcome": [
-   "ok",
-   "92a8f4d490a81211"
+   "error",
+   "Transaction has unexpected or missing keys"
   ],
   "raw": "7ff63aecf73fd922"
  },

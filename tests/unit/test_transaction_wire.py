@@ -79,3 +79,14 @@ def test_a_delta_argument_is_admitted_only_as_two_integers(delta):
     wire = _signed_wire(kwargs={"d": {"__delta__": delta}})
     with pytest.raises(tx_module.TransactionException, match="not canonical"):
         admit(wire, chain_id="xian-local")
+
+
+@pytest.mark.parametrize("extra", ["zzz", "aaa", "b_meta"])
+def test_only_metadata_and_payload_are_admitted(extra):
+    # Admission revision 3: unsigned keys beside them would change the
+    # transaction hash and the block bytes without the sender's consent.
+    tx = json.loads(bytes.fromhex(_signed_wire().decode()))
+    tx[extra] = {"height": 1}
+    wire = tx_module.canonical_json(tx).encode().hex().encode()
+    with pytest.raises(tx_module.TransactionException, match="unexpected or missing keys"):
+        tx_module.decode_and_validate_transaction_static_bytes(wire, chain_id="xian-local")

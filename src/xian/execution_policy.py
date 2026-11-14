@@ -17,7 +17,7 @@ SET_CODEC = "xian-set-1"
 # Contract admission (compiler-core) and transaction admission (fastpath-core,
 # linked into vm-core) are consensus rules like execution.
 COMPILER_ADMISSION_REVISION = "xian-admission-3"
-TX_ADMISSION_REVISION = "xian-fastpath-admission-2"
+TX_ADMISSION_REVISION = "xian-fastpath-admission-3"
 EXECUTION_POLICY_KEY = "__execution_policy"
 # xian.toml keys of the removed speculative parallel executor.
 REMOVED_PARALLEL_EXECUTION_KEYS = frozenset(
