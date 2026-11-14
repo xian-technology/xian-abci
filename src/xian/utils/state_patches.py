@@ -14,7 +14,7 @@ from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, loads_wire_json
 
 from xian.execution_policy import EXECUTION_POLICY_KEY, VM_EXECUTION_MODE
-from xian.fee_policy import FEE_POLICY_KEY, TxFeePolicy
+from xian.fee_policy import CHI_RATE_KEY, FEE_POLICY_KEY, TxFeePolicy, validated_chi_rate
 from xian.runtime_features import require_runtime_feature_support, runtime_feature_change
 from xian.utils.encoding import hash_bytes
 
@@ -88,14 +88,17 @@ def _validate_patch_key(bundle_file: Path, key: str) -> None:
 
 
 def _validate_patch_value(bundle_file: Path, key: str, value: Any) -> None:
-    """Refuse a fee policy or runtime feature that genesis and startup would reject.
+    """Refuse a fee policy, chi rate or runtime feature that genesis and the
+    node's readers would reject.
 
-    Every node reads these after the activation block's Commit, so an invalid
-    value would be committed and then halt the chain for good.
+    Every node reads these from the activation block on, so an invalid value
+    would be committed and then halt the chain for good.
     """
     try:
         if key == FEE_POLICY_KEY:
             TxFeePolicy.from_state(value)
+        elif key == CHI_RATE_KEY:
+            validated_chi_rate(value)
         elif key.startswith(RUNTIME_FEATURE_STATE_PREFIX):
             runtime_feature_change(key, value)
     except ValueError as exc:

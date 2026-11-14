@@ -91,3 +91,45 @@ def test_paid_simulation_reports_a_missing_rate(tmp_path):
         assert "chi_cost.S:value" in str(result["result"])
     finally:
         driver.close()
+
+
+# The fee arithmetic prices chi as ContractingDecimal(rate): the largest rate
+# it can represent (91 digits, 30 of them fractional).
+LARGEST_RATE = 10**61 - 1
+
+
+def test_the_largest_rate_is_the_largest_one_contracting_decimal_represents():
+    assert chain_chi_rate(_Client(LARGEST_RATE)) == LARGEST_RATE
+    with pytest.raises(ValueError, match="chi_cost.S:value"):
+        chain_chi_rate(_Client(LARGEST_RATE + 1))
+
+
+@pytest.mark.parametrize("rate", [LARGEST_RATE, LARGEST_RATE + 1])
+def test_block_execution_accepts_exactly_the_rates_the_python_reader_accepts(tmp_path, rate):
+    from xian_vm_core import LmdbStorageError
+
+    from xian.utils.tx import transaction_bytes
+
+    processor, rewards = make_processor(tmp_path, rate=rate)
+    driver = processor.client.raw_driver
+    try:
+        transaction = tx()
+        run = lambda: processor.process_block(  # noqa: E731
+            [transaction],
+            [transaction_bytes(transaction)],
+            fee_policy=TxFeePolicy.paid_metered(),
+            rewards_handler=rewards,
+        )
+        valid = True
+        try:
+            chain_chi_rate(processor.client)
+        except ValueError:
+            valid = False
+        if valid:
+            run()
+        else:
+            # The Rust executor refuses it as a host fault: the node halts.
+            with pytest.raises(LmdbStorageError, match="chi_cost.S:value"):
+                run()
+    finally:
+        driver.close()

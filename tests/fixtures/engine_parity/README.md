@@ -142,9 +142,12 @@ fixtures were regenerated with them and the diff reviewed case by case:
     heap references is gone on both paths: V2 contracts cannot produce them
     in their effects (the VM boundary refuses them first;
     `test_values_the_receipt_encoding_refuses_never_reach_the_effects`).
-  - Unchanged, but now explicit: a chain chi rate that is not a positive
-    integer is a host fault (the node halts, as admission refuses), never a
-    guessed price.
+  - Unchanged, but now explicit: a chain chi rate that is not an integer in
+    `1..=10**61 - 1` is a host fault (the node halts, as admission refuses),
+    never a guessed price. Nothing can write one: genesis building and state
+    patch bundles are refused with the same check
+    (`xian.fee_policy.validated_chi_rate`), and the `chi_cost` contract takes
+    only positive rates.
 
 ## The hand-back inventory
 

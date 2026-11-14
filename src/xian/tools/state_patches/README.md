@@ -92,8 +92,8 @@ additional artifacts automatically:
 
 ## Node-Read Consensus Keys
 
-Three kinds of hashed node-owned keys hold chain settings that node startup
-validates, so bundles may not write them freely:
+Four kinds of hashed keys hold chain settings the node validates when it
+reads them, so bundles may not write them freely:
 
 - `__execution_policy` is protected: no bundle may write it.
 - `__runtime_features.<feature>` may switch a supported feature (today `zk`)
@@ -116,6 +116,12 @@ validates, so bundles may not write them freely:
   compare before the vote and is never applied. The new policy governs admission, proposals, execution and
   simulation from the block after the activation block, on running and
   restarted nodes alike.
+- `chi_cost.S:value`, the chain's chi rate, may change, but only to a rate
+  the node prices fees with: an integer `0 < rate <= 10**61 - 1` (the largest
+  `ContractingDecimal` the fee arithmetic represents). Other values and
+  deletions are refused when the bundle is loaded, with the check admission,
+  execution and simulation use (`xian.fee_policy.validated_chi_rate`): they
+  halt on an invalid rate rather than guess a price.
 
 ## Database Integration
 

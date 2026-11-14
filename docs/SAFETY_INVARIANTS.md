@@ -44,6 +44,12 @@ This file records the runtime properties that must hold before an
   takes effect at the Commit of its activation block, so every stage of the
   next block uses it on running and restarted nodes alike. Bundles cannot
   write `__execution_policy` at all.
+- The chain chi rate (`chi_cost.S:value`) prices every fee. Admission,
+  execution (the Rust executor) and simulation refuse a rate that is not an
+  integer in `1..=10**61 - 1` (the node halts rather than guess a price), so
+  nothing may write one: genesis building refuses a bundle that seeds an
+  invalid rate, a node refuses to load a state patch bundle that writes or
+  deletes it, and the `chi_cost` contract accepts only positive rates.
 - A runtime feature (`__runtime_features.<feature>`) is chain state, read on
   every contract preparation and deployment, never from a node-local copy. A
   governed state patch may switch a supported feature on or off, but only to a

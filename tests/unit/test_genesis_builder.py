@@ -5,6 +5,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import pytest
+from genesis_bundle_support import seed_chi_rate
+
 from contracting.local import ContractingClient
 from contracting.runtime_features import runtime_feature_state_key
 from contracting.storage.driver import Driver
@@ -129,6 +132,7 @@ class GenesisBuilderTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            seed_chi_rate(contracts_dir)
             genesis_block = build_genesis_block(
                 founder_private_key=founder_private_key,
                 network="test",
@@ -207,22 +211,20 @@ class GenesisBuilderTests(unittest.TestCase):
                 side_effect=lambda *args, **kwargs: runs.append(execute_tx(*args, **kwargs))
                 or runs[-1],
             ) as native_execute:
+                seed_chi_rate(contracts_dir)
                 genesis_block = build_genesis_block(
                     founder_private_key=founder_private_key,
                     network="test",
                     contracts_dir=contracts_dir,
                 )
-            # The deploy runs in Rust; the Python path below is the reference.
-            self.assertEqual(native_execute.call_count, 1)
-            self.assertIsInstance(runs[0], TxRun)
-            self.assertEqual(
-                native_execute.call_args.kwargs["contract_name"],
-                "submission",
-            )
-            self.assertEqual(
-                native_execute.call_args.kwargs["function_name"],
-                "submit_contract",
-            )
+            # The deploys (the probe, then chi_cost) run in Rust; the Python
+            # path below is the reference.
+            self.assertEqual(native_execute.call_count, 2)
+            self.assertTrue(all(isinstance(run, TxRun) for run in runs))
+            probe_call = native_execute.call_args_list[0].kwargs
+            self.assertEqual(probe_call["kwargs"]["name"], "con_seed_native_probe")
+            self.assertEqual(probe_call["contract_name"], "submission")
+            self.assertEqual(probe_call["function_name"], "submit_contract")
 
             native_driver = Driver(vm_profile="xian_vm_v2", storage_home=Path(tmp_dir) / "native")
             native_driver.flush_full()
@@ -383,6 +385,7 @@ class GenesisBuilderTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            seed_chi_rate(contracts_dir)
             genesis_block = build_genesis_block(
                 founder_private_key=founder_private_key,
                 network="local",
@@ -647,6 +650,7 @@ class GenesisBuilderTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            seed_chi_rate(contracts_dir)
             genesis = build_single_validator_genesis(
                 chain_id="xian-local-1",
                 priv_validator_key={
@@ -756,6 +760,7 @@ class GenesisBuilderTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            seed_chi_rate(contracts_dir)
             genesis = build_local_network_genesis(
                 chain_id="xian-local-1",
                 founder_private_key=founder_private_key,
@@ -895,6 +900,7 @@ class GenesisBuilderTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            seed_chi_rate(contracts_dir)
             genesis = build_local_network_genesis(
                 chain_id="xian-local-1",
                 founder_private_key=founder_private_key,
@@ -1025,6 +1031,7 @@ class GenesisBuilderTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            seed_chi_rate(contracts_dir)
             genesis = build_local_network_genesis(
                 chain_id="xian-testnet-local-1",
                 founder_private_key=founder_private_key,
@@ -1100,3 +1107,15 @@ class GenesisBuilderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize("rate", [0, -5])
+def test_genesis_refuses_a_chi_rate_the_node_cannot_price_fees_with(rate):
+    contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
+    with pytest.raises(ValueError, match="chi rate"):
+        build_genesis_block(
+            founder_private_key="01" * 32,
+            network="local",
+            contracts_dir=contracts_dir,
+            constructor_overrides={"chi_cost": {"initial_rate": rate}},
+        )

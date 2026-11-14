@@ -35,7 +35,7 @@ from xian.execution_policy import (
     current_execution_policy,
     validate_execution_policy,
 )
-from xian.fee_policy import FEE_POLICY_KEY, fee_policy_state
+from xian.fee_policy import CHI_RATE_KEY, FEE_POLICY_KEY, fee_policy_state, validated_chi_rate
 from xian.runtime_features import (
     RuntimeFeatureResolution,
     genesis_runtime_feature_entries,
@@ -273,6 +273,16 @@ def deploy_bundle_contracts(
     for entry in genesis_runtime_feature_entries(resolved_runtime_features):
         driver.set(entry["key"], entry["value"])
     driver.set(FEE_POLICY_KEY, resolved_fee_policy)
+    _require_chi_rate(driver)
+
+
+def _require_chi_rate(driver: Driver) -> None:
+    """Refuse a genesis whose chi rate the node cannot price fees with: it
+    would halt on the first paid transaction (``validated_chi_rate``)."""
+    try:
+        validated_chi_rate(driver.get(CHI_RATE_KEY))
+    except ValueError as exc:
+        raise ValueError(f"genesis: {exc}") from exc
 
 
 def finalize_genesis_block(

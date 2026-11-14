@@ -330,6 +330,47 @@ class StatePatchManagerTests(unittest.TestCase):
             },
         )
 
+    def chi_rate_bundle(self, value) -> Path:
+        return self.write_bundle(
+            "chi-rate.json",
+            {
+                "version": 1,
+                "patch_id": "chi-rate-patch",
+                "activation_height": 12,
+                "changes": [{"key": "chi_cost.S:value", "value": value}],
+            },
+        )
+
+    def test_bundle_chi_rate_must_be_one_the_node_prices_fees_with(self):
+        # Every node prices fees with it from the activation block on and
+        # halts on a rate it cannot use (chain_chi_rate).
+        cases = {
+            "zero": 0,
+            "negative": -20,
+            "boolean": True,
+            "text": "20",
+            "decimal": {"__fixed__": "20"},
+            "beyond the decimal range": {"__big_int__": str(10**61)},
+            "null (deleted)": None,
+        }
+        for name, value in cases.items():
+            with self.subTest(name):
+                bundle = self.chi_rate_bundle(value)
+                with self.assertRaisesRegex(ValueError, "chi-rate.json.*chi rate"):
+                    self.manager.load_patches(self.test_dir)
+                self.assertFalse(self.manager.loaded)
+                bundle.unlink()
+
+    def test_bundle_may_change_the_chi_rate_to_a_valid_one(self):
+        self.chi_rate_bundle(2000)
+        self.manager.load_patches(self.test_dir)
+        bundle = self.manager.local_bundles["chi-rate-patch"]
+        self.schedule_bundle(patch_id=bundle.patch_id, bundle_hash=bundle.bundle_hash, height=12)
+
+        self.manager.apply_patches_for_block(12, 123456)
+
+        self.assertEqual(self.driver.state["chi_cost.S:value"], 2000)
+
     def test_bundle_runtime_feature_must_be_one_genesis_writes(self):
         # Genesis writes a supported feature as a JSON boolean; anything else
         # would be read differently (or refused) by running and restarted nodes.

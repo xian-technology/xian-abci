@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
+from genesis_bundle_support import seed_chi_rate
 from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import encode
@@ -60,6 +61,7 @@ def bundle(tmp_path):
         ),
         encoding="utf-8",
     )
+    seed_chi_rate(contracts)
     return {
         "founder_private_key": SEED,
         "network": "fixture",

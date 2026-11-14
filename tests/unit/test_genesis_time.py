@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
+from genesis_bundle_support import seed_chi_rate
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import encode
 from xian_runtime_types.time import Datetime
@@ -57,6 +58,7 @@ def contracts_dir(tmp_path):
         ),
         encoding="utf-8",
     )
+    seed_chi_rate(tmp_path)
     return tmp_path
 
 
