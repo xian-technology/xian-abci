@@ -380,7 +380,7 @@ prometheus = false
                                 port=5544,
                                 database="xian_index",
                                 user="indexer",
-                                password="secret",
+                                password_file="/run/secrets/custom",
                                 pool_min_size=2,
                                 pool_max_size=6,
                                 statement_timeout_ms=5000,
@@ -454,7 +454,7 @@ prometheus = false
             self.assertEqual(rendered_xian_config["bds"]["port"], 5544)
             self.assertEqual(rendered_xian_config["bds"]["database"], "xian_index")
             self.assertEqual(rendered_xian_config["bds"]["user"], "indexer")
-            self.assertEqual(rendered_xian_config["bds"]["password"], "secret")
+            self.assertEqual(rendered_xian_config["bds"]["password_file"], "/run/secrets/custom")
             self.assertEqual(rendered_xian_config["bds"]["pool_min_size"], 2)
             self.assertEqual(rendered_xian_config["bds"]["pool_max_size"], 6)
             self.assertEqual(rendered_xian_config["bds"]["statement_timeout_ms"], 5000)
@@ -617,7 +617,7 @@ seeds = ""
                         p2p_seeds=["seed-1@127.0.0.1:26656"],
                         node_config=NodeConfigOptions(
                             moniker="updated-node",
-                            bds=BdsOptions(password="secret-password"),
+                            bds=BdsOptions(dsn="postgresql://indexer@db/xian"),
                         ),
                     )
                 )

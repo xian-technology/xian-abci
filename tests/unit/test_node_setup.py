@@ -80,7 +80,7 @@ class NodeSetupTests(unittest.TestCase):
                     port=5544,
                     database="xian_index",
                     user="indexer",
-                    password="secret",
+                    password_file="/run/secrets/custom",
                     pool_min_size=2,
                     pool_max_size=6,
                     statement_timeout_ms=5000,
@@ -169,16 +169,75 @@ class NodeSetupTests(unittest.TestCase):
         # The fee policy is chain state from genesis, never node config.
         for key in ("tx_fee_mode", "max_tx_chi", "max_block_chi"):
             self.assertNotIn(key, xian_config)
+        # Defaults name the containerized Postgres service and its secret.
+        self.assertEqual(xian_config["bds"]["host"], "postgres")
+        self.assertEqual(xian_config["bds"]["user"], "xian")
+        self.assertEqual(xian_config["bds"]["password_file"], "/run/secrets/xian_bds_password")
+        self.assertNotIn("password", xian_config["bds"])
         self.assertEqual(xian_config["bds"]["database"], "xian")
         self.assertEqual(xian_config["bds"]["application_name"], "xian-bds")
         self.assertEqual(xian_config["bds"]["acquire_timeout_ms"], 10000)
         self.assertEqual(xian_config["bds"]["queue_max_size"], 128)
         self.assertTrue(xian_config["bds"]["catchup_enabled"])
         self.assertEqual(xian_config["bds"]["catchup_poll_seconds"], 1.0)
-        self.assertEqual(xian_config["bds"]["rpc_url"], "")
+        # BDS catch-up reads blocks from the node's own RPC in the container.
+        self.assertEqual(xian_config["bds"]["rpc_url"], "http://127.0.0.1:26657")
         self.assertEqual(xian_config["bds"]["spool_warn_entries"], 256)
         self.assertEqual(xian_config["bds"]["spool_warn_bytes"], 536_870_912)
         self.assertEqual(xian_config["bds"]["disk_free_warn_bytes"], 2_147_483_648)
+
+    def test_render_config_rejects_out_of_range_runtime_settings(self):
+        cases = (
+            ({"blocks_to_keep": 0}, "blocks_to_keep must be greater than zero"),
+            ({"metrics": MetricsOptions(port=0)}, "metrics_port must be between"),
+            ({"metrics": MetricsOptions(port=65536)}, "metrics_port must be between"),
+            (
+                {"metrics": MetricsOptions(bds_refresh_seconds=0)},
+                "metrics_bds_refresh_seconds must be greater than zero",
+            ),
+            (
+                {"pending_nonce_reservation_ttl_seconds": -1},
+                "pending_nonce_reservation_ttl_seconds must be non-negative",
+            ),
+            ({"max_pending_nonces_per_sender": 0}, "max_pending_nonces_per_sender must be"),
+            ({"bds": BdsOptions(port=0)}, "bds_port must be between"),
+            ({"bds": BdsOptions(port=65536)}, "bds_port must be between"),
+            ({"bds": BdsOptions(pool_min_size=-1)}, "bds_pool_min_size must be non-negative"),
+            ({"bds": BdsOptions(pool_max_size=0)}, "bds_pool_max_size must be greater"),
+            (
+                {"bds": BdsOptions(pool_min_size=3, pool_max_size=2)},
+                "bds_pool_min_size must be less than or equal",
+            ),
+            ({"bds": BdsOptions(statement_timeout_ms=-1)}, "bds_statement_timeout_ms must be"),
+            ({"bds": BdsOptions(acquire_timeout_ms=-1)}, "bds_acquire_timeout_ms must be"),
+            ({"bds": BdsOptions(queue_max_size=0)}, "bds_queue_max_size must be greater"),
+            ({"bds": BdsOptions(catchup_poll_seconds=0)}, "bds_catchup_poll_seconds must be"),
+            ({"bds": BdsOptions(spool_warn_entries=-1)}, "bds_spool_warn_entries must be"),
+            ({"bds": BdsOptions(spool_warn_bytes=-1)}, "bds_spool_warn_bytes must be"),
+            ({"bds": BdsOptions(disk_free_warn_bytes=-1)}, "bds_disk_free_warn_bytes must be"),
+        )
+        for overrides, message in cases:
+            with self.subTest(message=message, overrides=overrides):
+                with self.assertRaisesRegex(ValueError, message):
+                    render_node_configs(options=_node_options(**overrides))
+
+    def test_render_config_accepts_boundary_runtime_settings(self):
+        for overrides in (
+            {"blocks_to_keep": 1},
+            {"metrics": MetricsOptions(port=1, bds_refresh_seconds=0.5)},
+            {"metrics": MetricsOptions(port=65535)},
+            {"pending_nonce_reservation_ttl_seconds": 0, "max_pending_nonces_per_sender": 1},
+            {"bds": BdsOptions(port=1, pool_min_size=4, pool_max_size=4)},
+            {"bds": BdsOptions(port=65535)},
+        ):
+            with self.subTest(overrides=overrides):
+                render_node_configs(options=_node_options(**overrides))
+
+    def test_render_config_rejects_a_dsn_carrying_a_password(self):
+        with self.assertRaisesRegex(ValueError, "bds.dsn must not contain a password"):
+            render_xian_config(
+                options=_node_options(bds=BdsOptions(dsn="postgresql://u:pw@db/xian"))
+            )
 
     def test_render_config_applies_bds_settings(self):
         xian_config = render_xian_config(
@@ -188,7 +247,7 @@ class NodeSetupTests(unittest.TestCase):
                     port=5544,
                     database="xian_index",
                     user="indexer",
-                    password="secret",
+                    password_file="/run/secrets/custom",
                     pool_min_size=2,
                     pool_max_size=6,
                     statement_timeout_ms=5000,
@@ -210,7 +269,8 @@ class NodeSetupTests(unittest.TestCase):
         self.assertEqual(xian_config["bds"]["port"], 5544)
         self.assertEqual(xian_config["bds"]["database"], "xian_index")
         self.assertEqual(xian_config["bds"]["user"], "indexer")
-        self.assertEqual(xian_config["bds"]["password"], "secret")
+        self.assertEqual(xian_config["bds"]["password_file"], "/run/secrets/custom")
+        self.assertNotIn("password", xian_config["bds"])
         self.assertEqual(xian_config["bds"]["pool_min_size"], 2)
         self.assertEqual(xian_config["bds"]["pool_max_size"], 6)
         self.assertEqual(xian_config["bds"]["statement_timeout_ms"], 5000)

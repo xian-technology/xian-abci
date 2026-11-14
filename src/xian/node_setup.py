@@ -13,6 +13,7 @@ from xian_runtime_types.encoding import encode_wire, loads_wire_json
 
 from xian import toml_utils
 from xian.execution_policy import VM_EXECUTION_MODE
+from xian.services.bds.config import validate_dsn
 
 DEFAULT_COMETBFT_CONFIG_TOML = """
 version = "0.39.3"
@@ -157,26 +158,6 @@ simulation_timeout_ms = 3000
 pending_nonce_reservation_ttl_seconds = 60.0
 max_pending_nonces_per_sender = 128
 
-[bds]
-dsn = ""
-host = ""
-port = 5432
-database = "xian"
-user = ""
-password = ""
-pool_min_size = 1
-pool_max_size = 10
-statement_timeout_ms = 0
-acquire_timeout_ms = 10000
-application_name = "xian-bds"
-queue_max_size = 128
-catchup_enabled = true
-catchup_poll_seconds = 1.0
-rpc_url = ""
-spool_dir = ""
-spool_warn_entries = 256
-spool_warn_bytes = 536870912
-disk_free_warn_bytes = 2147483648
 """.strip()
 
 SUPPORTED_BLOCK_POLICY_MODES = {"on_demand", "idle_interval", "periodic"}
@@ -228,14 +209,23 @@ class SimulationOptions:
     max_chi: int | None = None
 
 
+# Where the containerized node reads the BDS password: the Docker secret that
+# xian-stack and xian-deploy mount from one owner-only host file, which the
+# Postgres service also reads (POSTGRES_PASSWORD_FILE).
+BDS_PASSWORD_SECRET_PATH = "/run/secrets/xian_bds_password"
+
+
 @dataclass(frozen=True, slots=True)
 class BdsOptions:
+    """[bds] in xian.toml; the defaults name the Postgres service of the
+    xian-stack and xian-deploy compose projects."""
+
     dsn: str = ""
-    host: str = ""
+    host: str = "postgres"
     port: int = 5432
     database: str = "xian"
-    user: str = ""
-    password: str = ""
+    user: str = "xian"
+    password_file: str = BDS_PASSWORD_SECRET_PATH
     pool_min_size: int = 1
     pool_max_size: int = 10
     statement_timeout_ms: int = 0
@@ -244,7 +234,8 @@ class BdsOptions:
     queue_max_size: int = 128
     catchup_enabled: bool = True
     catchup_poll_seconds: float = 1.0
-    rpc_url: str = ""
+    # Catch-up reads blocks from the node's own CometBFT RPC (integrated image).
+    rpc_url: str = "http://127.0.0.1:26657"
     spool_dir: str = ""
     spool_warn_entries: int = 256
     spool_warn_bytes: int = 536_870_912
@@ -330,28 +321,34 @@ def validate_node_runtime_settings(options: NodeConfigOptions) -> None:
         raise ValueError("pending_nonce_reservation_ttl_seconds must be non-negative")
     if options.max_pending_nonces_per_sender < 1:
         raise ValueError("max_pending_nonces_per_sender must be greater than zero")
-    if options.bds.port < 1 or options.bds.port > 65535:
+    validate_bds_options(options.bds)
+
+
+# Integer [bds] settings and their lowest valid value.
+_BDS_LOWER_BOUNDS = (
+    ("pool_min_size", 0),
+    ("pool_max_size", 1),
+    ("statement_timeout_ms", 0),
+    ("acquire_timeout_ms", 0),
+    ("queue_max_size", 1),
+    ("spool_warn_entries", 0),
+    ("spool_warn_bytes", 0),
+    ("disk_free_warn_bytes", 0),
+)
+
+
+def validate_bds_options(bds: BdsOptions) -> None:
+    if bds.port < 1 or bds.port > 65535:
         raise ValueError("bds_port must be between 1 and 65535")
-    if options.bds.pool_min_size < 0:
-        raise ValueError("bds_pool_min_size must be non-negative")
-    if options.bds.pool_max_size < 1:
-        raise ValueError("bds_pool_max_size must be greater than zero")
-    if options.bds.pool_min_size > options.bds.pool_max_size:
+    validate_dsn(bds.dsn)
+    for name, minimum in _BDS_LOWER_BOUNDS:
+        if getattr(bds, name) < minimum:
+            bound = "non-negative" if minimum == 0 else "greater than zero"
+            raise ValueError(f"bds_{name} must be {bound}")
+    if bds.pool_min_size > bds.pool_max_size:
         raise ValueError("bds_pool_min_size must be less than or equal to bds_pool_max_size")
-    if options.bds.statement_timeout_ms < 0:
-        raise ValueError("bds_statement_timeout_ms must be non-negative")
-    if options.bds.acquire_timeout_ms < 0:
-        raise ValueError("bds_acquire_timeout_ms must be non-negative")
-    if options.bds.queue_max_size < 1:
-        raise ValueError("bds_queue_max_size must be greater than zero")
-    if options.bds.catchup_poll_seconds <= 0:
+    if bds.catchup_poll_seconds <= 0:
         raise ValueError("bds_catchup_poll_seconds must be greater than zero")
-    if options.bds.spool_warn_entries < 0:
-        raise ValueError("bds_spool_warn_entries must be non-negative")
-    if options.bds.spool_warn_bytes < 0:
-        raise ValueError("bds_spool_warn_bytes must be non-negative")
-    if options.bds.disk_free_warn_bytes < 0:
-        raise ValueError("bds_disk_free_warn_bytes must be non-negative")
 
 
 def resolve_app_logging_settings(
@@ -576,7 +573,7 @@ def render_node_configs(
         "port": options.bds.port,
         "database": options.bds.database,
         "user": options.bds.user,
-        "password": options.bds.password,
+        "password_file": options.bds.password_file,
         "pool_min_size": options.bds.pool_min_size,
         "pool_max_size": options.bds.pool_max_size,
         "statement_timeout_ms": options.bds.statement_timeout_ms,
@@ -606,7 +603,7 @@ def load_genesis(path: Path) -> dict[str, Any]:
     return loads_wire_json(path.read_bytes())
 
 
-# CometBFT keeps key material owner-only; xian.toml can hold the BDS password.
+# CometBFT keeps key material owner-only.
 SECRET_FILE_MODE = 0o600
 PRIVATE_DIR_MODE = 0o700
 

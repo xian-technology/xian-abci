@@ -40,6 +40,7 @@ class DB:
             "min_size": self.cfg.pool_min_size,
             "max_size": self.cfg.pool_max_size,
             "server_settings": server_settings,
+            "password": self.cfg.read_password(),
         }
         if self.cfg.dsn:
             kwargs["dsn"] = self.cfg.dsn
@@ -48,7 +49,6 @@ class DB:
         kwargs.update(
             {
                 "user": self.cfg.user,
-                "password": self.cfg.password,
                 "database": self.cfg.database,
                 "host": self.cfg.host,
                 "port": self.cfg.port,
@@ -59,7 +59,7 @@ class DB:
     def _admin_connect_kwargs(self) -> dict[str, object]:
         return {
             "user": self.cfg.user,
-            "password": self.cfg.password,
+            "password": self.cfg.read_password(),
             "database": "postgres",
             "host": self.cfg.host,
             "port": self.cfg.port,

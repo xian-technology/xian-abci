@@ -32,6 +32,26 @@ class ConfigureNodeCliTests(unittest.TestCase):
             with self.subTest(flag=flag), self.assertRaises(SystemExit):
                 build_parser().parse_args(["--moniker", "validator-1", flag])
 
+    def test_parser_rejects_the_removed_bds_password_flag(self):
+        with self.assertRaises(SystemExit):
+            build_parser().parse_args(["--moniker", "validator-1", "--bds-password", "secret"])
+
+    def test_bds_defaults_target_the_containerized_postgres_service(self):
+        args = build_parser().parse_args(["--moniker", "validator-1"])
+
+        self.assertEqual(args.bds_host, "postgres")
+        self.assertEqual(args.bds_user, "xian")
+        self.assertEqual(args.bds_database, "xian")
+        self.assertEqual(args.bds_password_file, "/run/secrets/xian_bds_password")
+        self.assertEqual(args.bds_rpc_url, "http://127.0.0.1:26657")
+
+    def test_parser_accepts_a_bds_password_file(self):
+        args = build_parser().parse_args(
+            ["--moniker", "validator-1", "--bds-password-file", "/run/secrets/custom"]
+        )
+
+        self.assertEqual(args.bds_password_file, "/run/secrets/custom")
+
     def test_parser_accepts_current_chain_setup_flags(self):
         args = build_parser().parse_args(
             [

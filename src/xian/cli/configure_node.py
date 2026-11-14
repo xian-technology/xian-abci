@@ -20,9 +20,15 @@ from xian.node_setup import (
     StateSyncOptions,
 )
 
+BDS_DEFAULTS = BdsOptions()
+
 
 def build_parser() -> ArgumentParser:
-    parser = ArgumentParser(description="Configure an initialized CometBFT home")
+    # No prefix matching: a removed flag such as --bds-password must fail, not
+    # silently become --bds-password-file.
+    parser = ArgumentParser(
+        description="Configure an initialized CometBFT home", allow_abbrev=False
+    )
     parser.add_argument(
         "--discover-seed",
         action="append",
@@ -365,7 +371,7 @@ def build_parser() -> ArgumentParser:
         type=str,
         help="PostgreSQL host for the optional Blockchain Data Service",
         required=False,
-        default="",
+        default=BDS_DEFAULTS.host,
     )
     parser.add_argument(
         "--bds-port",
@@ -379,21 +385,24 @@ def build_parser() -> ArgumentParser:
         type=str,
         help="PostgreSQL database name for the optional Blockchain Data Service",
         required=False,
-        default="xian",
+        default=BDS_DEFAULTS.database,
     )
     parser.add_argument(
         "--bds-user",
         type=str,
         help="PostgreSQL user for the optional Blockchain Data Service",
         required=False,
-        default="",
+        default=BDS_DEFAULTS.user,
     )
     parser.add_argument(
-        "--bds-password",
+        "--bds-password-file",
         type=str,
-        help="PostgreSQL password for the optional Blockchain Data Service",
+        help=(
+            "file the node reads the PostgreSQL password from (path as the node "
+            "sees it; empty for no password)"
+        ),
         required=False,
-        default="",
+        default=BDS_DEFAULTS.password_file,
     )
     parser.add_argument(
         "--bds-pool-min-size",
@@ -456,7 +465,7 @@ def build_parser() -> ArgumentParser:
         type=str,
         help="explicit CometBFT RPC URL for BDS catchup",
         required=False,
-        default="",
+        default=BDS_DEFAULTS.rpc_url,
     )
     parser.add_argument(
         "--bds-spool-dir",
@@ -578,7 +587,7 @@ def main(argv: list[str] | None = None) -> int:
                     port=args.bds_port,
                     database=args.bds_database,
                     user=args.bds_user,
-                    password=args.bds_password,
+                    password_file=args.bds_password_file,
                     pool_min_size=args.bds_pool_min_size,
                     pool_max_size=args.bds_pool_max_size,
                     statement_timeout_ms=args.bds_statement_timeout_ms,

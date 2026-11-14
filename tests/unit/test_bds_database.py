@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from xian.services.bds.config import BdsConfig
@@ -67,16 +69,22 @@ class BdsDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(db._acquire_timeout_seconds())
 
     def test_pool_kwargs_with_dsn_skips_discrete_params(self):
-        db = DB(BdsConfig(dsn="postgresql://user:pw@db:5432/xian"))
+        db = DB(BdsConfig(dsn="postgresql://user@db:5432/xian"))
 
         kwargs = db._pool_kwargs()
 
-        self.assertEqual(kwargs["dsn"], "postgresql://user:pw@db:5432/xian")
+        self.assertEqual(kwargs["dsn"], "postgresql://user@db:5432/xian")
+        self.assertEqual(kwargs["password"], "")
         self.assertNotIn("host", kwargs)
         self.assertNotIn("user", kwargs)
         self.assertEqual(
             kwargs["server_settings"], {"application_name": "xian-bds"}
         )
+
+    def test_pool_kwargs_includes_the_shortest_statement_timeout(self):
+        kwargs = DB(BdsConfig(statement_timeout_ms=1))._pool_kwargs()
+
+        self.assertEqual(kwargs["server_settings"]["statement_timeout"], "1ms")
 
     def test_pool_kwargs_includes_statement_timeout_when_configured(self):
         db = DB(BdsConfig(statement_timeout_ms=750))
@@ -89,8 +97,21 @@ class BdsDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["host"], "127.0.0.1")
         self.assertEqual(kwargs["database"], "xian")
 
+    def test_every_connection_uses_the_password_file(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            password_file = Path(tmp_dir) / "bds-password"
+            password_file.write_text("secret\n", encoding="utf-8")
+            discrete = DB(BdsConfig(user="admin", password_file=str(password_file)))
+            with_dsn = DB(
+                BdsConfig(dsn="postgresql://admin@db/xian", password_file=str(password_file))
+            )
+
+            self.assertEqual(discrete._pool_kwargs()["password"], "secret")
+            self.assertEqual(discrete._admin_connect_kwargs()["password"], "secret")
+            self.assertEqual(with_dsn._pool_kwargs()["password"], "secret")
+
     def test_admin_connect_kwargs_targets_postgres_database(self):
-        db = DB(BdsConfig(user="admin", password="secret"))
+        db = DB(BdsConfig(user="admin"))
 
         kwargs = db._admin_connect_kwargs()
 
@@ -108,7 +129,7 @@ class BdsDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 DB._validate_database_name(bad_name)
 
     async def test_init_pool_with_dsn_skips_bootstrap(self):
-        db = DB(BdsConfig(dsn="postgresql://user:pw@db:5432/xian"))
+        db = DB(BdsConfig(dsn="postgresql://user@db:5432/xian"))
         pool = object()
 
         with (
