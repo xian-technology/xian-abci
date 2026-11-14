@@ -2,13 +2,16 @@ import os
 import time
 import unittest
 from datetime import UTC, datetime
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 from contracting.local import ContractingClient
+from xian_runtime_types.time import Datetime
 
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
+from xian.utils.block import nanoseconds_to_utc_datetime
+from xian.utils.tx import transaction_bytes
 
 
 def create_block_meta(dt: datetime = datetime.now()):
@@ -51,6 +54,12 @@ class TestProcessor(unittest.TestCase):
 
         self.proxy = self.c.get_contract_proxy("proxy")
 
+    def _process(self, tx, fee_policy):
+        [response] = self.tx_processor.process_block(
+            [tx], [transaction_bytes(tx)], fee_policy=fee_policy
+        )
+        return response
+
     def tearDown(self):
         # Called after every test, ensures each test starts with a clean slate and is isolated from others
         self.c.flush()
@@ -66,8 +75,8 @@ class TestProcessor(unittest.TestCase):
             value=100000,
         )
         # Now transfer
-        res = self.tx_processor.process_tx(
-            tx={
+        res = self._process(
+            {
                 "payload": {
                     "contract": "currency_1",
                     "function": "transfer_from",
@@ -82,7 +91,7 @@ class TestProcessor(unittest.TestCase):
                 "metadata": {"signature": "abc"},
                 "b_meta": create_block_meta(),
             },
-            fee_policy=TxFeePolicy.system_unmetered(),
+            TxFeePolicy.system_unmetered(),
         )
         expected_events = [
             {
@@ -115,8 +124,8 @@ class TestProcessor(unittest.TestCase):
             key="currency.balances:bob",
             value=100000,
         )
-        res = self.tx_processor.process_tx(
-            tx={
+        res = self._process(
+            {
                 "payload": {
                     "contract": "proxy",
                     "function": "send_multiple",
@@ -130,7 +139,7 @@ class TestProcessor(unittest.TestCase):
                 "metadata": {"signature": "abc"},
                 "b_meta": create_block_meta(),
             },
-            fee_policy=TxFeePolicy.paid_metered(),
+            TxFeePolicy.paid_metered(),
         )
 
         expected_events = [
@@ -178,11 +187,11 @@ class TestProcessor(unittest.TestCase):
 
         self.assertEqual(res["tx_result"]["events"], expected_events)
 
-    def test_get_now_from_nanos_preserves_subsecond_precision(self):
+    def test_block_time_from_nanos_preserves_subsecond_precision(self):
         dt = datetime(2026, 3, 19, 12, 34, 56, 789123, tzinfo=UTC)
         nanos = int(dt.timestamp()) * 1_000_000_000 + 789_123_456
 
-        now = self.tx_processor.get_now_from_nanos(nanos)
+        now = Datetime._from_datetime(nanoseconds_to_utc_datetime(nanos))
 
         self.assertEqual(now.year, 2026)
         self.assertEqual(now.month, 3)
@@ -192,22 +201,7 @@ class TestProcessor(unittest.TestCase):
         self.assertEqual(now.second, 56)
         self.assertEqual(now.microsecond, 789123)
 
-    def test_failed_tx_chi_deduction_floors_balance_at_zero(self):
-        self.d.set("currency.balances:bob", 1)
-
-        writes, paid_chi = self.tx_processor.determine_writes_from_output(
-            status_code=1,
-            ouput_writes={},
-            chi_used=100,
-            chi_cost=20,
-            tx_sender="bob",
-        )
-
-        self.assertEqual(writes, {"currency.balances:bob": 0})
-        # The whole balance is paid: 1 token at 20 chi per token.
-        self.assertEqual(paid_chi, 20)
-
-    def test_process_tx_meters_transaction_bytes(self):
+    def test_process_block_meters_transaction_bytes(self):
         self.d.set("currency.balances:bob", 100000)
         self.d.set("currency_1.balances:bob", 100000)
 
@@ -227,13 +221,13 @@ class TestProcessor(unittest.TestCase):
             "metadata": {"signature": "a" * 5001},
         }
 
-        base_result = self.tx_processor.process_tx(
-            tx=base_tx,
-            fee_policy=TxFeePolicy.paid_metered(),
+        base_result = self._process(
+            base_tx,
+            TxFeePolicy.paid_metered(),
         )
-        larger_result = self.tx_processor.process_tx(
-            tx=larger_tx,
-            fee_policy=TxFeePolicy.paid_metered(),
+        larger_result = self._process(
+            larger_tx,
+            TxFeePolicy.paid_metered(),
         )
 
         self.assertGreater(
@@ -241,14 +235,13 @@ class TestProcessor(unittest.TestCase):
             base_result["tx_result"]["chi_used"],
         )
 
-    def test_free_metered_process_tx_does_not_debit_native_balance(self):
+    def test_free_metered_execution_does_not_debit_native_balance(self):
         self.d.set("chi_cost.S:value", 20)
         self.d.set("currency.balances:bob", 100000)
         self.d.set("currency_1.balances:bob", 100000)
-        rewards_handler = Mock()
 
-        result = self.tx_processor.process_tx(
-            tx={
+        result = self._process(
+            {
                 "payload": {
                     "contract": "currency_1",
                     "function": "transfer",
@@ -259,11 +252,10 @@ class TestProcessor(unittest.TestCase):
                 "metadata": {"signature": "abc"},
                 "b_meta": create_block_meta(),
             },
-            fee_policy=TxFeePolicy.free_metered(
+            TxFeePolicy.free_metered(
                 max_tx_chi=1000,
                 max_block_chi=1000,
             ),
-            rewards_handler=rewards_handler,
         )
 
         self.assertEqual(result["tx_result"]["status"], 0)
@@ -273,7 +265,7 @@ class TestProcessor(unittest.TestCase):
             "currency.balances:bob",
             {write["key"] for write in result["tx_result"]["state"]},
         )
-        rewards_handler.build_tx_reward_outputs.assert_not_called()
+        self.assertIsNone(result["tx_result"]["rewards"])
 
     def test_reset_block_cache_clears_verified_proof_cache(self):
         with patch("xian.processor.zk_bridge.clear_verified_proof_cache") as clear_cache:

@@ -7,7 +7,7 @@ from contracting.storage.driver import Driver
 
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
-from xian.rewards import RewardsHandler
+from xian.utils.tx import transaction_bytes
 
 ROOT = Path(__file__).resolve().parents[3]
 PROBE = """import currency
@@ -45,7 +45,7 @@ def make_processor(home, *, balance=100, rate=100):
     driver.set("rewards.S:value", [1, 0, 0, 0])
     driver.commit()
     client = SimpleNamespace(raw_driver=driver, get_var=driver.get_var)
-    return TxProcessor(client=client), RewardsHandler(client)
+    return TxProcessor(client=client)
 
 
 def tx(*, sender="alice", contract="con_probe", function="record", kwargs=None, budget=1000):
@@ -63,9 +63,11 @@ def tx(*, sender="alice", contract="con_probe", function="record", kwargs=None, 
     }
 
 
-def process(processor, rewards, transaction, *, policy=None):
-    return processor.process_tx(
-        transaction,
-        rewards_handler=rewards,
+def process(processor, transaction, *, policy=None):
+    """The block executor's response for ``transaction`` alone in a block."""
+    [response] = processor.process_block(
+        [transaction],
+        [transaction_bytes(transaction)],
         fee_policy=policy or TxFeePolicy.paid_metered(),
     )
+    return response

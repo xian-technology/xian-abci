@@ -14,7 +14,9 @@ from contracting.runtime_features import set_driver_runtime_features
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_vm_core import TxRun
 
-from xian.execution_engine import build_vm_runtime, execute_vm_transaction
+from xian.execution_engine import build_vm_runtime
+from xian.fee_policy import TxFeePolicy
+from xian.processor import TxProcessor
 from xian.simulator import (
     QuerySimulationService,
     TransactionSimulator,
@@ -22,7 +24,7 @@ from xian.simulator import (
     estimate_to_fixpoint,
 )
 from xian.utils.block import set_latest_block_nanos
-from xian.utils.tx import canonical_transaction_size_bytes
+from xian.utils.tx import transaction_bytes
 
 
 def _driver(storage_home: Path | None = None):
@@ -333,23 +335,15 @@ def test_a_large_deployment_estimate_funds_the_actual_transaction_bytes(chain):
             "nonce": 17,
             "chi_supplied": estimate["chi_used"],
         },
+        "b_meta": {"nanos": 1, "height": 1, "hash": "ab", "chain_id": "test-chain"},
     }
-    actual = execute_vm_transaction(
-        simulator.execution_runtime,
-        chain.raw_driver,
-        sender=payload["sender"],
-        contract_name=payload["contract"],
-        function_name=payload["function"],
-        kwargs=payload["kwargs"],
-        environment=simulator._make_environment(payload),
-        chi_budget=estimate["chi_used"],
-        chi_cost=20,
-        meter=True,
-        transaction_size_bytes=canonical_transaction_size_bytes(transaction),
-        apply_metering_writes=False,
+    # The block executor runs it with exactly the estimate (metered, no fees).
+    [response] = TxProcessor(chain).process_block(
+        [transaction], [transaction_bytes(transaction)], fee_policy=TxFeePolicy.free_metered()
     )
-    assert actual.output.status_code == 0, actual.output.result
-    assert "con_large_estimate.__source__" in actual.writes
+    result = response["tx_result"]
+    assert result["status"] == 0, result["result"]
+    assert "con_large_estimate.__source__" in {write["key"] for write in result["state"]}
 
 
 ZK_PROBE = """@export

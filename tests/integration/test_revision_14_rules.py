@@ -15,7 +15,6 @@ from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
-from xian.rewards import RewardsHandler
 from xian.utils.encoding import encode_abci_json
 from xian.utils.tx import transaction_bytes
 
@@ -51,11 +50,11 @@ def _chain(home, *, currency=None):
     driver.set("validators.active_validators", ["validator"])
     driver.set("rewards.S:value", [ContractingDecimal("0.7"), 0, 0, ContractingDecimal("0.3")])
     driver.commit()
-    return client, TxProcessor(client=client), RewardsHandler(client)
+    return client, TxProcessor(client=client)
 
 
 def _run(chain, contract, function, *, chi=5_000, kwargs=None):
-    client, processor, rewards = chain
+    client, processor = chain
     tx = {
         "payload": {
             "chain_id": "xian-local",
@@ -78,7 +77,6 @@ def _run(chain, contract, function, *, chi=5_000, kwargs=None):
         [tx],
         [transaction_bytes(tx)],
         fee_policy=TxFeePolicy.paid_metered(),
-        rewards_handler=rewards,
     )
     client.raw_driver.commit()
     return json.loads(encode_abci_json(response["tx_result"]))

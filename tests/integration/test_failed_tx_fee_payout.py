@@ -6,8 +6,7 @@ share to ``foundation.owner``, the burn share burned. A failed call earns no
 developer reward, so the developer share goes to the validators, as it does
 for a contract without a developer. A sender who cannot cover the failure fee
 pays its whole balance, and exactly that is paid out. Native supply only
-shrinks by the burn share. The per-transaction path and the Rust block path
-must agree on all of it.
+shrinks by the burn share.
 """
 
 from __future__ import annotations
@@ -22,7 +21,6 @@ from xian_runtime_types.decimal import ContractingDecimal
 from xian.utils.tx import transaction_bytes
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
-from xian.rewards import RewardsHandler
 
 pytest.importorskip("xian_vm_core")
 
@@ -60,8 +58,8 @@ BALANCES = {
 }
 
 
-@pytest.fixture(params=["python", "rust"])
-def chain(request, tmp_path, monkeypatch):
+@pytest.fixture
+def chain(tmp_path):
     client = ContractingClient(vm_profile="xian_vm_v2", storage_home=tmp_path / "state")
     driver = client.raw_driver
     driver.set_contract_from_source(
@@ -78,28 +76,16 @@ def chain(request, tmp_path, monkeypatch):
     driver.set("rewards.S:value", [ContractingDecimal(part) for part in SPLIT])
     driver.commit()
     processor = TxProcessor(client=client)
-    rewards = RewardsHandler(client)
-    python_runs = []
-    process_tx = processor.process_tx
-
-    def counted(tx, *args, **kwargs):
-        python_runs.append(tx["payload"]["function"])
-        return process_tx(tx, *args, **kwargs)
-
-    monkeypatch.setattr(processor, "process_tx", counted)
 
     def run(txs, policy=None):
         policy = policy or TxFeePolicy.paid_metered()
-        if request.param == "rust":
-            responses = processor.process_block(
-                txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy, rewards_handler=rewards
-            )
-        else:
-            responses = [processor.process_tx(tx, rewards, fee_policy=policy) for tx in txs]
+        responses = processor.process_block(
+            txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy
+        )
         driver.commit()
         return [response["tx_result"] for response in responses]
 
-    yield run, driver, request.param, python_runs
+    yield run, driver
     driver.close()
 
 
@@ -137,7 +123,7 @@ def _assert_paid_out(driver, fee, validators):
 
 
 def test_failed_transaction_fee_goes_to_validators_and_foundation(chain):
-    run, driver, path, python_runs = chain
+    run, driver = chain
     supply = _supply(driver)
 
     [result] = run([_tx("alice", "fail")])
@@ -153,12 +139,10 @@ def test_failed_transaction_fee_goes_to_validators_and_foundation(chain):
     }
     assert _supply(driver) == supply - fee * BURN_SHARE
     assert driver.get("con_probe.v") is None
-    if path == "rust":
-        assert python_runs == []
 
 
 def test_a_successful_transaction_still_pays_its_developer(chain):
-    run, driver, _path, _runs = chain
+    run, driver = chain
     supply = _supply(driver)
 
     [result] = run([_tx("alice", "ok")])
@@ -171,7 +155,7 @@ def test_a_successful_transaction_still_pays_its_developer(chain):
 
 
 def test_a_sender_who_cannot_cover_the_failure_fee_pays_out_its_whole_balance(chain):
-    run, driver, _path, _runs = chain
+    run, driver = chain
     supply = _supply(driver)
 
     # dave cannot reserve the budget; the 5-chi base fee (0.25) exceeds his
@@ -187,7 +171,7 @@ def test_a_sender_who_cannot_cover_the_failure_fee_pays_out_its_whole_balance(ch
 
 
 def test_a_balance_of_exactly_the_failure_fee_is_paid_out_whole(chain):
-    run, driver, _path, _runs = chain
+    run, driver = chain
 
     # frank cannot reserve the budget; the base fee takes his whole balance.
     [result] = run([_tx("frank", "fail")])
@@ -200,7 +184,7 @@ def test_a_balance_of_exactly_the_failure_fee_is_paid_out_whole(chain):
 
 
 def test_a_validator_is_charged_and_paid_by_its_own_failure(chain):
-    run, driver, _path, _runs = chain
+    run, driver = chain
     driver.set("currency.balances:val1", ContractingDecimal("10"))
     driver.commit()
     supply = _supply(driver)
@@ -214,7 +198,7 @@ def test_a_validator_is_charged_and_paid_by_its_own_failure(chain):
 
 
 def test_a_sender_without_balance_pays_out_nothing(chain):
-    run, driver, _path, _runs = chain
+    run, driver = chain
     supply = _supply(driver)
 
     [result] = run([_tx("carol", "fail")])
@@ -227,7 +211,7 @@ def test_a_sender_without_balance_pays_out_nothing(chain):
 
 
 def test_a_failure_after_the_validator_set_changed_pays_the_new_set(chain):
-    run, driver, _path, _runs = chain
+    run, driver = chain
 
     rotate, failed = run([_tx("alice", "rotate", contract="validators"), _tx("alice", "fail")])
 
@@ -240,7 +224,7 @@ def test_a_failure_after_the_validator_set_changed_pays_the_new_set(chain):
 
 
 def test_supply_shrinks_only_by_the_burn_share_in_a_mixed_block(chain):
-    run, driver, _path, _runs = chain
+    run, driver = chain
     supply = _supply(driver)
     transfer = _tx(
         "alice",
@@ -276,7 +260,7 @@ def test_supply_shrinks_only_by_the_burn_share_in_a_mixed_block(chain):
     ],
 )
 def test_modes_without_fee_rewards_pay_nothing_for_a_failure(chain, policy):
-    run, driver, _path, _runs = chain
+    run, driver = chain
     supply = _supply(driver)
 
     [result] = run([_tx("alice", "fail")], policy)

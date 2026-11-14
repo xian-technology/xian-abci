@@ -6,101 +6,103 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from contracting.artifacts import build_contract_artifacts
-from contracting.compilation.compiler import ContractingCompiler
 from contracting.local import ContractingClient
-from contracting.runtime_features import set_driver_runtime_features
+from contracting.runtime_features import (
+    RUNTIME_FEATURE_ZK,
+    runtime_feature_without_state,
+    set_driver_runtime_features,
+)
 from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.decimal import ContractingDecimal
-from xian_runtime_types.encoding import safe_repr
 from xian_runtime_types.time import Datetime
+from xian_vm_core import execute_tx
 
 from xian.execution_engine import (
-    HOST_FAILURE_MESSAGE,
     _load_vm_runtime_bindings,
     build_vm_runtime,
-    clear_prepared_contract_cache,
-    execute_vm_contract,
-    execute_vm_transaction,
-    prepare_vm_contract,
-    vm_metering_writes,
+    vm_call_context,
 )
+from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.execution_policy import TX_ADMISSION_REVISION, VM_EXECUTION_REVISION
 from xian.fee_policy import TxFeePolicy
 from xian.nonce import NonceStorage
 from xian.processor import TxProcessor
-from xian.utils.encoding import normalize_for_abci_json, stringify_decimals
-from xian.utils.tx import canonical_json, tx_hash_from_tx, validate_transaction_after_static
+from xian.utils.tx import (
+    canonical_json,
+    transaction_bytes,
+    tx_hash_from_tx,
+    validate_transaction_after_static,
+)
 
 
-def augment_execution_output_with_driver_state(
-    output: dict,
+def run_call(
+    driver,
     *,
-    before_state: dict | None,
-    after_state: dict,
-) -> dict:
-    augmented = dict(output)
-    merged_writes = dict(augmented.get("writes", {}))
-    previous_pending = {} if before_state is None else before_state["pending_writes"]
-    for key, value in after_state["pending_writes"].items():
-        if key not in previous_pending or _normalize_value(
-            previous_pending[key]
-        ) != _normalize_value(value):
-            merged_writes[key] = value
-    augmented["writes"] = merged_writes
-    return augmented
-
-
-def compare_execution_results(
-    authoritative_output: dict,
-    native_output,
-    *,
-    ignore_write_keys: set[str] | None = None,
-) -> dict:
-    ignored = ignore_write_keys or set()
-    expected_writes = {
-        key: _normalize_value(value)
-        for key, value in sorted(authoritative_output.get("writes", {}).items())
-        if key not in ignored
+    sender,
+    contract_name,
+    function_name,
+    kwargs,
+    environment,
+    meter,
+    chi_budget=0,
+    transaction_size_bytes=0,
+    charge_fees=False,
+    fork_values=None,
+):
+    """One call by the block executor's rules on a fork of the driver's
+    state (with ``fork_values`` written into the fork), without fees unless
+    asked; the effects are returned, never staged."""
+    call = {
+        "sender": sender,
+        "contract_name": contract_name,
+        "function_name": function_name,
+        "kwargs": kwargs,
     }
-    actual_writes = {
-        key: _normalize_value(value)
-        for key, value in sorted(native_output.writes.items())
-        if key not in ignored
-    }
-    mismatches = {}
-    fields = {
-        "status_code": (
-            authoritative_output["status_code"],
-            native_output.status_code,
-        ),
-        "result": (
-            _normalize_value(authoritative_output["result"]),
-            _normalize_value(native_output.result),
-        ),
-        "writes": (expected_writes, actual_writes),
-        "events": (
-            _normalize_value(authoritative_output.get("events", [])),
-            _normalize_value(native_output.events),
-        ),
-    }
-    for field, (expected, actual) in fields.items():
-        if expected != actual:
-            mismatches[field] = (expected, actual)
-    return mismatches
+    storage, overlay = driver.committed_storage()
+    fork = overlay.snapshot()
+    fork.write_values(list((fork_values or {}).items()))
+    return execute_tx(
+        storage,
+        fork,
+        **call,
+        context=vm_call_context(**call, environment=environment),
+        meter=meter,
+        charge_fees=charge_fees,
+        chi_budget=chi_budget,
+        transaction_size_bytes=transaction_size_bytes,
+        protected_keys=(EXECUTION_POLICY_KEY,),
+        zk_enabled_without_state=runtime_feature_without_state(driver, RUNTIME_FEATURE_ZK),
+    )
 
 
-def _normalize_value(value):
-    if isinstance(value, BaseException):
-        return safe_repr(value)
-    return stringify_decimals(normalize_for_abci_json(value))
+def _process(processor, tx):
+    """The response of a paid transaction alone in a block."""
+    [response] = processor.process_block(
+        [tx], [transaction_bytes(tx)], fee_policy=TxFeePolicy.paid_metered()
+    )
+    return response
+
+
+def run_paid(driver, *, chi_budget, transaction_size_bytes, **call):
+    """One paid call by the block executor's rules (fee reserved, refunded
+    and charged at a chi rate of 20) on a fork of the driver's state:
+    ``output`` is the run, ``writes`` its effects with the fee."""
+    run = run_call(
+        driver,
+        meter=True,
+        chi_budget=chi_budget,
+        transaction_size_bytes=transaction_size_bytes,
+        charge_fees=True,
+        fork_values={"chi_cost.S:value": 20},
+        **call,
+    )
+    return types.SimpleNamespace(output=run, writes=run.writes, chi_used=run.chi_used)
 
 
 class ExecutionEngineRuntimeTests(unittest.TestCase):
     def setUp(self):
         _load_vm_runtime_bindings.cache_clear()
-        clear_prepared_contract_cache()
 
     def test_native_transactions_reject_private_functions_and_constructor_entrypoints(self):
         source = """counter = Variable()
@@ -156,9 +158,9 @@ def hidden():
                         "height": 1,
                         "chain_id": "xian-local",
                     }
-                    result = TxProcessor(
-                        client=client, execution_runtime=build_vm_runtime()
-                    ).process_tx(tx, fee_policy=policy)
+                    [result] = TxProcessor(client=client).process_block(
+                        [tx], [transaction_bytes(tx)], fee_policy=policy
+                    )
                     self.assertIsNotNone(result["tx_result"])
                     self.assertEqual(result["tx_result"]["status"], 1)
                     self.assertEqual(result["tx_result"]["state"], [])
@@ -210,123 +212,7 @@ def hidden():
         self.assertEqual(runtime.runtime_info["vm_profile"], "xian_vm_v2")
         self.assertEqual(runtime.mode, "xian_vm_v2")
 
-    def test_vm_metering_writes_uses_exact_decimal_division(self):
-        driver = mock.Mock()
-        driver.make_key.return_value = "currency.balances:alice"
-        driver.get.return_value = ContractingDecimal("10000")
-
-        writes = vm_metering_writes(
-            driver,
-            sender="alice",
-            chi_used=10000,
-            chi_cost=3,
-        )
-
-        self.assertEqual(
-            writes["currency.balances:alice"],
-            ContractingDecimal("6666.666666666666666666666666666667"),
-        )
-
-    def test_prepare_vm_contract_recurses_static_imports(self):
-        fake_bindings = types.SimpleNamespace(
-            runtime_info=lambda _profile: {
-                "vm_profile": "xian_vm_v2",
-                "host_catalog_version": "xian_vm_v2_host_v1",
-                "execution_revision": VM_EXECUTION_REVISION,
-                "set_codec": "xian-set-1",
-                "tx_admission_revision": TX_ADMISSION_REVISION,
-            },
-            supports_execution_policy=lambda *_args: True,
-            validate_module_ir=mock.Mock(),
-        )
-
-        with mock.patch(
-            "xian.execution_engine._load_vm_runtime_bindings",
-            return_value=fake_bindings,
-        ):
-            built_runtime = build_vm_runtime()
-            driver = mock.Mock()
-            driver.get_contract_ir.side_effect = lambda name, vm_profile="xian_vm_v2": {
-                "con_parent": (
-                    ContractingCompiler(module_name="con_parent").lower_to_ir_json(
-                        "import con_child\n\n@export\ndef ping():\n    return con_child.ping()\n",
-                        vm_profile="xian_vm_v2",
-                        indent=None,
-                        sort_keys=True,
-                    )
-                ),
-                "con_child": (
-                    ContractingCompiler(module_name="con_child").lower_to_ir_json(
-                        "@export\ndef ping():\n    return 'pong'\n",
-                        vm_profile="xian_vm_v2",
-                        indent=None,
-                        sort_keys=True,
-                    )
-                ),
-            }.get(name)
-            driver.get_contract_source.return_value = None
-            prepared = prepare_vm_contract(
-                built_runtime,
-                driver,
-                "con_parent",
-            )
-
-        self.assertEqual(prepared.contract_name, "con_parent")
-        self.assertEqual(prepared.imported_contracts, ("con_child",))
-        self.assertEqual(fake_bindings.validate_module_ir.call_count, 2)
-        driver.get_contract_source.assert_not_called()
-
-    def test_prepare_vm_contract_accepts_persisted_vm_ir(self):
-        fake_bindings = types.SimpleNamespace(
-            runtime_info=lambda _profile: {
-                "vm_profile": "xian_vm_v2",
-                "host_catalog_version": "xian_vm_v2_host_v1",
-                "execution_revision": VM_EXECUTION_REVISION,
-                "set_codec": "xian-set-1",
-                "tx_admission_revision": TX_ADMISSION_REVISION,
-            },
-            supports_execution_policy=lambda *_args: True,
-            validate_module_ir=mock.Mock(),
-        )
-
-        with mock.patch(
-            "xian.execution_engine._load_vm_runtime_bindings",
-            return_value=fake_bindings,
-        ):
-            runtime = build_vm_runtime()
-
-            driver = mock.Mock()
-            parent_ir = ContractingCompiler(module_name="con_parent").lower_to_ir_json(
-                "import con_child\n\n@export\ndef ping():\n    return con_child.ping()\n",
-                vm_profile="xian_vm_v2",
-                indent=None,
-                sort_keys=True,
-            )
-            child_ir = ContractingCompiler(module_name="con_child").lower_to_ir_json(
-                "@export\ndef ping():\n    return 'pong'\n",
-                vm_profile="xian_vm_v2",
-                indent=None,
-                sort_keys=True,
-            )
-            driver.get_contract_ir.side_effect = lambda name, vm_profile="xian_vm_v2": {
-                "con_parent": parent_ir,
-                "con_child": child_ir,
-            }.get(name)
-            driver.get_contract_source.return_value = None
-
-            prepared = prepare_vm_contract(
-                runtime,
-                driver,
-                "con_parent",
-            )
-
-        self.assertEqual(prepared.contract_name, "con_parent")
-        self.assertEqual(prepared.imported_contracts, ("con_child",))
-        self.assertEqual(fake_bindings.validate_module_ir.call_count, 2)
-        driver.get_contract_source.assert_not_called()
-
     def test_execute_native_submission_deploy_stages_contract_artifacts(self):
-        runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
         self.addCleanup(driver.close)
         driver.flush_full()
@@ -340,8 +226,7 @@ def hidden():
             "def ping():\n"
             "    return v.get()\n"
         )
-        output = execute_vm_contract(
-            runtime,
+        output = run_call(
             driver,
             sender="sys",
             contract_name="submission",
@@ -372,7 +257,6 @@ def hidden():
         driver.flush_full()
 
     def test_execute_native_submission_rejects_submitted_ir_artifacts(self):
-        runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
         self.addCleanup(driver.close)
         driver.flush_full()
@@ -387,8 +271,7 @@ def hidden():
             "hashes": {},
         }
 
-        output = execute_vm_contract(
-            runtime,
+        output = run_call(
             driver,
             sender="sys",
             contract_name="submission",
@@ -413,15 +296,13 @@ def hidden():
         driver.flush_full()
 
     def test_execute_native_submission_rejects_zk_contract_when_feature_disabled(self):
-        runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
         self.addCleanup(driver.close)
         driver.flush_full()
         ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         set_driver_runtime_features(driver, {"zk": False})
         code = "@export\ndef check():\n    return zk.is_available()\n"
-        output = execute_vm_contract(
-            runtime,
+        output = run_call(
             driver,
             sender="sys",
             contract_name="submission",
@@ -444,107 +325,7 @@ def hidden():
         self.assertIn("zk runtime feature is disabled", str(output.result))
         driver.flush_full()
 
-    def test_prepare_vm_contract_rejects_zk_contract_when_feature_disabled(self):
-        runtime = build_vm_runtime()
-        driver = Driver(vm_profile="xian_vm_v2")
-        self.addCleanup(driver.close)
-        driver.flush_full()
-        set_driver_runtime_features(driver, {"zk": False})
-        code = "@export\ndef check():\n    return zk.is_available()\n"
-        artifacts = build_contract_artifacts(
-            module_name="con_zk_probe",
-            source=code,
-            lint=True,
-            vm_profile="xian_vm_v2",
-        )
-        driver.set_contract(
-            name="con_zk_probe",
-            source=artifacts["source"],
-            vm_ir_json=artifacts["vm_ir_json"],
-        )
-
-        with self.assertRaisesRegex(ValueError, "zk runtime feature is disabled"):
-            prepare_vm_contract(runtime, driver, "con_zk_probe")
-        driver.flush_full()
-
-    def _store_contract(self, driver, name, code):
-        artifacts = build_contract_artifacts(
-            module_name=name,
-            source=code,
-            lint=False,
-            vm_profile="xian_vm_v2",
-        )
-        driver.set_contract(
-            name=name,
-            source=artifacts["source"],
-            vm_ir_json=artifacts["vm_ir_json"],
-        )
-
-    def test_prepare_vm_contract_rejects_dangling_import_on_warm_process(self):
-        # A warm process must reach the same verdict as a restarted one.
-        runtime = build_vm_runtime()
-        driver = Driver(vm_profile="xian_vm_v2")
-        self.addCleanup(driver.close)
-        driver.flush_full()
-        self._store_contract(
-            driver,
-            "con_parent",
-            "import con_missing\n\n@export\ndef ping():\n    return 1\n",
-        )
-
-        for _attempt in range(2):
-            with self.assertRaisesRegex(ValueError, "con_missing"):
-                prepare_vm_contract(runtime, driver, "con_parent")
-        driver.flush_full()
-
-    def test_prepare_vm_contract_rejects_import_cycle_on_warm_process(self):
-        runtime = build_vm_runtime()
-        driver = Driver(vm_profile="xian_vm_v2")
-        self.addCleanup(driver.close)
-        driver.flush_full()
-        self._store_contract(
-            driver,
-            "con_cycle_a",
-            "import con_cycle_b\n\n@export\ndef ping():\n    return 1\n",
-        )
-        self._store_contract(
-            driver,
-            "con_cycle_b",
-            "import con_cycle_a\n\n@export\ndef ping():\n    return 2\n",
-        )
-
-        for _attempt in range(2):
-            with self.assertRaisesRegex(
-                ValueError, "cycle: con_cycle_a -> con_cycle_b -> con_cycle_a"
-            ):
-                prepare_vm_contract(runtime, driver, "con_cycle_a")
-        driver.flush_full()
-
-    def test_prepare_vm_contract_rechecks_imported_runtime_features(self):
-        runtime = build_vm_runtime()
-        driver = Driver(vm_profile="xian_vm_v2")
-        self.addCleanup(driver.close)
-        driver.flush_full()
-        self._store_contract(
-            driver,
-            "con_zk_child",
-            "@export\ndef check():\n    return zk.is_available()\n",
-        )
-        self._store_contract(
-            driver,
-            "con_zk_parent",
-            "import con_zk_child\n\n@export\ndef ping():\n    return 1\n",
-        )
-        set_driver_runtime_features(driver, {"zk": True})
-        prepare_vm_contract(runtime, driver, "con_zk_parent")
-
-        set_driver_runtime_features(driver, {"zk": False})
-        with self.assertRaisesRegex(ValueError, "zk runtime feature is disabled"):
-            prepare_vm_contract(runtime, driver, "con_zk_parent")
-        driver.flush_full()
-
     def test_execute_native_submission_change_owner_stages_metadata_write(self):
-        runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
         self.addCleanup(driver.close)
         driver.flush_full()
@@ -558,8 +339,7 @@ def hidden():
             initiator="alice",
         )
 
-        output = execute_vm_contract(
-            runtime,
+        output = run_call(
             driver,
             sender="alice",
             contract_name="submission",
@@ -582,7 +362,6 @@ def hidden():
         driver.flush_full()
 
     def test_execute_native_token_factory_deploys_child_contract(self):
-        runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
         self.addCleanup(driver.close)
         driver.flush_full()
@@ -602,8 +381,7 @@ def hidden():
             initiator="sys",
         )
 
-        output = execute_vm_contract(
-            runtime,
+        output = run_call(
             driver,
             sender="alice",
             contract_name="token_factory",
@@ -688,11 +466,7 @@ def hidden():
                 },
             )
 
-            runtime = build_vm_runtime()
-            processor = TxProcessor(
-                client=client,
-                execution_runtime=runtime,
-            )
+            processor = TxProcessor(client=client)
 
             def tx(sender, contract, function, kwargs, nonce, height):
                 return {
@@ -749,11 +523,12 @@ def hidden():
                 ),
             )
             for call in remove_flow:
-                result = processor.process_tx(call, fee_policy=TxFeePolicy.paid_metered())
+                result = _process(processor, call)
                 self.assertIsNotNone(result["tx_result"])
                 self.assertEqual(result["tx_result"]["status"], 0)
 
-            approve_result = processor.process_tx(
+            approve_result = _process(
+                processor,
                 tx(
                     "33" * 32,
                     "currency",
@@ -762,11 +537,11 @@ def hidden():
                     1,
                     5,
                 ),
-                fee_policy=TxFeePolicy.paid_metered(),
             )
             self.assertEqual(approve_result["tx_result"]["status"], 0)
 
-            reregister_result = processor.process_tx(
+            reregister_result = _process(
+                processor,
                 tx(
                     "33" * 32,
                     "members",
@@ -779,7 +554,6 @@ def hidden():
                     2,
                     6,
                 ),
-                fee_policy=TxFeePolicy.paid_metered(),
             )
 
             self.assertIsNotNone(reregister_result["tx_result"])
@@ -826,10 +600,7 @@ def hidden():
                 ]
             )
             permit_hash = hashlib.sha3_256(permit_msg.encode("utf-8")).hexdigest()
-
-            runtime = build_vm_runtime()
-            outcome = execute_vm_transaction(
-                runtime,
+            outcome = run_paid(
                 client.raw_driver,
                 sender="sys",
                 contract_name="permit_authorizer",
@@ -852,8 +623,6 @@ def hidden():
                     "chain_id": "test-chain",
                 },
                 chi_budget=15_000,
-                chi_cost=20,
-                meter=True,
                 transaction_size_bytes=512,
             )
 
@@ -906,10 +675,7 @@ def hidden():
                 ContractingDecimal("5000"),
             )
             client.raw_driver.commit()
-
-            runtime = build_vm_runtime()
-            outcome = execute_vm_transaction(
-                runtime,
+            outcome = run_paid(
                 client.raw_driver,
                 sender="worker0",
                 contract_name="currency",
@@ -922,8 +688,6 @@ def hidden():
                     "chain_id": "test-chain",
                 },
                 chi_budget=1_500,
-                chi_cost=20,
-                meter=True,
                 transaction_size_bytes=936,
             )
 
@@ -960,10 +724,7 @@ def hidden():
         try:
             client.raw_driver.set("currency.balances:sys", 100_000)
             client.raw_driver.commit()
-
-            runtime = build_vm_runtime()
-            outcome = execute_vm_transaction(
-                runtime,
+            outcome = run_paid(
                 client.raw_driver,
                 sender="sys",
                 contract_name="submission",
@@ -985,8 +746,6 @@ def hidden():
                     "chain_id": "test-chain",
                 },
                 chi_budget=150_000,
-                chi_cost=20,
-                meter=True,
                 transaction_size_bytes=len(source.encode("utf-8")),
             )
 
@@ -1008,10 +767,7 @@ def hidden():
         try:
             client.raw_driver.set("currency.balances:sys", 250_000)
             client.raw_driver.commit()
-
-            runtime = build_vm_runtime()
-            outcome = execute_vm_transaction(
-                runtime,
+            outcome = run_paid(
                 client.raw_driver,
                 sender="sys",
                 contract_name="submission",
@@ -1028,8 +784,6 @@ def hidden():
                     "chain_id": "test-chain",
                 },
                 chi_budget=300_000,
-                chi_cost=20,
-                meter=True,
                 transaction_size_bytes=len(source.encode("utf-8")),
             )
 
@@ -1065,10 +819,7 @@ def hidden():
                 name="zk_registry",
                 owner="governance",
             )
-
-            runtime = build_vm_runtime()
-            outcome = execute_vm_transaction(
-                runtime,
+            outcome = run_paid(
                 client.raw_driver,
                 sender="sys",
                 contract_name="submission",
@@ -1090,8 +841,6 @@ def hidden():
                     "chain_id": "test-chain",
                 },
                 chi_budget=25_000_000,
-                chi_cost=20,
-                meter=True,
                 transaction_size_bytes=len(source.encode("utf-8")),
             )
 
@@ -1161,10 +910,7 @@ def hidden():
                 bundle_hash="0x34",
                 warning="",
             )
-
-            runtime = build_vm_runtime()
-            outcome = execute_vm_transaction(
-                runtime,
+            outcome = run_paid(
                 driver,
                 sender="sys",
                 contract_name=contract_name,
@@ -1180,8 +926,6 @@ def hidden():
                     "chain_id": "test-chain",
                 },
                 chi_budget=500_000,
-                chi_cost=20,
-                meter=True,
                 transaction_size_bytes=0,
             )
 
@@ -1217,10 +961,7 @@ def hidden():
             client.submit(source, name="con_parallel_probe", owner="sys")
             driver.set("con_parallel_probe.values:g:seed", 13)
             driver.commit()
-
-            runtime = build_vm_runtime()
-            outcome = execute_vm_transaction(
-                runtime,
+            outcome = run_paid(
                 driver,
                 sender="sys",
                 contract_name="con_parallel_probe",
@@ -1233,8 +974,6 @@ def hidden():
                     "chain_id": "test-chain",
                 },
                 chi_budget=2_000,
-                chi_cost=20,
-                meter=True,
                 transaction_size_bytes=len(source.encode("utf-8")),
             )
 
@@ -1268,7 +1007,6 @@ def hidden():
         self.addCleanup(client.close)
         client.flush()
         driver = client.raw_driver
-        runtime = build_vm_runtime()
 
         def deploy_contract(name, source, constructor_args):
             client.submit(source, name=name, signer="sys", constructor_args=constructor_args)
@@ -1313,8 +1051,7 @@ def hidden():
                 )
                 driver.commit()
 
-            outcome = execute_vm_transaction(
-                runtime,
+            outcome = run_paid(
                 driver,
                 sender="sys",
                 contract_name=dex_name,
@@ -1331,8 +1068,6 @@ def hidden():
                 },
                 environment=execution_environment,
                 chi_budget=60_000,
-                chi_cost=20,
-                meter=True,
                 transaction_size_bytes=0,
             )
 
@@ -1362,149 +1097,7 @@ def hidden():
         finally:
             client.flush()
 
-    def test_prepare_vm_contract_requires_persisted_ir(
-        self,
-    ):
-        fake_bindings = types.SimpleNamespace(
-            runtime_info=lambda _profile: {
-                "vm_profile": "xian_vm_v2",
-                "host_catalog_version": "xian_vm_v2_host_v1",
-                "execution_revision": VM_EXECUTION_REVISION,
-                "set_codec": "xian-set-1",
-                "tx_admission_revision": TX_ADMISSION_REVISION,
-            },
-            supports_execution_policy=lambda *_args: True,
-        )
-
-        with mock.patch(
-            "xian.execution_engine._load_vm_runtime_bindings",
-            return_value=fake_bindings,
-        ):
-            runtime = build_vm_runtime()
-
-        driver = mock.Mock()
-        driver.get_contract_ir.return_value = None
-        driver.get_contract_source.return_value = "@export\ndef ping():\n    return 'source only'\n"
-
-        with self.assertRaisesRegex(
-            ValueError,
-            "requires persisted __xian_ir_v1__",
-        ):
-            prepare_vm_contract(runtime, driver, "con_missing")
-
-        driver.get_contract_source.assert_not_called()
-
-    def test_augment_execution_output_with_driver_state_merges_hidden_writes(
-        self,
-    ):
-        before_state = {
-            "pending_writes": {"currency.balances:alice": 1_000_000},
-        }
-        after_state = {
-            "pending_writes": {
-                "currency.balances:alice": "999966.05",
-                "con_demo.__source__": "source",
-                "con_demo.counter": 0,
-            },
-        }
-
-        augmented = augment_execution_output_with_driver_state(
-            {
-                "status_code": 0,
-                "result": None,
-                "writes": {"currency.balances:alice": "999966.05"},
-                "events": [],
-            },
-            before_state=before_state,
-            after_state=after_state,
-        )
-
-        self.assertEqual(
-            augmented["writes"],
-            {
-                "currency.balances:alice": "999966.05",
-                "con_demo.__source__": "source",
-                "con_demo.counter": 0,
-            },
-        )
-
-    def test_execute_vm_contract_converts_runtime_errors(self):
-        runtime = types.SimpleNamespace(mode="xian_vm_v2")
-        driver = mock.Mock()
-        driver.get_owner.return_value = "alice"
-        fake_bindings = types.SimpleNamespace(
-            execute_contract=mock.Mock(side_effect=RuntimeError("boom"))
-        )
-
-        with mock.patch(
-            "xian.execution_engine._load_vm_runtime_bindings",
-            return_value=fake_bindings,
-        ):
-            output = execute_vm_contract(
-                runtime,
-                driver,
-                sender="alice",
-                contract_name="currency",
-                function_name="transfer",
-                kwargs={"amount": 5},
-                environment={
-                    "now": "ts",
-                    "block_num": 7,
-                    "block_hash": "abc",
-                    "chain_id": "xian-local",
-                },
-                meter=False,
-            )
-
-        self.assertEqual(output.status_code, 1)
-        # Arbitrary host exception text is not consensus data.
-        self.assertEqual(str(output.result), HOST_FAILURE_MESSAGE)
-        self.assertEqual(output.writes, {})
-        self.assertEqual(output.events, [])
-
-    def test_execute_vm_contract_tolerates_missing_get_owner(self):
-        runtime = types.SimpleNamespace(mode="xian_vm_v2")
-        driver = types.SimpleNamespace()
-        captured = {}
-
-        def fake_execute_contract(**kwargs):
-            captured["context"] = kwargs["context"]
-            return types.SimpleNamespace(
-                status_code=0,
-                result="ok",
-                writes={},
-                events=[],
-                chi_used=0,
-                contract_costs={},
-            )
-
-        fake_bindings = types.SimpleNamespace(execute_contract=fake_execute_contract)
-
-        with mock.patch(
-            "xian.execution_engine._load_vm_runtime_bindings",
-            return_value=fake_bindings,
-        ):
-            output = execute_vm_contract(
-                runtime,
-                driver,
-                sender="alice",
-                contract_name="currency",
-                function_name="transfer",
-                kwargs={"amount": 5},
-                environment={
-                    "now": "ts",
-                    "block_num": 7,
-                    "block_hash": "abc",
-                    "chain_id": "xian-local",
-                },
-                meter=False,
-            )
-
-        self.assertEqual(output.status_code, 0)
-        self.assertIsNone(captured["context"]["owner"])
-
     def test_execute_vm_contract_rejects_source_only_contracts(self):
-        runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
         self.addCleanup(driver.close)
         driver.flush_full()
@@ -1518,8 +1111,7 @@ def hidden():
         )
         driver.delete(driver.make_key("con_source_only", "__xian_ir_v1__"))
 
-        output = execute_vm_contract(
-            runtime,
+        output = run_call(
             driver,
             sender="alice",
             contract_name="con_source_only",
@@ -1533,15 +1125,13 @@ def hidden():
         self.assertIn("requires persisted __xian_ir_v1__", str(output.result))
 
     def test_execute_native_submission_requires_deterministic_now(self):
-        runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
         self.addCleanup(driver.close)
         driver.flush_full()
         ContractingClient(vm_profile="xian_vm_v2", driver=driver)
         source = "@export\ndef ping():\n    return 'pong'\n"
 
-        output = execute_vm_contract(
-            runtime,
+        output = run_call(
             driver,
             sender="sys",
             contract_name="submission",
@@ -1560,7 +1150,6 @@ def hidden():
     def test_execute_native_submission_enforces_constructor_write_capacity_limit(
         self,
     ):
-        runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
         self.addCleanup(driver.close)
         driver.flush_full()
@@ -1574,8 +1163,7 @@ def hidden():
             "def blob_size():\n"
             "    return len(blob.get())\n"
         )
-        output = execute_vm_contract(
-            runtime,
+        output = run_call(
             driver,
             sender="alice",
             contract_name="submission",
@@ -1603,7 +1191,6 @@ def hidden():
         self.assertEqual(output.events, [])
 
     def test_dynamic_importlib_call_preserves_context_and_writes(self):
-        runtime = build_vm_runtime()
         driver = Driver(vm_profile="xian_vm_v2")
         self.addCleanup(driver.close)
         driver.flush_full()
@@ -1662,8 +1249,7 @@ def hidden():
             "amount": 3,
         }
         before_state = driver.snapshot_state()
-        native_output = execute_vm_contract(
-            runtime,
+        native_output = run_call(
             driver,
             sender="alice",
             contract_name=router_name,
@@ -1693,46 +1279,3 @@ def hidden():
             {f"{leaf_name}.touch_total": 3},
         )
 
-    def test_compare_execution_results_reports_mismatched_fields(self):
-        native_output = types.SimpleNamespace(
-            status_code=0,
-            result={"amount": 7},
-            writes={"currency.balances:alice": 7},
-            events=[],
-        )
-
-        mismatches = compare_execution_results(
-            {
-                "status_code": 0,
-                "result": {"amount": 5},
-                "writes": {"currency.balances:alice": 5},
-                "events": [],
-            },
-            native_output,
-        )
-
-        self.assertEqual(sorted(mismatches), ["result", "writes"])
-
-    def test_compare_execution_results_can_ignore_metering_write_keys(self):
-        native_output = types.SimpleNamespace(
-            status_code=0,
-            result={"amount": 5},
-            writes={"demo.balances:alice": 5},
-            events=[],
-        )
-
-        mismatches = compare_execution_results(
-            {
-                "status_code": 0,
-                "result": {"amount": 5},
-                "writes": {
-                    "demo.balances:alice": 5,
-                    "currency.balances:alice": "999.35",
-                },
-                "events": [],
-            },
-            native_output,
-            ignore_write_keys={"currency.balances:alice"},
-        )
-
-        self.assertEqual(mismatches, {})

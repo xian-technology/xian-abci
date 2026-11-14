@@ -15,6 +15,10 @@ legacy_modules = {
     'contracting.execution.tracer',
     'contracting.execution.tracer_common',
     'contracting.execution.sandbox',
+    # The Python per-transaction host, deleted in increment 9.
+    'contracting.execution.runtime',
+    'contracting.stdlib.bridge.random',
+    'xian.rewards',
 }
 
 class RejectPythonEngine(importlib.abc.MetaPathFinder):

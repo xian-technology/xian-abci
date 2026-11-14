@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from xian_accounts import Ed25519Account
+from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.constants import Constants
 from xian.fee_policy import FEE_POLICY_KEY, TxFeePolicy
@@ -16,6 +17,7 @@ from xian.node_setup import (
     write_toml,
 )
 from xian.utils.block import store_genesis_block
+from xian.utils.tx import transaction_bytes
 from xian.xian_abci import Xian
 
 FOUNDER_PRIVATE_KEY = (
@@ -157,9 +159,9 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
 
                     balance_key = f"currency.balances:{FOUNDER_PUBLIC_KEY}"
                     starting_balance = app.client.raw_driver.get(balance_key)
-                    result = app.tx_processor.process_tx(
-                        tx=_approval_tx(chain_id=case["chain_id"]),
-                        fee_policy=app.tx_fee_policy,
+                    tx = _approval_tx(chain_id=case["chain_id"])
+                    [result] = app.tx_processor.process_block(
+                        [tx], [transaction_bytes(tx)], fee_policy=app.tx_fee_policy
                     )
                     ending_balance = app.client.raw_driver.get(balance_key)
 
@@ -171,9 +173,23 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                         ),
                         7,
                     )
+                    rewards = result["tx_result"]["rewards"]
                     if case["expected_charge_fees"]:
-                        self.assertLess(ending_balance, starting_balance)
+                        # The fee is charged and paid out by the reward split;
+                        # here the founder is the only validator and gets it
+                        # all back.
+                        rate = app.client.raw_driver.get("chi_cost.S:value")
+                        fee = ContractingDecimal(result["tx_result"]["chi_used"]) / rate
+                        paid = sum(
+                            amount
+                            for bucket in rewards.values()
+                            for recipient, amount in bucket.items()
+                            if recipient == FOUNDER_PUBLIC_KEY
+                        )
+                        self.assertEqual(ending_balance, starting_balance - fee + paid)
+                        self.assertGreater(paid, 0)
                     else:
+                        self.assertIsNone(rewards)
                         self.assertEqual(ending_balance, starting_balance)
                 finally:
                     await app.close()

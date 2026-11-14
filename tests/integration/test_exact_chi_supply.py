@@ -28,7 +28,6 @@ from xian_runtime_types.decimal import ContractingDecimal
 from xian.utils.tx import transaction_bytes
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
-from xian.rewards import RewardsHandler
 from xian.simulator import TransactionSimulator
 
 pytest.importorskip("xian_vm_core")
@@ -90,7 +89,7 @@ def _setup(home):
     driver.set("rewards.S:value", [ContractingDecimal("0.7"), 0, 0, ContractingDecimal("0.3")])
     driver.commit()
     simulator = TransactionSimulator(client=client, chain_id=CHAIN_ID)
-    return client, TxProcessor(client=client), RewardsHandler(client), simulator
+    return client, TxProcessor(client=client), simulator
 
 
 def _block_meta(height):
@@ -119,9 +118,9 @@ def _transaction(call, *, nonce, chi_supplied, block_meta):
     }
 
 
-def _execute(processor, rewards, transaction):
+def _execute(processor, transaction):
     responses = processor.process_block(
-        [transaction], [transaction_bytes(transaction)], fee_policy=TxFeePolicy.paid_metered(), rewards_handler=rewards
+        [transaction], [transaction_bytes(transaction)], fee_policy=TxFeePolicy.paid_metered()
     )
     return responses[0]["tx_result"]
 
@@ -129,7 +128,7 @@ def _execute(processor, rewards, transaction):
 def _simulate_then_execute(chain, call, *, nonce, height, block_meta=None):
     """(simulated, executed with a generous budget, with one chi less than
     the estimate, with the estimate)."""
-    client, processor, rewards, simulator = chain
+    client, processor, simulator = chain
     block_meta = block_meta or _block_meta(height)
     sender, contract, function, kwargs = call
     simulated = simulator.simulate(
@@ -151,7 +150,7 @@ def _simulate_then_execute(chain, call, *, nonce, height, block_meta=None):
         transaction = _transaction(
             call, nonce=nonce, chi_supplied=chi_supplied, block_meta=block_meta
         )
-        return _execute(processor, rewards, transaction)
+        return _execute(processor, transaction)
 
     generous = execute(SIMULATION_CAP)
     driver.restore_state(before)
@@ -293,7 +292,7 @@ def test_shielded_note_transactions_execute_as_simulated(monkeypatch):
     def process(processor, *, function, sender, kwargs, height, chi=0):
         block_meta = benchmark.create_block_meta(height)
         simulator = TransactionSimulator(client=processor.client, chain_id=block_meta["chain_id"])
-        chain = (processor.client, processor, None, simulator)
+        chain = (processor.client, processor, simulator)
         call = (sender, "con_shielded_note_token", function, kwargs)
         results = _simulate_then_execute(
             chain, call, nonce=height, height=height, block_meta=block_meta

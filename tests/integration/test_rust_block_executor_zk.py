@@ -1,15 +1,15 @@
-"""zk contracts executed by the Rust block executor against the per-transaction path.
+"""zk contracts executed by the Rust block executor.
 
 The block executor serves every zk syscall in Rust (vm-core
 ``block_host/zk.rs``) and refuses a contract that uses zk while the chain's
-zk runtime feature is off, as the Python path does. Receipts and pending
-state must be byte-identical to processing every transaction with
-``process_tx``, and no zk transaction may be handed to the Python path.
+zk runtime feature is off. Until increment 9 of the single-engine plan every
+scenario was also run on the Python per-transaction path and compared byte
+for byte; those outputs were frozen as golden fixtures (``golden_support``)
+and the receipts and pending state must keep reproducing them.
 """
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import json
 import random
@@ -282,16 +282,13 @@ def _dynamic_block(height):
     ]
 
 
-def _assert_dynamic_zk_call_fails(tmp_path, monkeypatch, name, blocks, patches, probe, message):
+def _assert_dynamic_zk_call_fails(tmp_path, name, blocks, patches, probe, message):
     """Revision 14: with the zk feature off (or unreadable) the capability
     probe answers ``probe`` and every other zk syscall fails, however its
-    contract was reached; the Python path ran them. The blocks before the
-    dynamic imports' own last block are identical."""
-    receipts = _assert_same(tmp_path, monkeypatch, name, blocks[:-1], patches=patches)
-    actual, python_runs = _run(
-        tmp_path / "rust-dynamic", blocks, native=True, monkeypatch=monkeypatch, patches=patches
-    )
-    assert python_runs == []
+    contract was reached (the Python path ran them). The blocks before the
+    dynamic imports' own last block reproduce the frozen receipts."""
+    receipts = _assert_golden(tmp_path, name, blocks[:-1], patches=patches)
+    actual = _run(tmp_path / "dynamic", blocks, patches=patches)
     probed, dynamic = json.loads(actual[-3]), json.loads(actual[-2])
     if probe is None:
         assert probed["status"] == 1 and message in probed["result"]
@@ -333,56 +330,35 @@ def _setup(home):
     return client, TxProcessor(client=client)
 
 
-def _run(home, blocks, *, native, monkeypatch, patches=None):
+def _run(home, blocks, *, patches=None):
     client, processor = _setup(home)
     # The proof caches are the node's: each run starts without them.
     zk_bridge.clear_verified_proof_cache()
     zk_bridge.clear_prepared_vk_cache()
     policy = TxFeePolicy.paid_metered()
-    python_runs = []
-    process_tx = processor.process_tx
-
-    def counted(tx, *args, **kwargs):
-        python_runs.append(tx["payload"]["function"])
-        return process_tx(tx, *args, **kwargs)
-
-    monkeypatch.setattr(processor, "process_tx", counted)
     receipts = []
     for height, txs in enumerate(blocks, start=1):
         for key, value in (patches or {}).get(height, {}).items():
             client.raw_driver.set(key, value)
-        if native:
-            responses = processor.process_block(
-                txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy
-            )
-        else:
-            responses = [process_tx(tx, fee_policy=policy) for tx in txs]
+        responses = processor.process_block(
+            txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy
+        )
         receipts += [encode_abci_json(response["tx_result"]) for response in responses]
         receipts.append(encode(client.raw_driver.pending_items()))
         client.raw_driver.commit()
     client.raw_driver.close()
-    return receipts, python_runs
+    return receipts
 
 
-def _assert_same(tmp_path, monkeypatch, name, blocks, patches=None):
-    expected, _ = _run(
-        tmp_path / "python", blocks, native=False, monkeypatch=monkeypatch, patches=patches
-    )
-    actual, python_runs = _run(
-        tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch, patches=patches
-    )
-    assert_matches_golden(name, expected)
+def _assert_golden(tmp_path, name, blocks, patches=None):
+    actual = _run(tmp_path / "golden", blocks, patches=patches)
     assert_matches_golden(name, actual)
-    assert len(actual) == len(expected)
-    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
-        assert _digest(left) == _digest(right), index
-    assert python_runs == []
-    parsed = (json.loads(entry) for entry in expected)
+    parsed = (json.loads(entry) for entry in actual)
     return [receipt for receipt in parsed if isinstance(receipt, dict)]
 
 
-def test_zk_syscalls_run_in_rust_like_the_python_path(tmp_path, monkeypatch):
-    receipts = _assert_same(tmp_path, monkeypatch, "block_executor_zk/syscalls", _zk_blocks())
+def test_zk_syscalls_reproduce_the_frozen_receipts(tmp_path):
+    receipts = _assert_golden(tmp_path, "block_executor_zk/syscalls", _zk_blocks())
     results = [receipt["result"] for receipt in receipts]
     assert 20 < sum(receipt["status"] == 0 for receipt in receipts) < len(receipts) - 20
     assert any("Unknown verifying key id" in str(result) for result in results)
@@ -390,11 +366,10 @@ def test_zk_syscalls_run_in_rust_like_the_python_path(tmp_path, monkeypatch):
     assert any("int too big to convert" in str(result) for result in results)
 
 
-def test_contracts_using_zk_fail_while_zk_is_off(tmp_path, monkeypatch):
+def test_contracts_using_zk_fail_while_zk_is_off(tmp_path):
     blocks = [_zk_blocks()[0][:12], _disabled_block(2), _dynamic_block(3)]
     receipts = _assert_dynamic_zk_call_fails(
         tmp_path,
-        monkeypatch,
         "block_executor_zk/feature_off",
         blocks,
         {2: {"__runtime_features.zk": False}},
@@ -408,11 +383,10 @@ def test_contracts_using_zk_fail_while_zk_is_off(tmp_path, monkeypatch):
     assert disabled[0]["chi_used"] == 5
 
 
-def test_a_feature_value_the_check_refuses_fails_like_the_python_path(tmp_path, monkeypatch):
+def test_a_feature_value_the_check_refuses_fails_every_zk_call(tmp_path):
     blocks = [_disabled_block(1), _dynamic_block(2)]
     receipts = _assert_dynamic_zk_call_fails(
         tmp_path,
-        monkeypatch,
         "block_executor_zk/feature_refused",
         blocks,
         {1: {"__runtime_features.zk": "maybe"}},
@@ -425,12 +399,6 @@ def test_a_feature_value_the_check_refuses_fails_like_the_python_path(tmp_path, 
     assert "runtime feature 'zk' must be a boolean" in receipts[2]["result"]
 
 
-def _digest(record) -> str:
-    """A receipt or state encoding's digest (a failed comparison stays short)."""
-    data = record if isinstance(record, bytes) else record.encode()
-    return hashlib.sha256(data).hexdigest()
-
-
 def _load_shielded_benchmark():
     path = ROOT / "xian-abci/scripts/benchmark_shielded_chi.py"
     spec = importlib.util.spec_from_file_location("benchmark_shielded_chi", path)
@@ -439,20 +407,15 @@ def _load_shielded_benchmark():
     return module
 
 
-def _shielded_run(benchmark, monkeypatch, *, per_tx, sent):
-    """The benchmark's shielded note flows on one path: each transaction's
-    receipt and the block's pending state. Proofs and note ciphertexts are
-    random, so a replay sends the first run's arguments again."""
-    replay = list(sent) if sent else None
+def _shielded_run(benchmark, monkeypatch):
+    """The benchmark's shielded note flows: each transaction's receipt and
+    the block's pending state, and the chi of each flow."""
     records = []
     # The benchmark deploys through the local client, which stamps the
     # wall-clock minute: both runs deploy at one fixed time.
     monkeypatch.setattr(AbstractContract, "now", lambda self: Datetime(2026, 1, 2, 3, 4))
 
     def process(processor, *, function, sender, kwargs, height, chi=25_000_000):
-        kwargs = replay.pop(0) if replay is not None else kwargs
-        if replay is None:
-            sent.append(kwargs)
         # The relay proof binds the benchmark's chain id.
         tx = _tx(
             height,
@@ -466,10 +429,7 @@ def _shielded_run(benchmark, monkeypatch, *, per_tx, sent):
             "test-chain",
         )
         policy = TxFeePolicy.paid_metered()
-        if per_tx:
-            response = processor.process_tx(tx, fee_policy=policy)
-        else:
-            (response,) = processor.process_block([tx], [transaction_bytes(tx)], fee_policy=policy)
+        (response,) = processor.process_block([tx], [transaction_bytes(tx)], fee_policy=policy)
         records.append(encode_abci_json(response["tx_result"]))
         records.append(encode(processor.client.raw_driver.pending_items()))
         assert response["tx_result"]["status"] == 0, response["tx_result"]["result"]
@@ -479,22 +439,11 @@ def _shielded_run(benchmark, monkeypatch, *, per_tx, sent):
     return benchmark.benchmark(), records
 
 
-def test_shielded_note_transactions_run_in_rust_like_the_python_path(monkeypatch):
+def test_shielded_note_transactions_spend_the_benchmark_chi(monkeypatch):
+    # Proofs and note ciphertexts are random, so the receipts are not
+    # frozen: every flow succeeds with the chi the Python path spent.
     pytest.importorskip("xian_zk")
     benchmark = _load_shielded_benchmark()
-    sent = []
-    python_chi, expected = _shielded_run(benchmark, monkeypatch, per_tx=True, sent=sent)
-    process_tx = TxProcessor.process_tx
-    python_runs = []
-
-    def counted(self, tx, *args, **kwargs):
-        python_runs.append(tx["payload"]["function"])
-        return process_tx(self, tx, *args, **kwargs)
-
-    monkeypatch.setattr(TxProcessor, "process_tx", counted)
-    rust_chi, actual = _shielded_run(benchmark, monkeypatch, per_tx=False, sent=sent)
-    assert python_chi == rust_chi == benchmark.BASELINE
-    assert len(actual) == len(expected) == 12
-    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
-        assert _digest(left) == _digest(right), index
-    assert python_runs == []
+    chi, records = _shielded_run(benchmark, monkeypatch)
+    assert chi == benchmark.BASELINE
+    assert len(records) == 12

@@ -9,6 +9,16 @@ from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
+from xian.utils.tx import transaction_bytes
+
+
+def process_tx(processor, tx, fee_policy=None):
+    """The block executor's response for ``tx`` alone in a block (unmetered
+    unless ``fee_policy`` says otherwise)."""
+    [response] = processor.process_block(
+        [tx], [transaction_bytes(tx)], fee_policy=fee_policy or TxFeePolicy.system_unmetered()
+    )
+    return response
 
 
 def create_block_meta(dt: datetime.datetime = datetime.datetime.now()):
@@ -88,7 +98,8 @@ class TestStateRollback(unittest.TestCase):
         bm2 = create_block_meta(datetime.datetime.now())
 
         # Tx 1: initialize (expected success)
-        self.txp.process_tx(
+        process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -111,7 +122,8 @@ class TestStateRollback(unittest.TestCase):
         self.assert_no_contract_writes("after commit bm1")
 
         # Tx 2: mutate in-place then fail
-        res2 = self.txp.process_tx(
+        res2 = process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -137,7 +149,8 @@ class TestStateRollback(unittest.TestCase):
         bm = create_block_meta(datetime.datetime.now())
 
         # Tx 1: initialize in same block
-        self.txp.process_tx(
+        process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -154,7 +167,8 @@ class TestStateRollback(unittest.TestCase):
         # Tx 2: same block, mutate then fail
         # Snapshot current contract writes before failure
         pre_keys = sorted([k for k in dict(self.driver.pending_items()) if k.startswith("con_mutable_map.")])
-        res = self.txp.process_tx(
+        res = process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -180,7 +194,8 @@ class TestStateRollback(unittest.TestCase):
         bm2 = create_block_meta(datetime.datetime.now())
 
         # init nested structure
-        self.txp.process_tx(
+        process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -200,7 +215,8 @@ class TestStateRollback(unittest.TestCase):
         self.assert_no_contract_writes("after commit bm1 nested")
 
         # mutate deep and fail
-        res = self.txp.process_tx(
+        res = process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -222,7 +238,8 @@ class TestStateRollback(unittest.TestCase):
         bm1 = create_block_meta(datetime.datetime.now())
 
         # init simple
-        self.txp.process_tx(
+        process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -243,7 +260,8 @@ class TestStateRollback(unittest.TestCase):
         bm2 = create_block_meta(datetime.datetime.now())
 
         # two different keys use default
-        self.txp.process_tx(
+        process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -258,7 +276,8 @@ class TestStateRollback(unittest.TestCase):
         )
         # alias_set writes should be pending until commit
         self.assert_contract_keys_equal(["con_mutable_map.aliased:a1"], "after alias_set a1 success")
-        self.txp.process_tx(
+        process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -275,7 +294,8 @@ class TestStateRollback(unittest.TestCase):
 
         # mutate a1 then fail; ensure a2 unchanged and a1 rolled back
         pre_keys = sorted([k for k in dict(self.driver.pending_items()) if k.startswith("con_mutable_map.")])
-        res = self.txp.process_tx(
+        res = process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -299,7 +319,8 @@ class TestStateRollback(unittest.TestCase):
         bm2 = create_block_meta(datetime.datetime.now())
 
         # init simple
-        self.txp.process_tx(
+        process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -316,7 +337,8 @@ class TestStateRollback(unittest.TestCase):
         self.assertEqual(self.contract.nested["k_callee"]["items"], [1])
 
         # call mutator that fails inside callee
-        res = self.txp.process_tx(
+        res = process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -339,7 +361,8 @@ class TestStateRollback(unittest.TestCase):
         bm3 = create_block_meta(datetime.datetime.now())  # next block
 
         # init
-        self.txp.process_tx(
+        process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -356,7 +379,8 @@ class TestStateRollback(unittest.TestCase):
         self.assertEqual(self.contract.nested["k_multi"]["items"], [1])
 
         # two failing tx in same block
-        res1 = self.txp.process_tx(
+        res1 = process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -369,7 +393,8 @@ class TestStateRollback(unittest.TestCase):
                 "b_meta": bm2,
             }
         )
-        res2 = self.txp.process_tx(
+        res2 = process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -394,7 +419,8 @@ class TestStateRollback(unittest.TestCase):
         self.assert_no_contract_writes("after commit bm2 before next block")
 
         # failing tx in next block
-        res3 = self.txp.process_tx(
+        res3 = process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -416,7 +442,8 @@ class TestStateRollback(unittest.TestCase):
         bm1 = create_block_meta(datetime.datetime.now())
 
         # init simple
-        self.txp.process_tx(
+        process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -437,7 +464,8 @@ class TestStateRollback(unittest.TestCase):
         bm2 = create_block_meta(datetime.datetime.now())
 
         # init simple
-        self.txp.process_tx(
+        process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -457,7 +485,8 @@ class TestStateRollback(unittest.TestCase):
         self.assert_no_contract_writes("after commit bm1 overdraw")
 
         # call failer that mutates then calls token transfer, causing overdraw failure
-        res = self.txp.process_tx(
+        res = process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -477,7 +506,8 @@ class TestStateRollback(unittest.TestCase):
         self.assertIsNotNone(val)
         self.assertEqual(val, {"count": 1, "items": [1]})
 
-        res = self.txp.process_tx(
+        res = process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -499,7 +529,8 @@ class TestStateRollback(unittest.TestCase):
         bm2 = create_block_meta(datetime.datetime.now())
 
         # init simple
-        self.txp.process_tx(
+        process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -516,7 +547,8 @@ class TestStateRollback(unittest.TestCase):
         self.assertEqual(self.contract.nested["k_cross"]["items"], [1])
 
         # call cross mutation, then fail in caller
-        res = self.txp.process_tx(
+        res = process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -543,7 +575,8 @@ class TestStateRollback(unittest.TestCase):
         self.driver.set("chi_cost.S:value", 100)
 
         # init simple
-        self.txp.process_tx(
+        process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -563,7 +596,8 @@ class TestStateRollback(unittest.TestCase):
         self.assert_no_contract_writes("after commit bm1 fees")
 
         # failing tx with paid metering
-        res = self.txp.process_tx(
+        res = process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",
@@ -589,7 +623,8 @@ class TestStateRollback(unittest.TestCase):
         self.assertEqual(self.contract.nested["k_fees"]["items"], [1])
 
         # mutate then reassign and fail (fees enabled)
-        res = self.txp.process_tx(
+        res = process_tx(
+            self.txp,
             tx={
                 "payload": {
                     "sender": "alice",

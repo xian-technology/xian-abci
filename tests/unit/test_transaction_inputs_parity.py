@@ -1,24 +1,25 @@
 """The Rust block executor reads a transaction's execution inputs from its
 wire bytes; they must equal what the Python node built per transaction.
 
-Reference model (the code the executor replaced): the kwargs
-``coerce_call_kwargs(decode_wire_numbers(kwargs))`` at the V2 VM boundary,
-the context ``TxProcessor.get_environment`` + ``_vm_context`` gave, the
-canonical size ``canonical_transaction_size_bytes`` and ``chi_supplied``.
-A transaction whose Python inputs did not convert runs on the Python path
+Reference model (the code the executor replaced, kept here as the oracle):
+the kwargs ``coerce_call_kwargs(decode_wire_numbers(kwargs))`` at the V2 VM
+boundary, the context the deleted ``TxProcessor.get_environment`` gave
+(``_environment``), the canonical size ``canonical_transaction_size_bytes``
+and ``chi_supplied``. A transaction whose inputs do not convert is refused
 (``None`` on both sides).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
-from types import SimpleNamespace
 
 import pytest
 from admission_corpus import CHAIN_ID, cases, node_admission
 from xian_runtime_types.encoding import decode_wire_numbers
+from xian_runtime_types.time import Datetime
 
-from xian.processor import TxProcessor
+from xian.utils.block import nanoseconds_to_utc_datetime
 from xian.utils.tx import canonical_transaction_size_bytes, transaction_bytes
 
 xian_vm_core = pytest.importorskip("xian_vm_core")
@@ -41,9 +42,17 @@ def _rust_inputs(raw: bytes, meta: dict):
 
 
 def _environment(tx: dict) -> dict:
-    processor = object.__new__(TxProcessor)
-    processor.execution_runtime = SimpleNamespace(mode="xian_vm_v2")
-    return processor.get_environment(tx)
+    """The block context of ``tx`` as the Python node built it."""
+    meta = tx["b_meta"]
+    nanos = meta["nanos"]
+    signature = tx["metadata"]["signature"]
+    return {
+        "block_hash": meta["hash"],
+        "block_num": meta["height"],
+        "__input_hash": hashlib.sha3_256(f"{nanos}{signature}".encode()).hexdigest(),
+        "now": Datetime._from_datetime(nanoseconds_to_utc_datetime(nanos)),
+        "chain_id": meta["chain_id"],
+    }
 
 
 def _python_inputs(tx: dict):

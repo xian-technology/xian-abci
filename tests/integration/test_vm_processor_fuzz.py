@@ -12,10 +12,18 @@ from hypothesis import strategies as st
 from processor_probe_model import ProcessorProbeModel, typed_value
 from xian_runtime_types.time import Datetime
 
-from xian.execution_engine import build_vm_runtime
+from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
+from xian.utils.tx import transaction_bytes
 
 pytest.importorskip("xian_vm_core")
+def process_tx(processor, tx):
+    """The block executor's response for ``tx`` alone in an unmetered block."""
+    [response] = processor.process_block(
+        [tx], [transaction_bytes(tx)], fee_policy=TxFeePolicy.system_unmetered()
+    )
+    return response
+
 
 PROCESSOR_FUZZ_SOURCE = """
 counter = Variable(default_value=0)
@@ -170,13 +178,13 @@ def _check_sequence(operations):
     with tempfile.TemporaryDirectory(prefix="xian-vm-processor-model-") as tmpdir:
         with ContractingClient(vm_profile="xian_vm_v2", storage_home=Path(tmpdir)) as client:
             _deploy_probe(client)
-            processor = TxProcessor(client=client, execution_runtime=build_vm_runtime())
+            processor = TxProcessor(client=client)
             model = ProcessorProbeModel()
             deployment_state = client.raw_driver.items()
             for offset, (function, kwargs) in enumerate(operations, start=1):
                 expected = model.step(function, kwargs)
                 tx = _make_tx(function, kwargs, offset)
-                tx_result = processor.process_tx(tx=tx)["tx_result"]
+                tx_result = process_tx(processor, tx)["tx_result"]
                 assert tx_result is not None
                 assert typed_value(_semantic_receipt(tx_result)) == typed_value(expected)
                 # These calls use system_unmetered; fee/reward behavior is covered

@@ -1,7 +1,15 @@
+"""The fee reward split (vm-core ``tx_rewards``, run by the block executor).
+
+The cases run the Rust reward computation over a ``{key: value}`` state.
+"""
+
 import unittest
 from decimal import Decimal
 
-from xian.rewards import RewardsHandler
+import pytest
+from xian_runtime_types.decimal import ContractingDecimal
+
+native = pytest.importorskip("xian_vm_core._native")
 
 
 class _FakeClient:
@@ -62,9 +70,32 @@ class _FakeClient:
                 ("validators", "delegator_reward_keys", (delegator, validator))
             ] = reward_key
 
-    def get_var(self, contract, variable, arguments=None):
-        args = tuple(arguments or ())
-        return self._values.get((contract, variable, args))
+    def state(self) -> dict:
+        """The values as state keys (decimals as stored, ContractingDecimal)."""
+        return {
+            ":".join([f"{contract}.{variable}", *args]): _stored(value)
+            for (contract, variable, args), value in self._values.items()
+        }
+
+
+def _stored(value):
+    if isinstance(value, Decimal):
+        return ContractingDecimal(str(value))
+    if isinstance(value, list):
+        return [_stored(item) for item in value]
+    return value
+
+
+class RewardsHandler:
+    """The reward computation over a fake client's values."""
+
+    def __init__(self, client):
+        self.client = client
+
+    def build_tx_reward_outputs(self, total_chi_to_split, contract, contract_costs=None):
+        return native._tx_rewards_debug(
+            self.client.state(), total_chi_to_split, contract, contract_costs
+        )
 
 
 class RewardsHandlerTests(unittest.TestCase):

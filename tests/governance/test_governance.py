@@ -9,8 +9,19 @@ from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.config_paths import resolve_contracts_dir
 from xian.processor import TxProcessor
+from xian.fee_policy import TxFeePolicy
+from xian.utils.tx import transaction_bytes
 
 CONTRACTS_DIR = resolve_contracts_dir()
+
+
+def process_tx(processor, tx, fee_policy=None):
+    """The block executor's response for ``tx`` alone in a block (unmetered
+    unless ``fee_policy`` says otherwise)."""
+    [response] = processor.process_block(
+        [tx], [transaction_bytes(tx)], fee_policy=fee_policy or TxFeePolicy.system_unmetered()
+    )
+    return response
 
 
 def submission_kwargs_for_file(f):
@@ -162,7 +173,8 @@ class MyTestCase(unittest.TestCase):
         self.d.flush_full()
 
     def register(self):
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": NEW_NODE,
@@ -175,7 +187,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": {"nanos": 0, "hash": "0x0", "height": 0, "chain_id": "test-chain"},
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": NEW_NODE,
@@ -190,7 +203,8 @@ class MyTestCase(unittest.TestCase):
         )
 
     def unregister(self):
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": NEW_NODE,
@@ -206,7 +220,8 @@ class MyTestCase(unittest.TestCase):
 
     def vote_in(self):
         block_meta = create_block_meta(datetime.now())
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_1,
@@ -219,7 +234,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_2,
@@ -232,7 +248,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_3,
@@ -245,7 +262,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_4,
@@ -262,7 +280,8 @@ class MyTestCase(unittest.TestCase):
     def vote_out(self, block_meta=None):
         if block_meta is None:
             block_meta = create_block_meta(datetime.now())
-        vote = self.tx_processor.process_tx(
+        vote = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_1,
@@ -279,7 +298,8 @@ class MyTestCase(unittest.TestCase):
             }
         )
         # breakpoint()
-        vote2 = self.tx_processor.process_tx(
+        vote2 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_2,
@@ -292,7 +312,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        vote3 = self.tx_processor.process_tx(
+        vote3 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_3,
@@ -305,7 +326,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        vote4 = self.tx_processor.process_tx(
+        vote4 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_4,
@@ -318,7 +340,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        vote5 = self.tx_processor.process_tx(
+        vote5 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_5,
@@ -336,7 +359,8 @@ class MyTestCase(unittest.TestCase):
     def vote_jail(self, block_meta=None):
         if block_meta is None:
             block_meta = create_block_meta(datetime.now())
-        vote = self.tx_processor.process_tx(
+        vote = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_1,
@@ -352,7 +376,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        vote2 = self.tx_processor.process_tx(
+        vote2 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_2,
@@ -365,7 +390,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        vote3 = self.tx_processor.process_tx(
+        vote3 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_3,
@@ -378,7 +404,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        vote4 = self.tx_processor.process_tx(
+        vote4 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_4,
@@ -391,7 +418,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        vote5 = self.tx_processor.process_tx(
+        vote5 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_5,
@@ -409,7 +437,8 @@ class MyTestCase(unittest.TestCase):
     def vote_unjail(self, block_meta=None):
         if block_meta is None:
             block_meta = create_block_meta(datetime.now())
-        vote = self.tx_processor.process_tx(
+        vote = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_1,
@@ -425,7 +454,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        vote2 = self.tx_processor.process_tx(
+        vote2 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_2,
@@ -438,7 +468,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        vote3 = self.tx_processor.process_tx(
+        vote3 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_3,
@@ -451,7 +482,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        vote4 = self.tx_processor.process_tx(
+        vote4 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_4,
@@ -469,7 +501,8 @@ class MyTestCase(unittest.TestCase):
     def vote_slash(self, block_meta=None, slash_bps=2500, reason="equivocation"):
         if block_meta is None:
             block_meta = create_block_meta(datetime.now())
-        vote = self.tx_processor.process_tx(
+        vote = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_1,
@@ -493,7 +526,8 @@ class MyTestCase(unittest.TestCase):
         votes = [vote]
         for sender in [node_2, node_3, node_4, node_5]:
             votes.append(
-                self.tx_processor.process_tx(
+                process_tx(
+                    self.tx_processor,
                     tx={
                         "payload": {
                             "sender": sender,
@@ -511,7 +545,8 @@ class MyTestCase(unittest.TestCase):
 
     def vote_in_and_unregister(self):
         block_meta = create_block_meta(datetime.now())
-        vote = self.tx_processor.process_tx(
+        vote = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_1,
@@ -525,7 +560,8 @@ class MyTestCase(unittest.TestCase):
             }
         )
         self.unregister()
-        vote2 = self.tx_processor.process_tx(
+        vote2 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_2,
@@ -538,7 +574,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        vote3 = self.tx_processor.process_tx(
+        vote3 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_3,
@@ -551,7 +588,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        vote4 = self.tx_processor.process_tx(
+        vote4 = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_4,
@@ -568,7 +606,8 @@ class MyTestCase(unittest.TestCase):
 
     def vote_chi_cost(self):
         block_meta = create_block_meta(datetime.now())
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_1,
@@ -581,7 +620,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_2,
@@ -594,7 +634,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_3,
@@ -607,7 +648,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_4,
@@ -623,7 +665,8 @@ class MyTestCase(unittest.TestCase):
 
     def vote_reward_change(self):
         block_meta = create_block_meta(datetime.now())
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_1,
@@ -639,7 +682,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_3,
@@ -652,7 +696,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_4,
@@ -665,7 +710,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_2,
@@ -681,7 +727,8 @@ class MyTestCase(unittest.TestCase):
 
     def vote_dao_payout(self):
         block_meta = create_block_meta(datetime.now())
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_1,
@@ -697,7 +744,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_2,
@@ -710,7 +758,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_3,
@@ -723,7 +772,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_4,
@@ -739,7 +789,8 @@ class MyTestCase(unittest.TestCase):
 
     def vote_reg_fee_change(self):
         block_meta = create_block_meta(datetime.now())
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_1,
@@ -755,7 +806,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_2,
@@ -768,7 +820,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_3,
@@ -781,7 +834,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_4,
@@ -797,7 +851,8 @@ class MyTestCase(unittest.TestCase):
 
     def vote_types_change(self):
         block_meta = create_block_meta(datetime.now())
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_1,
@@ -825,7 +880,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_2,
@@ -838,7 +894,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_3,
@@ -851,7 +908,8 @@ class MyTestCase(unittest.TestCase):
                 "b_meta": block_meta,
             }
         )
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_4,
@@ -868,7 +926,8 @@ class MyTestCase(unittest.TestCase):
     def announce_leave(self, block_meta=None):
         if block_meta is None:
             block_meta = create_block_meta(datetime.now())
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": NEW_NODE,
@@ -885,7 +944,8 @@ class MyTestCase(unittest.TestCase):
     def leave(self, block_meta=None):
         if block_meta is None:
             block_meta = create_block_meta(datetime.now() + timedelta(days=8))
-        leave = self.tx_processor.process_tx(
+        leave = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": NEW_NODE,
@@ -946,7 +1006,8 @@ class MyTestCase(unittest.TestCase):
 
     def test_validator_governance_vote_records_and_events(self):
         block_meta = create_block_meta(datetime.now())
-        proposal = self.tx_processor.process_tx(
+        proposal = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_1,
@@ -985,7 +1046,8 @@ class MyTestCase(unittest.TestCase):
         )
 
         for voter in [node_2, node_3]:
-            self.tx_processor.process_tx(
+            process_tx(
+                self.tx_processor,
                 tx={
                     "payload": {
                         "sender": voter,
@@ -999,7 +1061,8 @@ class MyTestCase(unittest.TestCase):
                 }
             )
 
-        approval = self.tx_processor.process_tx(
+        approval = process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_4,
@@ -1064,7 +1127,8 @@ class MyTestCase(unittest.TestCase):
 
         # Propose
 
-        self.tx_processor.process_tx(
+        process_tx(
+            self.tx_processor,
             tx={
                 "payload": {
                     "sender": node_1,
@@ -1082,7 +1146,8 @@ class MyTestCase(unittest.TestCase):
         )
 
         expired_vote_res = (
-            self.tx_processor.process_tx(
+            process_tx(
+                self.tx_processor,
                 tx={
                     "payload": {
                         "sender": node_2,

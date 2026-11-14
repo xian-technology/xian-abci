@@ -366,12 +366,12 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(processed.process_proposal.status, status)
 
-        with patch.object(self.app.tx_processor, "process_tx") as process_tx:
+        with patch.object(self.app.tx_processor, "process_block") as process_block:
             finalized = await self.process_request(
                 "finalize_block",
                 Request(finalize_block=RequestFinalizeBlock(txs=[over_tx_cap], height=1)),
             )
-        process_tx.assert_not_called()
+        process_block.assert_not_called()
         receipt = json.loads(finalized.finalize_block.tx_results[0].data.decode("utf-8"))
         self.assertIn("Invalid transaction in block", receipt["error"])
         self.assertIn(f"per-transaction limit of {tx_cap} chi", receipt["error"])
@@ -416,12 +416,12 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
     ):
         invalid_tx = make_signed_tx_bytes(nonce=0, mutate_signature=True)
 
-        with patch.object(self.app.tx_processor, "process_tx") as process_tx:
+        with patch.object(self.app.tx_processor, "process_block") as process_block:
             response = await self.process_request(
                 "finalize_block",
                 Request(finalize_block=RequestFinalizeBlock(txs=[invalid_tx])),
             )
-        process_tx.assert_not_called()
+        process_block.assert_not_called()
 
         self.assertEqual(len(response.finalize_block.tx_results), 1)
         tx_result = response.finalize_block.tx_results[0]
@@ -435,12 +435,12 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
     ):
         tx = make_signed_tx_bytes_with_raw_spacing(nonce=0)
 
-        with patch.object(self.app.tx_processor, "process_tx") as process_tx:
+        with patch.object(self.app.tx_processor, "process_block") as process_block:
             response = await self.process_request(
                 "finalize_block",
                 Request(finalize_block=RequestFinalizeBlock(txs=[tx])),
             )
-        process_tx.assert_not_called()
+        process_block.assert_not_called()
 
         self.assertEqual(len(response.finalize_block.tx_results), 1)
         tx_result = response.finalize_block.tx_results[0]

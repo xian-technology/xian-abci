@@ -31,9 +31,14 @@ This folder contains the verification surface for `xian-abci`.
   `python3 scripts/verify_test_isolation.py --help` for the synchronized
   persistence check that exercises the real pytest fixtures in parallel.
 - The preferred release-grade entrypoint is `../scripts/validate-release.sh`.
-- `tests/integration/test_vm_processor_fuzz.py` adds property-based
-  Python-vs-native transaction replay parity coverage when the VM bindings are
-  installed.
+- `tests/integration/test_vm_processor_fuzz.py` checks the block executor
+  against an independent state model with property-based transaction
+  sequences.
+- Golden fixtures pin the engine's outputs: `fixtures/engine_parity/` (engine
+  parity corpora), `fixtures/golden/` (the block executor scenarios, frozen
+  from the deleted Python per-transaction path), and the fee and reward
+  corpora (`fixtures/fee_outputs*.json`, `fixtures/*reward_outputs*.json`).
+  They are not regenerated; a difference is a behaviour change of the engine.
 - CI provisions Postgres at `postgres://postgres:1234@localhost:5432/xian` for
   the BDS-backed paths.
 

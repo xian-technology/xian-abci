@@ -1,7 +1,5 @@
 from unittest.mock import patch
 
-from contracting.execution.runtime import rt
-
 from xian.shielded_preverify import (
     ShieldedPreverifyStats,
     build_verification_request,
@@ -17,50 +15,32 @@ class _Driver:
         return self.values.get((contract, variable, tuple(arguments or [])))
 
 
-def test_warm_shielded_proof_cache_binds_supplied_driver_for_zk_lookup():
+def test_warm_shielded_proof_cache_reads_keys_through_the_supplied_driver():
     driver = object()
-    previous_driver = object()
     request = {
         "vk_id": "demo",
         "proof_hex": "0xabcd",
         "public_inputs": ["0x" + "00" * 32],
     }
-    rt.env["__Driver"] = previous_driver
+    with (
+        patch("xian.shielded_preverify.zk_bridge.is_available", return_value=True),
+        patch("xian.shielded_preverify.build_verification_request", return_value=request),
+        patch("xian.shielded_preverify.zk_bridge.warm_verified_proofs") as warm_verified_proofs,
+    ):
 
-    try:
-        with (
-            patch(
-                "xian.shielded_preverify.zk_bridge.is_available",
-                return_value=True,
-            ),
-            patch(
-                "xian.shielded_preverify.build_verification_request",
-                return_value=request,
-            ),
-            patch(
-                "xian.shielded_preverify.zk_bridge.warm_verified_proofs"
-            ) as warm_verified_proofs,
-        ):
+        def _warm(requests, *, driver):
+            assert requests == [request]
+            assert driver is supplied
+            return [True]
 
-            def _warm(requests):
-                assert requests == [request]
-                assert rt.env.get("__Driver") is driver
-                return [True]
-
-            warm_verified_proofs.side_effect = _warm
-            stats = warm_shielded_proof_cache(
-                driver=driver,
-                txs=[{"payload": {"kwargs": {"proof_hex": "0xabcd"}}}],
-            )
-
-        assert stats == ShieldedPreverifyStats(
-            candidate_count=1,
-            verified_count=1,
-            failed_count=0,
+        supplied = driver
+        warm_verified_proofs.side_effect = _warm
+        stats = warm_shielded_proof_cache(
+            driver=driver,
+            txs=[{"payload": {"kwargs": {"proof_hex": "0xabcd"}}}],
         )
-        assert rt.env.get("__Driver") is previous_driver
-    finally:
-        rt.env.pop("__Driver", None)
+
+    assert stats == ShieldedPreverifyStats(candidate_count=1, verified_count=1, failed_count=0)
 
 
 def test_warm_shielded_proof_cache_noops_when_zk_bridge_is_unavailable():
@@ -158,7 +138,7 @@ def test_warm_shielded_proof_cache_never_raises_on_rejected_requests():
     good = {"vk_id": "demo", "proof_hex": "0xabcd", "public_inputs": []}
     bad = {"vk_id": "demo", "proof_hex": "0xzz", "public_inputs": []}
 
-    def warm(requests):
+    def warm(requests, *, driver):
         if any(request is bad for request in requests):
             raise AssertionError("invalid proof_hex")
         return [True for _ in requests]
@@ -201,13 +181,11 @@ def test_real_bridge_rejects_malformed_proof_without_failing_warmup():
         "proof_hex": "0xzz", "amount": 1, "old_root": field,
         "output_commitments": [field],
     })
-    previous_driver = rt.env.get("__Driver")
     # Only native field helpers are stubbed: request construction and the
     # bridge's proof-encoding validation both run normally.
     with patch("xian.shielded_preverify.zk_bridge._native_verifier_bindings", return_value=bindings):
         stats = warm_shielded_proof_cache(driver=driver, txs=[tx])
     assert stats == ShieldedPreverifyStats(candidate_count=1, failed_count=1)
-    assert rt.env.get("__Driver") is previous_driver
 
 
 def _tx(function, kwargs, *, contract="con_token", sender="sender", chain_id="xian-test"):

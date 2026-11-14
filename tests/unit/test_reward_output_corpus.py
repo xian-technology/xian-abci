@@ -1,30 +1,30 @@
 """Pin the transaction reward outputs over many reward configurations.
 
-Step B moves fee and reward accounting into Rust; the port must reproduce
-these outputs exactly (Python decimal at 28 digits, ContractingDecimal
-conversion and division by the chi rate). The cases are generated from a
-fixed seed; ``tests/fixtures/reward_outputs.json`` holds what the current
-Python code computes for them, encoded as wire JSON.
+Fee and reward accounting runs in Rust (vm-core ``tx_rewards``); it must
+reproduce these outputs exactly (Python decimal at 28 digits,
+ContractingDecimal conversion and division by the chi rate). The cases are
+generated from a fixed seed; ``tests/fixtures/reward_outputs.json`` holds
+what the Python reference (deleted in increment 9 of the single-engine plan)
+computed for them, encoded as wire JSON.
 
 ``tests/fixtures/failed_reward_outputs.json`` pins the payout of a failed
 transaction over the same configurations: no developer reward, and a paid
 chi that is a ``ContractingDecimal`` when the sender paid its whole balance.
 
-Regenerate (only for an intended behaviour change):
-    python -m tests.unit.test_reward_output_corpus --write
+The fixtures are not regenerated.
 """
 
 from __future__ import annotations
 
 import json
 import random
-import sys
 from pathlib import Path
 
+import pytest
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import encode
 
-from xian.rewards import RewardsHandler
+native = pytest.importorskip("xian_vm_core._native")
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "reward_outputs.json"
 FAILED_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "failed_reward_outputs.json"
@@ -55,17 +55,6 @@ NUMBERS = [
     "3.14159265358979323846264338327",
     "1000000.000000000000000000000001",
 ]
-
-
-class _Client:
-    def __init__(self, state):
-        self.state = state
-
-    def get_var(self, contract, variable, arguments=None):
-        key = f"{contract}.{variable}"
-        if arguments:
-            key += ":" + ":".join(str(argument) for argument in arguments)
-        return self.state.get(key)
 
 
 def _number(rng):
@@ -140,11 +129,11 @@ def _total(value):
 
 
 def outputs(case):
-    handler = RewardsHandler(_Client(case["state"]))
-    rewards, deltas, records = handler.build_tx_reward_outputs(
-        total_chi_to_split=case["total_chi_to_split"],
-        contract=case["contract"],
-        contract_costs=case["contract_costs"],
+    rewards, deltas, records = native._tx_rewards_debug(
+        case["state"],
+        case["total_chi_to_split"],
+        case["contract"],
+        case["contract_costs"],
         pay_developers=case.get("pay_developers", True),
     )
     return json.loads(encode([rewards, deltas, records], vm_profile="xian_vm_v2"))
@@ -174,13 +163,3 @@ def test_a_failed_transaction_pays_its_developer_share_to_the_validators():
         developer_paid += bool((succeeded[0] or {}).get("developer_reward"))
     # The corpus has configurations where a success would pay developers.
     assert developer_paid > 20
-
-
-def _write(path, corpus):
-    lines = (json.dumps(outputs(case), separators=(",", ":")) for case in corpus)
-    path.write_text("[\n" + ",\n".join(lines) + "\n]\n")
-
-
-if __name__ == "__main__" and sys.argv[1:] == ["--write"]:
-    _write(FIXTURE, cases())
-    _write(FAILED_FIXTURE, failed_cases())

@@ -23,7 +23,7 @@ def run(n: int):
 
 
 def _developer_rewards(tmp_path, n):
-    processor, rewards = make_processor(tmp_path)
+    processor = make_processor(tmp_path)
     driver = processor.client.raw_driver
     try:
         driver.set_contract_from_source("con_leaf", LEAF, developer="leaf_dev")
@@ -33,7 +33,6 @@ def _developer_rewards(tmp_path, n):
 
         response = process(
             processor,
-            rewards,
             tx(contract="con_root", function="run", kwargs={"n": n}, budget=5000),
         )
         result = response["tx_result"]

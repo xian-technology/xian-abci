@@ -39,34 +39,37 @@ def test_a_missing_or_invalid_rate_is_refused(value):
 
 
 def _processor_without_rate(tmp_path):
-    processor, rewards = make_processor(tmp_path)
+    processor = make_processor(tmp_path)
     driver = processor.client.raw_driver
     driver.delete(RATE_KEY)
     driver.commit()
-    return processor, rewards, driver
+    return processor, driver
 
 
 def test_paid_execution_refuses_to_price_fees_without_a_rate(tmp_path):
-    processor, rewards, driver = _processor_without_rate(tmp_path)
+    from xian_vm_core import LmdbStorageError
+
+    processor, driver = _processor_without_rate(tmp_path)
     try:
-        with pytest.raises(ValueError, match="chi_cost.S:value"):
-            process(processor, rewards, tx())
+        # A host fault: the block executor halts the node.
+        with pytest.raises(LmdbStorageError, match="chi_cost.S:value"):
+            process(processor, tx())
         assert driver.get("currency.balances:alice") == 100
     finally:
         driver.close()
 
 
 def test_free_execution_does_not_need_a_rate(tmp_path):
-    processor, rewards, driver = _processor_without_rate(tmp_path)
+    processor, driver = _processor_without_rate(tmp_path)
     try:
-        response = process(processor, rewards, tx(), policy=TxFeePolicy.free_metered())
+        response = process(processor, tx(), policy=TxFeePolicy.free_metered())
         assert response["tx_result"]["status"] == 0
     finally:
         driver.close()
 
 
 def test_admission_refuses_to_price_fees_without_a_rate(tmp_path):
-    processor, _rewards, driver = _processor_without_rate(tmp_path)
+    processor, driver = _processor_without_rate(tmp_path)
     try:
         with pytest.raises(TransactionException, match="chi_cost.S:value"):
             validate_transaction_after_static(
@@ -81,7 +84,7 @@ def test_admission_refuses_to_price_fees_without_a_rate(tmp_path):
 
 
 def test_paid_simulation_reports_a_missing_rate(tmp_path):
-    processor, _rewards, driver = _processor_without_rate(tmp_path)
+    processor, driver = _processor_without_rate(tmp_path)
     try:
         simulator = TransactionSimulator(client=processor.client, chain_id="local")
         result = simulator.simulate(
@@ -110,7 +113,7 @@ def test_block_execution_accepts_exactly_the_rates_the_python_reader_accepts(tmp
 
     from xian.utils.tx import transaction_bytes
 
-    processor, rewards = make_processor(tmp_path, rate=rate)
+    processor = make_processor(tmp_path, rate=rate)
     driver = processor.client.raw_driver
     try:
         transaction = tx()
@@ -118,7 +121,6 @@ def test_block_execution_accepts_exactly_the_rates_the_python_reader_accepts(tmp
             [transaction],
             [transaction_bytes(transaction)],
             fee_policy=TxFeePolicy.paid_metered(),
-            rewards_handler=rewards,
         )
         valid = True
         try:

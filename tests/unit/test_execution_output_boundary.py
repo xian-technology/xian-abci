@@ -1,109 +1,15 @@
-from decimal import Decimal
-from types import SimpleNamespace
-from unittest.mock import patch
+"""Values a contract stores or returns cross the execution boundary in their
+wire form; state a value has no stored form for fails the transaction."""
 
 import pytest
 from contracting.local import ContractingClient
 from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
-from xian_runtime_types.decimal import ContractingDecimal
-from xian_runtime_types.time import Datetime, Timedelta
+from xian_runtime_types.time import Timedelta
 
-from xian.execution_engine import build_vm_runtime, execute_vm_contract
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.utils.encoding import encode_abci_json
-
-
-def execute_output(**fields):
-    native = SimpleNamespace(
-        **{
-            "status_code": 0,
-            "result": "ok",
-            "writes": {},
-            "events": [],
-            "chi_used": 7,
-            "contract_costs": {"con_demo": 7},
-            **fields,
-        }
-    )
-    with patch("xian.execution_engine._load_vm_runtime_bindings") as bindings:
-        bindings.return_value.execute_contract.return_value = native
-        return execute_vm_contract(
-            SimpleNamespace(),
-            SimpleNamespace(),
-            sender="alice",
-            contract_name="con_demo",
-            function_name="probe",
-            kwargs={},
-            environment={},
-            meter=False,
-        )
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        {1: 2},
-        [{"nested": {5: 1}}],
-    ],
-)
-@pytest.mark.parametrize("field", ["writes", "events"])
-def test_invalid_effect_discards_all_effects_and_preserves_consumed_chi(value, field):
-    writes = {"con_demo.valid": 7}
-    events = [{"event": "Valid", "data": {"value": 7}}]
-    if field == "writes":
-        writes["con_demo.invalid"] = value
-    else:
-        events.append({"event": "Invalid", "data": {"value": value}})
-    output = execute_output(writes=writes, events=events)
-    assert output.status_code == 1
-    assert isinstance(output.result, ValueError)
-    assert output.writes == {}
-    assert output.events == []
-    assert output.chi_used == 7
-    assert output.contract_costs == {"con_demo": 7}
-
-
-@pytest.mark.parametrize("key", [1, "con_demo.\ud800"])
-def test_state_keys_must_be_utf8_strings(key):
-    output = execute_output(writes={key: 1})
-    assert output.status_code == 1
-    assert output.writes == {}
-
-
-def test_cyclic_effect_is_a_transaction_failure():
-    value = []
-    value.append(value)
-    output = execute_output(writes={"con_demo.value": value})
-    assert output.status_code == 1
-    assert output.writes == {}
-
-
-def test_supported_effects_and_return_only_dict_keep_their_original_values():
-    value = {
-        "values": [None, True, 2**128, ContractingDecimal("1.5"), "text", b"\xff", (1, 2)],
-        "sets": [ContractingSet([1, 2]), ContractingFrozenSet([1, 2])],
-        "decimal": Decimal("1.25"),
-        "fixed": ContractingDecimal("2.5"),
-        "time": Datetime(2026, 10, 30),
-        "span": Timedelta(days=-1, seconds=5),
-        "raw": bytearray(b"abc"),
-    }
-    output = execute_output(
-        writes={"con_demo.value": value}, events=[{"data": value}], result={1: 2}
-    )
-    assert output.status_code == 0
-    assert output.writes["con_demo.value"] is value
-    assert output.events == [{"data": value}]
-    assert output.result == {1: 2}
-
-
-def test_native_failure_keeps_its_original_error_and_cost():
-    error = ValueError("native failure")
-    output = execute_output(status_code=1, result=error)
-    assert output.status_code == 1
-    assert output.result is error
-    assert output.chi_used == 7
+from xian.utils.tx import transaction_bytes
 
 
 STORED = {"bytearray(b'abc')": bytearray(b"abc"), "datetime.timedelta(days=1)": Timedelta(days=1)}
@@ -134,7 +40,7 @@ def test_processor_stores_and_returns_wire_values_but_rejects_unencodable_state(
         client.raw_driver.set("currency.balances:alice", 100_000)
         client.raw_driver.set("chi_cost.S:value", 1)
         client.raw_driver.commit()
-        processor = TxProcessor(client, execution_runtime=build_vm_runtime())
+        processor = TxProcessor(client)
         tx = {
             "payload": {
                 "sender": "alice",
@@ -148,7 +54,10 @@ def test_processor_stores_and_returns_wire_values_but_rejects_unencodable_state(
             "metadata": {"signature": "test"},
             "b_meta": {"nanos": 0, "hash": "test", "height": 1, "chain_id": "test"},
         }
-        output = processor.process_tx(tx, fee_policy=TxFeePolicy.paid_metered())["tx_result"]
+        [response] = processor.process_block(
+            [tx], [transaction_bytes(tx)], fee_policy=TxFeePolicy.paid_metered()
+        )
+        output = response["tx_result"]
         assert output is not None
         wrapper = expression.startswith(("set(", "frozenset("))
         # Sets, bytearrays and timedeltas have a wire form; a dict with an

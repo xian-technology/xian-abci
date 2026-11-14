@@ -1,10 +1,10 @@
-"""Blocks executed by the Rust block executor against the per-transaction path.
+"""Blocks executed by the Rust block executor.
 
-``TxProcessor.process_block`` runs a block's transactions in Rust and hands
-the ones that need Python (owner rejections, random calls the Rust host
-does not serve) to ``process_tx`` in their place. Receipts, pending state
-and responses must be byte-identical to processing every transaction with
-``process_tx``.
+``TxProcessor.process_block`` runs a block's transactions in Rust. Until
+increment 9 of the single-engine plan every scenario here was also run on the
+Python per-transaction path and compared byte for byte; those outputs were
+frozen as golden fixtures (``golden_support``) and the receipts, responses,
+pending state and log records must keep reproducing them.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from xian_runtime_types.time import Timedelta
 from xian.utils.tx import transaction_bytes
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
-from xian.rewards import RewardsHandler
 from xian.utils.encoding import encode_abci_json
 from golden_support import assert_matches_golden
 
@@ -300,7 +299,7 @@ def _setup(home, contracts=()):
         [ContractingDecimal("0.5"), 0, ContractingDecimal("0.3"), ContractingDecimal("0.2")],
     )
     driver.commit()
-    return client, TxProcessor(client=client), RewardsHandler(client)
+    return client, TxProcessor(client=client)
 
 
 OPERATIONS = [
@@ -363,27 +362,14 @@ def _tx(seed, index, height, sender, contract, function, kwargs, budget):
     }
 
 
-def _run(home, blocks, *, native, monkeypatch=None, policy=None, contracts=()):
-    client, processor, rewards = _setup(home, contracts)
+def _run(home, blocks, *, policy=None, contracts=()):
+    client, processor = _setup(home, contracts)
     policy = policy or TxFeePolicy.paid_metered()
-    python_runs = []
-    if monkeypatch is not None:
-        process_tx = processor.process_tx
-
-        def counted(tx, *args, **kwargs):
-            payload = tx["payload"]
-            python_runs.append((payload["sender"], payload["contract"], payload["function"]))
-            return process_tx(tx, *args, **kwargs)
-
-        monkeypatch.setattr(processor, "process_tx", counted)
     receipts = []
     for txs in blocks:
-        if native:
-            responses = processor.process_block(
-                txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy, rewards_handler=rewards
-            )
-        else:
-            responses = [processor.process_tx(tx, rewards, fee_policy=policy) for tx in txs]
+        responses = processor.process_block(
+            txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy
+        )
         for response in responses:
             receipts.append(
                 (
@@ -395,18 +381,13 @@ def _run(home, blocks, *, native, monkeypatch=None, policy=None, contracts=()):
         receipts.append(encode(client.raw_driver.pending_items()))
         client.raw_driver.commit()
     client.raw_driver.close()
-    return receipts, python_runs
+    return receipts
 
 
-def test_rust_block_execution_matches_the_per_transaction_path(tmp_path, monkeypatch):
+def test_rust_block_execution_reproduces_the_frozen_receipts(tmp_path):
     blocks = [_block(seed, 40, height) for height, seed in enumerate((11, 12, 13), start=1)]
-    expected, _ = _run(tmp_path / "python", blocks, native=False)
-    actual, python_runs = _run(tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch)
-    assert_matches_golden("block_executor/paid_blocks", expected)
+    actual = _run(tmp_path, blocks)
     assert_matches_golden("block_executor/paid_blocks", actual)
-    assert len(actual) == len(expected)
-    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
-        assert left == right, index
     # Failures pay their fee out too, also to a validator set changed earlier
     # in the block.
     receipts = [json.loads(entry[0]) for entry in actual if isinstance(entry, tuple)]
@@ -414,33 +395,24 @@ def test_rust_block_execution_matches_the_per_transaction_path(tmp_path, monkeyp
     assert len(paid_failures) > 10
     assert any("val3" in r["rewards"]["validator_reward"] for r in paid_failures)
 
-    # Every transaction ran in Rust, the entry rejections too.
-    assert python_runs == []
+    # The entry rejections are receipts too.
     rejected = [r for r in receipts if "not exported" in str(r["result"]) or "owner" in str(r["result"])]
     assert len(rejected) > 5
 
 
-def test_unmetered_system_execution_matches_the_per_transaction_path(tmp_path, monkeypatch):
+def test_unmetered_system_execution_reproduces_the_frozen_receipts(tmp_path):
     # System transactions (epoch rebalance, evidence penalties) run in Rust
     # unmetered: no chi budget (burn's 40 chi do not run out), no failure
     # charge, no fee, no rewards.
     policy = TxFeePolicy.system_unmetered()
     blocks = [_block(seed, 40, height) for height, seed in enumerate((31, 32), start=1)]
-    expected, _ = _run(tmp_path / "python", blocks, native=False, policy=policy)
-    actual, python_runs = _run(
-        tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch, policy=policy
-    )
-    assert_matches_golden("block_executor/unmetered_blocks", expected)
+    actual = _run(tmp_path, blocks, policy=policy)
     assert_matches_golden("block_executor/unmetered_blocks", actual)
-    assert len(actual) == len(expected)
-    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
-        assert left == right, index
     receipts = [json.loads(entry[0]) for entry in actual if isinstance(entry, tuple)]
     assert {receipt["status"] for receipt in receipts} == {0, 1}
     assert not any(receipt["rewards"] for receipt in receipts)
-    # Every transaction ran in Rust; without a fee to reserve, every sender
-    # reaches the entry rejections (reported with the base chi).
-    assert python_runs == []
+    # Without a fee to reserve, every sender reaches the entry rejections
+    # (reported with the base chi).
     calls = [(tx["payload"]["contract"], tx["payload"]["function"]) for txs in blocks for tx in txs]
     rejected = [r for r, call in zip(receipts, calls, strict=True) if call in REJECTED]
     assert rejected and all(r["chi_used"] == 5 for r in rejected if r["status"] == 1)
@@ -469,7 +441,7 @@ POLICIES = {
 
 
 @pytest.mark.parametrize("policy", sorted(POLICIES))
-def test_contract_metadata_changes_run_in_rust_like_the_python_path(tmp_path, monkeypatch, policy):
+def test_contract_metadata_changes_reproduce_the_frozen_receipts(tmp_path, policy):
     # Each change stages its write and, metered, charges (encoded key +
     # value) * 25 raw to the shared budget: around 50 chi for a 2000-byte
     # owner, so the smaller budgets run out of chi in the host, the larger
@@ -485,14 +457,10 @@ def test_contract_metadata_changes_run_in_rust_like_the_python_path(tmp_path, mo
     blocks = [[_tx(300, index, 1, *call) for index, call in enumerate(calls)]]
     contracts = [("submission", METADATA, "submission_dev"), ("con_relay", RELAY, "relay_dev")]
     options = {"policy": POLICIES[policy](), "contracts": contracts}
-    expected, _ = _run(tmp_path / "python", blocks, native=False, **options)
-    actual, python_runs = _run(
-        tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch, **options
+    actual = _run(
+        tmp_path, blocks, **options
     )
-    assert_matches_golden(f"block_executor/metadata_{policy}", expected)
     assert_matches_golden(f"block_executor/metadata_{policy}", actual)
-    assert actual == expected
-    assert python_runs == []
     receipts = [json.loads(entry[0]) for entry in actual if isinstance(entry, tuple)]
     results = {receipt["result"] for receipt in receipts[:-2]}
     assert receipts[-2]["result"] == 300
@@ -538,7 +506,7 @@ def relay(name: str, code: str):
 
 
 @pytest.mark.parametrize("policy", sorted(POLICIES))
-def test_deployments_run_in_rust_like_the_python_path(tmp_path, monkeypatch, policy):
+def test_deployments_reproduce_the_frozen_receipts(tmp_path, policy):
     # Budgets from too small for the call to enough for the deployment: each
     # failure point (VM, constructor, metadata writes, deployment cost) is
     # crossed. Then constructor arguments, owners and a relayed deployment.
@@ -582,15 +550,10 @@ def test_deployments_run_in_rust_like_the_python_path(tmp_path, monkeypatch, pol
     blocks = [[_tx(400, index, 1, *call) for index, call in enumerate(calls)]]
     contracts = [("submission", DEPLOYER, "sub_dev"), ("con_relay", RELAY_DEPLOY, "relay_dev")]
     options = {"policy": POLICIES[policy](), "contracts": contracts}
-    expected, _ = _run(tmp_path / "python", blocks, native=False, **options)
-    actual, python_runs = _run(
-        tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch, **options
+    actual = _run(
+        tmp_path, blocks, **options
     )
-    assert_matches_golden(f"block_executor/deployments_{policy}", expected)
     assert_matches_golden(f"block_executor/deployments_{policy}", actual)
-    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
-        assert left == right, index
-    assert python_runs == []
     receipts = [json.loads(entry[0]) for entry in actual if isinstance(entry, tuple)]
     statuses = [receipt["status"] for receipt in receipts]
     assert statuses[-7:] == [0, 1, 0, 0, 0, 0, 0]
@@ -677,31 +640,22 @@ def _scan_blocks():
     return blocks
 
 
-def test_hash_scans_and_contract_metadata_run_in_rust_like_the_python_path(tmp_path, monkeypatch):
+def test_hash_scans_and_contract_metadata_reproduce_the_frozen_receipts(tmp_path):
     blocks = _scan_blocks()
-    expected, _ = _run(tmp_path / "python", blocks, native=False)
-    actual, python_runs = _run(tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch)
-    assert_matches_golden("block_executor/scans", expected)
+    actual = _run(tmp_path, blocks)
     assert_matches_golden("block_executor/scans", actual)
-    assert len(actual) == len(expected)
-    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
-        assert left == right, index
     # Nothing needs Python.
-    assert python_runs == []
 
 
-def test_entry_results_are_charged_in_their_v2_encoding_like_the_python_path(tmp_path):
+def test_entry_results_are_charged_in_their_v2_encoding(tmp_path):
     # Ints of 54 to 63 bits leave the VM as {"__big_int__": ...}; the result
     # charge counts those bytes on both paths.
     txs = [
         _tx(31, index, 1, "alice", "con_probe", "big_ints", {"n": n}, 5000)
         for index, n in enumerate((1, 200))
     ]
-    expected, _ = _run(tmp_path / "python", [txs], native=False)
-    actual, _ = _run(tmp_path / "rust", [txs], native=True)
-    assert_matches_golden("block_executor/v2_entry_results", expected)
+    actual = _run(tmp_path, [txs])
     assert_matches_golden("block_executor/v2_entry_results", actual)
-    assert actual == expected
 
 
 # Seed salts the Rust host serves, and salts the VM refuses (str/int/None only).
@@ -753,21 +707,15 @@ def _random_blocks():
     return blocks
 
 
-def test_random_runs_in_rust_like_the_python_path(tmp_path, monkeypatch):
+def test_random_reproduces_the_frozen_receipts(tmp_path):
     blocks = _random_blocks()
-    expected, _ = _run(tmp_path / "python", blocks, native=False)
-    actual, python_runs = _run(tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch)
-    assert_matches_golden("block_executor/random", expected)
+    actual = _run(tmp_path, blocks)
     assert_matches_golden("block_executor/random", actual)
-    assert len(actual) == len(expected)
-    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
-        assert left == right, index
-    receipts = [json.loads(entry[0]) for entry in expected if isinstance(entry, tuple)]
+    receipts = [json.loads(entry[0]) for entry in actual if isinstance(entry, tuple)]
     assert 40 < sum(receipt["status"] == 0 for receipt in receipts) < len(receipts)
     assert any("random.seed() salt must be" in receipt["result"] for receipt in receipts)
+    # The VM refuses what is out of bounds.
     assert any("exceeds the maximum allowed allocation" in receipt["result"] for receipt in receipts)
-    # Every random call runs in Rust; the VM refuses what is out of bounds.
-    assert python_runs == []
 
 
 # Largest and smallest Python timedelta, a negative one and a plain one.
@@ -804,10 +752,10 @@ def _times_block(height):
     ]
 
 
-def test_timedelta_and_bytearray_values_are_stored_returned_and_emitted(tmp_path, monkeypatch):
-    blocks = [_times_block(1)]
-    expected, _ = _run(tmp_path / "python", blocks, native=False)
-    receipts = [json.loads(receipt) for receipt, _, _ in expected[:-1]]
+def test_timedelta_and_bytearray_values_are_stored_returned_and_emitted(tmp_path):
+    actual = _run(tmp_path, [_times_block(1)])
+    assert_matches_golden("block_executor/times", actual)
+    receipts = [json.loads(receipt) for receipt, _, _ in actual[:-1]]
     assert [receipt["status"] for receipt in receipts] == [0] * len(receipts), receipts
     results = [decode_wire_numbers(receipt["result"]) for receipt in receipts]
     for index, (days, seconds) in enumerate(SPANS):
@@ -827,21 +775,14 @@ def test_timedelta_and_bytearray_values_are_stored_returned_and_emitted(tmp_path
         "state"
     ]
 
-    actual, python_runs = _run(tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch)
-    assert_matches_golden("block_executor/times", expected)
-    assert_matches_golden("block_executor/times", actual)
-    assert actual == expected
-    # The Rust executor settles these values itself.
-    assert python_runs == []
 
-
-# Every log record the per-transaction path writes (process_tx and the
-# functions it calls); "process_block" only notes a hand-back.
+# Every per-transaction log record (the stages the per-transaction path
+# wrote, which the block executor's responses keep).
 PER_TX_STAGES = {"process_tx", "execute_tx", "process_tx_output", "tx_result"}
 
 
-def _per_tx_logs(home, blocks, *, native, trace_logging, policy):
-    client, processor, rewards = _setup(home)
+def _per_tx_logs(home, blocks, *, trace_logging, policy):
+    client, processor = _setup(home)
     processor.trace_logging = trace_logging
     records = []
 
@@ -854,16 +795,7 @@ def _per_tx_logs(home, blocks, *, native, trace_logging, policy):
     )
     try:
         for txs in blocks:
-            if native:
-                processor.process_block(
-                    txs,
-                    [transaction_bytes(tx) for tx in txs],
-                    fee_policy=policy,
-                    rewards_handler=rewards,
-                )
-            else:
-                for tx in txs:
-                    processor.process_tx(tx, rewards, fee_policy=policy)
+            processor.process_block(txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy)
             client.raw_driver.commit()
     finally:
         logger.remove(sink)
@@ -873,27 +805,18 @@ def _per_tx_logs(home, blocks, *, native, trace_logging, policy):
 
 @pytest.mark.parametrize("trace_logging", [True, False])
 @pytest.mark.parametrize("policy", ["paid", "free"])
-def test_rust_block_execution_writes_the_per_transaction_logs(tmp_path, trace_logging, policy):
+def test_block_execution_writes_the_per_transaction_logs(tmp_path, trace_logging, policy):
     fee_policy = {
         "paid": TxFeePolicy.paid_metered(),
         "free": TxFeePolicy.free_metered(),
     }[policy]
     blocks = [_block(seed, 30, height) for height, seed in enumerate((21, 22), start=1)]
     blocks.append(_scan_blocks()[0])
-    expected = _per_tx_logs(
-        tmp_path / "python", blocks, native=False, trace_logging=trace_logging, policy=fee_policy
-    )
-    actual = _per_tx_logs(
-        tmp_path / "rust", blocks, native=True, trace_logging=trace_logging, policy=fee_policy
-    )
+    actual = _per_tx_logs(tmp_path, blocks, trace_logging=trace_logging, policy=fee_policy)
     name = f"block_executor/logs_{policy}_{'trace' if trace_logging else 'plain'}"
-    assert_matches_golden(name, expected)
     assert_matches_golden(name, actual)
-    stages = {record[2]["stage"] for record in expected}
+    stages = {record[2]["stage"] for record in actual}
     assert stages >= ({"execute_tx", "tx_result"} if trace_logging else {"process_tx_output"})
-    assert len(actual) == len(expected)
-    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
-        assert left == right, index
 
 
 # Values the receipt encoding would refuse (binary floats, raw decimals,
@@ -929,21 +852,17 @@ def store_cycle():
 """
 
 
-def test_values_the_receipt_encoding_refuses_never_reach_the_effects(tmp_path, monkeypatch):
+def test_values_the_receipt_encoding_refuses_never_reach_the_effects(tmp_path):
     functions = ["store_float", "emit_float", "return_float", "store_tuple", "store_cycle"]
     txs = [
         _tx(9, index, 1, "alice", "con_unencodable", function, {}, 2_000)
         for index, function in enumerate(functions)
     ]
     contracts = [("con_unencodable", UNENCODABLE, None)]
-    expected, _ = _run(tmp_path / "python", [txs], native=False, contracts=contracts)
-    actual, python_runs = _run(
-        tmp_path / "rust", [txs], native=True, monkeypatch=monkeypatch, contracts=contracts
+    actual = _run(
+        tmp_path, [txs], contracts=contracts
     )
-    assert_matches_golden("block_executor/unencodable", expected)
     assert_matches_golden("block_executor/unencodable", actual)
-    assert actual == expected
-    assert python_runs == []
     receipts = [json.loads(receipt) for receipt, _, _ in actual[:-1]]
     refusals = [
         "binary float and raw Decimal are unavailable in xian_vm_v2",

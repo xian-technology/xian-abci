@@ -1,26 +1,24 @@
 """Paid execution isolates the submitted fee budget from contract spending."""
 
-from copy import deepcopy
-from unittest.mock import patch
-
 import pytest
 from contracting.constants import TRANSACTION_BASE_CHI
 from contracting.storage.driver import Driver
 from fee_probe_support import ROOT, make_processor, process, tx
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import decode_wire_numbers
+from xian_vm_core import execute_tx
 
-from xian.execution_engine import VmRuntime, execute_vm_transaction
+from xian.execution_engine import vm_call_context
 from xian.fee_policy import TxFeePolicy
 from xian.simulator import TransactionSimulator
 
 
 @pytest.mark.parametrize("balance", [0, 9])
 def test_unfunded_budget_has_no_execution_effects_and_pays_out_its_fee(tmp_path, balance):
-    processor, rewards = make_processor(tmp_path, balance=balance)
+    processor = make_processor(tmp_path, balance=balance)
     driver = processor.client.raw_driver
     try:
-        response = process(processor, rewards, tx())
+        response = process(processor, tx())
         result = response["tx_result"]
         assert result is not None
         assert result["status"] == 1
@@ -46,10 +44,10 @@ def test_unfunded_budget_has_no_execution_effects_and_pays_out_its_fee(tmp_path,
 
 @pytest.mark.parametrize("balance", [10, 100])
 def test_paid_execution_sees_spendable_balance_and_refunds_unused_budget(tmp_path, balance):
-    processor, rewards = make_processor(tmp_path, balance=balance)
+    processor = make_processor(tmp_path, balance=balance)
     driver = processor.client.raw_driver
     try:
-        result = process(processor, rewards, tx())["tx_result"]
+        result = process(processor, tx())["tx_result"]
         assert result["status"] == 0, result
         # 1000 chi at 100 chi/token reserves ten native tokens during execution.
         assert decode_wire_numbers(result["result"]) == balance - 10
@@ -63,10 +61,10 @@ def test_paid_execution_sees_spendable_balance_and_refunds_unused_budget(tmp_pat
 
 
 def test_paid_exhaustion_charges_reserved_budget_and_discards_contract_effects(tmp_path):
-    processor, rewards = make_processor(tmp_path)
+    processor = make_processor(tmp_path)
     driver = processor.client.raw_driver
     try:
-        result = process(processor, rewards, tx(budget=1))["tx_result"]
+        result = process(processor, tx(budget=1))["tx_result"]
         assert result["status"] == 1
         assert result["chi_used"] == 1
         assert driver.get("currency.balances:alice") == ContractingDecimal("99.99")
@@ -79,12 +77,12 @@ def test_paid_exhaustion_charges_reserved_budget_and_discards_contract_effects(t
 
 
 def test_unfunded_cost_estimation_runs_without_reserving_inferred_budget(tmp_path):
-    processor, _ = make_processor(tmp_path, balance=0)
+    processor = make_processor(tmp_path, balance=0)
     driver = processor.client.raw_driver
     try:
         before = driver.snapshot_state()
         estimate = TransactionSimulator(
-            client=processor.client, execution_runtime=VmRuntime(), chain_id="local"
+            client=processor.client, chain_id="local"
         ).simulate(
             {
                 "sender": "alice",
@@ -103,10 +101,10 @@ def test_unfunded_cost_estimation_runs_without_reserving_inferred_budget(tmp_pat
 
 
 def test_nonterminating_conversion_refund_preserves_exact_charged_fee(tmp_path):
-    processor, rewards = make_processor(tmp_path, balance=1000, rate=3)
+    processor = make_processor(tmp_path, balance=1000, rate=3)
     driver = processor.client.raw_driver
     try:
-        result = process(processor, rewards, tx())["tx_result"]
+        result = process(processor, tx())["tx_result"]
         assert result["status"] == 0, result
         fee = ContractingDecimal(result["chi_used"]) / 3
         assert driver.get("currency.balances:alice") == 1000 - fee
@@ -117,11 +115,11 @@ def test_nonterminating_conversion_refund_preserves_exact_charged_fee(tmp_path):
 
 def test_affordability_check_does_not_round_required_budget_down(tmp_path):
     balance = ContractingDecimal("0.333333333333333333333333333333")
-    processor, rewards = make_processor(tmp_path, balance=balance, rate=3)
+    processor = make_processor(tmp_path, balance=balance, rate=3)
     driver = processor.client.raw_driver
     try:
         # One chi requires strictly more than this truncated token amount.
-        result = process(processor, rewards, tx(budget=1))["tx_result"]
+        result = process(processor, tx(budget=1))["tx_result"]
         assert result["status"] == 1
         assert "enough chi" in result["result"]
         assert driver.get("con_probe.value") is None
@@ -133,42 +131,13 @@ def test_affordability_check_does_not_round_required_budget_down(tmp_path):
 
 
 def test_direct_paid_execution_rejects_zero_budget_without_running_contract(tmp_path):
-    processor, rewards = make_processor(tmp_path)
+    processor = make_processor(tmp_path)
     driver = processor.client.raw_driver
     try:
-        result = process(processor, rewards, tx(budget=0))["tx_result"]
+        result = process(processor, tx(budget=0))["tx_result"]
         assert result["status"] == 1
         assert result["chi_used"] == 0
         assert result["state"] == []
-        assert driver.get("con_probe.value") is None
-        assert driver.get("currency.balances:alice") == 100
-    finally:
-        driver.close()
-
-
-@pytest.mark.parametrize("charge_failure", [False, True])
-def test_direct_helper_preserves_its_explicit_failure_settlement_policy(tmp_path, charge_failure):
-    processor, _ = make_processor(tmp_path)
-    driver = processor.client.raw_driver
-    try:
-        outcome = execute_vm_transaction(
-            VmRuntime(),
-            driver,
-            sender="alice",
-            contract_name="con_probe",
-            function_name="spend",
-            kwargs={"amount": 50, "fail": True},
-            environment={},
-            chi_budget=1000,
-            chi_cost=100,
-            meter=True,
-            apply_metering_on_success_only=not charge_failure,
-            transaction_size_bytes=0,
-        )
-        assert outcome.output.status_code == 1
-        assert outcome.chi_used > 0
-        expected = {"currency.balances:alice": 100 - ContractingDecimal(outcome.chi_used) / 100}
-        assert outcome.writes == (expected if charge_failure else {})
         assert driver.get("con_probe.value") is None
         assert driver.get("currency.balances:alice") == 100
     finally:
@@ -179,12 +148,11 @@ def test_direct_helper_preserves_its_explicit_failure_settlement_policy(tmp_path
 def test_contract_failure_rolls_back_spending_and_charges_only_consumed_chi(
     tmp_path, amount, deliberate_failure
 ):
-    processor, rewards = make_processor(tmp_path)
+    processor = make_processor(tmp_path)
     driver = processor.client.raw_driver
     try:
         result = process(
             processor,
-            rewards,
             tx(function="spend", kwargs={"amount": amount, "fail": deliberate_failure}),
         )["tx_result"]
         assert result["status"] == 1
@@ -206,10 +174,10 @@ def test_contract_failure_rolls_back_spending_and_charges_only_consumed_chi(
 
 
 def test_successful_native_spend_cannot_consume_reserved_fee(tmp_path):
-    processor, rewards = make_processor(tmp_path)
+    processor = make_processor(tmp_path)
     driver = processor.client.raw_driver
     try:
-        result = process(processor, rewards, tx(function="spend", kwargs={"amount": 90}))[
+        result = process(processor, tx(function="spend", kwargs={"amount": 90}))[
             "tx_result"
         ]
         assert result["status"] == 0, result
@@ -222,12 +190,11 @@ def test_successful_native_spend_cannot_consume_reserved_fee(tmp_path):
 
 
 def test_free_metered_execution_preserves_full_spendable_balance(tmp_path):
-    processor, rewards = make_processor(tmp_path, balance=1)
+    processor = make_processor(tmp_path, balance=1)
     driver = processor.client.raw_driver
     try:
         result = process(
             processor,
-            rewards,
             tx(function="spend", kwargs={"amount": 1}),
             policy=TxFeePolicy.free_metered(),
         )["tx_result"]
@@ -241,10 +208,10 @@ def test_free_metered_execution_preserves_full_spendable_balance(tmp_path):
 
 
 def test_free_metered_execution_does_not_debit_untouched_sender_balance(tmp_path):
-    processor, rewards = make_processor(tmp_path, balance=1)
+    processor = make_processor(tmp_path, balance=1)
     driver = processor.client.raw_driver
     try:
-        result = process(processor, rewards, tx(), policy=TxFeePolicy.free_metered())["tx_result"]
+        result = process(processor, tx(), policy=TxFeePolicy.free_metered())["tx_result"]
         assert result["status"] == 0, result
         assert result["chi_used"] > 0
         assert driver.get("currency.balances:alice") == 1
@@ -255,80 +222,21 @@ def test_free_metered_execution_does_not_debit_untouched_sender_balance(tmp_path
 
 
 def test_cached_chi_rate_update_changes_next_reservation(tmp_path):
-    processor, rewards = make_processor(tmp_path)
+    processor = make_processor(tmp_path)
     driver = processor.client.raw_driver
     try:
         first = process(
             processor,
-            rewards,
             tx(contract="chi_cost", function="set_value", kwargs={"new_value": 200}),
         )
         assert first["tx_result"]["status"] == 0
-        second = process(processor, rewards, tx(sender="bob"))
+        second = process(processor, tx(sender="bob"))
         assert second["tx_result"]["status"] == 0
         assert decode_wire_numbers(second["tx_result"]["result"]) == 95
         fee = ContractingDecimal(second["tx_result"]["chi_used"]) / 200
         assert driver.get("currency.balances:bob") == 100 - fee
     finally:
         driver.close()
-
-
-def test_fee_reservation_is_restored_when_vm_boundary_raises(tmp_path):
-    processor, _ = make_processor(tmp_path)
-    driver = processor.client.raw_driver
-    try:
-        before = driver.snapshot_state()
-
-        def fail_after_host_write(*_args, **_kwargs):
-            driver.apply_writes({"con_probe.value": "partial host write"})
-            raise RuntimeError("host failure")
-
-        with patch("xian.execution_engine.execute_vm_contract", side_effect=fail_after_host_write):
-            with pytest.raises(RuntimeError, match="host failure"):
-                execute_vm_transaction(
-                    VmRuntime(),
-                    driver,
-                    sender="alice",
-                    contract_name="con_probe",
-                    function_name="record",
-                    kwargs={},
-                    environment={},
-                    chi_budget=1000,
-                    chi_cost=100,
-                    meter=True,
-                    transaction_size_bytes=0,
-                )
-        assert driver.snapshot_state() == before
-        assert driver.get("currency.balances:alice") == 100
-    finally:
-        driver.close()
-
-
-def test_direct_helper_checks_exact_affordability_with_fractional_rate(tmp_path):
-    # The generic accounting helper accepts exact rates independently of the
-    # canonical governance contract's stricter integer ABI.
-    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
-        driver.set("currency.balances:alice", ContractingDecimal("0.5"))
-        with patch("xian.execution_engine.execute_vm_contract") as execute:
-            outcome = execute_vm_transaction(
-                VmRuntime(),
-                driver,
-                sender="alice",
-                contract_name="con_probe",
-                function_name="record",
-                kwargs={},
-                environment={},
-                chi_budget=1,
-                chi_cost=ContractingDecimal("1.5"),
-                meter=True,
-                transaction_size_bytes=0,
-            )
-        assert outcome.output.status_code == 1
-        assert "not have enough chi" in str(outcome.output.result)
-        assert outcome.chi_used == 1
-        assert outcome.writes == {}
-        assert driver.get("currency.balances:alice") == ContractingDecimal("0.5")
-        execute.assert_not_called()
 
 
 def test_canonical_chi_rate_export_rejects_fractional_rate_before_writing_state(tmp_path):
@@ -338,20 +246,21 @@ def test_canonical_chi_rate_export_rejects_fractional_rate_before_writing_state(
         )
         driver.set("chi_cost.S:value", 100)
         driver.commit()
-        outcome = execute_vm_transaction(
-            VmRuntime(),
-            driver,
-            sender="validators",
-            contract_name="chi_cost",
-            function_name="set_value",
-            kwargs={"new_value": ContractingDecimal("1.5")},
-            environment={},
-            chi_budget=0,
-            chi_cost=100,
+        call = {
+            "sender": "validators",
+            "contract_name": "chi_cost",
+            "function_name": "set_value",
+            "kwargs": {"new_value": ContractingDecimal("1.5")},
+        }
+        environment, overlay = driver.committed_storage()
+        outcome = execute_tx(
+            environment,
+            overlay,
+            **call,
+            context=vm_call_context(**call, environment={}),
             meter=False,
-            transaction_size_bytes=0,
         )
-        assert outcome.output.status_code == 1
-        assert "int" in str(outcome.output.result)
+        assert outcome.status_code == 1
+        assert "int" in str(outcome.result)
         assert outcome.writes == {}
         assert driver.get("chi_cost.S:value") == 100

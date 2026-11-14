@@ -299,7 +299,6 @@ def _execute_block_transactions(
                 [entry["tx"] for entry in decoded],
                 [entry["tx_bytes"] for entry in decoded],
                 fee_policy=self.tx_fee_policy,
-                rewards_handler=self.rewards_handler,
             )
         processed_iter = iter(processed_results)
         for block_tx_index, entry in enumerate(decoded_entries):

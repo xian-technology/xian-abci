@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from contracting.execution.runtime import rt
 from contracting.runtime_features import RUNTIME_FEATURE_ZK, runtime_feature_enabled
 from contracting.stdlib.bridge import zk as zk_bridge
 
@@ -283,19 +282,19 @@ def build_verification_request(driver, tx: dict) -> dict[str, Any] | None:
     return None
 
 
-def _warm_verified_proofs(requests: list[dict]) -> list[bool]:
+def _warm_verified_proofs(requests: list[dict], driver) -> list[bool]:
     # Preverification only warms the node's proof cache (vm-core's, which the
     # Rust block executor verifies through), so it must never be able to fail a
     # block. Requests come from transaction kwargs; a request the bridge
     # rejects is counted as unverified and execution verifies it normally.
     try:
-        return list(zk_bridge.warm_verified_proofs(requests))
+        return list(zk_bridge.warm_verified_proofs(requests, driver=driver))
     except Exception:
         pass
     results = []
     for request in requests:
         try:
-            results.extend(zk_bridge.warm_verified_proofs([request]))
+            results.extend(zk_bridge.warm_verified_proofs([request], driver=driver))
         except Exception:
             results.append(False)
     return results
@@ -325,15 +324,7 @@ def warm_shielded_proof_cache(
     if not requests:
         return ShieldedPreverifyStats()
 
-    previous_driver = rt.env.get("__Driver")
-    rt.env["__Driver"] = driver
-    try:
-        results = _warm_verified_proofs(requests)
-    finally:
-        if previous_driver is None:
-            rt.env.pop("__Driver", None)
-        else:
-            rt.env["__Driver"] = previous_driver
+    results = _warm_verified_proofs(requests, driver)
 
     verified_count = sum(1 for result in results if result is True)
     failed_count = len(results) - verified_count

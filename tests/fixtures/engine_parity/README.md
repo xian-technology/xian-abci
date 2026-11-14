@@ -4,13 +4,15 @@ These files freeze the outputs of the engine parity corpora
 (`tests/integration/engine_parity_corpus.py`, contract sources in
 `tests/integration/engine_parity_contracts.py`). The single-engine plan
 (`xian-meta/docs/XIAN_SINGLE_ENGINE_PLAN.md`) moved these rules into the Rust
-executor and then deletes the Python path; the fixtures are what proves that
-nothing changed on the way except the approved changes listed below.
+executor and then deleted the Python path (increment 9); the fixtures are
+what proves that nothing changed on the way except the approved changes
+listed below.
 
 `tests/integration/test_engine_parity_corpus.py` checks that the production
-path reproduces them byte for byte, running every block transaction in Rust,
-and that the Python path reproduces them up to the first case revision 14
-decides by a rule the Python path does not have (`REVISION_14_CASES`).
+path reproduces them byte for byte, running every block transaction in Rust.
+Until increment 9 the Python path was checked against them too, up to the
+first case revision 14 decides by a rule the Python path did not have (the
+cases listed under "Explicit rules" below).
 
 ## Files
 
@@ -20,7 +22,6 @@ decides by a rule the Python path does not have (`REVISION_14_CASES`).
 | `simulations.json` | The `simulate_tx` query response value of each simulation. |
 | `contract_views.json` | The query response value of each contract view (`_call_contract_view`); `error` when the query raises. |
 | `system_blocks.json` | `FinalizeBlock` + `Commit` of blocks with evidence penalties and epoch rebalances: the system transactions' receipts, the serialized `ResponseFinalizeBlock` and the app hash. |
-| `handback_inventory.json` | Not golden: what the production path still hands to the Python path. Since increments 7 and 8 every entry is empty: blocks, system transactions, simulations and contract views all run in Rust. |
 | `inputs/groth16_bn254_demo.json` | Input: the demo Groth16 key, proof and public input (from `xian-zk`). |
 
 Every corpus runs with the default dependencies: the VM (`xian-tech-vm-core`)
@@ -34,10 +35,10 @@ recorded here), together with the change that causes it, and with the
 diff reviewed case by case. Never to make a failing parity test pass during
 a refactor or a port: a difference there is a bug in the port.
 
-Regenerate (block corpora on the production path, the rest on the Python
-path):
+The harness writes what the production path produces into another
+directory, to compare with the committed files (it refuses this one):
 
-    python -m tests.integration.engine_parity_corpus --write
+    python -m tests.integration.engine_parity_corpus --write-into /tmp/parity
 
 Changing the corpus itself (new cases) also regenerates them; add cases
 without changing the outputs of existing ones, and check that the diff only
@@ -72,8 +73,8 @@ fixtures were regenerated with them and the diff reviewed case by case:
 - Explicit rules for the Python path's halts and quirks (single-engine plan,
   increment 7; findings 1-9). Every block transaction now gets a receipt in
   Rust; only a host fault halts. The goldens are the production path's
-  (simulations and contract views too). Changed in them (each a
-  `REVISION_14_CASES` entry), and nothing else but the cascades named here:
+  (simulations and contract views too). Changed in them, and nothing else
+  but the cascades named here:
   - `simulate/str_balance`: a simulation from a sender whose balance is not
     a number reports the transaction's failure (`AssertionError('Sender
     balance is not a number.')`, chi 85) instead of the Python path's
@@ -149,11 +150,3 @@ fixtures were regenerated with them and the diff reviewed case by case:
     patch bundles are refused with the same check
     (`xian.fee_policy.validated_chi_rate`), and the `chi_cost` contract takes
     only positive rates.
-
-## The hand-back inventory
-
-`handback_inventory.json` shrank as rules moved into Rust; it is empty
-since increment 7 removed the hand-back from the executor (blocks, system
-transactions) and increment 8 ran simulations and contract views on it, so
-no production path has a Python fallback left. After the Python path is
-deleted, only the golden comparison of the production path remains.

@@ -81,9 +81,8 @@ def test_consensus_metadata_name_cannot_be_declared_by_contracts(tmp_path):
             )
 
 
-@pytest.mark.parametrize("vm_profile", ["xian_vm_v1", "xian_vm_v2"], ids=["native-v1", "native-v2"])
-def test_foreign_contract_cannot_write_effective_consensus_metadata(tmp_path, vm_profile):
-    with Driver(vm_profile=vm_profile, storage_home=tmp_path) as driver:
+def test_foreign_contract_cannot_write_effective_consensus_metadata(tmp_path):
+    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
         driver.set_contract_from_source(
             "validators", "@export\ndef ping():\n    return True\n", owner=None
         )
@@ -96,9 +95,11 @@ def test_foreign_contract_cannot_write_effective_consensus_metadata(tmp_path, vm
         )
         driver.commit()
         vm = pytest.importorskip("xian_vm_core")
-        result = vm.execute_contract(
-            vm_profile=vm_profile,
-            driver=driver,
+        environment, overlay = driver.committed_storage()
+        result = vm.execute_tx(
+            environment,
+            overlay.snapshot(),
+            sender="alice",
             contract_name="con_forgery",
             function_name="write",
             kwargs={},
@@ -106,10 +107,9 @@ def test_foreign_contract_cannot_write_effective_consensus_metadata(tmp_path, vm
                 "signer": "alice",
                 "caller": "alice",
                 "this": "con_forgery",
-                "owner": None,
+                "entry": ("con_forgery", "write"),
             },
             meter=False,
-            chi_budget_raw=1_000_000,
         )
         assert result.status_code == 1
         assert result.writes == {}

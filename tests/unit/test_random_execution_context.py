@@ -1,13 +1,20 @@
-"""The node forwards its transaction seed through the real native boundary."""
+"""The node forwards its transaction seed to the VM's random syscalls.
+
+The seed is the block's chain id, height and hash and the transaction's
+input hash (SHA3-256 of the block nanos and the transaction signature), read
+by the block executor from the transaction bytes.
+"""
 
 import hashlib
+from types import SimpleNamespace
 
 import pytest
-from contracting.execution.runtime import rt
 from contracting.storage.driver import Driver
+from xian_runtime_types.encoding import decode_wire_numbers
 
-from xian.execution_engine import VmRuntime, execute_vm_transaction
+from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
+from xian.utils.tx import transaction_bytes
 
 pytest.importorskip("xian_vm_core._native")
 
@@ -19,63 +26,51 @@ def probe():
     state.set(value)
     return value
 """
+NANOS = 1770000000000000000
+META = {"nanos": NANOS, "chain_id": "local-rng-audit", "hash": "abc123", "height": 17}
 
 
-def environment(signature):
-    processor = object.__new__(TxProcessor)
-    processor.execution_runtime = VmRuntime()
-    return processor.get_environment(
-        {
-            "b_meta": {
-                "nanos": 1770000000000000000,
-                "chain_id": "local-rng-audit",
-                "hash": "abc123",
-                "height": 17,
-            },
-            "metadata": {"signature": signature},
-        }
+def _tx(signature):
+    return {
+        "payload": {
+            "sender": "alice",
+            "contract": "con_rng",
+            "function": "probe",
+            "kwargs": {},
+            "nonce": 0,
+            "chi_supplied": 100_000,
+        },
+        "metadata": {"signature": signature},
+        "b_meta": META,
+    }
+
+
+def _expected(signature):
+    input_hash = hashlib.sha3_256(f"{NANOS}{signature}".encode()).hexdigest()
+    seed = (
+        f"chain_id={META['chain_id']}|block_num={META['height']}|"
+        f"block_hash={META['hash']}|input_hash={input_hash}|0"
     )
+    return int.from_bytes(hashlib.sha3_256(seed.encode()).digest()[:8], "big")
 
 
-@pytest.mark.parametrize("meter", [False, True])
-def test_transaction_hash_is_used_and_ambient_state_is_irrelevant(tmp_path, meter):
-    previous = dict(rt.env)
-    try:
-        with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
-            driver.set_contract_from_source("con_rng", SOURCE, owner=None)
+@pytest.mark.parametrize(
+    "policy", [TxFeePolicy.system_unmetered(), TxFeePolicy.free_metered()], ids=["free", "metered"]
+)
+def test_the_transaction_seed_reaches_the_random_syscalls(tmp_path, policy):
+    with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
+        driver.set_contract_from_source("con_rng", SOURCE, owner=None)
+        driver.commit()
+        processor = TxProcessor(SimpleNamespace(raw_driver=driver))
+        draws = []
+        for signature in ("signature-one", "signature-two"):
+            tx = _tx(signature)
+            [response] = processor.process_block([tx], [transaction_bytes(tx)], fee_policy=policy)
+            result = response["tx_result"]
+            assert result["status"] == 0, result["result"]
+            draw = decode_wire_numbers(result["result"])
+            assert draw == _expected(signature)
+            assert result["state"] == [{"key": "con_rng.state", "value": draw}]
+            draws.append(draw)
             driver.commit()
-            draws = []
-            for signature in ("signature-one", "signature-two"):
-                explicit = environment(signature)
-                seed = (
-                    f"chain_id={explicit['chain_id']}|block_num={explicit['block_num']}|"
-                    f"block_hash={explicit['block_hash']}|input_hash={explicit['__input_hash']}|0"
-                )
-                expected = int.from_bytes(hashlib.sha3_256(seed.encode()).digest()[:8], "big")
-                observations = []
-                for ambient in ({}, {"__input_hash": "ambient-a"}, {"__input_hash": "ambient-b"}):
-                    rt.env = ambient
-                    output = execute_vm_transaction(
-                        VmRuntime(),
-                        driver,
-                        sender="alice",
-                        contract_name="con_rng",
-                        function_name="probe",
-                        kwargs={},
-                        environment=explicit,
-                        meter=meter,
-                        chi_budget=1_000_000,
-                        chi_cost=1,
-                        apply_metering_writes=False,
-                        transaction_size_bytes=0,
-                    )
-                    assert output.output.status_code == 0, output.output.result
-                    assert output.output.result == expected
-                    assert output.writes == {"con_rng.state": expected}
-                    assert dict(rt.env) == ambient
-                    observations.append((output.writes, output.chi_used, output.contract_costs))
-                assert observations[0] == observations[1] == observations[2]
-                draws.append(expected)
-            assert draws[0] != draws[1]
-    finally:
-        rt.env = previous
+        assert draws[0] != draws[1]

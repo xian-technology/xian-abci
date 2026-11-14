@@ -82,7 +82,6 @@ from xian.metrics import MetricsService
 from xian.nonce import NonceStorage
 from xian.perf import PerfTracker
 from xian.processor import TxProcessor
-from xian.rewards import RewardsHandler
 from xian.runtime_features import (
     install_driver_runtime_features,
     require_runtime_feature_support,
@@ -221,9 +220,7 @@ class Xian:
         )
         self.tx_processor = TxProcessor(
             client=self.client,
-            profiler=self.profiler,
             trace_logging=self.transaction_trace_debug_logging,
-            execution_runtime=self.execution_runtime,
         )
         try:
             reject_node_local_fee_settings(xian_config)
@@ -247,7 +244,6 @@ class Xian:
             max_chi=self.simulation_chi_budget(),
             charge_fees=self.tx_fee_policy.charge_fees,
         )
-        self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None
         self.merkle_root_hash = None
         # FinalizeBlock leaves consensus writes pending until Commit, but

@@ -4,34 +4,26 @@ Step B moves fee settlement into Rust; the port must reproduce these outputs
 exactly (exact-ratio reservation check, ContractingDecimal truncation, the
 integer 0 that ``max(balance - fee, 0)`` yields for a negative balance, and
 the chi a failure paid: ``chi_used``, or the whole balance priced in chi).
-``tests/fixtures/fee_outputs.json`` holds what the current Python code
-computes, encoded as wire JSON. The Rust port must answer every pinned case
-identically, except for execution revision 14's rule that a failure charge
-leaves a negative balance as it is (Python raises it to 0, minting the
-difference); on a wider corpus with odd value types it refuses a balance
-that is not a number (``None``: such a sender cannot pay), never answering
-differently.
-
-Regenerate (only for an intended behaviour change):
-    python -m tests.unit.test_fee_settlement_corpus --write
+``tests/fixtures/fee_outputs.json`` holds what the Python reference (deleted
+in increment 9 of the single-engine plan) computed, encoded as wire JSON.
+The Rust port must answer every pinned case identically, except for
+execution revision 14's rule that a failure charge leaves a negative balance
+as it is (Python raised it to 0, minting the difference). On a wider corpus
+with odd value types it refuses a balance that is not a number (``None``:
+such a sender cannot pay); ``fee_outputs_wide.json`` freezes those outcomes.
+The fixtures are not regenerated.
 """
 
 from __future__ import annotations
 
 import json
 import random
-import sys
 from pathlib import Path
 
 import pytest
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import encode
 
-from xian.execution_engine import (
-    _InsufficientFeeBalance,
-    _reserve_vm_fee_budget,
-    vm_failure_charge,
-)
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "fee_outputs.json"
 # The wide corpus's Rust outcomes (None where Rust refuses a balance), frozen
@@ -39,7 +31,6 @@ FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "fee_outputs.json"
 WIDE_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "fee_outputs_wide.json"
 SEED = 20261113
 CASES = 400
-KEY = "currency.balances:sender"
 _ABSENT = object()
 
 BALANCES = [
@@ -76,21 +67,6 @@ def _value(value):
     return ContractingDecimal(value) if isinstance(value, str) else value
 
 
-class _Driver:
-    def __init__(self, balance):
-        self.balance = balance
-
-    def make_key(self, contract, variable, args):
-        return f"{contract}.{variable}:{args[0]}"
-
-    def get(self, key):
-        assert key == KEY
-        return self.balance
-
-    def apply_writes(self, writes):
-        pass
-
-
 def case_list(seed=SEED, count=CASES, balances=BALANCES, written=WRITTEN):
     rng = random.Random(seed)
     return [
@@ -103,46 +79,6 @@ def case_list(seed=SEED, count=CASES, balances=BALANCES, written=WRITTEN):
         }
         for _ in range(count)
     ]
-
-
-def python_outcome(case):
-    """The reservation, the refunded balance and the failure charge, or the
-    name of the exception the Python code raises."""
-    try:
-        return _python_outcome(case)
-    except Exception as exc:  # noqa: BLE001 - the corpus pins which cases raise
-        return {"raises": type(exc).__name__}
-
-
-def _python_outcome(case):
-    driver = _Driver(case["balance"])
-    try:
-        reservation = _reserve_vm_fee_budget(
-            driver,
-            sender="sender",
-            chi_budget=case["budget"],
-            chi_cost=case["rate"],
-            currency_contract="currency",
-            balances_hash="balances",
-        )
-    except _InsufficientFeeBalance:
-        reserved = refunded = None
-    else:
-        reserved = [reservation.amount, reservation.spendable_balance]
-        written = {} if case["written"] is _ABSENT else {KEY: case["written"]}
-        refunded = reservation.refund_writes(
-            written, chi_used=case["chi_used"], chi_cost=case["rate"]
-        )[KEY]
-    metered, paid = vm_failure_charge(
-        driver, sender="sender", chi_used=case["chi_used"], chi_cost=case["rate"]
-    )
-    return {
-        "reserved": reserved,
-        "refunded": refunded,
-        "metered": metered.get(KEY, "unchanged"),
-        # The reward code reads the paid chi as decimal.Decimal(str(paid)).
-        "paid": str(paid),
-    }
 
 
 def rust_outcome(native, case):
@@ -177,7 +113,7 @@ def _negative(balance) -> bool:
 
 
 def revision_14(case, outcome):
-    """The Python outcome under revision 14: a failure charge never raises a
+    """A pinned outcome under revision 14: a failure charge never raises a
     negative balance (no write, nothing paid)."""
     if "raises" in outcome or not _negative(case["balance"]):
         return outcome
@@ -186,13 +122,6 @@ def revision_14(case, outcome):
 
 def _wire(outcome):
     return json.loads(encode(outcome, vm_profile="xian_vm_v2"))
-
-
-def test_fee_outcomes_match_the_pinned_corpus():
-    expected = json.loads(FIXTURE.read_text())
-    assert len(expected) == CASES
-    for index, case in enumerate(case_list()):
-        assert _wire(python_outcome(case)) == expected[index], index
 
 
 def test_rust_fee_settlement_reproduces_the_pinned_corpus():
@@ -204,9 +133,6 @@ def test_rust_fee_settlement_reproduces_the_pinned_corpus():
             assert outcome is None, index
             continue
         assert outcome is not None, index
-        assert encode(outcome, vm_profile="xian_vm_v2") == encode(
-            revision_14(case, python_outcome(case)), vm_profile="xian_vm_v2"
-        ), index
         assert _wire(outcome) == revision_14(case, expected[index]), index
 
 
@@ -215,23 +141,12 @@ def wide_cases():
     return case_list(seed=SEED + 1, count=1500, balances=BALANCES + odd, written=WRITTEN + odd)
 
 
-def test_rust_fee_settlement_answers_only_what_python_answers_the_same():
+def test_rust_fee_settlement_reproduces_the_frozen_wide_corpus():
     native = pytest.importorskip("xian_vm_core._native")
     frozen = json.loads(WIDE_FIXTURE.read_text())
     answered = 0
     for index, case in enumerate(wide_cases()):
         outcome = rust_outcome(native, case)
         assert (None if outcome is None else _wire(outcome)) == frozen[index], index
-        if outcome is None:
-            continue
-        answered += 1
-        assert "raises" not in python_outcome(case), index
-        assert encode(outcome, vm_profile="xian_vm_v2") == encode(
-            revision_14(case, python_outcome(case)), vm_profile="xian_vm_v2"
-        ), index
+        answered += outcome is not None
     assert answered > 700
-
-
-if __name__ == "__main__" and sys.argv[1:] == ["--write"]:
-    lines = (json.dumps(_wire(python_outcome(case)), separators=(",", ":")) for case in case_list())
-    FIXTURE.write_text("[\n" + ",\n".join(lines) + "\n]\n")

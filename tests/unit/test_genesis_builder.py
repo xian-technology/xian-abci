@@ -16,7 +16,7 @@ from xian_runtime_types.encoding import encode
 from xian_runtime_types.time import Datetime
 from xian_vm_core import TxRun, execute_tx
 
-from xian.execution_engine import build_vm_runtime, execute_vm_contract
+from xian.execution_engine import vm_call_context
 from xian.genesis_builder import (
     build_bundle_network_genesis,
     build_cometbft_genesis,
@@ -217,8 +217,8 @@ class GenesisBuilderTests(unittest.TestCase):
                     network="test",
                     contracts_dir=contracts_dir,
                 )
-            # The deploys (the probe, then chi_cost) run in Rust; the Python
-            # path below is the reference.
+            # The deploys (the probe, then chi_cost) run in Rust; a direct
+            # deployment on a fresh chain below is the reference.
             self.assertEqual(native_execute.call_count, 2)
             self.assertTrue(all(isinstance(run, TxRun) for run in runs))
             probe_call = native_execute.call_args_list[0].kwargs
@@ -229,13 +229,11 @@ class GenesisBuilderTests(unittest.TestCase):
             native_driver = Driver(vm_profile="xian_vm_v2", storage_home=Path(tmp_dir) / "native")
             native_driver.flush_full()
             ContractingClient(vm_profile="xian_vm_v2", driver=native_driver)
-            native_output = execute_vm_contract(
-                build_vm_runtime(),
-                native_driver,
-                sender="sys",
-                contract_name="submission",
-                function_name="submit_contract",
-                kwargs={
+            call = {
+                "sender": "sys",
+                "contract_name": "submission",
+                "function_name": "submit_contract",
+                "kwargs": {
                     "name": "con_seed_native_probe",
                     "code": source,
                     "owner": "owner-vk",
@@ -245,16 +243,22 @@ class GenesisBuilderTests(unittest.TestCase):
                         "ratios_arg": [],
                     },
                 },
-                environment={
-                    "now": fixed_now,
-                    "block_num": 0,
-                    "block_hash": "",
-                    "chain_id": "genesis-test",
-                },
+            }
+            environment = {
+                "now": fixed_now,
+                "block_num": 0,
+                "block_hash": "",
+                "chain_id": "genesis-test",
+            }
+            storage, overlay = native_driver.committed_storage()
+            native_output = execute_tx(
+                storage,
+                overlay,
+                **call,
+                context=vm_call_context(**call, environment=environment),
                 meter=False,
             )
             self.assertEqual(native_output.status_code, 0)
-            native_driver.apply_writes(native_output.writes)
             native_driver.commit()
             native_driver.flush_cache()
 

@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from contracting.local import ContractingClient
 
 from xian.processor import TxProcessor
+from xian.fee_policy import TxFeePolicy
+from xian.utils.tx import transaction_bytes
 
 CURRENCY_SOURCE = """
 balances = Hash()
@@ -26,6 +28,15 @@ def transfer(amount: int, to: str):
     else:
         balances[to] += amount
 """
+
+
+def process_tx(processor, tx, fee_policy=None):
+    """The block executor's response for ``tx`` alone in a block (unmetered
+    unless ``fee_policy`` says otherwise)."""
+    [response] = processor.process_block(
+        [tx], [transaction_bytes(tx)], fee_policy=fee_policy or TxFeePolicy.system_unmetered()
+    )
+    return response
 
 
 EXCEPTION_SOURCE = """
@@ -80,7 +91,7 @@ def test_failed_contract_transaction_does_not_apply_contract_writes(tmp_path):
 
     prior_balance = client.raw_driver.get("con_exception.balances:stu")
 
-    result = processor.process_tx(tx("con_exception"))
+    result = process_tx(processor, tx("con_exception"))
 
     assert result["tx_result"]["status"] == 1
     assert client.raw_driver.get("con_exception.balances:stu") == prior_balance
@@ -98,7 +109,7 @@ def test_successful_contract_transaction_applies_contract_writes(tmp_path):
 
     prior_balance = client.raw_driver.get("con_currency.balances:stu")
 
-    result = processor.process_tx(tx("con_currency"))
+    result = process_tx(processor, tx("con_currency"))
 
     assert result["tx_result"]["status"] == 0
     assert (

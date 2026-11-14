@@ -1,34 +1,26 @@
-"""Golden corpora for moving the per-transaction rules into the Rust engine.
+"""Golden corpora of the transaction rules the Rust engine took over.
 
-The single-engine plan (xian-meta ``docs/XIAN_SINGLE_ENGINE_PLAN.md``) moves
-every transaction rule that the Python per-transaction path still owns into
-the Rust executor and then deletes that path. These corpora cover what moved:
-contract submission and deploys, random, contract metadata changes, zk
-syscalls, system transactions (epoch rebalance, evidence penalties), values
-the receipt encoding may refuse, odd balances, odd reward inputs,
+The single-engine plan (xian-meta ``docs/XIAN_SINGLE_ENGINE_PLAN.md``) moved
+every transaction rule of the Python per-transaction path into the Rust
+executor and then deleted that path (increment 9). These corpora cover what
+moved: contract submission and deploys, random, contract metadata changes,
+zk syscalls, system transactions (epoch rebalance, evidence penalties),
+values the receipt encoding may refuse, odd balances, odd reward inputs,
 simulation and contract-view queries.
 
-Each corpus runs on two paths:
+Each corpus runs on the production path: ``TxProcessor.process_block``
+(every transaction in Rust), simulations through ``QuerySimulationService``
+and contract views through the query handler's ``_call_contract_view`` (both
+``xian_vm_core.execute_tx``), system transactions through ``FinalizeBlock``.
+Until increment 9 every corpus also ran on the Python path and matched (up
+to the cases execution revision 14 decides by explicit rules, listed in the
+fixtures README).
 
-* the Python path: every transaction through ``TxProcessor.process_tx``
-  (``TxProcessor._block_executor`` patched to ``None``; no production flag),
-  simulations through ``execute_vm_transaction`` (``_python_simulation``),
-  contract views through ``execute_vm_contract``;
-* the production path: ``TxProcessor.process_block`` (every transaction in
-  Rust), simulations through ``QuerySimulationService`` and contract views
-  through the query handler's ``_call_contract_view`` (both
-  ``xian_vm_core.execute_tx``), system transactions through ``FinalizeBlock``.
+``tests/fixtures/engine_parity/`` freezes the outputs. They are not
+regenerated; ``--write-into DIR`` writes what the production path produces
+into ``DIR`` to compare with them:
 
-``tests/fixtures/engine_parity/`` freezes the outputs as the production path
-produces them since execution revision 14 gave the Python path's halts and
-quirks explicit Rust rules (``REVISION_14_CASES``; the Python path reproduces
-each block corpus up to its first such case and every other simulation and
-contract view). See the README there for when they may be regenerated:
-
-    python -m tests.integration.engine_parity_corpus --write
-
-``handback_inventory.json`` there lists what the production path still
-hands to the Python path: nothing (``--write-inventory`` rewrites it).
+    python -m tests.integration.engine_parity_corpus --write-into /tmp/parity
 """
 
 from __future__ import annotations
@@ -63,11 +55,6 @@ ZK_DEMO = FIXTURES / "inputs" / "groth16_bn254_demo.json"
 NODE_FIXTURE = HERE / "fixtures" / ".cometbft-fixture"
 CHAIN_ID = "xian-local"
 BASE_NANOS = 1_700_000_000_000_000_000
-
-# The route of a transaction that the Rust executor ran, and of one that ran
-# on the per-transaction path because the block had no Rust executor.
-RUST = "rust"
-PER_TX_PATH = "per-transaction path"
 
 POLICIES: dict[str, Callable[[], TxFeePolicy]] = {
     "paid": TxFeePolicy.paid_metered,
@@ -217,15 +204,13 @@ def _configure_chain(driver) -> None:
 def open_chain(home: Path):
     from contracting.local import ContractingClient
 
-    from xian.rewards import RewardsHandler
-
     client = ContractingClient(vm_profile="xian_vm_v2", storage_home=home)
     driver = client.raw_driver
     _deploy_contracts(driver)
     _fund_accounts(driver)
     _configure_chain(driver)
     driver.commit()
-    return client, TxProcessor(client=client), RewardsHandler(client)
+    return client, TxProcessor(client=client)
 
 
 # --- the corpora -------------------------------------------------------------
@@ -890,52 +875,6 @@ def _policy_corpus(policy: str) -> Corpus:
     )
 
 
-# The cases whose outcome execution revision 14 defines by an explicit Rust
-# rule where the Python path halts the node or follows its own quirk (the
-# fixtures README lists each rule). The Python path, deleted in increment 9 of
-# the plan, keeps its old outcome for them.
-REVISION_14_CASES = frozenset(
-    {"deploy/str_balance_sender", "simulate/str_balance"}
-    | {
-        f"balance/{sender}_{label}"
-        for sender in ("erin", "fay", "gus", "hal", "ivy", "jon")
-        for label in ("success", "failure", "base_budget")
-    }
-    | {
-        f"rewards/{config}_{outcome}"
-        for config in (
-            "split_text",
-            "split_short",
-            "split_not_list",
-            "split_dict",
-            "split_member_none",
-            "foundation_owner_int",
-            "power_text",
-            "active_dict",
-            "active_int_member",
-            "active_text_balance",
-        )
-        for outcome in ("success", "failure")
-    }
-)
-
-
-def before_revision_14_cases(outputs: dict) -> dict:
-    """``outputs`` up to its first ``REVISION_14_CASES`` case: whole blocks
-    before it, then that block's receipts before it (later blocks depend on
-    its outcome)."""
-    blocks = []
-    for block in outputs["blocks"]:
-        cases = [tx["case"] for tx in block.get("txs", [])] or block.get("cases", [])
-        changed = [index for index, case in enumerate(cases) if case in REVISION_14_CASES]
-        if not changed:
-            blocks.append(block)
-            continue
-        blocks.append({"height": block["height"], "txs": block.get("txs", [])[: changed[0]]})
-        break
-    return {**outputs, "blocks": blocks}
-
-
 def corpora() -> tuple[Corpus, ...]:
     return (
         _deploy_corpus(),
@@ -977,27 +916,6 @@ def block_meta(height: int) -> dict:
     }
 
 
-@contextmanager
-def python_path() -> Iterator[None]:
-    """Every transaction through ``process_tx``: the per-transaction path."""
-    with mock.patch.object(TxProcessor, "_block_executor", lambda *_args: None):
-        yield
-
-
-@contextmanager
-def _route_recorder(processor: TxProcessor) -> Iterator[list]:
-    """Records the signature of each transaction ``process_tx`` ran."""
-    routes: list[str] = []
-    process_tx = processor.process_tx
-
-    def recorded(tx, *args, **kwargs):
-        routes.append(tx["metadata"]["signature"])
-        return process_tx(tx, *args, **kwargs)
-
-    with mock.patch.object(processor, "process_tx", recorded):
-        yield routes
-
-
 def _stored_digest(items: list[tuple[str, bytes | None]]) -> str:
     encoded = json.dumps(
         [[key, None if value is None else value.decode("utf-8")] for key, value in sorted(items)],
@@ -1010,33 +928,26 @@ def _stored_digest(items: list[tuple[str, bytes | None]]) -> str:
 class _Chain:
     driver: Any
     processor: TxProcessor
-    rewards: Any
     roots: Any
     policy: TxFeePolicy
 
 
-def run_corpus(home: Path, corpus: Corpus, *, python: bool) -> tuple[dict, dict[str, str]]:
-    """The corpus's receipts, block writes and app hashes on one path, and
-    the route of every transaction: ``RUST`` or ``PER_TX_PATH``."""
+def run_corpus(home: Path, corpus: Corpus) -> dict:
+    """The corpus's receipts, block writes and app hashes."""
     from xian.state_root import StateRootCache
 
-    client, processor, rewards = open_chain(home)
+    client, processor = open_chain(home)
     driver = client.raw_driver
     policy = POLICIES[corpus.policy]()
-    chain = _Chain(driver, processor, rewards, StateRootCache.from_driver(driver), policy)
-    blocks, routes = [], {}
+    chain = _Chain(driver, processor, StateRootCache.from_driver(driver), policy)
+    blocks = []
     try:
-        with ExitStack() as stack:
-            if python:
-                stack.enter_context(python_path())
-            recorded = stack.enter_context(_route_recorder(processor))
-            for height, block in enumerate(corpus.blocks, start=1):
-                txs = [_tx(corpus.name, height, i, call) for i, call in enumerate(block.calls)]
-                blocks.append(_run_block(chain, height, block, txs))
-                routes.update(_routes(txs, block.calls, set(recorded)))
+        for height, block in enumerate(corpus.blocks, start=1):
+            txs = [_tx(corpus.name, height, i, call) for i, call in enumerate(block.calls)]
+            blocks.append(_run_block(chain, height, block, txs))
     finally:
         driver.close()
-    return {"policy": corpus.policy, "blocks": blocks}, routes
+    return {"policy": corpus.policy, "blocks": blocks}
 
 
 def _run_block(chain: _Chain, height: int, block: Block, txs: list[dict]) -> dict:
@@ -1046,7 +957,7 @@ def _run_block(chain: _Chain, height: int, block: Block, txs: list[dict]) -> dic
         chain.driver.set(key, value)
     try:
         responses = chain.processor.process_block(
-            txs, [transaction_bytes(tx) for tx in txs], fee_policy=chain.policy, rewards_handler=chain.rewards
+            txs, [transaction_bytes(tx) for tx in txs], fee_policy=chain.policy
         )
         receipts = [
             _receipt(call, response) for call, response in zip(block.calls, responses, strict=True)
@@ -1081,18 +992,6 @@ def _receipt(call: Call, response: dict) -> dict:
         "code": tx_result["status"],
         "data": encode_abci_json(tx_result).decode("utf-8"),
     }
-
-
-def _routes(txs: list[dict], calls: tuple[Call, ...], ran_in_python: set) -> dict[str, str]:
-    return {
-        call.case: PER_TX_PATH if tx["metadata"]["signature"] in ran_in_python else RUST
-        for tx, call in zip(txs, calls, strict=True)
-    }
-
-
-def handed_back(routes: dict[str, str]) -> dict[str, str]:
-    """The cases that ran on the Python path."""
-    return {case: route for case, route in routes.items() if route != RUST}
 
 
 # --- simulation and contract views --------------------------------------------
@@ -1194,9 +1093,8 @@ def _encoded(result: Any) -> dict:
     return {"type": kind, "value": None if value is None else value.decode("utf-8")}
 
 
-def _simulate(client, simulation: Simulation, raw_hex: str, *, python: bool) -> Any:
-    """The ``simulate_tx`` query result: decoded and forked as the query
-    does it, then run on the Python path or as the node runs it."""
+def _simulate(client, simulation: Simulation, raw_hex: str) -> Any:
+    """The ``simulate_tx`` query result, as the node runs it."""
     from xian.simulator import QuerySimulationService
 
     meta = block_meta(SIMULATION_HEIGHT)
@@ -1211,110 +1109,20 @@ def _simulate(client, simulation: Simulation, raw_hex: str, *, python: bool) -> 
     prepared = service.prepare_encoded_transaction(raw_hex)
     if isinstance(prepared, dict):
         return prepared
-    if python:
-        return _python_simulation(prepared, meta, simulation.max_chi)
     return asyncio.run(prepared.run())
 
 
-def _python_simulation(prepared, meta: dict, max_chi: int) -> dict:
-    """The simulation on the Python per-transaction path
-    (``execute_vm_transaction`` without a fee reservation, the fee metered
-    from the balance the run leaves), as the simulator ran it before
-    increment 8; the driver's pending state is restored after."""
-    from xian_runtime_types.encoding import decode_wire_numbers
-
-    from xian.execution_engine import execute_vm_transaction
-    from xian.fee_policy import chain_chi_rate
-    from xian.simulator import _simulation_result, estimate_to_fixpoint
-
-    simulator, payload = prepared.simulator, prepared.payload
-    driver = simulator.client.raw_driver
-    state = driver.snapshot_state()
+def run_simulations(home: Path) -> dict:
+    """Each simulation's query response."""
+    client, _processor = open_chain(home)
+    results = {}
     try:
-        chi_cost = chain_chi_rate(simulator.client) if simulator.charge_fees else None
-        kwargs = decode_wire_numbers(payload.get("kwargs", {}))
-        environment = simulator._make_environment(payload, block_meta=meta)
-
-        def run(chi_supplied: int):
-            return execute_vm_transaction(
-                simulator.execution_runtime,
-                driver,
-                sender=payload["sender"],
-                contract_name=payload["contract"],
-                function_name=payload["function"],
-                kwargs=kwargs,
-                environment=environment,
-                chi_budget=simulator._budget(max_chi),
-                transaction_size_bytes=simulator._transaction_size(
-                    payload, environment, nonce=prepared.nonce, chi_supplied=chi_supplied
-                ),
-                chi_cost=chi_cost,
-                meter=True,
-                apply_metering_on_success_only=False,
-                apply_metering_writes=simulator.charge_fees,
-                reserve_fee_budget=False,
-            )
-
-        outcome = estimate_to_fixpoint(run, lambda outcome: outcome.chi_used)
-        return _simulation_result(
-            payload,
-            status=outcome.output.status_code,
-            writes=outcome.writes,
-            events=outcome.output.events,
-            chi_used=outcome.chi_used,
-            result=outcome.output.result,
-        )
-    except Exception as exc:  # noqa: BLE001 - the simulator's error response
-        return {
-            "payload": payload,
-            "status": 1,
-            "state": [],
-            "chi_used": 0,
-            "result": f"Simulation error: {exc}",
-        }
-    finally:
-        driver.restore_state(state)
-
-
-@contextmanager
-def single_tx_routes(module) -> Iterator[list[str]]:
-    """Records each ``execute_tx`` call ``module`` makes (every one runs in
-    Rust)."""
-    routes: list[str] = []
-    execute_tx = module.execute_tx
-
-    def recorded(*args, **kwargs):
-        routes.append(RUST)
-        return execute_tx(*args, **kwargs)
-
-    with mock.patch.object(module, "execute_tx", recorded):
-        yield routes
-
-
-def _route(routes: list[str]) -> str:
-    """The route of one query: Rust (a query refused before execution runs
-    nothing; a simulation may run more than once to size its envelope)."""
-    assert set(routes) <= {RUST}, routes
-    routes.clear()
-    return RUST
-
-
-def run_simulations(home: Path, *, python: bool) -> tuple[dict, dict[str, str]]:
-    """Each simulation's query response on one path, and its route."""
-    from xian import simulator as simulator_module
-
-    client, _processor, _rewards = open_chain(home)
-    results, routes = {}, {}
-    try:
-        with single_tx_routes(simulator_module) as calls:
-            for simulation in simulations():
-                raw = json.dumps(simulation.payload, separators=(",", ":")).encode("utf-8")
-                result = _simulate(client, simulation, raw.hex(), python=python)
-                results[simulation.case] = _encoded(result)
-                routes[simulation.case] = _route(calls) if not python else PER_TX_PATH
+        for simulation in simulations():
+            raw = json.dumps(simulation.payload, separators=(",", ":")).encode("utf-8")
+            results[simulation.case] = _encoded(_simulate(client, simulation, raw.hex()))
     finally:
         client.raw_driver.close()
-    return results, routes
+    return results
 
 
 # (case, sender, contract, function, kwargs)
@@ -1340,61 +1148,28 @@ CONTRACT_VIEWS = (
 )
 
 
-def _python_contract_view(ctx, contract: str, function: str, kwargs: dict) -> Any:
-    """A contract view on the per-transaction functions, without metering."""
-    from xian.execution_engine import execute_vm_contract, prepare_vm_contract
-    from xian.methods.query import _make_vm_query_environment
-
-    driver = ctx.raw_driver
-    if not driver.has_contract(contract):
-        return None
-    state = driver.snapshot_state()
-    try:
-        prepare_vm_contract(ctx.app.execution_runtime, driver, contract)
-        output = execute_vm_contract(
-            ctx.app.execution_runtime,
-            driver,
-            sender=ctx.key,
-            contract_name=contract,
-            function_name=function,
-            kwargs=dict(kwargs),
-            environment=_make_vm_query_environment(ctx),
-            meter=False,
-        )
-    finally:
-        driver.restore_state(state)
-    return output.result if output.status_code == 0 else None
-
-
-def run_contract_views(home: Path, *, python: bool) -> tuple[dict, dict[str, str]]:
-    """Each contract view's query response on one path (a view that raises
-    fails the query), and its route."""
-    from xian.execution_engine import VmRuntime
-    from xian.methods import query as query_module
+def run_contract_views(home: Path) -> dict:
+    """Each contract view's query response (a view that raises fails the
+    query)."""
     from xian.methods.query import QueryContext, _call_contract_view
 
-    client, _processor, _rewards = open_chain(home)
+    client, _processor = open_chain(home)
     app = SimpleNamespace(
         client=client,
-        execution_runtime=VmRuntime(),
         current_block_meta=block_meta(SIMULATION_HEIGHT),
         chain_id=CHAIN_ID,
     )
-    view = _python_contract_view if python else _call_contract_view
-    results, routes = {}, {}
+    results = {}
     try:
-        with single_tx_routes(query_module) as calls:
-            for case, sender, contract, function, kwargs in CONTRACT_VIEWS:
-                ctx = QueryContext(app=app, path_parts=[], params={}, route="view", key=sender)
-                try:
-                    result = view(ctx, contract, function, kwargs=kwargs)
-                    results[case] = _encoded(result)
-                except Exception as exc:  # noqa: BLE001 - recorded: the query fails
-                    results[case] = {"error": type(exc).__name__}
-                routes[case] = _route(calls) if not python else PER_TX_PATH
+        for case, sender, contract, function, kwargs in CONTRACT_VIEWS:
+            ctx = QueryContext(app=app, path_parts=[], params={}, route="view", key=sender)
+            try:
+                results[case] = _encoded(_call_contract_view(ctx, contract, function, kwargs=kwargs))
+            except Exception as exc:  # noqa: BLE001 - recorded: the query fails
+                results[case] = {"error": type(exc).__name__}
     finally:
         client.raw_driver.close()
-    return results, routes
+    return results
 
 
 # --- system transactions through FinalizeBlock ---------------------------------
@@ -1564,12 +1339,7 @@ SYSTEM_CASES = {
 }
 
 
-def _system_routes(ran_in_python: list[str]) -> dict[str, str]:
-    """The system transaction cases that ran on the Python path."""
-    return {SYSTEM_CASES[signature.split(":", 1)[0]]: PER_TX_PATH for signature in ran_in_python}
-
-
-async def _run_system_blocks(constants, *, python: bool) -> tuple[dict, dict[str, str]]:
+async def _run_system_blocks(constants) -> dict:
     from abci.server import ProtocolHandler
     from xian.utils.encoding import encode_abci_json
     from xian.xian_abci import Xian
@@ -1587,11 +1357,7 @@ async def _run_system_blocks(constants, *, python: bool) -> tuple[dict, dict[str
             return response
 
         blocks = []
-        with ExitStack() as stack:
-            if python:
-                stack.enter_context(python_path())
-            ran_in_python = stack.enter_context(_route_recorder(app.tx_processor))
-            stack.enter_context(mock.patch.object(app.tx_processor, "process_system_tx", recorded))
+        with mock.patch.object(app.tx_processor, "process_system_tx", recorded):
             for block in system_blocks():
                 for key, value in block.patch.items():
                     app.client.raw_driver.set(key, value)
@@ -1605,17 +1371,16 @@ async def _run_system_blocks(constants, *, python: bool) -> tuple[dict, dict[str
                         "app_hash": response.app_hash.hex(),
                     }
                 )
-        return {"blocks": blocks}, _system_routes(ran_in_python)
+        return {"blocks": blocks}
     finally:
         app.client.close()
         await app.close()
 
 
-def run_system_blocks(*, python: bool) -> tuple[dict, dict[str, str]]:
-    """The system blocks' outputs on one path, and the system transaction
-    cases that ran on the Python path."""
+def run_system_blocks() -> dict:
+    """The system blocks' outputs, through FinalizeBlock and Commit."""
     with _node_home() as constants:
-        return asyncio.run(_run_system_blocks(constants, python=python))
+        return asyncio.run(_run_system_blocks(constants))
 
 
 # --- the frozen fixtures --------------------------------------------------------
@@ -1629,49 +1394,35 @@ def load_fixture(name: str) -> dict:
     return json.loads(fixture_path(name).read_text(encoding="utf-8"))
 
 
-def _write_fixture(name: str, outputs: dict) -> None:
-    text = json.dumps(outputs, indent=1, sort_keys=True, ensure_ascii=False) + "\n"
-    fixture_path(name).write_text(text, encoding="utf-8")
+def fixture_text(outputs: dict) -> str:
+    """A fixture file's text for ``outputs``."""
+    return json.dumps(outputs, indent=1, sort_keys=True, ensure_ascii=False) + "\n"
 
 
 def golden_outputs(tmp: Path) -> dict[str, dict]:
-    """Every golden fixture's content: the block corpora, simulations and
-    contract views on the production path, the system blocks on the Python
-    path (both agree there)."""
+    """Every golden fixture's content, on the production path."""
     outputs = {}
     for corpus in corpora():
-        outputs[f"blocks_{corpus.name}"], _routes = run_corpus(
-            tmp / corpus.name, corpus, python=False
-        )
-    outputs["simulations"], _routes = run_simulations(tmp / "simulations", python=False)
-    outputs["contract_views"], _routes = run_contract_views(tmp / "views", python=False)
-    outputs["system_blocks"], _routes = run_system_blocks(python=True)
+        outputs[f"blocks_{corpus.name}"] = run_corpus(tmp / corpus.name, corpus)
+    outputs["simulations"] = run_simulations(tmp / "simulations")
+    outputs["contract_views"] = run_contract_views(tmp / "views")
+    outputs["system_blocks"] = run_system_blocks()
     return outputs
 
 
-def handback_inventory(tmp: Path) -> dict[str, dict[str, str]]:
-    """The cases the production path runs on the Python path, by corpus."""
-    inventory = {
-        corpus.name: handed_back(run_corpus(tmp / corpus.name, corpus, python=False)[1])
-        for corpus in corpora()
-    }
-    inventory["system_blocks"] = run_system_blocks(python=False)[1]
-    inventory["simulations"] = handed_back(run_simulations(tmp / "sims", python=False)[1])
-    inventory["contract_views"] = handed_back(run_contract_views(tmp / "views", python=False)[1])
-    return inventory
-
-
-def _write(writer: Callable[[Path], dict[str, dict]]) -> None:
+def write_into(directory: Path) -> None:
+    """Write the production path's fixtures into ``directory`` (never over
+    the committed ones) for comparison."""
+    directory = Path(directory).resolve()
+    if directory == FIXTURES.resolve():
+        raise SystemExit("the golden fixtures are not regenerated")
+    directory.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="engine-parity-") as tmp:
-        for name, outputs in writer(Path(tmp)).items():
-            _write_fixture(name, outputs)
+        for name, outputs in golden_outputs(Path(tmp)).items():
+            (directory / f"{name}.json").write_text(fixture_text(outputs), encoding="utf-8")
 
 
 if __name__ == "__main__":
-    commands = {
-        "--write": golden_outputs,
-        "--write-inventory": lambda tmp: {"handback_inventory": handback_inventory(tmp)},
-    }
-    if sys.argv[1:] not in [[command] for command in commands]:
+    if len(sys.argv) != 3 or sys.argv[1] != "--write-into":
         raise SystemExit(__doc__)
-    _write(commands[sys.argv[1]])
+    write_into(Path(sys.argv[2]))

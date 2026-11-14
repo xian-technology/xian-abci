@@ -8,9 +8,17 @@ from pathlib import Path
 from contracting.local import ContractingClient
 from processor_probe_model import typed_value
 
-from xian.execution_engine import build_vm_runtime
+from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.state_export import fetch_filebased_state
+from xian.utils.tx import transaction_bytes
+def process_tx(processor, tx):
+    """The block executor's response for ``tx`` alone in an unmetered block."""
+    [response] = processor.process_block(
+        [tx], [transaction_bytes(tx)], fee_policy=TxFeePolicy.system_unmetered()
+    )
+    return response
+
 
 PARITY_PROBE_SOURCE = """
 counter = Variable()
@@ -176,7 +184,7 @@ class TestNativeReplayDeterminism(unittest.TestCase):
         replays = []
         for home in self.homes:
             with self.make_client(home) as client:
-                processor = TxProcessor(client=client, execution_runtime=build_vm_runtime())
+                processor = TxProcessor(client=client)
                 expected_state = client.raw_driver.items()
                 receipts = []
                 for offset, ((function, kwargs), receipt) in enumerate(
@@ -185,7 +193,7 @@ class TestNativeReplayDeterminism(unittest.TestCase):
                     tx = make_tx(
                         sender="alice", function=function, kwargs=kwargs, offset_seconds=offset
                     )
-                    actual = processor.process_tx(tx=tx)["tx_result"]
+                    actual = process_tx(processor, tx)["tx_result"]
                     self.assert_semantics(actual, receipt)
                     expected_state.update(
                         {entry["key"]: entry["value"] for entry in receipt["state"]}
@@ -266,9 +274,9 @@ class TestNativeReplayDeterminism(unittest.TestCase):
         replays = []
         for home in self.homes:
             with self.make_client(home) as client:
-                processor = TxProcessor(client=client, execution_runtime=build_vm_runtime())
+                processor = TxProcessor(client=client)
                 initial = client.raw_driver.items()
-                deployed = processor.process_tx(tx=deployment)["tx_result"]
+                deployed = process_tx(processor, deployment)["tx_result"]
                 self.assert_deployment(deployed)
                 expected_state = initial | {
                     entry["key"]: entry["value"]
@@ -288,7 +296,7 @@ class TestNativeReplayDeterminism(unittest.TestCase):
                         kwargs={"delta": delta},
                         offset_seconds=offset,
                     )
-                    actual = processor.process_tx(tx=tx)["tx_result"]
+                    actual = process_tx(processor, tx)["tx_result"]
                     self.assert_semantics(
                         actual,
                         {

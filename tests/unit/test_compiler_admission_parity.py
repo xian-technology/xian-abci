@@ -8,13 +8,9 @@ import xian_compiler_core
 from contracting.local import ContractingClient
 from contracting.storage.driver import SOURCE_KEY, XIAN_VM_V1_IR_KEY, Driver
 from xian_runtime_types.time import Datetime
+from xian_vm_core import execute_tx
 
-from xian.execution_engine import (
-    _load_vm_runtime_bindings,
-    build_vm_runtime,
-    clear_prepared_contract_cache,
-    execute_vm_contract,
-)
+from xian.execution_engine import vm_call_context
 
 COMPILER_FIXTURE_DIR = (
     Path(__file__).resolve().parents[3]
@@ -33,29 +29,33 @@ def _deploy(
     *,
     constructor_args: dict[str, object] | None = None,
 ):
-    _load_vm_runtime_bindings.cache_clear()
-    clear_prepared_contract_cache()
     driver = Driver(vm_profile="xian_vm_v2")
     request.addfinalizer(driver.close)
     driver.flush_full()
     ContractingClient(driver=driver, vm_profile="xian_vm_v2")
-    output = execute_vm_contract(
-        build_vm_runtime(),
-        driver,
-        sender="sys",
-        contract_name="submission",
-        function_name="submit_contract",
-        kwargs={
+    call = {
+        "sender": "sys",
+        "contract_name": "submission",
+        "function_name": "submit_contract",
+        "kwargs": {
             "name": module_name,
             "code": source,
             "constructor_args": constructor_args or {},
         },
-        environment={
-            "now": Datetime(2026, 7, 10, 12, 0),
-            "block_num": 7,
-            "block_hash": "compiler-parity",
-            "chain_id": "xian-local",
-        },
+    }
+    environment = {
+        "now": Datetime(2026, 7, 10, 12, 0),
+        "block_num": 7,
+        "block_hash": "compiler-parity",
+        "chain_id": "xian-local",
+    }
+    storage, overlay = driver.committed_storage()
+    # The deployment's effects are inspected, never staged.
+    output = execute_tx(
+        storage,
+        overlay.snapshot(),
+        **call,
+        context=vm_call_context(**call, environment=environment),
         meter=False,
     )
     return driver, output
