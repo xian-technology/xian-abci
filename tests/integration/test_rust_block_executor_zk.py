@@ -25,6 +25,7 @@ from xian_runtime_types.time import Datetime
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.utils.encoding import encode_abci_json
+from xian.utils.tx import transaction_bytes
 
 pytest.importorskip("xian_vm_core")
 
@@ -319,7 +320,9 @@ def _run(home, blocks, *, native, monkeypatch, patches=None):
         for key, value in (patches or {}).get(height, {}).items():
             client.raw_driver.set(key, value)
         if native:
-            responses = processor.process_block(txs, fee_policy=policy)
+            responses = processor.process_block(
+                txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy
+            )
         else:
             responses = [process_tx(tx, fee_policy=policy) for tx in txs]
         receipts += [encode_abci_json(response["tx_result"]) for response in responses]
@@ -420,7 +423,7 @@ def _shielded_run(benchmark, monkeypatch, *, per_tx, sent):
         if per_tx:
             response = processor.process_tx(tx, fee_policy=policy)
         else:
-            (response,) = processor.process_block([tx], fee_policy=policy)
+            (response,) = processor.process_block([tx], [transaction_bytes(tx)], fee_policy=policy)
         records.append(encode_abci_json(response["tx_result"]))
         records.append(encode(processor.client.raw_driver.pending_items()))
         assert response["tx_result"]["status"] == 0, response["tx_result"]["result"]
