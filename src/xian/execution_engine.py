@@ -103,7 +103,7 @@ def vm_call_context(
     environment: dict[str, Any],
 ) -> dict[str, Any]:
     """The VM context of an external call from ``sender`` in ``environment``
-    (``execute_contract``'s context; the executor reads the owner itself)."""
+    (the executor reads the owner itself)."""
     return {
         "signer": sender,
         "caller": sender,

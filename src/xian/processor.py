@@ -13,7 +13,7 @@ from xian.utils.tx import transaction_bytes, tx_hash_from_tx
 
 class TxProcessor:
     """Runs a block's transactions in the Rust block executor (vm-core
-    ``BlockExecutor``) and turns each outcome into its ``process_tx``
+    ``BlockExecutor``) and turns each outcome into its transaction
     response: the receipt FinalizeBlock returns, with the per-transaction
     log records."""
 
@@ -25,7 +25,7 @@ class TxProcessor:
         zk_bridge.clear_verified_proof_cache()
 
     def process_system_tx(self, tx) -> dict:
-        """The ``process_tx`` response for a system transaction (epoch
+        """The transaction response for a system transaction (epoch
         rebalance, evidence penalty): unmetered, no fees, no rewards."""
         [response] = self.process_block(
             [tx], [transaction_bytes(tx)], fee_policy=TxFeePolicy.system_unmetered()
@@ -33,7 +33,7 @@ class TxProcessor:
         return response
 
     def process_block(self, txs, raw_txs, *, fee_policy: TxFeePolicy) -> list[dict]:
-        """``process_tx`` responses for a block's transactions, in order.
+        """Transaction responses for a block's transactions, in order.
 
         ``raw_txs`` are the transactions' wire bytes (``txs`` decoded, with
         ``b_meta``). The transactions run in Rust over the block overlay with
@@ -69,7 +69,7 @@ class TxProcessor:
         return executor
 
     def _native_response(self, tx, outcome, fee_policy: TxFeePolicy) -> dict:
-        """The ``process_tx`` response of a transaction, with its log records."""
+        """The response of a transaction, with its log records."""
         (status, result, exception, writes, events, chi_used, rewards, chi_rate, output_writes) = (
             outcome
         )

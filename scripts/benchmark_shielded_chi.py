@@ -38,10 +38,6 @@ from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.utils.tx import transaction_bytes
 
-# `--per-tx` runs every transaction through `TxProcessor.process_tx` (the
-# Python per-transaction path) instead of the block executor; both must
-# report the same chi.
-PER_TX = "--per-tx" in sys.argv[1:]
 # The chain's chi price (chi per XIAN); the chi used does not depend on it.
 CHI_RATE = 20
 
@@ -178,11 +174,7 @@ def process(
         "b_meta": create_block_meta(height),
     }
     policy = TxFeePolicy.paid_metered()
-    if PER_TX:
-        result = processor.process_tx(tx, fee_policy=policy)
-    else:
-        # The production path: the block executor runs the transaction.
-        (result,) = processor.process_block([tx], [transaction_bytes(tx)], fee_policy=policy)
+    (result,) = processor.process_block([tx], [transaction_bytes(tx)], fee_policy=policy)
     tx_result = result["tx_result"]
     if tx_result["status"] != 0:
         raise RuntimeError(f"{function} failed: {tx_result['result']}")
