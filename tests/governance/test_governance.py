@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 from contracting.local import ContractingClient
+from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.config_paths import resolve_contracts_dir
 from xian.processor import TxProcessor
@@ -113,7 +114,12 @@ class MyTestCase(unittest.TestCase):
         self.c.submit(contract, name="rewards", owner="validators")
         self.d.set(
             key="rewards.S:value",
-            value=[Decimal("0.88"), Decimal("0.01"), Decimal("0.01"), Decimal("0.1")],
+            value=[
+                ContractingDecimal("0.88"),
+                ContractingDecimal("0.01"),
+                ContractingDecimal("0.01"),
+                ContractingDecimal("0.1"),
+            ],
         )
 
         with open(chi_cost_contract_path) as f:
