@@ -84,6 +84,7 @@ class StateRootTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp_dir:
             driver = Driver(vm_profile="xian_vm_v2", storage_home=Path(tmp_dir))
+            self.addCleanup(driver.close)
             driver.set("con_t.span", span)
             driver.set("con_t.raw", raw)
             driver.commit()
@@ -139,6 +140,7 @@ class StateRootTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             driver = Driver(vm_profile="xian_vm_v2", storage_home=Path(tmp_dir))
+            self.addCleanup(driver.close)
             driver.set("currency.balances:alice", 1)
             driver.set("currency.balances:bob", 2)
             driver.set(

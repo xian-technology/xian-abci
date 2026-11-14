@@ -73,6 +73,7 @@ class GenesisBuilderTests(unittest.TestCase):
             loaded_genesis = json.loads(encode(genesis_block))
             with tempfile.TemporaryDirectory() as tmp_dir:
                 client = ContractingClient(vm_profile="xian_vm_v2", storage_home=Path(tmp_dir))
+                self.addCleanup(client.close)
                 nonce_storage = NonceStorage(client)
                 client.raw_driver.flush_full()
                 await store_genesis_block(
@@ -227,6 +228,7 @@ class GenesisBuilderTests(unittest.TestCase):
             self.assertEqual(probe_call["function_name"], "submit_contract")
 
             native_driver = Driver(vm_profile="xian_vm_v2", storage_home=Path(tmp_dir) / "native")
+            self.addCleanup(native_driver.close)
             native_driver.flush_full()
             ContractingClient(vm_profile="xian_vm_v2", driver=native_driver)
             call = {

@@ -84,9 +84,21 @@ def stored(value) -> bytes:
     return encode(value).encode()
 
 
+_OPEN_DRIVERS = []
+
+
+@pytest.fixture(autouse=True)
+def _close_drivers():
+    yield
+    while _OPEN_DRIVERS:
+        _OPEN_DRIVERS.pop().close()
+
+
 def committed(tmp_path, values=(), raw=()):
-    """A V2 driver whose LMDB holds ``values`` (encoded) and ``raw`` stored bytes."""
+    """A V2 driver whose LMDB holds ``values`` (encoded) and ``raw`` stored bytes
+    (closed after the test)."""
     driver = Driver(storage_home=tmp_path)
+    _OPEN_DRIVERS.append(driver)
     environment = driver.committed_storage()[0]
     changes = [(key.encode(), stored(value)) for key, value in dict(values).items()]
     changes += [(key, value) for key, value in dict(raw).items()]
@@ -287,6 +299,7 @@ def test_blocks_after_startup_keep_the_reference_root(tmp_path):
 
 def test_v1_state_is_left_to_its_pinned_runtime(tmp_path):
     driver = Driver(storage_home=tmp_path, vm_profile="xian_vm_v1")
+    _OPEN_DRIVERS.append(driver)
     driver.set("con_t.a", 1)
     driver.commit()
     with pytest.raises(ValueError, match="V1 state"):

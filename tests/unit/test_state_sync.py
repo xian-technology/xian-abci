@@ -342,6 +342,7 @@ class StateSyncTests(unittest.TestCase):
             self.assertTrue(Path(import_result["stored_snapshot_path"]).exists())
 
             target_driver = Driver(vm_profile="xian_vm_v2", storage_home=target_home)
+            self.addCleanup(target_driver.close)
             self.assertEqual(
                 target_driver.get("demo.__source__"),
                 CANONICAL_CONTRACT_SOURCE,
@@ -413,6 +414,7 @@ class StateSyncTests(unittest.TestCase):
                 self.assertEqual(apply_response.result, apply_response.ACCEPT)
 
             target_driver = Driver(vm_profile="xian_vm_v2", storage_home=target_home)
+            self.addCleanup(target_driver.close)
             self.assertEqual(target_driver.get("demo.count"), 7)
             self.assertEqual(
                 target_driver.get("demo.set"),
@@ -493,6 +495,7 @@ class StateSyncTests(unittest.TestCase):
             source.export_snapshot()
             record = source.list_snapshot_records()[0]
             live_driver = Driver(vm_profile="xian_vm_v2", storage_home=target_home)
+            self.addCleanup(live_driver.close)
             self.assertIsNone(live_driver.get("demo.count"))
             target = StateSnapshotManager(storage_home=target_home, chain_id="xian-test-1")
             app = SimpleNamespace(
@@ -527,6 +530,7 @@ class StateSyncTests(unittest.TestCase):
             app.refresh_runtime_features.assert_called()
             # Another startup must retain the imported marker rather than reset to zero.
             app.client.raw_driver = Driver(vm_profile="xian_vm_v2", storage_home=target_home)
+            self.addCleanup(app.client.raw_driver.close)
             restarted = asyncio.run(info(app, None))
             self.assertEqual(restarted.last_block_height, 42)
 
@@ -679,6 +683,7 @@ class StateSyncTests(unittest.TestCase):
         driver.commit()
         set_latest_block_hash(compute_driver_state_root(driver), storage_home)
         set_latest_block_height(42, storage_home)
+        driver.close()
 
 
 if __name__ == "__main__":
