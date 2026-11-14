@@ -10,8 +10,9 @@ subsystems around it.
 - `xian_abci.py`: runtime assembly, startup wiring, and ABCI request dispatch
 - `methods/`: request handlers for `CheckTx`, `FinalizeBlock`, query, proposal
   validation, and related ABCI methods
-- `processor.py`, `execution_engine.py`, and `execution_policy.py`: transaction
-  execution and block-processing flow
+- `processor.py`, `execution_engine.py`, and `execution_policy.py`: block
+  processing in the Rust `BlockExecutor` (receipts and their log records), the
+  native runtime startup checks and call context, and the execution policy
 - `simulator.py` (readonly simulations, in-process on the Rust
   `xian_vm_core.execute_tx`), `metrics.py`, and `vm_observability.py`:
   simulation and observability helpers

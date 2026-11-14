@@ -120,9 +120,10 @@ reads them, so bundles may not write them freely:
 - `chi_cost.S:value`, the chain's chi rate, may change, but only to a rate
   the node prices fees with: an integer `0 < rate <= 10**61 - 1` (the largest
   `ContractingDecimal` the fee arithmetic represents). Other values and
-  deletions are refused when the bundle is loaded, with the check admission,
-  execution and simulation use (`xian.fee_policy.validated_chi_rate`): they
-  halt on an invalid rate rather than guess a price.
+  deletions are refused when the bundle is loaded, with the rule the block
+  executor applies (vm-core's `validated_chi_rate`, used by admission and
+  genesis too): the executor halts on an invalid rate rather than guess a
+  price.
 
 ## Database Integration
 

@@ -8,12 +8,19 @@ Main areas:
 - `src/xian/xian_abci.py`: runtime assembly, startup wiring, and ABCI dispatch
 - `src/xian/methods/`: ABCI request handlers and query surfaces
 - `src/xian/processor.py`, `execution_engine.py`, and `execution_policy.py`:
-  transaction execution flow; blocks run serially in the Rust `BlockExecutor`
-  (`processor.process_block`), and so do the unmetered system transactions
-  (epoch rebalance, evidence penalties: `processor.process_system_tx`);
-  readonly simulations, contract-view queries and genesis contract deploys
-  run one call with the same Rust code (`xian_vm_core.execute_tx` over a
-  fork of the pending state, or the genesis driver's own)
+  transaction execution flow; every transaction runs in Rust. Blocks run
+  serially in the `BlockExecutor` (`processor.process_block`, which turns each
+  outcome into its receipt; metering, fees and fee rewards follow the chain's
+  fee policy), and so do the unmetered system transactions (epoch rebalance,
+  evidence penalties: `processor.process_system_tx`); readonly simulations,
+  contract-view queries and genesis contract deploys run one call with the
+  same Rust code (`xian_vm_core.execute_tx` over a fork of the pending state,
+  or the genesis driver's own). There is no Python per-transaction path.
+  `execution_engine.py` keeps the startup checks that the installed vm-core
+  and compiler implement the node's execution and admission revisions
+  (`build_vm_runtime`) and the VM context of an external call
+  (`vm_call_context`). The chain chi rate rule (`validated_chi_rate`) and the
+  stored bytes a state root hashes (`stored_value_bytes`) come from vm-core.
 - `src/xian/services/`: BDS and snapshot/state-sync services
 - `src/xian/dashboard/`, `metrics.py` and `simulator.py`: optional
   node-adjacent surfaces

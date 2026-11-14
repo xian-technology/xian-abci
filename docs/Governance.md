@@ -23,8 +23,8 @@ Validator and membership integration:
 
 - `src/xian/validators.py` reads validator membership and power from
   `validators`
-- `src/xian/rewards.py` reads reward-related membership state from
-  `validators`
+- the Rust block executor (vm-core `tx_rewards`) reads reward-related
+  membership state from `validators` when it pays fee rewards
 - `src/xian/methods/query.py` exposes runtime queries such as:
   - `/validators_policy`
   - `/validators_active`

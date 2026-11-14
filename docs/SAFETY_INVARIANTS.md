@@ -81,8 +81,9 @@ This file records the runtime properties that must hold before an
   a successful one's, except that the developer share goes to the validators.
   When the sender cannot cover the failure fee, the whole balance is charged
   and exactly that amount is paid out. Only the governed burn share leaves the
-  native supply. The Python per-transaction path and the Rust block executor
-  must produce byte-identical receipts and state for this.
+  native supply. The Rust block executor computes this; the receipts and state
+  are pinned by the golden fixtures frozen from the former Python path
+  (`tests/fixtures/golden`, the fee and reward corpora).
 
 ## Validator Selection
 
@@ -120,6 +121,8 @@ The enforcement surface in this repo includes:
 - `tests/integration/test_vm_replay_parity.py`
 - `tests/integration/test_vm_processor_fuzz.py`
 - `tests/unit/test_execution_engine.py`
+- `tests/integration/test_rust_block_executor.py` and the golden fixtures in
+  `tests/fixtures/golden` (outputs frozen from the former Python path)
 - `tests/unit/test_execution_revision.py`
 - `tests/unit/test_state_root.py`
 - `tests/unit/test_state_root_from_storage.py` (the Rust rebuild against the
