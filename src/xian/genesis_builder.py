@@ -11,16 +11,26 @@ from typing import Any
 
 from contracting.artifacts import build_contract_artifacts
 from contracting.local import BUILTIN_SUBMISSION_SOURCE_PATH
-from contracting.runtime_features import normalize_runtime_features
+from contracting.runtime_features import (
+    RUNTIME_FEATURE_ZK,
+    normalize_runtime_features,
+    runtime_feature_without_state,
+)
 from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import decode_wire_numbers, encode, encode_wire, loads_wire_json
 from xian_runtime_types.time import Datetime
+from xian_vm_core import HandedBack, execute_tx
 
 from xian.config_paths import (
     resolve_contracts_dir as resolve_configs_contracts_dir,
 )
-from xian.execution_engine import VmRuntime, build_vm_runtime, execute_vm_contract
+from xian.execution_engine import (
+    VmRuntime,
+    build_vm_runtime,
+    execute_vm_contract,
+    vm_call_context,
+)
 from xian.execution_policy import (
     EXECUTION_POLICY_KEY,
     VM_EXECUTION_MODE,
@@ -131,24 +141,36 @@ def _deploy_native_genesis_contract(
     constructor_args: dict[str, Any] | None,
     submission_time: Datetime,
 ) -> None:
-    output = execute_vm_contract(
-        runtime,
-        driver,
-        sender="sys",
-        contract_name="submission",
-        function_name="submit_contract",
-        kwargs={
+    call = {
+        "sender": "sys",
+        "contract_name": "submission",
+        "function_name": "submit_contract",
+        "kwargs": {
             "name": contract_name,
             "code": source,
             "owner": owner,
             "constructor_args": decode_wire_numbers(constructor_args or {}),
         },
-        environment={"now": submission_time},
+        "environment": {"now": submission_time},
+    }
+    # A system call in Rust, unmetered and without fees, staged into the
+    # driver's pending state as a block stages it.
+    environment, overlay = driver.committed_storage()
+    output = execute_tx(
+        environment,
+        overlay,
+        **{key: call[key] for key in ("sender", "contract_name", "function_name", "kwargs")},
+        context=vm_call_context(**call),
         meter=False,
+        protected_keys=(EXECUTION_POLICY_KEY,),
+        zk_enabled_without_state=runtime_feature_without_state(driver, RUNTIME_FEATURE_ZK),
     )
+    if isinstance(output, HandedBack):
+        output = execute_vm_contract(runtime, driver, meter=False, **call)
+        if output.status_code == 0:
+            driver.apply_writes(output.writes)
     if output.status_code != 0:
         raise ValueError(f"Failed to deploy genesis contract {contract_name}: {output.result}")
-    driver.apply_writes(output.writes)
 
 
 def _find_validators_contract(contract_config: dict[str, Any]) -> dict[str, Any]:

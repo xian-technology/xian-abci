@@ -11,6 +11,7 @@ from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import encode
 from xian_runtime_types.time import Datetime
+from xian_vm_core import HandedBack, execute_tx
 
 from xian.execution_engine import build_vm_runtime, execute_vm_contract
 from xian.genesis_builder import (
@@ -197,19 +198,23 @@ class GenesisBuilderTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            runs = []
             with mock.patch(
                 "xian.genesis_builder.parse_genesis_time",
                 return_value=fixed_now,
             ), mock.patch(
-                "xian.genesis_builder.execute_vm_contract",
-                wraps=execute_vm_contract,
+                "xian.genesis_builder.execute_tx",
+                side_effect=lambda *args, **kwargs: runs.append(execute_tx(*args, **kwargs))
+                or runs[-1],
             ) as native_execute:
                 genesis_block = build_genesis_block(
                     founder_private_key=founder_private_key,
                     network="test",
                     contracts_dir=contracts_dir,
                 )
+            # The deploy runs in Rust; the Python path below is the reference.
             self.assertEqual(native_execute.call_count, 1)
+            self.assertNotIsInstance(runs[0], HandedBack)
             self.assertEqual(
                 native_execute.call_args.kwargs["contract_name"],
                 "submission",
