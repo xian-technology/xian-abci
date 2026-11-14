@@ -15,7 +15,13 @@ from xian_runtime_types.decimal import ContractingDecimal
 from xian_vm_core import HandedBack, TxRun
 
 from xian.execution_engine import build_vm_runtime, execute_vm_transaction
-from xian.simulator import PreparedSimulation, QuerySimulationService, TransactionSimulator
+from xian.simulator import (
+    PreparedSimulation,
+    QuerySimulationService,
+    TransactionSimulator,
+    _estimated_transaction_size,
+    estimate_to_fixpoint,
+)
 from xian.utils.block import set_latest_block_nanos
 from xian.utils.tx import canonical_transaction_size_bytes
 
@@ -506,3 +512,42 @@ def test_query_simulation_rejects_noncanonical_json_tokens(token):
     result = asyncio.run(service.simulate_encoded_transaction(payload.encode().hex()))
     assert result["status"] == 1
     assert result["chi_used"] == 0
+
+
+def test_the_estimate_is_rerun_until_its_digit_count_holds():
+    # The chi used grows with the digits of chi_supplied in the envelope.
+    supplied = []
+
+    def run(chi_supplied):
+        supplied.append(chi_supplied)
+        return 9_998 + len(str(chi_supplied))
+
+    assert estimate_to_fixpoint(run, lambda chi: chi) == 10_003
+    assert supplied == [1, 9_999, 10_002]
+    # A one-digit estimate needs no second run.
+    assert estimate_to_fixpoint(lambda _chi: 7, lambda chi: chi) == 7
+
+
+def test_the_estimated_envelope_carries_the_nonce_and_chi_supplied():
+    size = _estimated_transaction_size(PAYLOAD, chain_id="x", nonce=0, chi_supplied=1)
+    assert _estimated_transaction_size(PAYLOAD, chain_id="x", nonce=12, chi_supplied=1) == size + 1
+    assert _estimated_transaction_size(PAYLOAD, chain_id="x", nonce=0, chi_supplied=999) == size + 2
+    # A request's nonce is not counted twice.
+    with_nonce = {**PAYLOAD, "nonce": 12}
+    assert _estimated_transaction_size(with_nonce, chain_id="x", nonce=12, chi_supplied=1) == size + 1
+
+
+def test_a_simulation_nonce_must_be_a_non_negative_integer():
+    assert TransactionSimulator._normalize_payload({**PAYLOAD, "nonce": 4})["nonce"] == 4
+    assert "nonce" not in TransactionSimulator._normalize_payload(PAYLOAD)
+    for nonce in (-1, True, "3", 1.5):
+        with pytest.raises(ValueError):
+            TransactionSimulator._normalize_payload({**PAYLOAD, "nonce": nonce})
+
+
+def test_without_a_nonce_the_sender_s_next_committed_nonce_sizes_the_envelope():
+    driver = SimpleNamespace(get=lambda key: {"__n.alice:": 41}.get(key))
+    simulator = _simulator(driver)
+    assert simulator.envelope_nonce(PAYLOAD) == 42
+    assert simulator.envelope_nonce({**PAYLOAD, "sender": "bob"}) == 0
+    assert simulator.envelope_nonce({**PAYLOAD, "nonce": 3}) == 3

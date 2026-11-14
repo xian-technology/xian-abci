@@ -1,17 +1,19 @@
 """A transaction that supplies exactly its simulated chi executes as simulated.
 
 Clients supply the simulated ``chi_used`` with no headroom. That only works
-if, for the same state, the simulator (no fee reservation, an estimated
-transaction size) reports the chi that block execution (fee reservation, the
-real signed size, the Rust block executor) charges. Each case simulates a
-call, executes it in a block with ``chi_supplied`` equal to the estimate, and
-compares status and ``chi_used``.
+if, for the same state, the simulator (no fee reservation) reports the chi
+that block execution (fee reservation, the Rust block executor) charges. The
+simulator sizes the real signed envelope: the nonce the client passes and
+the estimate itself as ``chi_supplied`` (re-estimated until its digit count
+holds). Each case simulates a call, then executes it in a block with
+``chi_supplied`` equal to the estimate (same status and ``chi_used``) and
+with one chi less: since revision 14 the base chi counts against the supply,
+so that runs out of chi, using exactly what it supplied.
 
 Execution caps the charge at the supplied chi, so the same call is also run
 with a generous budget: its cost may differ from the estimate only by the
-signed-size bytes the simulator cannot know (it sizes the transaction with
-nonce 0 and the simulation cap as ``chi_supplied``), never by a whole chi of
-work, so the exact receipt does not hide a higher real cost.
+digits of that budget, never by a whole chi of work, so the exact receipt
+does not hide a higher real cost.
 """
 
 from __future__ import annotations
@@ -124,39 +126,49 @@ def _execute(processor, rewards, transaction):
     return responses[0]["tx_result"]
 
 
-def _simulate_then_execute(chain, call, *, nonce, height):
-    """(simulated, executed with a generous budget, executed with the estimate)."""
+def _simulate_then_execute(chain, call, *, nonce, height, block_meta=None):
+    """(simulated, executed with a generous budget, with one chi less than
+    the estimate, with the estimate)."""
     client, processor, rewards, simulator = chain
-    block_meta = _block_meta(height)
+    block_meta = block_meta or _block_meta(height)
     sender, contract, function, kwargs = call
     simulated = simulator.simulate(
-        {"sender": sender, "contract": contract, "function": function, "kwargs": kwargs},
+        {
+            "sender": sender,
+            "contract": contract,
+            "function": function,
+            "kwargs": kwargs,
+            "nonce": nonce,
+        },
         block_meta=block_meta,
         max_chi=SIMULATION_CAP,
     )
     estimate = simulated["chi_used"]
     driver = client.raw_driver
     before = driver.snapshot_state()
-    generous = _execute(
-        processor,
-        rewards,
-        _transaction(call, nonce=nonce, chi_supplied=SIMULATION_CAP, block_meta=block_meta),
-    )
+
+    def execute(chi_supplied):
+        transaction = _transaction(
+            call, nonce=nonce, chi_supplied=chi_supplied, block_meta=block_meta
+        )
+        return _execute(processor, rewards, transaction)
+
+    generous = execute(SIMULATION_CAP)
     driver.restore_state(before)
-    exact = _execute(
-        processor,
-        rewards,
-        _transaction(call, nonce=nonce, chi_supplied=estimate, block_meta=block_meta),
-    )
+    short = execute(estimate - 1)
+    driver.restore_state(before)
+    exact = execute(estimate)
     driver.commit()
-    return simulated, generous, exact
+    return simulated, generous, short, exact
 
 
-def _assert_exact_supply_executes_as_simulated(simulated, generous, exact):
-    assert simulated["chi_used"] > 0
+def _assert_exact_supply_executes_as_simulated(simulated, generous, short, exact):
+    assert simulated["chi_used"] > 5
     assert generous["status"] == simulated["status"]
     assert abs(generous["chi_used"] - simulated["chi_used"]) <= 1
     assert (exact["status"], exact["chi_used"]) == (simulated["status"], simulated["chi_used"])
+    assert (short["status"], short["chi_used"]) == (1, simulated["chi_used"] - 1)
+    assert "Out of chi" in str(short["result"])
 
 
 def _swap(sender, amount):
@@ -175,9 +187,9 @@ SCENARIOS = [
         id="transfer-to-existing-recipient",
     ),
     pytest.param(_swap(CAROL, "33.3"), 1_234_567, id="swap-with-event"),
-    # Its raw cost sits just above a whole chi: the simulator must not size
-    # the envelope larger than the signed transaction (nonce 0, the estimate
-    # as chi_supplied), or execution charges one chi less than estimated.
+    # Its raw cost sits just above a whole chi: the simulator must size the
+    # envelope as signed (nonce 0, the estimate as chi_supplied), or
+    # execution charges one chi less than estimated.
     pytest.param(
         (ALICE, "currency", "transfer", {"amount": 1, "to": "d" * 50}),
         0,
@@ -205,8 +217,9 @@ SCENARIOS = [
 def test_exact_estimate_executes_with_the_simulated_status_and_chi(tmp_path, call, nonce):
     chain = _setup(tmp_path)
     try:
-        simulated, generous, exact = _simulate_then_execute(chain, call, nonce=nonce, height=1)
-        _assert_exact_supply_executes_as_simulated(simulated, generous, exact)
+        _assert_exact_supply_executes_as_simulated(
+            *_simulate_then_execute(chain, call, nonce=nonce, height=1)
+        )
     finally:
         chain[0].raw_driver.close()
 
@@ -220,7 +233,7 @@ def test_deployed_contract_call_executes_as_simulated(tmp_path):
             "submit_contract",
             {"name": "con_deployed", "code": DEPLOYED},
         )
-        _, _, deployed = _simulate_then_execute(chain, deploy, nonce=0, height=1)
+        *_, deployed = _simulate_then_execute(chain, deploy, nonce=0, height=1)
         assert deployed["status"] == 0, deployed
         call = (BOB, "con_deployed", "set_value", {"new_value": 42})
         _assert_exact_supply_executes_as_simulated(
@@ -258,3 +271,39 @@ def test_varied_amounts_balances_and_nonces_execute_as_simulated(tmp_path):
             )
     finally:
         chain[0].raw_driver.close()
+
+
+def _load_shielded_benchmark():
+    import importlib.util
+
+    path = ROOT / "xian-abci/scripts/benchmark_shielded_chi.py"
+    spec = importlib.util.spec_from_file_location("benchmark_shielded_chi", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_shielded_note_transactions_execute_as_simulated(monkeypatch):
+    # Proof verification dominates their chi: deposit, transfer, withdraw,
+    # exact withdraw, relay deposit and relay transfer (the benchmark's flows).
+    pytest.importorskip("xian_zk")
+    benchmark = _load_shielded_benchmark()
+    checked = []
+
+    def process(processor, *, function, sender, kwargs, height, chi=0):
+        block_meta = benchmark.create_block_meta(height)
+        simulator = TransactionSimulator(client=processor.client, chain_id=block_meta["chain_id"])
+        chain = (processor.client, processor, None, simulator)
+        call = (sender, "con_shielded_note_token", function, kwargs)
+        results = _simulate_then_execute(
+            chain, call, nonce=height, height=height, block_meta=block_meta
+        )
+        _assert_exact_supply_executes_as_simulated(*results)
+        exact = results[-1]
+        assert exact["status"] == 0, exact["result"]
+        checked.append(function)
+        return int(exact["chi_used"])
+
+    monkeypatch.setattr(benchmark, "process", process)
+    benchmark.benchmark()
+    assert len(checked) == 6

@@ -1186,7 +1186,7 @@ def _simulate(client, simulation: Simulation, raw_hex: str, *, python: bool) -> 
         return prepared
     if python:
         return prepared.simulator.simulate_on_python_path(
-            prepared.payload, block_meta=meta, max_chi=simulation.max_chi
+            prepared.payload, nonce=prepared.nonce, block_meta=meta, max_chi=simulation.max_chi
         )
     return asyncio.run(prepared.run())
 

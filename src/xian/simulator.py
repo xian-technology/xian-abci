@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TypeVar
 
 from contracting.local import ContractingClient
 from contracting.runtime_features import (
@@ -19,6 +21,7 @@ from xian_runtime_types.time import Datetime
 from xian_vm_core import HandedBack, TxRun, execute_tx
 
 from xian.app_logging import build_log_fields
+from xian.constants import Constants
 from xian.execution_engine import (
     VmRuntime,
     execute_vm_transaction,
@@ -35,6 +38,16 @@ from xian.utils.tx import canonical_transaction_size_bytes, format_dictionary
 
 # The chi a simulation may spend when the caller sets no cap.
 DEFAULT_SIMULATION_CHI = 1_000_000
+NONCE_FILENAME = Constants.NONCE_FILENAME
+
+
+def _payload_nonce(payload: dict) -> int | None:
+    """The nonce the transaction will be signed with, when the request
+    gives it: it sizes the estimated envelope."""
+    nonce = payload.get("nonce")
+    if nonce is not None and (type(nonce) is not int or nonce < 0):
+        raise ValueError("simulation payload nonce must be a non-negative integer")
+    return nonce
 
 
 def _simulation_error_result(
@@ -51,23 +64,50 @@ def _simulation_error_result(
     }
 
 
-def _estimated_transaction_size(payload: dict, *, chain_id: str | None) -> int:
-    # Simulation precedes nonce reservation/signing. Charge the real argument
-    # bytes in the smallest signed envelope (nonce 0, a one-digit chi_supplied):
-    # the signed transaction is never smaller, so execution with the estimate
-    # as chi_supplied charges the estimate rather than one chi less when the
-    # cost sits just above a whole chi.
+def _estimated_transaction_size(
+    payload: dict, *, chain_id: str | None, nonce: int, chi_supplied: int
+) -> int:
+    """The canonical size of the signed transaction a simulation estimates:
+    its arguments, the sender's nonce and ``chi_supplied`` in the real
+    envelope (the signature's length is fixed)."""
+    call = {key: value for key, value in payload.items() if key != "nonce"}
     return canonical_transaction_size_bytes(
         {
             "metadata": {"signature": "0" * 128},
             "payload": {
-                **payload,
+                **call,
                 "chain_id": chain_id or "",
-                "nonce": 0,
-                "chi_supplied": 1,
+                "nonce": nonce,
+                "chi_supplied": chi_supplied,
             },
         }
     )
+
+
+Estimate = TypeVar("Estimate")
+
+
+def estimate_to_fixpoint(
+    run: Callable[[int], Estimate], chi_used: Callable[[Estimate], int], *, rounds: int = 4
+) -> Estimate:
+    """The estimate of a transaction that supplies exactly the chi it uses.
+
+    ``run(chi_supplied)`` simulates with ``chi_supplied`` in the envelope; its
+    digits are bytes the transaction pays for, so the estimate is re-run with
+    its own chi until the digit count no longer changes (the chi used grows
+    with the digits, so this ends at the smallest self-consistent estimate).
+    Execution counts the base chi against ``chi_supplied``, so supplying the
+    estimate succeeds and one chi less runs out.
+    """
+    supplied = 1
+    estimate = run(supplied)
+    for _ in range(rounds):
+        used = chi_used(estimate)
+        if len(str(used)) == len(str(supplied)):
+            break
+        supplied = used
+        estimate = run(supplied)
+    return estimate
 
 
 def _simulation_result(payload: dict, *, status: int, writes, events, chi_used, result) -> dict:
@@ -118,15 +158,27 @@ class TransactionSimulator:
     ) -> dict:
         """The simulation of ``payload`` against the client's pending state."""
         normalized_payload = self._normalize_payload(payload)
+        nonce = self.envelope_nonce(normalized_payload)
         _environment, overlay = self.client.raw_driver.committed_storage()
         outcome = self.simulate_in_rust(
-            normalized_payload, block_meta=block_meta, max_chi=max_chi, pending=overlay
+            normalized_payload, block_meta=block_meta, max_chi=max_chi, pending=overlay, nonce=nonce
         )
         if isinstance(outcome, HandedBack):
             return self.simulate_on_python_path(
-                normalized_payload, block_meta=block_meta, max_chi=max_chi
+                normalized_payload, block_meta=block_meta, max_chi=max_chi, nonce=nonce
             )
         return outcome
+
+    def envelope_nonce(self, payload: dict) -> int:
+        """The nonce that sizes the estimated envelope: the request's, else
+        the sender's next committed nonce (a client with transactions still
+        in the mempool passes its nonce). Reads the driver: call it where
+        node state may be read (under the node state lock)."""
+        nonce = payload.get("nonce")
+        if nonce is not None:
+            return nonce
+        committed = self.client.raw_driver.get(f"{NONCE_FILENAME}.{payload['sender']}:")
+        return committed + 1 if type(committed) is int else 0
 
     def simulate_encoded_transaction(
         self,
@@ -147,6 +199,7 @@ class TransactionSimulator:
         payload: dict,
         *,
         pending,
+        nonce: int,
         block_meta: dict | None = None,
         max_chi: int | None = None,
     ) -> dict | HandedBack:
@@ -156,7 +209,7 @@ class TransactionSimulator:
         return self._guarded(
             payload,
             lambda: self._execute_in_rust(
-                payload, pending=pending, block_meta=block_meta, max_chi=max_chi
+                payload, pending=pending, nonce=nonce, block_meta=block_meta, max_chi=max_chi
             ),
         )
 
@@ -164,6 +217,7 @@ class TransactionSimulator:
         self,
         payload: dict,
         *,
+        nonce: int,
         block_meta: dict | None = None,
         max_chi: int | None = None,
     ) -> dict:
@@ -171,7 +225,9 @@ class TransactionSimulator:
         per-transaction path; the driver's pending state is restored after."""
         return self._guarded(
             payload,
-            lambda: self._execute_on_python_path(payload, block_meta=block_meta, max_chi=max_chi),
+            lambda: self._execute_on_python_path(
+                payload, nonce=nonce, block_meta=block_meta, max_chi=max_chi
+            ),
         )
 
     @staticmethod
@@ -195,15 +251,20 @@ class TransactionSimulator:
     def _budget(max_chi: int | None) -> int:
         return max(int(max_chi or DEFAULT_SIMULATION_CHI), 1)
 
-    def _transaction_size(self, payload: dict, environment: dict) -> int:
+    def _transaction_size(
+        self, payload: dict, environment: dict, *, nonce: int, chi_supplied: int
+    ) -> int:
         """The transaction size the simulation is charged for."""
-        return _estimated_transaction_size(payload, chain_id=environment.get("chain_id"))
+        return _estimated_transaction_size(
+            payload, chain_id=environment.get("chain_id"), nonce=nonce, chi_supplied=chi_supplied
+        )
 
     def _execute_in_rust(
         self,
         payload: dict,
         *,
         pending,
+        nonce: int,
         block_meta: dict | None,
         max_chi: int | None,
     ) -> dict | HandedBack:
@@ -211,7 +272,30 @@ class TransactionSimulator:
         storage, _overlay = driver.committed_storage()
         kwargs = decode_wire_numbers(payload.get("kwargs", {}))
         environment = self._make_environment(payload, block_meta=block_meta)
-        run = execute_tx(
+        zk_without_state = runtime_feature_without_state(driver, RUNTIME_FEATURE_ZK)
+        run = estimate_to_fixpoint(
+            lambda chi_supplied: self._run_in_rust(
+                storage,
+                pending,
+                payload,
+                kwargs,
+                environment,
+                max_chi=max_chi,
+                size=self._transaction_size(
+                    payload, environment, nonce=nonce, chi_supplied=chi_supplied
+                ),
+                zk_without_state=zk_without_state,
+            ),
+            lambda run: 0 if isinstance(run, HandedBack) else run.chi_used,
+        )
+        if isinstance(run, HandedBack):
+            return run
+        return self._rust_result(payload, run)
+
+    def _run_in_rust(
+        self, storage, pending, payload, kwargs, environment, *, max_chi, size, zk_without_state
+    ):
+        return execute_tx(
             storage,
             pending.snapshot(),
             sender=payload["sender"],
@@ -228,14 +312,11 @@ class TransactionSimulator:
             meter=True,
             charge_fees=self.charge_fees,
             chi_budget=self._budget(max_chi),
-            transaction_size_bytes=self._transaction_size(payload, environment),
+            transaction_size_bytes=size,
             protected_keys=(EXECUTION_POLICY_KEY,),
-            zk_enabled_without_state=runtime_feature_without_state(driver, RUNTIME_FEATURE_ZK),
+            zk_enabled_without_state=zk_without_state,
             estimate=True,
         )
-        if isinstance(run, HandedBack):
-            return run
-        return self._rust_result(payload, run)
 
     @staticmethod
     def _rust_result(payload: dict, run: TxRun) -> dict:
@@ -252,6 +333,7 @@ class TransactionSimulator:
         self,
         payload: dict,
         *,
+        nonce: int,
         block_meta: dict | None,
         max_chi: int | None,
     ) -> dict:
@@ -267,6 +349,7 @@ class TransactionSimulator:
                 environment=environment,
                 max_chi=max_chi,
                 chi_cost=chi_cost,
+                nonce=nonce,
             )
         finally:
             self.client.raw_driver.restore_state(state_snapshot)
@@ -279,24 +362,30 @@ class TransactionSimulator:
         environment: dict,
         max_chi: int | None,
         chi_cost: int,
+        nonce: int,
     ) -> dict:
-        outcome = execute_vm_transaction(
-            self.execution_runtime,
-            self.client.raw_driver,
-            sender=payload["sender"],
-            contract_name=payload["contract"],
-            function_name=payload["function"],
-            kwargs=kwargs,
-            environment=environment,
-            chi_budget=self._budget(max_chi),
-            transaction_size_bytes=self._transaction_size(payload, environment),
-            chi_cost=chi_cost,
-            meter=True,
-            apply_metering_on_success_only=False,
-            apply_metering_writes=self.charge_fees,
-            # This is a cost estimate, not a transaction with a submitted budget.
-            reserve_fee_budget=False,
-        )
+        def run(chi_supplied: int):
+            return execute_vm_transaction(
+                self.execution_runtime,
+                self.client.raw_driver,
+                sender=payload["sender"],
+                contract_name=payload["contract"],
+                function_name=payload["function"],
+                kwargs=kwargs,
+                environment=environment,
+                chi_budget=self._budget(max_chi),
+                transaction_size_bytes=self._transaction_size(
+                    payload, environment, nonce=nonce, chi_supplied=chi_supplied
+                ),
+                chi_cost=chi_cost,
+                meter=True,
+                apply_metering_on_success_only=False,
+                apply_metering_writes=self.charge_fees,
+                # This is a cost estimate, not a transaction with a submitted budget.
+                reserve_fee_budget=False,
+            )
+
+        outcome = estimate_to_fixpoint(run, lambda outcome: outcome.chi_used)
         return _simulation_result(
             payload,
             status=outcome.output.status_code,
@@ -326,17 +415,23 @@ class TransactionSimulator:
             if not isinstance(value, str) or not value:
                 raise ValueError(f"simulation payload missing {field}")
 
-        return {
+        simulated = {
             "sender": normalized["sender"],
             "contract": normalized["contract"],
             "function": normalized["function"],
             "kwargs": kwargs,
         }
+        nonce = _payload_nonce(normalized)
+        if nonce is not None:
+            simulated["nonce"] = nonce
+        return simulated
 
     @staticmethod
     def _payload_hash(payload: dict) -> str:
+        # The call, without the nonce that only sizes the envelope.
+        call = {key: value for key, value in payload.items() if key != "nonce"}
         encoded = json.dumps(
-            payload,
+            call,
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
@@ -445,10 +540,12 @@ class QuerySimulationService:
             )
 
         _environment, overlay = self.client.raw_driver.committed_storage()
+        simulator = self._simulator(self.client)
         return PreparedSimulation(
             service=self,
-            simulator=self._simulator(self.client),
+            simulator=simulator,
             payload=normalized_payload,
+            nonce=simulator.envelope_nonce(normalized_payload),
             block_meta=self.get_block_meta() or {},
             max_chi=self.max_chi,
             pending=overlay.snapshot(),
@@ -521,6 +618,8 @@ class PreparedSimulation:
     service: QuerySimulationService
     simulator: TransactionSimulator
     payload: dict
+    # The nonce that sizes the envelope, read while preparing (node state).
+    nonce: int
     block_meta: dict
     max_chi: int
     # The fork of the pending block state the simulation reads.
@@ -531,7 +630,11 @@ class PreparedSimulation:
 
     def run_in_rust(self) -> dict | HandedBack:
         return self.simulator.simulate_in_rust(
-            self.payload, pending=self.pending, block_meta=self.block_meta, max_chi=self.max_chi
+            self.payload,
+            pending=self.pending,
+            nonce=self.nonce,
+            block_meta=self.block_meta,
+            max_chi=self.max_chi,
         )
 
     def run_on_python_path(self) -> dict:
@@ -548,7 +651,7 @@ class PreparedSimulation:
                 vm_profile=VM_EXECUTION_MODE, driver=driver, submission_filename=None
             )
             return self.service._simulator(client).simulate_on_python_path(
-                self.payload, block_meta=self.block_meta, max_chi=self.max_chi
+                self.payload, nonce=self.nonce, block_meta=self.block_meta, max_chi=self.max_chi
             )
         finally:
             driver.close()
