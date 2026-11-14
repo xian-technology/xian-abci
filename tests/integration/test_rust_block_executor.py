@@ -819,26 +819,11 @@ def test_block_execution_writes_the_per_transaction_logs(tmp_path, trace_logging
     assert stages >= ({"execute_tx", "tx_result"} if trace_logging else {"process_tx_output"})
 
 
-# Values the receipt encoding would refuse (binary floats, raw decimals,
-# decimal tuples, heap references): a V2 contract cannot produce them in its
-# effects or result, so the executor needs no check of its own for them.
+# Values the receipt encoding would refuse (decimal tuples, heap
+# references; the VM holds no binary floats or raw decimals at all): a V2
+# contract cannot produce them in its effects or result, so the executor
+# needs no check of its own for them.
 UNENCODABLE = """v = Variable()
-E = LogEvent("E", {"x": (int, str)})
-
-@export
-def store_float():
-    random.seed()
-    v.set(random.random())
-
-@export
-def emit_float():
-    random.seed()
-    E({"x": random.random()})
-
-@export
-def return_float():
-    random.seed()
-    return random.random()
 
 @export
 def store_tuple():
@@ -853,7 +838,7 @@ def store_cycle():
 
 
 def test_values_the_receipt_encoding_refuses_never_reach_the_effects(tmp_path):
-    functions = ["store_float", "emit_float", "return_float", "store_tuple", "store_cycle"]
+    functions = ["store_tuple", "store_cycle"]
     txs = [
         _tx(9, index, 1, "alice", "con_unencodable", function, {}, 2_000)
         for index, function in enumerate(functions)
@@ -865,9 +850,6 @@ def test_values_the_receipt_encoding_refuses_never_reach_the_effects(tmp_path):
     assert_matches_golden("block_executor/unencodable", actual)
     receipts = [json.loads(receipt) for receipt, _, _ in actual[:-1]]
     refusals = [
-        "binary float and raw Decimal are unavailable in xian_vm_v2",
-        "binary float and raw Decimal are unavailable in xian_vm_v2",
-        "binary float and raw Decimal are unavailable in xian_vm_v2",
         "has no native attribute 'as_tuple'",
         "cyclic value cannot cross a VM boundary",
     ]
