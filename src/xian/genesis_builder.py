@@ -20,15 +20,13 @@ from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import decode_wire_numbers, encode, encode_wire, loads_wire_json
 from xian_runtime_types.time import Datetime
-from xian_vm_core import HandedBack, execute_tx
+from xian_vm_core import execute_tx
 
 from xian.config_paths import (
     resolve_contracts_dir as resolve_configs_contracts_dir,
 )
 from xian.execution_engine import (
-    VmRuntime,
     build_vm_runtime,
-    execute_vm_contract,
     vm_call_context,
 )
 from xian.execution_policy import (
@@ -133,7 +131,6 @@ def _stage_native_submission_contract(driver: Driver, *, submission_time: Dateti
 
 def _deploy_native_genesis_contract(
     *,
-    runtime: VmRuntime,
     driver: Driver,
     contract_name: str,
     source: str,
@@ -165,10 +162,6 @@ def _deploy_native_genesis_contract(
         protected_keys=(EXECUTION_POLICY_KEY,),
         zk_enabled_without_state=runtime_feature_without_state(driver, RUNTIME_FEATURE_ZK),
     )
-    if isinstance(output, HandedBack):
-        output = execute_vm_contract(runtime, driver, meter=False, **call)
-        if output.status_code == 0:
-            driver.apply_writes(output.writes)
     if output.status_code != 0:
         raise ValueError(f"Failed to deploy genesis contract {contract_name}: {output.result}")
 
@@ -229,7 +222,8 @@ def deploy_bundle_contracts(
             source="genesis_builder",
         ),
     )
-    runtime = build_vm_runtime()
+    # Refuses a native runtime of another execution policy.
+    build_vm_runtime()
     if submission_time is None:
         submission_time = parse_genesis_time()
     _stage_native_submission_contract(driver, submission_time=submission_time)
@@ -268,7 +262,6 @@ def deploy_bundle_contracts(
 
         if not driver.has_contract(contract_name):
             _deploy_native_genesis_contract(
-                runtime=runtime,
                 driver=driver,
                 contract_name=contract_name,
                 source=code,

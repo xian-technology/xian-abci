@@ -1,22 +1,13 @@
 {
  "balances": {},
- "contract_views": {
-  "view/import_cycle": "import graph contains a cycle",
-  "view/not_exported": "function is not exported",
-  "view/owner_rejected": "caller is not the owner"
- },
+ "contract_views": {},
  "deploy": {},
  "owner": {},
  "policy_free": {},
  "policy_unmetered": {},
  "random": {},
  "rewards": {},
- "simulations": {
-  "simulate/missing_contract": "contract has no persisted IR",
-  "simulate/not_exported": "function is not exported",
-  "simulate/owner_rejected": "caller is not the owner",
-  "simulate/str_balance": "str balance"
- },
+ "simulations": {},
  "system_blocks": {},
  "values": {},
  "zk": {}

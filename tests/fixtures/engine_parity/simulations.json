@@ -56,7 +56,7 @@
  },
  "simulate/str_balance": {
   "type": "dict",
-  "value": "{\"chi_used\":0,\"payload\":{\"contract\":\"con_probe\",\"function\":\"put\",\"kwargs\":{\"key\":\"s\",\"value\":2},\"sender\":\"erin\"},\"result\":\"Simulation error: [<class 'decimal.ConversionSyntax'>]\",\"state\":[],\"status\":1}"
+  "value": "{\"chi_used\":85,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"put\",\"kwargs\":{\"key\":\"s\",\"value\":2},\"sender\":\"erin\"},\"result\":\"AssertionError('Sender balance is not a number.')\",\"state\":[],\"status\":1}"
  },
  "simulate/success": {
   "type": "dict",

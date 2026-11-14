@@ -13,14 +13,12 @@ from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal, canonical_fixed
 from xian_runtime_types.encoding import is_wrapper_set
 from xian_runtime_types.time import Datetime
-from xian_vm_core import HandedBack, execute_tx
+from xian_vm_core import execute_tx
 
 from cometbft.abci.v1beta1.types_pb2 import ResponseQuery
 from xian.constants import Constants as c
 from xian.execution_engine import (
     ContractPreparationError,
-    execute_vm_contract,
-    prepare_vm_contract,
     vm_call_context,
 )
 from xian.execution_policy import EXECUTION_POLICY_KEY
@@ -316,9 +314,7 @@ def _call_contract_view(
         "environment": _make_vm_query_environment(ctx),
     }
     run = _run_contract_view(ctx.raw_driver, call)
-    if isinstance(run, HandedBack):
-        run = _python_contract_view(ctx.app.execution_runtime, ctx.raw_driver, call)
-    elif run.unprepared:
+    if run.unprepared:
         raise ContractPreparationError(str(run.result))
     if run.status_code != 0:
         logger.bind(
@@ -356,16 +352,6 @@ def _run_contract_view(driver, call: dict[str, Any]):
         protected_keys=(EXECUTION_POLICY_KEY,),
         zk_enabled_without_state=runtime_feature_without_state(driver, RUNTIME_FEATURE_ZK),
     )
-
-
-def _python_contract_view(runtime, driver, call: dict[str, Any]):
-    """A view the Rust executor leaves to the Python path."""
-    state = driver.snapshot_state()
-    try:
-        prepare_vm_contract(runtime, driver, call["contract_name"])
-        return execute_vm_contract(runtime, driver, meter=False, **call)
-    finally:
-        driver.restore_state(state)
 
 
 def _pending_validators_votes(

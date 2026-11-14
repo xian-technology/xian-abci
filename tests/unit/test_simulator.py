@@ -12,11 +12,10 @@ from contracting.constants import TRANSACTION_BASE_CHI
 from contracting.local import ContractingClient
 from contracting.runtime_features import set_driver_runtime_features
 from xian_runtime_types.decimal import ContractingDecimal
-from xian_vm_core import HandedBack, TxRun
+from xian_vm_core import TxRun
 
 from xian.execution_engine import build_vm_runtime, execute_vm_transaction
 from xian.simulator import (
-    PreparedSimulation,
     QuerySimulationService,
     TransactionSimulator,
     _estimated_transaction_size,
@@ -361,7 +360,7 @@ def get():
 
 def test_simulations_judge_runtime_features_like_the_node(chain):
     # The node installs its runtime features on its driver; with zk off and
-    # no state setting, a zk contract cannot run, in Rust and on the Python path.
+    # no state setting, a zk contract cannot run.
     chain.raw_driver.set_contract_from_source("con_zkprobe", ZK_PROBE)
     set_driver_runtime_features(chain.raw_driver, {"zk": False})
     service = QuerySimulationService(client=chain, chain_id="test-chain")
@@ -369,9 +368,7 @@ def test_simulations_judge_runtime_features_like_the_node(chain):
     prepared = service.prepare_encoded_transaction(payload.encode().hex())
 
     in_rust = prepared.run_in_rust()
-    on_python_path = prepared.run_on_python_path()
 
-    assert in_rust == on_python_path
     assert in_rust["status"] == 1
     assert "zk runtime feature is disabled" in in_rust["result"]
 
@@ -396,20 +393,6 @@ def test_a_simulation_runs_on_a_fork_of_the_state_taken_when_prepared(chain):
 
     assert (result["status"], result["result"]) == (0, 100)
     assert chain.raw_driver.get("con_reader.values:a") == 7
-
-
-def test_a_handed_back_simulation_runs_on_the_python_path(chain, monkeypatch):
-    service = QuerySimulationService(client=chain, chain_id="test-chain")
-    chain.raw_driver.set_contract_from_source("con_reader", READER)
-    payload = json.dumps(
-        {**PAYLOAD, "contract": "con_reader", "function": "read", "kwargs": {"key": "a"}}
-    )
-    expected = asyncio.run(service.prepare_encoded_transaction(payload.encode().hex()).run())
-    monkeypatch.setattr(PreparedSimulation, "run_in_rust", lambda self: HandedBack("probe"))
-
-    result = asyncio.run(service.prepare_encoded_transaction(payload.encode().hex()).run())
-
-    assert result == expected
 
 
 def test_a_failing_rust_run_is_a_simulation_error(chain, monkeypatch):
@@ -441,6 +424,9 @@ class _BlockingQuerySimulationService(QuerySimulationService):
         service = self
 
         class Simulator:
+            def envelope_nonce(self, payload):
+                return 0
+
             def simulate_in_rust(self, payload, **_options):
                 service.release.wait(timeout=5)
                 return service.response

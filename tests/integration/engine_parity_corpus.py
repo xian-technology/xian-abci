@@ -12,25 +12,23 @@ Each corpus runs on two paths:
 
 * the Python path: every transaction through ``TxProcessor.process_tx``
   (``TxProcessor._block_executor`` patched to ``None``; no production flag),
-  simulations through ``TransactionSimulator.simulate_on_python_path``,
+  simulations through ``execute_vm_transaction`` (``_python_simulation``),
   contract views through ``execute_vm_contract``;
 * the production path: ``TxProcessor.process_block`` (every transaction in
   Rust), simulations through ``QuerySimulationService`` and contract views
   through the query handler's ``_call_contract_view`` (both
   ``xian_vm_core.execute_tx``), system transactions through ``FinalizeBlock``.
 
-``tests/fixtures/engine_parity/`` freezes the outputs: the block corpora as
-the production path produces them since execution revision 14 gave the
-Python path's halts and quirks explicit Rust rules (``REVISION_14_CASES``;
-the Python path reproduces each corpus up to its first such case), the rest
-as the Python path produces them. See the README there for when they may be
-regenerated:
+``tests/fixtures/engine_parity/`` freezes the outputs as the production path
+produces them since execution revision 14 gave the Python path's halts and
+quirks explicit Rust rules (``REVISION_14_CASES``; the Python path reproduces
+each block corpus up to its first such case and every other simulation and
+contract view). See the README there for when they may be regenerated:
 
     python -m tests.integration.engine_parity_corpus --write
 
-``handback_inventory.json`` there lists what still runs on the Python path:
-the simulations and contract views (by entry point); no block or system
-transaction (``--write-inventory`` rewrites it from the production path).
+``handback_inventory.json`` there lists what the production path still
+hands to the Python path: nothing (``--write-inventory`` rewrites it).
 """
 
 from __future__ import annotations
@@ -897,7 +895,7 @@ def _policy_corpus(policy: str) -> Corpus:
 # fixtures README lists each rule). The Python path, deleted in increment 9 of
 # the plan, keeps its old outcome for them.
 REVISION_14_CASES = frozenset(
-    {"deploy/str_balance_sender"}
+    {"deploy/str_balance_sender", "simulate/str_balance"}
     | {
         f"balance/{sender}_{label}"
         for sender in ("erin", "fay", "gus", "hal", "ivy", "jon")
@@ -1214,37 +1212,91 @@ def _simulate(client, simulation: Simulation, raw_hex: str, *, python: bool) -> 
     if isinstance(prepared, dict):
         return prepared
     if python:
-        return prepared.simulator.simulate_on_python_path(
-            prepared.payload, nonce=prepared.nonce, block_meta=meta, max_chi=simulation.max_chi
-        )
+        return _python_simulation(prepared, meta, simulation.max_chi)
     return asyncio.run(prepared.run())
+
+
+def _python_simulation(prepared, meta: dict, max_chi: int) -> dict:
+    """The simulation on the Python per-transaction path
+    (``execute_vm_transaction`` without a fee reservation, the fee metered
+    from the balance the run leaves), as the simulator ran it before
+    increment 8; the driver's pending state is restored after."""
+    from xian_runtime_types.encoding import decode_wire_numbers
+
+    from xian.execution_engine import execute_vm_transaction
+    from xian.fee_policy import chain_chi_rate
+    from xian.simulator import _simulation_result, estimate_to_fixpoint
+
+    simulator, payload = prepared.simulator, prepared.payload
+    driver = simulator.client.raw_driver
+    state = driver.snapshot_state()
+    try:
+        chi_cost = chain_chi_rate(simulator.client) if simulator.charge_fees else None
+        kwargs = decode_wire_numbers(payload.get("kwargs", {}))
+        environment = simulator._make_environment(payload, block_meta=meta)
+
+        def run(chi_supplied: int):
+            return execute_vm_transaction(
+                simulator.execution_runtime,
+                driver,
+                sender=payload["sender"],
+                contract_name=payload["contract"],
+                function_name=payload["function"],
+                kwargs=kwargs,
+                environment=environment,
+                chi_budget=simulator._budget(max_chi),
+                transaction_size_bytes=simulator._transaction_size(
+                    payload, environment, nonce=prepared.nonce, chi_supplied=chi_supplied
+                ),
+                chi_cost=chi_cost,
+                meter=True,
+                apply_metering_on_success_only=False,
+                apply_metering_writes=simulator.charge_fees,
+                reserve_fee_budget=False,
+            )
+
+        outcome = estimate_to_fixpoint(run, lambda outcome: outcome.chi_used)
+        return _simulation_result(
+            payload,
+            status=outcome.output.status_code,
+            writes=outcome.writes,
+            events=outcome.output.events,
+            chi_used=outcome.chi_used,
+            result=outcome.output.result,
+        )
+    except Exception as exc:  # noqa: BLE001 - the simulator's error response
+        return {
+            "payload": payload,
+            "status": 1,
+            "state": [],
+            "chi_used": 0,
+            "result": f"Simulation error: {exc}",
+        }
+    finally:
+        driver.restore_state(state)
 
 
 @contextmanager
 def single_tx_routes(module) -> Iterator[list[str]]:
-    """Records the route of each ``execute_tx`` call ``module`` makes: Rust,
-    or the reason it was handed back to the Python path."""
-    from xian_vm_core import HandedBack
-
+    """Records each ``execute_tx`` call ``module`` makes (every one runs in
+    Rust)."""
     routes: list[str] = []
     execute_tx = module.execute_tx
 
     def recorded(*args, **kwargs):
-        run = execute_tx(*args, **kwargs)
-        routes.append(run.reason if isinstance(run, HandedBack) else RUST)
-        return run
+        routes.append(RUST)
+        return execute_tx(*args, **kwargs)
 
     with mock.patch.object(module, "execute_tx", recorded):
         yield routes
 
 
 def _route(routes: list[str]) -> str:
-    """The route of one query: Rust unless its execution was handed back
-    (a query refused before execution runs nothing)."""
-    assert len(routes) <= 1, routes
-    route = routes[0] if routes else RUST
+    """The route of one query: Rust (a query refused before execution runs
+    nothing; a simulation may run more than once to size its envelope)."""
+    assert set(routes) <= {RUST}, routes
     routes.clear()
-    return route
+    return RUST
 
 
 def run_simulations(home: Path, *, python: bool) -> tuple[dict, dict[str, str]]:
@@ -1583,15 +1635,16 @@ def _write_fixture(name: str, outputs: dict) -> None:
 
 
 def golden_outputs(tmp: Path) -> dict[str, dict]:
-    """Every golden fixture's content: the block corpora on the production
-    path, the rest on the Python path."""
+    """Every golden fixture's content: the block corpora, simulations and
+    contract views on the production path, the system blocks on the Python
+    path (both agree there)."""
     outputs = {}
     for corpus in corpora():
         outputs[f"blocks_{corpus.name}"], _routes = run_corpus(
             tmp / corpus.name, corpus, python=False
         )
-    outputs["simulations"], _routes = run_simulations(tmp / "simulations", python=True)
-    outputs["contract_views"], _routes = run_contract_views(tmp / "views", python=True)
+    outputs["simulations"], _routes = run_simulations(tmp / "simulations", python=False)
+    outputs["contract_views"], _routes = run_contract_views(tmp / "views", python=False)
     outputs["system_blocks"], _routes = run_system_blocks(python=True)
     return outputs
 

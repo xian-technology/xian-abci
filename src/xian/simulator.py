@@ -10,25 +10,20 @@ from typing import TypeVar
 from contracting.local import ContractingClient
 from contracting.runtime_features import (
     RUNTIME_FEATURE_ZK,
-    get_driver_runtime_features,
     runtime_feature_without_state,
-    set_driver_runtime_features,
 )
-from contracting.storage.driver import Driver
 from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, loads_wire_json
 from xian_runtime_types.time import Datetime
-from xian_vm_core import HandedBack, TxRun, execute_tx
+from xian_vm_core import TxRun, execute_tx
 
 from xian.app_logging import build_log_fields
 from xian.constants import Constants
 from xian.execution_engine import (
     VmRuntime,
-    execute_vm_transaction,
     vm_call_context,
 )
-from xian.execution_policy import EXECUTION_POLICY_KEY, VM_EXECUTION_MODE
-from xian.fee_policy import chain_chi_rate
+from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.utils.block import (
     get_latest_block_nanos,
     nanoseconds_to_utc_datetime,
@@ -130,8 +125,8 @@ class TransactionSimulator:
     execute_tx``) over a fork of the pending block state, which is dropped
     afterwards: metered, with the chain's fee policy, but without reserving
     the fee budget (a dry run reports the chi used, so a small balance still
-    gets an estimate). The few calls the Rust executor leaves to Python run
-    on the Python per-transaction path instead, over the same state.
+    gets an estimate). The estimate sizes the signed envelope as it will be
+    submitted (``envelope_nonce``, ``estimate_to_fixpoint``).
     """
 
     def __init__(
@@ -160,14 +155,9 @@ class TransactionSimulator:
         normalized_payload = self._normalize_payload(payload)
         nonce = self.envelope_nonce(normalized_payload)
         _environment, overlay = self.client.raw_driver.committed_storage()
-        outcome = self.simulate_in_rust(
+        return self.simulate_in_rust(
             normalized_payload, block_meta=block_meta, max_chi=max_chi, pending=overlay, nonce=nonce
         )
-        if isinstance(outcome, HandedBack):
-            return self.simulate_on_python_path(
-                normalized_payload, block_meta=block_meta, max_chi=max_chi, nonce=nonce
-            )
-        return outcome
 
     def envelope_nonce(self, payload: dict) -> int:
         """The nonce that sizes the estimated envelope: the request's, else
@@ -202,10 +192,10 @@ class TransactionSimulator:
         nonce: int,
         block_meta: dict | None = None,
         max_chi: int | None = None,
-    ) -> dict | HandedBack:
+    ) -> dict:
         """The simulation of the normalized ``payload`` over a fork of
-        ``pending`` (a ``BlockState``), or ``HandedBack`` for the Python
-        path. Thread-safe: it reads only ``pending`` and LMDB."""
+        ``pending`` (a ``BlockState``). Thread-safe: it reads only
+        ``pending`` and LMDB."""
         return self._guarded(
             payload,
             lambda: self._execute_in_rust(
@@ -213,25 +203,8 @@ class TransactionSimulator:
             ),
         )
 
-    def simulate_on_python_path(
-        self,
-        payload: dict,
-        *,
-        nonce: int,
-        block_meta: dict | None = None,
-        max_chi: int | None = None,
-    ) -> dict:
-        """The simulation of the normalized ``payload`` on the Python
-        per-transaction path; the driver's pending state is restored after."""
-        return self._guarded(
-            payload,
-            lambda: self._execute_on_python_path(
-                payload, nonce=nonce, block_meta=block_meta, max_chi=max_chi
-            ),
-        )
-
     @staticmethod
-    def _guarded(payload: dict, run) -> dict | HandedBack:
+    def _guarded(payload: dict, run) -> dict:
         try:
             return run()
         except Exception as exc:
@@ -267,7 +240,7 @@ class TransactionSimulator:
         nonce: int,
         block_meta: dict | None,
         max_chi: int | None,
-    ) -> dict | HandedBack:
+    ) -> dict:
         driver = self.client.raw_driver
         storage, _overlay = driver.committed_storage()
         kwargs = decode_wire_numbers(payload.get("kwargs", {}))
@@ -286,10 +259,8 @@ class TransactionSimulator:
                 ),
                 zk_without_state=zk_without_state,
             ),
-            lambda run: 0 if isinstance(run, HandedBack) else run.chi_used,
+            lambda run: run.chi_used,
         )
-        if isinstance(run, HandedBack):
-            return run
         return self._rust_result(payload, run)
 
     def _run_in_rust(
@@ -327,72 +298,6 @@ class TransactionSimulator:
             events=run.events,
             chi_used=run.chi_used,
             result=run.result,
-        )
-
-    def _execute_on_python_path(
-        self,
-        payload: dict,
-        *,
-        nonce: int,
-        block_meta: dict | None,
-        max_chi: int | None,
-    ) -> dict:
-        state_snapshot = self.client.raw_driver.snapshot_state()
-        try:
-            # Read inside the snapshot so the estimate leaves no tracked reads.
-            chi_cost = chain_chi_rate(self.client) if self.charge_fees else None
-            converted_kwargs = decode_wire_numbers(payload.get("kwargs", {}))
-            environment = self._make_environment(payload, block_meta=block_meta)
-            return self._execute_vm_simulation(
-                payload=payload,
-                kwargs=converted_kwargs,
-                environment=environment,
-                max_chi=max_chi,
-                chi_cost=chi_cost,
-                nonce=nonce,
-            )
-        finally:
-            self.client.raw_driver.restore_state(state_snapshot)
-
-    def _execute_vm_simulation(
-        self,
-        *,
-        payload: dict,
-        kwargs: dict,
-        environment: dict,
-        max_chi: int | None,
-        chi_cost: int,
-        nonce: int,
-    ) -> dict:
-        def run(chi_supplied: int):
-            return execute_vm_transaction(
-                self.execution_runtime,
-                self.client.raw_driver,
-                sender=payload["sender"],
-                contract_name=payload["contract"],
-                function_name=payload["function"],
-                kwargs=kwargs,
-                environment=environment,
-                chi_budget=self._budget(max_chi),
-                transaction_size_bytes=self._transaction_size(
-                    payload, environment, nonce=nonce, chi_supplied=chi_supplied
-                ),
-                chi_cost=chi_cost,
-                meter=True,
-                apply_metering_on_success_only=False,
-                apply_metering_writes=self.charge_fees,
-                # This is a cost estimate, not a transaction with a submitted budget.
-                reserve_fee_budget=False,
-            )
-
-        outcome = estimate_to_fixpoint(run, lambda outcome: outcome.chi_used)
-        return _simulation_result(
-            payload,
-            status=outcome.output.status_code,
-            writes=outcome.writes,
-            events=outcome.output.events,
-            chi_used=outcome.chi_used,
-            result=outcome.output.result,
         )
 
     @staticmethod
@@ -603,10 +508,6 @@ class QuerySimulationService:
                 payload=prepared.payload,
                 message=(f"Simulation timed out on this node after {self.timeout_ms} ms"),
             )
-        if isinstance(outcome, HandedBack):
-            # The Python path shares process state with consensus execution,
-            # so it runs here, on the event loop, never on a worker thread.
-            return prepared.run_on_python_path()
         return outcome
 
     def close(self) -> None:
@@ -628,7 +529,7 @@ class PreparedSimulation:
     async def run(self) -> dict:
         return await self.service._run_prepared(self)
 
-    def run_in_rust(self) -> dict | HandedBack:
+    def run_in_rust(self) -> dict:
         return self.simulator.simulate_in_rust(
             self.payload,
             pending=self.pending,
@@ -636,22 +537,3 @@ class PreparedSimulation:
             block_meta=self.block_meta,
             max_chi=self.max_chi,
         )
-
-    def run_on_python_path(self) -> dict:
-        """The simulation on the Python path, over a driver of its own that
-        holds the forked pending state and the node's runtime features."""
-        live = self.simulator.client.raw_driver
-        driver = Driver(vm_profile=VM_EXECUTION_MODE, storage_home=live.storage_home)
-        try:
-            driver.restore_state(
-                {"pending_writes": self.pending.items(), "transaction_writes": {}, "log_events": []}
-            )
-            set_driver_runtime_features(driver, get_driver_runtime_features(live))
-            client = ContractingClient(
-                vm_profile=VM_EXECUTION_MODE, driver=driver, submission_filename=None
-            )
-            return self.service._simulator(client).simulate_on_python_path(
-                self.payload, nonce=self.nonce, block_meta=self.block_meta, max_chi=self.max_chi
-            )
-        finally:
-            driver.close()

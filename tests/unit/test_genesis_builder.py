@@ -11,7 +11,7 @@ from contracting.storage.driver import Driver
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import encode
 from xian_runtime_types.time import Datetime
-from xian_vm_core import HandedBack, execute_tx
+from xian_vm_core import TxRun, execute_tx
 
 from xian.execution_engine import build_vm_runtime, execute_vm_contract
 from xian.genesis_builder import (
@@ -214,7 +214,7 @@ class GenesisBuilderTests(unittest.TestCase):
                 )
             # The deploy runs in Rust; the Python path below is the reference.
             self.assertEqual(native_execute.call_count, 1)
-            self.assertNotIsInstance(runs[0], HandedBack)
+            self.assertIsInstance(runs[0], TxRun)
             self.assertEqual(
                 native_execute.call_args.kwargs["contract_name"],
                 "submission",

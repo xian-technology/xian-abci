@@ -20,7 +20,7 @@ decides by a rule the Python path does not have (`REVISION_14_CASES`).
 | `simulations.json` | The `simulate_tx` query response value of each simulation. |
 | `contract_views.json` | The query response value of each contract view (`_call_contract_view`); `error` when the query raises. |
 | `system_blocks.json` | `FinalizeBlock` + `Commit` of blocks with evidence penalties and epoch rebalances: the system transactions' receipts, the serialized `ResponseFinalizeBlock` and the app hash. |
-| `handback_inventory.json` | Not golden: what the production path still runs on the Python path. Every block and system transaction runs in Rust (their entries are empty); simulations and contract views are listed by entry point until increment 8 moves them. |
+| `handback_inventory.json` | Not golden: what the production path still hands to the Python path. Since increments 7 and 8 every entry is empty: blocks, system transactions, simulations and contract views all run in Rust. |
 | `inputs/groth16_bn254_demo.json` | Input: the demo Groth16 key, proof and public input (from `xian-zk`). |
 
 Every corpus runs with the default dependencies: the VM (`xian-tech-vm-core`)
@@ -71,8 +71,13 @@ fixtures were regenerated with them and the diff reviewed case by case:
 
 - Explicit rules for the Python path's halts and quirks (single-engine plan,
   increment 7; findings 1-9). Every block transaction now gets a receipt in
-  Rust; only a host fault halts. Changed in the goldens (each a
+  Rust; only a host fault halts. The goldens are the production path's
+  (simulations and contract views too). Changed in them (each a
   `REVISION_14_CASES` entry), and nothing else but the cascades named here:
+  - `simulate/str_balance`: a simulation from a sender whose balance is not
+    a number reports the transaction's failure (`AssertionError('Sender
+    balance is not a number.')`, chi 85) instead of the Python path's
+    `Simulation error: [<class 'decimal.ConversionSyntax'>]`.
   - A sender balance that is not a number (str, dict, list, bool): the
     transaction fails with `AssertionError('Sender balance is not a
     number.')`, chi 5, nothing charged, no balance write, no rewards (the
@@ -143,9 +148,8 @@ fixtures were regenerated with them and the diff reviewed case by case:
 
 ## The hand-back inventory
 
-`handback_inventory.json` shrank as rules moved into Rust; since increment
-7 no block or system transaction is handed back (the hand-back mechanism is
-gone from the executor). The simulations and contract views leave it with
-increment 8 (rewrite it with `--write-inventory`, then check that the diff
-only removes entries). After the Python path is deleted, only the golden
-comparison of the production path remains.
+`handback_inventory.json` shrank as rules moved into Rust; it is empty
+since increment 7 removed the hand-back from the executor (blocks, system
+transactions) and increment 8 ran simulations and contract views on it, so
+no production path has a Python fallback left. After the Python path is
+deleted, only the golden comparison of the production path remains.
