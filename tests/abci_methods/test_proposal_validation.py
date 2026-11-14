@@ -391,7 +391,11 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         }
 
         with (
-            patch.object(self.app.tx_processor, "process_tx", return_value=ok_result) as process_tx,
+            patch.object(
+                self.app.tx_processor,
+                "process_block",
+                side_effect=lambda txs, _raw, **_kw: [ok_result for _ in txs],
+            ) as process_block,
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):
             finalized = await self.process_request(
@@ -399,7 +403,8 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                 Request(finalize_block=RequestFinalizeBlock(txs=txs)),
             )
 
-        process_tx.assert_called_once()
+        process_block.assert_called_once()
+        self.assertEqual(len(process_block.call_args.args[0]), 1)
         results = finalized.finalize_block.tx_results
         self.assertEqual(results[0].code, self.constants.OkCode)
         self.assertEqual(results[1].code, self.constants.ErrorCode)
@@ -449,21 +454,22 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         tx_one = make_signed_tx_bytes(nonce=0)
         tx_two = make_signed_tx_bytes(nonce=0)
 
+        ok_result = {
+            "tx_result": {
+                "hash": "ABC123",
+                "status": 0,
+                "state": [],
+                "events": [],
+                "chi_used": 1,
+                "result": "ok",
+            }
+        }
         with (
             patch.object(
                 self.app.tx_processor,
-                "process_tx",
-                return_value={
-                    "tx_result": {
-                        "hash": "ABC123",
-                        "status": 0,
-                        "state": [],
-                        "events": [],
-                        "chi_used": 1,
-                        "result": "ok",
-                    }
-                },
-            ) as process_tx,
+                "process_block",
+                side_effect=lambda txs, _raw, **_kw: [ok_result for _ in txs],
+            ) as process_block,
             patch.object(
                 self.app.nonce_storage, "set_nonce_by_tx"
             ) as set_nonce,
@@ -481,7 +487,8 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second_result.code, self.constants.ErrorCode)
         error_payload = json.loads(second_result.data.decode("utf-8"))
         self.assertIn("Expected 1, got 0", error_payload["error"])
-        process_tx.assert_called_once()
+        process_block.assert_called_once()
+        self.assertEqual(len(process_block.call_args.args[0]), 1)
         set_nonce.assert_called_once()
 
     async def test_finalize_block_charges_and_consumes_nonce_for_missing_contract(self):
@@ -511,7 +518,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
     async def test_finalize_block_halts_when_processing_raises(self):
         tx = make_signed_tx_bytes(nonce=0)
-        with patch.object(self.app.tx_processor, "process_tx", side_effect=OSError("disk")):
+        with patch.object(self.app.tx_processor, "process_block", side_effect=OSError("disk")):
             with self.assertRaises(OSError):
                 await self.app.finalize_block(RequestFinalizeBlock(txs=[tx], height=1))
         self.assertIsNone(self.app._pending_commit_driver_state)

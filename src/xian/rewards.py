@@ -405,14 +405,15 @@ class RewardsHandler:
         balance. Without ``pay_developers`` (a failed call) the developer
         share goes to the validators.
 
-        Over node state the Rust port computes them; it hands every input it
-        does not cover, and every case where this code raises, back here.
+        Over node state Rust computes them (execution revision 14: an
+        invalid reward input pays no rewards); this Python reference serves
+        clients without node storage until the Python path is deleted.
         """
         storage = getattr(getattr(self.client, "raw_driver", None), "committed_storage", None)
         storage = storage() if storage is not None else None
         if storage is not None:
             environment, overlay = storage
-            computed = tx_rewards(
+            return tx_rewards(
                 environment,
                 overlay,
                 total_chi_to_split,
@@ -420,8 +421,6 @@ class RewardsHandler:
                 contract_costs,
                 pay_developers=pay_developers,
             )
-            if computed is not None:
-                return computed
         return self._build_tx_reward_outputs(
             total_chi_to_split,
             contract,

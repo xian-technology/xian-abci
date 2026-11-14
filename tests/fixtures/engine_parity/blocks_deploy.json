@@ -217,11 +217,17 @@
    "writes_sha256": "e161ccd78cad78c8be9e62b506ec0f9f7a912870bb92dc314c29a4dee51807fa"
   },
   {
-   "cases": [
-    "deploy/str_balance_sender"
+   "app_hash": "9181127a3d527841277bdd3574238e1c8512ac63933889b3adcb90eeca8f5e1a",
+   "height": 3,
+   "txs": [
+    {
+     "case": "deploy/str_balance_sender",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"25f92158ae0a3f2f0f97d4aaf31ee3f11b15590826d588b65075a40ef2326d3f\",\"result\":\"AssertionError('Sender balance is not a number.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    }
    ],
-   "halt": "InvalidOperation",
-   "height": 3
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   }
  ],
  "policy": "paid"

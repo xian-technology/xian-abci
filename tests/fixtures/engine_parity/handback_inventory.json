@@ -1,59 +1,16 @@
 {
- "balances": {
-  "balance/erin_base_budget": "str balance",
-  "balance/erin_failure": "str balance",
-  "balance/erin_success": "str balance",
-  "balance/fay_base_budget": "dict balance",
-  "balance/fay_failure": "dict balance",
-  "balance/fay_success": "dict balance",
-  "balance/gus_base_budget": "list balance",
-  "balance/gus_failure": "list balance",
-  "balance/gus_success": "list balance",
-  "balance/hal_base_budget": "bool balance",
-  "balance/hal_failure": "bool balance",
-  "balance/hal_success": "bool balance"
- },
+ "balances": {},
  "contract_views": {
   "view/import_cycle": "import graph contains a cycle",
   "view/not_exported": "function is not exported",
   "view/owner_rejected": "caller is not the owner"
  },
- "deploy": {
-  "deploy/call_failed_deploy": "contract has no persisted IR",
-  "deploy/call_owned_by_other": "caller is not the owner",
-  "deploy/call_rolled_back_factory_deploy": "contract has no persisted IR",
-  "deploy/str_balance_sender": "str balance"
- },
- "owner": {
-  "owner/old_owner_rejected": "caller is not the owner"
- },
+ "deploy": {},
+ "owner": {},
  "policy_free": {},
  "policy_unmetered": {},
  "random": {},
- "rewards": {
-  "rewards/active_dict_failure": "truthiness of dict",
-  "rewards/active_dict_success": "truthiness of dict",
-  "rewards/active_int_member_failure": "validator is a int",
-  "rewards/active_int_member_success": "validator is a int",
-  "rewards/active_text_balance_failure": "str balance",
-  "rewards/active_text_balance_success": "str balance",
-  "rewards/foundation_owner_int_failure": "foundation owner is a int",
-  "rewards/foundation_owner_int_success": "foundation owner is a int",
-  "rewards/foundation_owner_missing_failure": "reward configuration is incomplete",
-  "rewards/foundation_owner_missing_success": "reward configuration is incomplete",
-  "rewards/power_text_failure": "str reward input",
-  "rewards/power_text_success": "str reward input",
-  "rewards/split_dict_failure": "truthiness of dict",
-  "rewards/split_dict_success": "truthiness of dict",
-  "rewards/split_member_none_failure": "none reward input",
-  "rewards/split_member_none_success": "none reward input",
-  "rewards/split_not_list_failure": "reward split is a str",
-  "rewards/split_not_list_success": "reward split is a str",
-  "rewards/split_short_failure": "reward split is a list",
-  "rewards/split_short_success": "reward split is a list",
-  "rewards/split_text_failure": "str reward input",
-  "rewards/split_text_success": "str reward input"
- },
+ "rewards": {},
  "simulations": {
   "simulate/missing_contract": "contract has no persisted IR",
   "simulate/not_exported": "function is not exported",
@@ -61,16 +18,6 @@
   "simulate/str_balance": "str balance"
  },
  "system_blocks": {},
- "values": {
-  "entry/import_cycle": "import graph contains a cycle",
-  "entry/invalid_ir": "expected ident at line 1 column 2",
-  "entry/ir_not_text": "contract has no persisted IR",
-  "entry/missing_contract": "contract has no persisted IR",
-  "entry/missing_import": "contract has no persisted IR",
-  "entry/not_exported": "function is not exported",
-  "entry/owner_rejected": "caller is not the owner",
-  "entry/private_function": "function is not exported",
-  "entry/source_only": "contract has no persisted IR"
- },
+ "values": {},
  "zk": {}
 }

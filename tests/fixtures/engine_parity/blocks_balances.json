@@ -157,169 +157,241 @@
    "writes_sha256": "2328aff2573a2af0cd4ea5250603683ba8d5e137299b530ab73cbfeb6c784bae"
   },
   {
-   "cases": [
-    "balance/erin_success"
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
+   "height": 13,
+   "txs": [
+    {
+     "case": "balance/erin_success",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"48aa083ce817d1fd43341c196f2e33a523cbeb88efd9edda49fd1b09be3f6cef\",\"result\":\"AssertionError('Sender balance is not a number.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    }
    ],
-   "halt": "InvalidOperation",
-   "height": 13
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "cases": [
-    "balance/erin_failure"
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
+   "height": 14,
+   "txs": [
+    {
+     "case": "balance/erin_failure",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"8cbfb3d8fa8ca3fc1013bfa6a61b9ed944db195e857d7af6b6b2a90b9c845321\",\"result\":\"AssertionError('Sender balance is not a number.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    }
    ],
-   "halt": "InvalidOperation",
-   "height": 14
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "cases": [
-    "balance/erin_base_budget"
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
+   "height": 15,
+   "txs": [
+    {
+     "case": "balance/erin_base_budget",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"5537642a5675f0cbf374de13c08829a34d6104ebff65be104ef200d1fba4b666\",\"result\":\"AssertionError('Sender balance is not a number.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    }
    ],
-   "halt": "InvalidOperation",
-   "height": 15
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "cases": [
-    "balance/fay_success"
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
+   "height": 16,
+   "txs": [
+    {
+     "case": "balance/fay_success",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"0761bcfe96f76b37c144b4156de2699e164f2f8830abf487090b899a96498209\",\"result\":\"AssertionError('Sender balance is not a number.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    }
    ],
-   "halt": "TypeError",
-   "height": 16
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "cases": [
-    "balance/fay_failure"
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
+   "height": 17,
+   "txs": [
+    {
+     "case": "balance/fay_failure",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"2d9a3034a6ec0613ae6b9abfc182a7fd88f53777aa23428bce303475780e5ebc\",\"result\":\"AssertionError('Sender balance is not a number.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    }
    ],
-   "halt": "TypeError",
-   "height": 17
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "cases": [
-    "balance/fay_base_budget"
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
+   "height": 18,
+   "txs": [
+    {
+     "case": "balance/fay_base_budget",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"a08595719d16400fe1524709649134bc0f101136a23b73d1280953c4c9785914\",\"result\":\"AssertionError('Sender balance is not a number.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    }
    ],
-   "halt": "TypeError",
-   "height": 18
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "cases": [
-    "balance/gus_success"
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
+   "height": 19,
+   "txs": [
+    {
+     "case": "balance/gus_success",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"413f1ec65ac538e2a1c7998588e97a476e57ed493563089f5e82e8607f172fe2\",\"result\":\"AssertionError('Sender balance is not a number.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    }
    ],
-   "halt": "ValueError",
-   "height": 19
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "cases": [
-    "balance/gus_failure"
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
+   "height": 20,
+   "txs": [
+    {
+     "case": "balance/gus_failure",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"7072349b2d4a29bc254317f3245d80e9c2c8229497bce21f8b163ac66aa0ee20\",\"result\":\"AssertionError('Sender balance is not a number.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    }
    ],
-   "halt": "ValueError",
-   "height": 20
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "cases": [
-    "balance/gus_base_budget"
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
+   "height": 21,
+   "txs": [
+    {
+     "case": "balance/gus_base_budget",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"c8d5a92968bfa54f6b214002ba731077151e5729a2451e4599c6f428d537806f\",\"result\":\"AssertionError('Sender balance is not a number.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    }
    ],
-   "halt": "ValueError",
-   "height": 21
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "cases": [
-    "balance/hal_success"
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
+   "height": 22,
+   "txs": [
+    {
+     "case": "balance/hal_success",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"4fb0428392f71fcccff692e3813ff0887dddf2448a63f422c3ce502b27613a91\",\"result\":\"AssertionError('Sender balance is not a number.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    }
    ],
-   "halt": "InvalidOperation",
-   "height": 22
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "cases": [
-    "balance/hal_failure"
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
+   "height": 23,
+   "txs": [
+    {
+     "case": "balance/hal_failure",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"6642ce0876ad133c57227dc038010439fa827f7a03703fdf452b4298484a1288\",\"result\":\"AssertionError('Sender balance is not a number.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    }
    ],
-   "halt": "InvalidOperation",
-   "height": 23
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "cases": [
-    "balance/hal_base_budget"
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
+   "height": 24,
+   "txs": [
+    {
+     "case": "balance/hal_base_budget",
+     "code": 1,
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"f31afd6595ada76574f53719245f899a19528a343a90f27e722162067ed83053\",\"result\":\"AssertionError('Sender balance is not a number.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+    }
    ],
-   "halt": "InvalidOperation",
-   "height": 24
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "app_hash": "29ec39bca86c961ac4c79ffabc011c69703c8c57e85f96bc2954e3227a337439",
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
    "height": 25,
    "txs": [
     {
      "case": "balance/ivy_success",
      "code": 1,
-     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"c6bd6758504c56e3e65a232a10e264ea8f83f1e74e04a88a534befe7055845c3\",\"result\":\"AssertionError('Sender does not have enough chi for the submitted budget.')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:ivy\",\"value\":0}],\"status\":1}"
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"c6bd6758504c56e3e65a232a10e264ea8f83f1e74e04a88a534befe7055845c3\",\"result\":\"AssertionError('Sender does not have enough chi for the submitted budget.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
     }
    ],
-   "write_count": 1,
-   "writes_sha256": "cf8161e052a9b5d731322441a083a30e62050d84bbc09d02e88e1765972173b2"
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "app_hash": "29ec39bca86c961ac4c79ffabc011c69703c8c57e85f96bc2954e3227a337439",
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
    "height": 26,
    "txs": [
     {
      "case": "balance/ivy_failure",
      "code": 1,
-     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"b5b4ac37c15deec2cf16736afd84e4121c10be5325a0ab821e134feebf062592\",\"result\":\"AssertionError('Sender does not have enough chi for the submitted budget.')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:ivy\",\"value\":0}],\"status\":1}"
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"b5b4ac37c15deec2cf16736afd84e4121c10be5325a0ab821e134feebf062592\",\"result\":\"AssertionError('Sender does not have enough chi for the submitted budget.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
     }
    ],
-   "write_count": 1,
-   "writes_sha256": "cf8161e052a9b5d731322441a083a30e62050d84bbc09d02e88e1765972173b2"
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "app_hash": "29ec39bca86c961ac4c79ffabc011c69703c8c57e85f96bc2954e3227a337439",
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
    "height": 27,
    "txs": [
     {
      "case": "balance/ivy_base_budget",
      "code": 1,
-     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"0afcca5feb669eb2f9c39ed501dac2625ff82a76f155e8ed28548771329b6763\",\"result\":\"AssertionError('Sender does not have enough chi for the submitted budget.')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:ivy\",\"value\":0}],\"status\":1}"
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"0afcca5feb669eb2f9c39ed501dac2625ff82a76f155e8ed28548771329b6763\",\"result\":\"AssertionError('Sender does not have enough chi for the submitted budget.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
     }
    ],
-   "write_count": 1,
-   "writes_sha256": "cf8161e052a9b5d731322441a083a30e62050d84bbc09d02e88e1765972173b2"
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "app_hash": "101bb9cdba1079f74d50dc13fc4f5b5c99a6886d3f6552e67113a60934213cbc",
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
    "height": 28,
    "txs": [
     {
      "case": "balance/jon_success",
      "code": 1,
-     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"69534cd4b6abf5e69498d8e8d8ce9ca5e6f7bf5c0084aa675c9a3e7fffea5033\",\"result\":\"AssertionError('Sender does not have enough chi for the submitted budget.')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:jon\",\"value\":0}],\"status\":1}"
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"69534cd4b6abf5e69498d8e8d8ce9ca5e6f7bf5c0084aa675c9a3e7fffea5033\",\"result\":\"AssertionError('Sender does not have enough chi for the submitted budget.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
     }
    ],
-   "write_count": 1,
-   "writes_sha256": "2d0001deeb2b01d78e923d2f0df9e1d822c1ee41fe4950feca8b7eda03476e21"
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "app_hash": "101bb9cdba1079f74d50dc13fc4f5b5c99a6886d3f6552e67113a60934213cbc",
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
    "height": 29,
    "txs": [
     {
      "case": "balance/jon_failure",
      "code": 1,
-     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"063bf5504f16d29926784e4483c6c74795343994248275306ff5aa1003ff9eef\",\"result\":\"AssertionError('Sender does not have enough chi for the submitted budget.')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:jon\",\"value\":0}],\"status\":1}"
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"063bf5504f16d29926784e4483c6c74795343994248275306ff5aa1003ff9eef\",\"result\":\"AssertionError('Sender does not have enough chi for the submitted budget.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
     }
    ],
-   "write_count": 1,
-   "writes_sha256": "2d0001deeb2b01d78e923d2f0df9e1d822c1ee41fe4950feca8b7eda03476e21"
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "app_hash": "101bb9cdba1079f74d50dc13fc4f5b5c99a6886d3f6552e67113a60934213cbc",
+   "app_hash": "2e2e345ee7df27fdbde466c6b57fc637208295fcb1afd17c7e9338c875099cc2",
    "height": 30,
    "txs": [
     {
      "case": "balance/jon_base_budget",
      "code": 1,
-     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"7e5889921a64a93df6b7e81dcab4208f21dad50af16a2fdd9dcadbf20c0eb56d\",\"result\":\"AssertionError('Sender does not have enough chi for the submitted budget.')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:jon\",\"value\":0}],\"status\":1}"
+     "data": "{\"chi_used\":5,\"events\":[],\"hash\":\"7e5889921a64a93df6b7e81dcab4208f21dad50af16a2fdd9dcadbf20c0eb56d\",\"result\":\"AssertionError('Sender does not have enough chi for the submitted budget.')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
     }
    ],
-   "write_count": 1,
-   "writes_sha256": "2d0001deeb2b01d78e923d2f0df9e1d822c1ee41fe4950feca8b7eda03476e21"
+   "write_count": 0,
+   "writes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   {
-   "app_hash": "1c3d0bd1afeac4740655096337f2c4a7eec5967570b37a256c0bc97a7459edbf",
+   "app_hash": "10cbf3d28c680cbf7487c8bc82efeb9c0cbe7cfb0b1f0f131bc5ede28c3075d2",
    "height": 31,
    "txs": [
     {
@@ -332,7 +404,7 @@
    "writes_sha256": "ba8049a8ca2b81e722ef0b5b7deed4a2a93556267d3fdda3b5d6a3a431a89fd0"
   },
   {
-   "app_hash": "9989f21c42dafca1bdb56cea787c21729dc8af56050704ca4af17610b5ce497d",
+   "app_hash": "3d5786e8359e4febdfbfeac7f6a01a24a3871509369aecff864cac33be079ba6",
    "height": 32,
    "txs": [
     {
@@ -345,7 +417,7 @@
    "writes_sha256": "76971d3b1dcdeb1c002a9d0f6b6146682fce91f5d6caeb826b9577fce59e75f4"
   },
   {
-   "app_hash": "9989f21c42dafca1bdb56cea787c21729dc8af56050704ca4af17610b5ce497d",
+   "app_hash": "3d5786e8359e4febdfbfeac7f6a01a24a3871509369aecff864cac33be079ba6",
    "height": 33,
    "txs": [
     {
@@ -358,7 +430,7 @@
    "writes_sha256": "76971d3b1dcdeb1c002a9d0f6b6146682fce91f5d6caeb826b9577fce59e75f4"
   },
   {
-   "app_hash": "cdacfa092875216ffc2404ca873c04b53002bc4efe97cbbda3bc13bba2616aa3",
+   "app_hash": "12a646b828d6d73463bcfa72cb84b435c4ffc546ab0095673b7d5d5d89fd44b3",
    "height": 34,
    "txs": [
     {
@@ -371,7 +443,7 @@
    "writes_sha256": "e1005060e47c11771c44a23e28a3409e815b00e79bea3e38dce056e77189c829"
   },
   {
-   "app_hash": "0eac592e5b8885e1254162fb6a6f7b972250f0fa4ba81211ba7f735475ed25b4",
+   "app_hash": "90067ffc7726bbfd08d863d1d05b5e2730b92d50d1d13219e05345b382514340",
    "height": 35,
    "txs": [
     {
@@ -384,7 +456,7 @@
    "writes_sha256": "73975bb70f67cf2fec778d853ba89be5802d03129837b01b2c07122e268247df"
   },
   {
-   "app_hash": "6256ea7f7488740b8d1e83f091da43134e52997126540f4690873e71a3682c57",
+   "app_hash": "95d0c630a5c7482fed59fd62600ae24ef0b4974960180b31ba10ca960f064df4",
    "height": 36,
    "txs": [
     {
@@ -397,7 +469,7 @@
    "writes_sha256": "b6ced964aaa45b62553f2c9d0c78a73b469fd2ba95ce1b14e33be34fa1b4dec7"
   },
   {
-   "app_hash": "0432972bcebaf2b8a08c46565cdd8d4cfda014fc61b3439d067f82d1ee37b1e4",
+   "app_hash": "3f43e924153521ecf3fceba48db47a4c40d3a35ee9511126eaef37774afda383",
    "height": 37,
    "txs": [
     {
@@ -410,7 +482,7 @@
    "writes_sha256": "b0557ca042019ca5bc170b9646d1c9c1ae6da61f202a841c9d17581386b773da"
   },
   {
-   "app_hash": "d645d1fd199c3eb64146d86a4dd8a0fe29b9d2ba49f289a11250b2b859828802",
+   "app_hash": "1518f96bd6e07ee4bcf47b28bc1b99502275ed043652fda6d69d6e34dc20183e",
    "height": 38,
    "txs": [
     {

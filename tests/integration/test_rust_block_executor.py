@@ -324,9 +324,9 @@ OPERATIONS = [
     ("con_probe", "missing", lambda rng: {}, 1000),
     ("validators", "rotate", lambda rng: {"n": rng.randrange(0, 4)}, 1000),
 ]
-# Need Python once the fee is reserved: an owner rejection (bob owns
+# Entry rejections once the fee is reserved: an owner rejection (bob owns
 # con_owned), a function that is not exported.
-PYTHON_ONLY = {("con_owned", "ping"), ("con_probe", "missing")}
+REJECTED = {("con_owned", "ping"), ("con_probe", "missing")}
 
 
 def _block(seed, size, height):
@@ -411,23 +411,10 @@ def test_rust_block_execution_matches_the_per_transaction_path(tmp_path, monkeyp
     assert len(paid_failures) > 10
     assert any("val3" in r["rewards"]["validator_reward"] for r in paid_failures)
 
-    # Only transactions that need Python ran through process_tx, and all of
-    # alice's (she can always pay the fee).
-    def needs_python(sender, contract, function):
-        if (contract, function) == ("con_owned", "ping"):
-            return sender != "bob"
-        return (contract, function) in PYTHON_ONLY
-
-    assert all(needs_python(*run) for run in python_runs)
-    alice = [
-        ("alice", tx["payload"]["contract"], tx["payload"]["function"])
-        for txs in blocks
-        for tx in txs
-        if tx["payload"]["sender"] == "alice"
-        and needs_python("alice", tx["payload"]["contract"], tx["payload"]["function"])
-    ]
-    assert [run for run in python_runs if run[0] == "alice"] == alice
-    assert len(python_runs) < sum(len(txs) for txs in blocks) // 2
+    # Every transaction ran in Rust, the entry rejections too.
+    assert python_runs == []
+    rejected = [r for r in receipts if "not exported" in str(r["result"]) or "owner" in str(r["result"])]
+    assert len(rejected) > 5
 
 
 def test_unmetered_system_execution_matches_the_per_transaction_path(tmp_path, monkeypatch):
@@ -446,21 +433,12 @@ def test_unmetered_system_execution_matches_the_per_transaction_path(tmp_path, m
     receipts = [json.loads(entry[0]) for entry in actual if isinstance(entry, tuple)]
     assert {receipt["status"] for receipt in receipts} == {0, 1}
     assert not any(receipt["rewards"] for receipt in receipts)
-
-    # Only the hand-backs ran through process_tx: without a fee to reserve,
-    # every sender reaches them.
-    def needs_python(sender, contract, function):
-        if (contract, function) == ("con_owned", "ping"):
-            return sender != "bob"
-        return (contract, function) in PYTHON_ONLY
-
-    calls = [
-        (tx["payload"]["sender"], tx["payload"]["contract"], tx["payload"]["function"])
-        for txs in blocks
-        for tx in txs
-    ]
-    assert python_runs == [call for call in calls if needs_python(*call)]
-    assert len(python_runs) < len(calls) // 2
+    # Every transaction ran in Rust; without a fee to reserve, every sender
+    # reaches the entry rejections (reported with the base chi).
+    assert python_runs == []
+    calls = [(tx["payload"]["contract"], tx["payload"]["function"]) for txs in blocks for tx in txs]
+    rejected = [r for r, call in zip(receipts, calls, strict=True) if call in REJECTED]
+    assert rejected and all(r["chi_used"] == 5 for r in rejected if r["status"] == 1)
 
 
 # A submission contract that changes contract metadata (only submission may).
@@ -896,3 +874,63 @@ def test_rust_block_execution_writes_the_per_transaction_logs(tmp_path, trace_lo
     assert len(actual) == len(expected)
     for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
         assert left == right, index
+
+
+# Values the receipt encoding would refuse (binary floats, raw decimals,
+# decimal tuples, heap references): a V2 contract cannot produce them in its
+# effects or result, so the executor needs no check of its own for them.
+UNENCODABLE = """v = Variable()
+E = LogEvent("E", {"x": (int, str)})
+
+@export
+def store_float():
+    random.seed()
+    v.set(random.random())
+
+@export
+def emit_float():
+    random.seed()
+    E({"x": random.random()})
+
+@export
+def return_float():
+    random.seed()
+    return random.random()
+
+@export
+def store_tuple():
+    v.set(decimal("1.5").as_tuple())
+
+@export
+def store_cycle():
+    items = []
+    items.append(items)
+    v.set(items)
+"""
+
+
+def test_values_the_receipt_encoding_refuses_never_reach_the_effects(tmp_path, monkeypatch):
+    functions = ["store_float", "emit_float", "return_float", "store_tuple", "store_cycle"]
+    txs = [
+        _tx(9, index, 1, "alice", "con_unencodable", function, {}, 2_000)
+        for index, function in enumerate(functions)
+    ]
+    contracts = [("con_unencodable", UNENCODABLE, None)]
+    expected, _ = _run(tmp_path / "python", [txs], native=False, contracts=contracts)
+    actual, python_runs = _run(
+        tmp_path / "rust", [txs], native=True, monkeypatch=monkeypatch, contracts=contracts
+    )
+    assert actual == expected
+    assert python_runs == []
+    receipts = [json.loads(receipt) for receipt, _, _ in actual[:-1]]
+    refusals = [
+        "binary float and raw Decimal are unavailable in xian_vm_v2",
+        "binary float and raw Decimal are unavailable in xian_vm_v2",
+        "binary float and raw Decimal are unavailable in xian_vm_v2",
+        "has no native attribute 'as_tuple'",
+        "cyclic value cannot cross a VM boundary",
+    ]
+    for receipt, refusal in zip(receipts, refusals, strict=True):
+        assert receipt["status"] == 1
+        assert refusal in receipt["result"]
+        assert not any(write["key"].startswith("con_unencodable.") for write in receipt["state"])

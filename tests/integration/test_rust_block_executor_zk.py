@@ -260,14 +260,32 @@ def _disabled_block(height):
         ("con_zk_importer", "available", {}),
         ("con_inspector", "has_export", {"name": "con_zk"}),
         ("con_inspector", "has_export", {"name": "con_inspector"}),
-        # A dynamic import is not prepared: its zk calls still run.
-        ("con_inspector", "dynamic", {"name": "con_zk"}),
         ("con_deployer", "deploy_zk", {"name": "con_zk_late"}),
     ]
     return [
         _tx(height, index, height, "alice", contract, function, kwargs)
         for index, (contract, function, kwargs) in enumerate(calls)
     ]
+
+
+def _dynamic_block(height):
+    """A dynamic import is not prepared; its zk calls reach the host."""
+    return [_tx(height, 0, height, "alice", "con_inspector", "dynamic", {"name": "con_zk"})]
+
+
+def _assert_dynamic_zk_call_fails(tmp_path, monkeypatch, blocks, patches, message):
+    """Revision 14: with the zk feature off (or unreadable) every zk syscall
+    fails, however its contract was reached; the Python path ran them. The
+    blocks before the dynamic import's own last block are identical."""
+    receipts = _assert_same(tmp_path, monkeypatch, blocks[:-1], patches=patches)
+    actual, python_runs = _run(
+        tmp_path / "rust-dynamic", blocks, native=True, monkeypatch=monkeypatch, patches=patches
+    )
+    assert python_runs == []
+    dynamic = json.loads(actual[-2])
+    assert dynamic["status"] == 1
+    assert message in dynamic["result"]
+    return receipts
 
 
 def _setup(home):
@@ -356,24 +374,32 @@ def test_zk_syscalls_run_in_rust_like_the_python_path(tmp_path, monkeypatch):
     assert any("int too big to convert" in str(result) for result in results)
 
 
-def test_contracts_using_zk_fail_like_the_python_path_while_zk_is_off(tmp_path, monkeypatch):
-    blocks = [_zk_blocks()[0][:12], _disabled_block(2)]
-    receipts = _assert_same(
-        tmp_path, monkeypatch, blocks, patches={2: {"__runtime_features.zk": False}}
+def test_contracts_using_zk_fail_while_zk_is_off(tmp_path, monkeypatch):
+    blocks = [_zk_blocks()[0][:12], _disabled_block(2), _dynamic_block(3)]
+    receipts = _assert_dynamic_zk_call_fails(
+        tmp_path,
+        monkeypatch,
+        blocks,
+        {2: {"__runtime_features.zk": False}},
+        "zk.is_available is unavailable: the chain zk runtime feature is disabled",
     )
     disabled = receipts[12:]
-    assert [receipt["status"] for receipt in disabled] == [1, 1, 1, 0, 0, 1]
+    assert [receipt["status"] for receipt in disabled] == [1, 1, 1, 0, 1]
     message = "uses zk host syscalls, but the chain zk runtime feature is disabled"
-    assert all(message in disabled[index]["result"] for index in (0, 1, 2, 5))
+    assert all(message in disabled[index]["result"] for index in (0, 1, 2, 4))
     assert disabled[0]["chi_used"] == 5
 
 
 def test_a_feature_value_the_check_refuses_fails_like_the_python_path(tmp_path, monkeypatch):
-    blocks = [_disabled_block(1)]
-    receipts = _assert_same(
-        tmp_path, monkeypatch, blocks, patches={1: {"__runtime_features.zk": "maybe"}}
+    blocks = [_disabled_block(1), _dynamic_block(2)]
+    receipts = _assert_dynamic_zk_call_fails(
+        tmp_path,
+        monkeypatch,
+        blocks,
+        {1: {"__runtime_features.zk": "maybe"}},
+        "runtime feature 'zk' must be a boolean",
     )
-    assert [receipt["status"] for receipt in receipts] == [1, 1, 1, 0, 0, 1]
+    assert [receipt["status"] for receipt in receipts] == [1, 1, 1, 0, 1]
     # Preparation fails in the host runtime; the VM's checks raise ValueError.
     assert "Transaction failed in the host runtime." in receipts[0]["result"]
     assert "runtime feature 'zk' must be a boolean" in receipts[2]["result"]

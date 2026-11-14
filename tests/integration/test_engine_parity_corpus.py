@@ -1,13 +1,13 @@
 """The engine parity corpora on both paths against the golden fixtures.
 
 ``engine_parity_corpus`` runs every corpus on the Python per-transaction
-path and on the production path. Both must reproduce the frozen Python-path
-outputs in ``tests/fixtures/engine_parity/`` byte for byte (receipt bytes,
-which carry the writes, chi, rewards and events; the block writes; the app
-hash), and the production path may hand to the Python path only the cases
-``handback_inventory.json`` lists. Once a rule moves into Rust, its cases
-leave the inventory; once the Python path is deleted, only the golden
-comparison of the production path remains.
+path and on the production path. The production path must reproduce the
+frozen outputs in ``tests/fixtures/engine_parity/`` byte for byte (receipt
+bytes, which carry the writes, chi, rewards and events; the block writes;
+the app hash) and run every block transaction in Rust. The Python path must
+reproduce them up to the first case execution revision 14 decides by a rule
+it does not have (``REVISION_14_CASES``); once it is deleted, only the
+golden comparison of the production path remains.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 from engine_parity_corpus import (
     PER_TX_PATH,
+    before_revision_14_cases,
     SYSTEM_CASES,
     corpora,
     handback_inventory,
@@ -55,9 +56,12 @@ def test_block_corpus_matches_the_golden_fixture_on_both_paths(tmp_path, name):
     production, routes = run_corpus(tmp_path / "production", corpus, python=False)
 
     assert set(python_routes.values()) == {PER_TX_PATH}
-    _assert_blocks_equal(python, golden, "python path")
+    _assert_blocks_equal(
+        before_revision_14_cases(python), before_revision_14_cases(golden), "python path"
+    )
     _assert_blocks_equal(production, golden, "production path")
-    assert handed_back(routes) == load_fixture("handback_inventory")[name]
+    assert handed_back(routes) == {}
+    assert load_fixture("handback_inventory")[name] == {}
 
 
 def test_the_inventory_lists_every_hand_back_and_outside_entry_point(tmp_path):

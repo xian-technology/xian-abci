@@ -28,7 +28,7 @@ from xian.execution_policy import (
     VM_EXECUTION_REVISION,
     VM_GAS_SCHEDULE,
 )
-from xian.utils.encoding import encode_abci_json, normalize_contract_result
+from xian.utils.encoding import normalize_contract_result
 
 
 @dataclass(frozen=True, slots=True)
@@ -444,7 +444,6 @@ def _validated_vm_result(output: VmExecutionResult) -> VmExecutionResult:
             raise ValueError("contract effects cannot change the protected execution policy")
         validate_persistent_value((output.writes, output.events))
         normalize_contract_result(output.result)
-        encode_abci_json((output.writes, output.events))
         for key in output.writes:
             # Also refuses a key LMDB cannot store, which would fail only at Commit.
             validate_storage_key(key)

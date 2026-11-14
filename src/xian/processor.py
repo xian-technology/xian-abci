@@ -131,42 +131,23 @@ class TxProcessor:
         ``raw_txs`` are the transactions' wire bytes (``txs`` decoded, with
         ``b_meta``). The transactions run in Rust over the block overlay with
         the GIL released; Rust reads each one's call, arguments and context
-        from its bytes. Each transaction that needs Python
-        (see ``xian_vm_core.BlockExecutor``) runs through ``process_tx`` in
-        its place in the block, and Rust continues after it. The outcomes are
-        byte-identical either way.
+        from its bytes and gives every one a receipt. Only a host fault
+        raises (the node halts).
         """
         if not txs:
             return []
         executor = self._block_executor(txs, raw_txs, fee_policy, rewards_handler)
         if executor is None:
             return [self.process_tx(tx, rewards_handler, fee_policy=fee_policy) for tx in txs]
-        responses = []
-        start = 0
         try:
-            while start < len(txs):
-                outcomes, stop = executor.run(start)
-                for offset, outcome in enumerate(outcomes):
-                    responses.append(
-                        self._native_response(txs[start + offset], outcome, fee_policy)
-                    )
-                if stop is None:
-                    break
-                index, reason = stop
-                logger.bind(
-                    **build_log_fields(
-                        stage="process_block", tx=txs[index], extra={"reason": reason}
-                    )
-                ).debug("Transaction runs on the Python path")
-                # The transactions Rust executed may have changed the chi rate.
-                self.cached_chi_cost = None
-                responses.append(
-                    self.process_tx(txs[index], rewards_handler, fee_policy=fee_policy)
-                )
-                start = index + 1
+            outcomes = executor.run()
         finally:
+            # The transactions may have changed the chi rate.
             self.cached_chi_cost = None
-        return responses
+        return [
+            self._native_response(tx, outcome, fee_policy)
+            for tx, outcome in zip(txs, outcomes, strict=True)
+        ]
 
     def _block_executor(self, txs, raw_txs, fee_policy: TxFeePolicy, rewards_handler):
         storage = self.client.raw_driver.committed_storage()

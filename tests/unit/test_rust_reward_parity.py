@@ -1,9 +1,11 @@
 """The Rust reward port (xian_vm_core.tx_rewards) against the Python reference.
 
 The pinned corpus must come out byte-identical. A wider generated corpus adds
-value types and magnitudes the node should never see; there the port may hand
-a case back to Python (it returns None), but whenever it answers, Python must
-answer the same and must not raise.
+value types and magnitudes the node should never see. There execution
+revision 14's rule applies: a reward input of a type it may not hold (or an
+amount the decimal context cannot represent) means no rewards for that
+transaction. Whenever the port pays rewards, Python must pay the same; when
+it pays none, Python pays none too, raises, or the case has such an input.
 """
 
 from __future__ import annotations
@@ -139,18 +141,105 @@ def _wide_case(rng, index):
     }
 
 
-def test_rust_rewards_answer_only_what_python_answers_the_same():
+# Shares are computed at the 28-digit decimal context and rounded to 8
+# places: inputs this large overflow it (Python turns that into a zero
+# foundation reward, revision 14 into no rewards).
+REPRESENTABLE = 10**20
+
+
+def _number(value) -> bool:
+    return value is None or (
+        isinstance(value, int | ContractingDecimal)
+        and not isinstance(value, bool)
+        and abs(value) < REPRESENTABLE
+    )
+
+
+def _text(value) -> bool:
+    return value is None or isinstance(value, str)
+
+
+def _names(value) -> bool:
+    return not value or (isinstance(value, list) and all(isinstance(n, str) for n in value))
+
+
+def _validator_inputs_valid(state, validator) -> bool:
+    terms = ("powers", "commission_bps", "self_bond")
+    if not all(_number(state.get(f"validators.{term}:{validator}")) for term in terms):
+        return False
+    if not _text(state.get(f"validators.reward_keys:{validator}")):
+        return False
+    delegators = state.get(f"validators.delegator_lists:{validator}")
+    if not _names(delegators):
+        return False
+    return all(
+        _number(state.get(f"validators.delegations:{delegator}:{validator}"))
+        and _text(state.get(f"validators.delegator_reward_keys:{delegator}:{validator}"))
+        for delegator in delegators or []
+    )
+
+
+def _reward_inputs_valid(case) -> bool:
+    """Revision 14's reward input types (the Rust rule, restated)."""
+    state = case["state"]
+    validators = state.get("validators.active_validators")
+    return (
+        abs(case["total_chi_to_split"]) < REPRESENTABLE
+        and _split_valid(state.get("rewards.S:value"))
+        and _rate_valid(state.get("chi_cost.S:value"))
+        and _text(state.get("foundation.owner"))
+        and _names(validators)
+        and all(_validator_inputs_valid(state, v) for v in validators or [])
+        and _developers_valid(case)
+    )
+
+
+def _rate_valid(rate) -> bool:
+    return type(rate) is int and rate > 0
+
+
+def _developers_valid(case) -> bool:
+    state = case["state"]
+    contracts = [*(case["contract_costs"] or {}), case["contract"]]
+    developers = [state.get(f"{name}.__developer__") for name in contracts]
+    return all(not developer or isinstance(developer, str) for developer in developers)
+
+
+def _split_valid(split) -> bool:
+    return (
+        isinstance(split, list)
+        and len(split) == 4
+        and all(_number(part) and part is not None for part in split)
+    )
+
+
+def _python_or_raised(case):
+    try:
+        return _encoded(_python(case))
+    except Exception as exc:  # noqa: BLE001 - Python's own refusal
+        return type(exc).__name__
+
+
+NO_REWARDS = _encoded((None, {}, []))
+
+
+def test_rust_rewards_pay_what_python_pays_or_nothing_for_invalid_inputs():
     rng = random.Random(20261113)
-    answered = 0
+    paid = unpaid = 0
     for index in range(3000):
         case = _wide_case(rng, index)
-        rust = _rust(case)
-        if rust is None:
+        rust = _encoded(_rust(case))
+        python = _python_or_raised(case)
+        if rust != NO_REWARDS:
+            paid += 1
+            assert rust == python, index
             continue
-        answered += 1
-        assert _encoded(rust) == _encoded(_python(case)), index
-    # The port must still cover most of this corpus, not hand everything back.
-    assert answered > 1000
+        unpaid += 1
+        assert python == NO_REWARDS or not _reward_inputs_valid(case) or (
+            python in {"InvalidOperation", "TypeError", "ValueError", "KeyError"}
+        ), index
+    # Both outcomes occur (the pinned corpus covers the paid ones in depth).
+    assert paid > 25 and unpaid > 1000
 
 
 def test_node_rewards_are_computed_in_rust_over_pending_and_committed_state(tmp_path, monkeypatch):

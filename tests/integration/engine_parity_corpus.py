@@ -2,11 +2,11 @@
 
 The single-engine plan (xian-meta ``docs/XIAN_SINGLE_ENGINE_PLAN.md``) moves
 every transaction rule that the Python per-transaction path still owns into
-the Rust executor and then deletes that path. These corpora cover what moves:
+the Rust executor and then deletes that path. These corpora cover what moved:
 contract submission and deploys, random, contract metadata changes, zk
 syscalls, system transactions (epoch rebalance, evidence penalties), values
-the receipt encoding may refuse, odd balances, reward inputs the Rust port
-leaves to Python, simulation and contract-view queries.
+the receipt encoding may refuse, odd balances, odd reward inputs,
+simulation and contract-view queries.
 
 Each corpus runs on two paths:
 
@@ -14,19 +14,23 @@ Each corpus runs on two paths:
   (``TxProcessor._block_executor`` patched to ``None``; no production flag),
   simulations through ``TransactionSimulator.simulate_on_python_path``,
   contract views through ``execute_vm_contract``;
-* the production path: ``TxProcessor.process_block`` (Rust with hand-backs),
-  simulations through ``QuerySimulationService`` and contract views through
-  the query handler's ``_call_contract_view`` (both ``xian_vm_core.execute_tx``
-  with hand-backs), system transactions through ``FinalizeBlock``.
+* the production path: ``TxProcessor.process_block`` (every transaction in
+  Rust), simulations through ``QuerySimulationService`` and contract views
+  through the query handler's ``_call_contract_view`` (both
+  ``xian_vm_core.execute_tx``), system transactions through ``FinalizeBlock``.
 
-``tests/fixtures/engine_parity/`` freezes the Python-path outputs; see the
-README there for when they may be regenerated:
+``tests/fixtures/engine_parity/`` freezes the outputs: the block corpora as
+the production path produces them since execution revision 14 gave the
+Python path's halts and quirks explicit Rust rules (``REVISION_14_CASES``;
+the Python path reproduces each corpus up to its first such case), the rest
+as the Python path produces them. See the README there for when they may be
+regenerated:
 
     python -m tests.integration.engine_parity_corpus --write
 
-``handback_inventory.json`` there lists the cases the production path still
-hands to the Python path; each increment that moves a rule into Rust removes
-its cases (``--write-inventory`` rewrites it from the production path).
+``handback_inventory.json`` there lists what still runs on the Python path:
+the simulations and contract views (by entry point); no block or system
+transaction (``--write-inventory`` rewrites it from the production path).
 """
 
 from __future__ import annotations
@@ -44,8 +48,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest import mock
-
-from loguru import logger
 
 from xian.utils.tx import transaction_bytes
 from xian.fee_policy import TxFeePolicy
@@ -890,6 +892,52 @@ def _policy_corpus(policy: str) -> Corpus:
     )
 
 
+# The cases whose outcome execution revision 14 defines by an explicit Rust
+# rule where the Python path halts the node or follows its own quirk (the
+# fixtures README lists each rule). The Python path, deleted in increment 9 of
+# the plan, keeps its old outcome for them.
+REVISION_14_CASES = frozenset(
+    {"deploy/str_balance_sender"}
+    | {
+        f"balance/{sender}_{label}"
+        for sender in ("erin", "fay", "gus", "hal", "ivy", "jon")
+        for label in ("success", "failure", "base_budget")
+    }
+    | {
+        f"rewards/{config}_{outcome}"
+        for config in (
+            "split_text",
+            "split_short",
+            "split_not_list",
+            "split_dict",
+            "split_member_none",
+            "foundation_owner_int",
+            "power_text",
+            "active_dict",
+            "active_int_member",
+            "active_text_balance",
+        )
+        for outcome in ("success", "failure")
+    }
+)
+
+
+def before_revision_14_cases(outputs: dict) -> dict:
+    """``outputs`` up to its first ``REVISION_14_CASES`` case: whole blocks
+    before it, then that block's receipts before it (later blocks depend on
+    its outcome)."""
+    blocks = []
+    for block in outputs["blocks"]:
+        cases = [tx["case"] for tx in block.get("txs", [])] or block.get("cases", [])
+        changed = [index for index, case in enumerate(cases) if case in REVISION_14_CASES]
+        if not changed:
+            blocks.append(block)
+            continue
+        blocks.append({"height": block["height"], "txs": block.get("txs", [])[: changed[0]]})
+        break
+    return {**outputs, "blocks": blocks}
+
+
 def corpora() -> tuple[Corpus, ...]:
     return (
         _deploy_corpus(),
@@ -940,30 +988,16 @@ def python_path() -> Iterator[None]:
 
 @contextmanager
 def _route_recorder(processor: TxProcessor) -> Iterator[list]:
-    """Records ``(signature, reason)`` of each transaction ``process_tx`` ran:
-    the reason ``process_block`` logged for a hand-back, else None."""
-    routes: list[tuple[str, str | None]] = []
-    reasons: list[str] = []
+    """Records the signature of each transaction ``process_tx`` ran."""
+    routes: list[str] = []
     process_tx = processor.process_tx
 
     def recorded(tx, *args, **kwargs):
-        reason = reasons.pop() if reasons else None
-        routes.append((tx["metadata"]["signature"], reason))
+        routes.append(tx["metadata"]["signature"])
         return process_tx(tx, *args, **kwargs)
 
-    def capture(message):
-        reasons.append(message.record["extra"]["reason"])
-
-    sink = logger.add(
-        capture,
-        level="DEBUG",
-        filter=lambda record: record["extra"].get("stage") == "process_block",
-    )
-    try:
-        with mock.patch.object(processor, "process_tx", recorded):
-            yield routes
-    finally:
-        logger.remove(sink)
+    with mock.patch.object(processor, "process_tx", recorded):
+        yield routes
 
 
 def _stored_digest(items: list[tuple[str, bytes | None]]) -> str:
@@ -985,8 +1019,7 @@ class _Chain:
 
 def run_corpus(home: Path, corpus: Corpus, *, python: bool) -> tuple[dict, dict[str, str]]:
     """The corpus's receipts, block writes and app hashes on one path, and
-    the route of every transaction: ``RUST``, the hand-back reason, or
-    ``PER_TX_PATH``."""
+    the route of every transaction: ``RUST`` or ``PER_TX_PATH``."""
     from xian.state_root import StateRootCache
 
     client, processor, rewards = open_chain(home)
@@ -1002,7 +1035,7 @@ def run_corpus(home: Path, corpus: Corpus, *, python: bool) -> tuple[dict, dict[
             for height, block in enumerate(corpus.blocks, start=1):
                 txs = [_tx(corpus.name, height, i, call) for i, call in enumerate(block.calls)]
                 blocks.append(_run_block(chain, height, block, txs))
-                routes.update(_routes(txs, block.calls, dict(recorded)))
+                routes.update(_routes(txs, block.calls, set(recorded)))
     finally:
         driver.close()
     return {"policy": corpus.policy, "blocks": blocks}, routes
@@ -1052,19 +1085,15 @@ def _receipt(call: Call, response: dict) -> dict:
     }
 
 
-def _routes(txs: list[dict], calls: tuple[Call, ...], ran_in_python: dict) -> dict[str, str]:
-    routes = {}
-    for tx, call in zip(txs, calls, strict=True):
-        signature = tx["metadata"]["signature"]
-        if signature not in ran_in_python:
-            routes[call.case] = RUST
-        else:
-            routes[call.case] = ran_in_python[signature] or PER_TX_PATH
-    return routes
+def _routes(txs: list[dict], calls: tuple[Call, ...], ran_in_python: set) -> dict[str, str]:
+    return {
+        call.case: PER_TX_PATH if tx["metadata"]["signature"] in ran_in_python else RUST
+        for tx, call in zip(txs, calls, strict=True)
+    }
 
 
 def handed_back(routes: dict[str, str]) -> dict[str, str]:
-    """The cases that ran on the Python path, with the hand-back reason."""
+    """The cases that ran on the Python path."""
     return {case: route for case, route in routes.items() if route != RUST}
 
 
@@ -1483,12 +1512,9 @@ SYSTEM_CASES = {
 }
 
 
-def _system_routes(ran_in_python: list[tuple[str, str | None]]) -> dict[str, str]:
+def _system_routes(ran_in_python: list[str]) -> dict[str, str]:
     """The system transaction cases that ran on the Python path."""
-    return {
-        SYSTEM_CASES[signature.split(":", 1)[0]]: reason or PER_TX_PATH
-        for signature, reason in ran_in_python
-    }
+    return {SYSTEM_CASES[signature.split(":", 1)[0]]: PER_TX_PATH for signature in ran_in_python}
 
 
 async def _run_system_blocks(constants, *, python: bool) -> tuple[dict, dict[str, str]]:
@@ -1556,12 +1582,13 @@ def _write_fixture(name: str, outputs: dict) -> None:
     fixture_path(name).write_text(text, encoding="utf-8")
 
 
-def python_path_outputs(tmp: Path) -> dict[str, dict]:
-    """Every golden fixture's content, computed on the Python path."""
+def golden_outputs(tmp: Path) -> dict[str, dict]:
+    """Every golden fixture's content: the block corpora on the production
+    path, the rest on the Python path."""
     outputs = {}
     for corpus in corpora():
         outputs[f"blocks_{corpus.name}"], _routes = run_corpus(
-            tmp / corpus.name, corpus, python=True
+            tmp / corpus.name, corpus, python=False
         )
     outputs["simulations"], _routes = run_simulations(tmp / "simulations", python=True)
     outputs["contract_views"], _routes = run_contract_views(tmp / "views", python=True)
@@ -1589,7 +1616,7 @@ def _write(writer: Callable[[Path], dict[str, dict]]) -> None:
 
 if __name__ == "__main__":
     commands = {
-        "--write": python_path_outputs,
+        "--write": golden_outputs,
         "--write-inventory": lambda tmp: {"handback_inventory": handback_inventory(tmp)},
     }
     if sys.argv[1:] not in [[command] for command in commands]:
