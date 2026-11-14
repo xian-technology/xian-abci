@@ -80,8 +80,11 @@ This file records the runtime properties that must hold before an
   transaction's fee is paid out through the governed reward split exactly like
   a successful one's, except that the developer share goes to the validators.
   When the sender cannot cover the failure fee, the whole balance is charged
-  and exactly that amount is paid out. Only the governed burn share leaves the
-  native supply. The Rust block executor computes this; the receipts and state
+  and paid out the same way. Paid out plus burned equals the charged fee
+  exactly: shares are computed in `ContractingDecimal` and truncated, so they
+  never exceed the fee and none is negative; the governed burn share and the
+  truncation dust leave the native supply. A split whose paid ratios are
+  negative or exceed one pays no rewards (the fee is burned). The Rust block executor computes this; the receipts and state
   are pinned by the golden fixtures frozen from the former Python path
   (`tests/fixtures/golden`, the fee and reward corpora).
 

@@ -2,10 +2,14 @@
 
 A generated corpus with value types and magnitudes the node should never
 see. There execution revision 14's rule applies: a reward input of a type it
-may not hold (or an amount the decimal context cannot represent) means no
+may not hold (or an amount outside the decimal range) means no
 rewards for that transaction. Until increment 9 of the single-engine plan
 every paid outcome was compared with the Python reference and every unpaid
-one checked against it; the outcomes were frozen then (``WIDE_FIXTURE``).
+one checked against it; the outcomes were frozen then (``WIDE_FIXTURE``),
+and restated once for revision 14's ContractingDecimal arithmetic: last
+digits; no rewards for a split whose paid ratios are negative or exceed one
+(15 cases) or for an integer input of 10**61 or more (2); rewards now paid
+where the 28-digit context could not represent the shares (6).
 The VM boundary refuses a state value V2 cannot store (a dictionary keyed by
 a codec tag such as ``{"__fixed__": "1"}``), so those cases raise; each of
 them was frozen as no rewards. The pinned corpus is

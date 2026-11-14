@@ -1,17 +1,19 @@
 """Pin the transaction reward outputs over many reward configurations.
 
 Fee and reward accounting runs in Rust (vm-core ``tx_rewards``); it must
-reproduce these outputs exactly (Python decimal at 28 digits,
-ContractingDecimal conversion and division by the chi rate). The cases are
-generated from a fixed seed; ``tests/fixtures/reward_outputs.json`` holds
-what the Python reference (deleted in increment 9 of the single-engine plan)
-computed for them, encoded as wire JSON.
+reproduce these outputs exactly. The cases are generated from a fixed seed;
+``tests/fixtures/reward_outputs.json`` holds their outputs as wire JSON.
+They were frozen from the retired Python reference (28-digit Python decimal),
+then restated once for revision 14's ContractingDecimal arithmetic: the last
+digits of the shares, the foundation share rounded down at 8 places instead
+of half to even, and an operator share that truncates to zero is no longer a
+zero credit (``test_reward_conservation`` pins the rule).
 
 ``tests/fixtures/failed_reward_outputs.json`` pins the payout of a failed
 transaction over the same configurations: no developer reward, and a paid
 chi that is a ``ContractingDecimal`` when the sender paid its whole balance.
 
-The fixtures are not regenerated.
+The fixtures are not regenerated: a difference is a behaviour change.
 """
 
 from __future__ import annotations
