@@ -7,7 +7,8 @@ name = "xian-tech-abci"
 dynamic = ["version"]
 description = "Python-based ABCI server for CometBFT"
 readme = "README.md"
-license = "Apache-2.0"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Xian Core Team" }]
 requires-python = ">=3.14,<3.15"
 dependencies = [
