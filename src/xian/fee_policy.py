@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
 
-from xian_vm_core import runtime_info
+from xian_vm_core import runtime_info, validated_chi_rate
 
 from xian.exceptions import TransactionException
 from xian.execution_policy import VM_EXECUTION_MODE
@@ -67,17 +67,9 @@ def _validate_chi_caps(max_tx_chi: object, max_block_chi: object) -> None:
 
 
 CHI_RATE_KEY = "chi_cost.S:value"
-# Fees are priced as ContractingDecimal(rate): the largest rate it represents
-# (91 digits, 30 of them fractional). The Rust executor refuses the same.
-MAX_CHI_RATE = 10**61 - 1
-
-
-def validated_chi_rate(value) -> int:
-    """``value`` as the chain's chi rate: a positive integer the fee
-    arithmetic can represent; anything else is refused."""
-    if type(value) is not int or not 0 < value <= MAX_CHI_RATE:
-        raise ValueError(f"chain state has no valid chi rate ({CHI_RATE_KEY} = {value!r})")
-    return value
+# ``validated_chi_rate`` (vm-core) is the block executor's chi rate rule: a
+# positive integer whose ContractingDecimal fee arithmetic can represent it
+# (at most 10**61 - 1); anything else raises ValueError naming the value.
 
 
 def chain_chi_rate(client) -> int:

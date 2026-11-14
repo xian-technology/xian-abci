@@ -6,10 +6,9 @@ from typing import Any
 from contracting import constants as contracting_constants
 from contracting.runtime_features import RUNTIME_FEATURE_STATE_PREFIX
 from contracting.storage.lmdb_environment import validate_storage_key
-from xian_runtime_types.encoding import encode
-from xian_vm_core import StateRootTree, state_root_leaf_hash
+from xian_vm_core import StateRootTree, state_root_leaf_hash, stored_value_bytes
 
-from xian.execution_policy import EXECUTION_POLICY_KEY, VM_EXECUTION_MODE
+from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.fee_policy import FEE_POLICY_KEY
 
 # The fee policy and runtime features change execution results, so they are
@@ -31,10 +30,9 @@ def is_consensus_state_key(key: str) -> bool:
 
 
 def stored_bytes(value: Any) -> bytes | None:
-    """The bytes ``Driver.set`` stores for ``value``; None deletes the key."""
-    if value is None:
-        return None
-    return encode(value, vm_profile=VM_EXECUTION_MODE).encode("utf-8")
+    """The bytes ``Driver.set`` stores for ``value`` (written in Rust, as
+    ``BlockState.write_value`` writes them); None deletes the key."""
+    return stored_value_bytes(value)
 
 
 def _leaf_hash(key: str, stored: bytes | None) -> bytes | None:
