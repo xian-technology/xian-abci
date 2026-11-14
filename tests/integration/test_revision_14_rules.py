@@ -146,3 +146,16 @@ def test_a_submission_name_that_is_not_text_is_refused_by_the_deployment(chain):
     )
     assert receipt["status"] == 1
     assert "Contract name must be a non-empty string" in receipt["result"]
+
+
+def test_effects_that_write_a_protected_key_fail_with_their_chi(chain, monkeypatch):
+    # No V2 contract can name the execution policy key; protect a key the
+    # contract writes to reach the check.
+    monkeypatch.setattr("xian.processor.EXECUTION_POLICY_KEY", "con_ping.counter")
+    receipt = _run(chain, "con_ping", "ping")
+    assert receipt["status"] == 1
+    assert receipt["result"] == (
+        "ValueError('Contract writes or events cannot be encoded for consensus.')"
+    )
+    assert receipt["chi_used"] > 5
+    assert not any(write["key"].startswith("con_ping.") for write in receipt["state"])
