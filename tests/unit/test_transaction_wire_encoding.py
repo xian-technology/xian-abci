@@ -95,16 +95,11 @@ def test_nested_noncanonical_numbers_cannot_be_hashed(value):
         tx_hash_from_tx(wire)
 
 
-@pytest.mark.parametrize("native", [True, False])
-def test_node_accepts_shared_signed_numeric_vectors(monkeypatch, native):
+def test_node_accepts_shared_signed_numeric_vectors():
     from pathlib import Path
 
     from xian.utils import tx
 
-    if not native:
-        monkeypatch.setattr(tx, "_native_decode_and_validate_transaction_static", None)
-    elif tx._native_decode_and_validate_transaction_static is None:
-        pytest.skip("native transaction fastpath unavailable")
     fixture = Path(__file__).resolve().parents[3] / "xian-contracting/tests/fixtures/transaction_numeric_v2.json"
     for case in json.loads(fixture.read_text())["cases"]:
         raw = case["transaction_json"].encode().hex().encode()
@@ -114,21 +109,16 @@ def test_node_accepts_shared_signed_numeric_vectors(monkeypatch, native):
         assert admitted == {"payload": case["payload"], "metadata": {"signature": case["signature"]}}
 
 
-@pytest.mark.parametrize("native", [True, False])
 @pytest.mark.parametrize(
     "token",
     ["-0", "1.0000000000000001", "1e-400", "9007199254740992",
      '{"__fixed__":"1.0"}', '{"__fixed__":"' + "9" * 62 + '"}'],
 )
-def test_signed_invalid_numeric_tokens_are_rejected(monkeypatch, native, token):
+def test_signed_invalid_numeric_tokens_are_rejected(token):
     from nacl.signing import SigningKey
 
     from xian.utils import tx
 
-    if not native:
-        monkeypatch.setattr(tx, "_native_decode_and_validate_transaction_static", None)
-    elif tx._native_decode_and_validate_transaction_static is None:
-        pytest.skip("native transaction fastpath unavailable")
     signer = SigningKey(bytes(32))
     payload = {
         "chain_id": "local", "contract": "con_probe", "function": "call",
@@ -138,5 +128,5 @@ def test_signed_invalid_numeric_tokens_are_rejected(monkeypatch, native, token):
     message = tx.canonical_json(payload).replace('"TOKEN"', token)
     signature = signer.sign(message.encode()).signature.hex()
     raw = ('{"metadata":{"signature":"' + signature + '"},"payload":' + message + '}').encode()
-    with pytest.raises((ValueError, tx.TransactionException)):
+    with pytest.raises(tx.TransactionException):
         tx.decode_and_validate_transaction_static_bytes(raw.hex().encode(), chain_id="local")

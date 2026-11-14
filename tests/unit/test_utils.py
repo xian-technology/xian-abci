@@ -12,7 +12,6 @@ from xian.utils.encoding import (
     decode_transaction_bytes,
     encode_abci_json,
     encode_transaction_bytes,
-    extract_payload_string,
     normalize_for_abci_json,
     stringify_decimals,
 )
@@ -20,8 +19,6 @@ from xian.utils.tx import (
     canonical_json,
     canonical_transaction_size_bytes,
     format_dictionary,
-    unpack_transaction,
-    verify,
 )
 
 SEED = bytes(range(32))
@@ -55,151 +52,6 @@ def _signed_transaction_json(*, mutate_signature: bool = False) -> str:
         "payload": format_dictionary(payload),
     }
     return _canonical_json(tx)
-
-
-class TestPayloadStrExtraction(unittest.TestCase):
-    @parameterized.expand(
-        [
-            (
-                "preserve_payload_as_string",
-                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550d"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
-                True,
-            ),
-            (
-                "preserve_payload_with_nested_json_as_string",
-                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550d"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST","nested_data":{"key1":"value1","key2":{"subkey":"subvalue"}}},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
-                True,
-            ),
-            (
-                "preserve_payload_with_deeply_nested_json_as_string",
-                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550d"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST","nested_data":{"key1":"value1","key2":{"subkey":"subvalue","deeper":{"deep_key":"deep_value","deep_array":[{"array_key1":"array_value1"},{"array_key2":"array_value2"}]}}}},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
-                True,
-            ),
-            (
-                "bracket_in_payload_string",
-                '{"metadata":{"signature":"7ef14c974af43f9a2b2ebb17cfff96615571094f427b29f766e38394cf7ad8ea92c5d645eab3d8ed820d4ad93af7d57a10ed56d6d5f6b96f0094996c1f5a550d"},"payload":{"chain_id":"xian-local","contract":"currency","function":"transfer","kwargs":{"amount":0.00000252,"to":"JAVASCRIPT_TRANSACTION_TEST}"},"nonce":40,"sender":"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737","chi_supplied":10}}',
-                True,
-            ),
-            (
-                "double_slash_escape_in_payload",
-                '{"metadata":{"signature":"abc"},"payload":{"text":"This is a \\"quoted\\" string","number":123}}',
-                True,
-            ),
-            (
-                "unicode_escapes_in_payload",
-                '{"metadata":{"signature":"abc"},"payload":{"text":"Unicode test: \\u2603 \\u2764"}}',
-                True,
-            ),
-            ("no_payload_field", '{"id": 2, "other_field": "data"}', False),
-            (
-                "empty_payload",
-                '{"id": 3, "payload": "", "other_field": "data"}',
-                False,
-            ),
-            (
-                "escaped_quotes_in_payload",
-                '{"metadata":{"signature":"abc"},"payload":{"text":"This is a \\"quoted\\" string","number":123}}',
-                True,
-            ),
-            (
-                "special_characters_in_payload",
-                '{"metadata":{"signature":"abc"},"payload":{"text":"Special characters !@#$%^&*()_+-=~`"}}',
-                True,
-            ),
-            (
-                "payload_with_empty_object",
-                '{"metadata":{"signature":"abc"},"payload":{}}',
-                True,
-            ),
-            (
-                "payload_with_empty_array",
-                '{"metadata":{"signature":"abc"},"payload":{"array":[]}}',
-                True,
-            ),
-            (
-                "payload_with_large_numbers",
-                '{"metadata":{"signature":"abc"},"payload":{"large_number":12345678901234567890}}',
-                True,
-            ),
-            (
-                "payload_with_unicode_characters",
-                '{"metadata":{"signature":"abc"},"payload":{"text":"Unicode test: \u2603 \u2764"}}',
-                True,
-            ),
-            (
-                "payload_with_boolean_values",
-                '{"metadata":{"signature":"abc"},"payload":{"flag":true,"status":false}}',
-                True,
-            ),
-            (
-                "payload_with_null_value",
-                '{"metadata":{"signature":"abc"},"payload":{"nullable":null}}',
-                True,
-            ),
-            (
-                "double-slash-escape-in-payload",
-                '{"metadata":{"signature":"abc"},"payload":{"text":"This is a \\" } quoted\\" string","number":123}}',
-                True,
-            ),
-            (
-                "payload_string_ending_with_backslash",
-                json.dumps(
-                    {
-                        "metadata": {"signature": "abc"},
-                        "payload": {"text": "ends with \\"},
-                    },
-                    separators=(",", ":"),
-                ),
-                True,
-            ),
-        ]
-    )
-    def test_extract_payload(self, name, tx_str, has_payload, should_match=True):
-        complete_json = json.loads(tx_str)
-        if has_payload:
-            result = json.loads(extract_payload_string(tx_str))
-            if should_match:
-                self.assertEqual(result, complete_json["payload"])
-            else:
-                self.assertNotEqual(result, complete_json["payload"])
-        else:
-            with self.assertRaises(ValueError):
-                extract_payload_string(tx_str)
-
-    def test_python_payload_scanner_handles_even_backslashes_before_quote(self):
-        tx_str = json.dumps(
-            {
-                "metadata": {"signature": "abc"},
-                "payload": {"text": "ends with \\"},
-            },
-            separators=(",", ":"),
-        )
-
-        original_native = encoding._native_extract_payload_string
-        encoding._native_extract_payload_string = None
-        try:
-            self.assertEqual(
-                json.loads(encoding.extract_payload_string(tx_str)),
-                {"text": "ends with \\"},
-            )
-        finally:
-            encoding._native_extract_payload_string = original_native
-
-
-class TestVerification(unittest.TestCase):
-    @parameterized.expand(
-        [
-            ("valid_transaction", False, True),
-            ("invalid_signature", True, False),
-        ]
-    )
-    def test_verify(self, name, mutate_signature, expected_result):
-        tx_str = _signed_transaction_json(mutate_signature=mutate_signature)
-        tx_json = json.loads(tx_str)
-        payload_str = extract_payload_string(tx_str)
-        sender, signature, payload = unpack_transaction(tx_json)
-        self.assertEqual(verify(sender, payload_str, signature), expected_result)
-        self.assertEqual(verify(sender, payload, signature), expected_result)
 
 
 class TestEncoding(unittest.TestCase):

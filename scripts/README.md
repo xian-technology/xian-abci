@@ -10,8 +10,6 @@ importable runtime code.
 - `validate-release.sh`: release-grade validation wrapper for the repo
 - `validate-repo.sh`: the preferred full validation entrypoint for local and CI
   use
-- `validate-native-fastpath.sh`: focused validation for the native admission
-  fast path
 - `validate-sdk-transaction-parity.sh`: cross-checks SDK-built transactions
   against runtime admission
 - `benchmark_shielded_chi.py`: manual shielded-fee benchmark harness for the

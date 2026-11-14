@@ -233,7 +233,7 @@ def test_previous_native_revision_is_rejected_even_when_gas_is_supported(previou
             build_vm_runtime()
 
 
-def test_startup_fences_compiler_and_fastpath_admission_revisions():
+def test_startup_fences_compiler_and_transaction_admission_revisions():
     from types import SimpleNamespace
 
     from xian import execution_engine
@@ -244,27 +244,16 @@ def test_startup_fences_compiler_and_fastpath_admission_revisions():
         )
 
     current_compiler = compiler("xian-admission-3")
-    current_fastpath = SimpleNamespace(ADMISSION_REVISION="xian-fastpath-admission-2")
-    execution_engine.validate_admission_runtimes(
-        compiler=current_compiler, fastpath=current_fastpath
-    )
-    # Without the extension the Python fallback, which applies the same
-    # canonical admission rule, is authoritative.
-    execution_engine.validate_admission_runtimes(compiler=current_compiler, fastpath=None)
+    current_runtime = {"tx_admission_revision": "xian-fastpath-admission-2"}
+    execution_engine.validate_admission_runtimes(current_runtime, compiler=current_compiler)
     for previous in ("xian-admission-1", "xian-admission-2"):
         with pytest.raises(ValueError, match="compiler admission"):
             execution_engine.validate_admission_runtimes(
-                compiler=compiler(previous), fastpath=current_fastpath
+                current_runtime, compiler=compiler(previous)
             )
-    with pytest.raises(ValueError, match="fastpath admission"):
-        execution_engine.validate_admission_runtimes(
-            compiler=current_compiler,
-            fastpath=SimpleNamespace(ADMISSION_REVISION="xian-fastpath-admission-1"),
-        )
-    with pytest.raises(ValueError, match="fastpath admission"):
-        execution_engine.validate_admission_runtimes(
-            compiler=current_compiler, fastpath=SimpleNamespace()
-        )
+    for runtime in ({"tx_admission_revision": "xian-fastpath-admission-1"}, {}):
+        with pytest.raises(ValueError, match="transaction admission"):
+            execution_engine.validate_admission_runtimes(runtime, compiler=current_compiler)
 
 
 def test_installed_native_runtimes_match_the_node_policy():

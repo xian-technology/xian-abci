@@ -288,36 +288,28 @@ def build_vm_runtime() -> VmRuntime:
             f"gas_schedule={VM_GAS_SCHEDULE!r}"
         )
 
-    validate_admission_runtimes()
+    validate_admission_runtimes(runtime_info)
     return VmRuntime(runtime_info=runtime_info)
 
 
 _LOADED = object()
 
 
-def validate_admission_runtimes(*, compiler=_LOADED, fastpath=_LOADED) -> None:
-    """Refuse native admission code that implements a different rule revision."""
+def validate_admission_runtimes(runtime_info: dict, *, compiler=_LOADED) -> None:
+    """Refuse native admission code that implements a different rule revision:
+    the compiler's contract admission and the VM's transaction admission."""
     if compiler is _LOADED:
         import xian_compiler_core as compiler
-    if fastpath is _LOADED:
-        try:
-            import xian_fastpath_core as fastpath
-        except ImportError:
-            # The Python fallback then admits transactions; it implements
-            # TX_ADMISSION_REVISION itself.
-            fastpath = None
     revisions = compiler.compiler_version().get("admission_revisions") or {}
     if revisions.get(VM_EXECUTION_MODE) != COMPILER_ADMISSION_REVISION:
         raise ValueError(
             "native compiler admission revision does not match the node: "
             f"{revisions.get(VM_EXECUTION_MODE)!r} != {COMPILER_ADMISSION_REVISION!r}"
         )
-    if fastpath is not None and (
-        getattr(fastpath, "ADMISSION_REVISION", None) != TX_ADMISSION_REVISION
-    ):
+    if runtime_info.get("tx_admission_revision") != TX_ADMISSION_REVISION:
         raise ValueError(
-            "native fastpath admission revision does not match the node: "
-            f"{getattr(fastpath, 'ADMISSION_REVISION', None)!r} != {TX_ADMISSION_REVISION!r}"
+            "native transaction admission revision does not match the node: "
+            f"{runtime_info.get('tx_admission_revision')!r} != {TX_ADMISSION_REVISION!r}"
         )
 
 

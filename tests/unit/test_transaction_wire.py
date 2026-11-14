@@ -13,13 +13,8 @@ VECTORS = json.loads(
 )
 
 
-@pytest.mark.parametrize("native", [False, True], ids=["python", "native"])
 @pytest.mark.parametrize("vector", VECTORS["cases"], ids=lambda item: item["name"])
-def test_shared_sdk_transactions_pass_node_validation(monkeypatch, vector, native):
-    if native and tx_module._native_decode_and_validate_transaction_static is None:
-        pytest.skip("native fastpath extension is not installed")
-    if not native:
-        monkeypatch.setattr(tx_module, "_native_decode_and_validate_transaction_static", None)
+def test_shared_sdk_transactions_pass_node_validation(vector):
     wire = vector["transaction_json"].encode().hex().encode()
     decoded = tx_module.decode_and_validate_transaction_static_bytes(
         wire, chain_id=vector["payload"]["chain_id"]
@@ -53,20 +48,13 @@ def _signed_wire(
     return tx_module.canonical_json(tx).encode().hex().encode()
 
 
-@pytest.mark.parametrize("native", [False, True], ids=["python", "native"])
 @pytest.mark.parametrize(
     "upper_sender, upper_signature",
     [(True, False), (False, True)],
     ids=["sender", "signature"],
 )
-def test_only_canonical_lowercase_hex_identities_are_admitted(
-    monkeypatch, native, upper_sender, upper_signature
-):
+def test_only_canonical_lowercase_hex_identities_are_admitted(upper_sender, upper_signature):
     # Uppercase hex would let one key act as a second, distinct account.
-    if native and tx_module._native_decode_and_validate_transaction_static is None:
-        pytest.skip("native fastpath extension is not installed")
-    if not native:
-        monkeypatch.setattr(tx_module, "_native_decode_and_validate_transaction_static", None)
     canonical = _signed_wire(upper_sender=False, upper_signature=False)
     assert tx_module.decode_and_validate_transaction_static_bytes(canonical, chain_id="xian-local")
     wire = _signed_wire(upper_sender=upper_sender, upper_signature=upper_signature)
@@ -75,36 +63,14 @@ def test_only_canonical_lowercase_hex_identities_are_admitted(
 
 
 @pytest.mark.parametrize(
-    "sender, signature",
-    [("AB" * 32, "cd" * 64), ("ab" * 32, "CD" * 64), ("ab" * 31, "cd" * 64)],
-    ids=["upper-sender", "upper-signature", "short-sender"],
-)
-def test_native_decode_result_is_held_to_the_canonical_identity_rule(sender, signature):
-    # Applied after the native fastpath so admission never depends on the
-    # installed extension's own hex-case rule.
-    tx_module._require_canonical_identity(
-        {"payload": {"sender": "ab" * 32}, "metadata": {"signature": "cd" * 64}}
-    )
-    with pytest.raises(tx_module.TransactionException):
-        tx_module._require_canonical_identity(
-            {"payload": {"sender": sender}, "metadata": {"signature": signature}}
-        )
-
-
-@pytest.mark.parametrize("native", [False, True], ids=["python", "native"])
-@pytest.mark.parametrize(
     "delta",
     ["12", "\u0661\u0662", {"10": 0, "-5": 0}],
     ids=["two-character-string", "non-ascii-digits", "two-key-object"],
 )
-def test_a_delta_argument_is_admitted_only_as_two_integers(monkeypatch, native, delta):
+def test_a_delta_argument_is_admitted_only_as_two_integers(delta):
     # CheckTx, ProcessProposal and FinalizeBlock share this admission. Since
     # execution revision 14 a delta that tuple unpacking once read as
     # Timedelta(days, seconds) is not canonical wire input.
-    if native and tx_module._native_decode_and_validate_transaction_static is None:
-        pytest.skip("native fastpath extension is not installed")
-    if not native:
-        monkeypatch.setattr(tx_module, "_native_decode_and_validate_transaction_static", None)
     admit = tx_module.decode_and_validate_transaction_static_bytes
     canonical = _signed_wire(kwargs={"d": {"__delta__": [1, 2]}})
     assert admit(canonical, chain_id="xian-local")["payload"]["kwargs"] == {

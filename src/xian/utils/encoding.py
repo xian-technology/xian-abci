@@ -19,13 +19,6 @@ from xian_runtime_types.time import Datetime, Timedelta
 
 from xian.log_safety import error_fields
 
-try:
-    from xian_fastpath_core import (
-        extract_payload_string as _native_extract_payload_string,
-    )
-except ImportError:  # pragma: no cover - exercised through fallback path
-    _native_extract_payload_string = None
-
 MIN_CANONICAL_JSON_INTEGER = -(2**63)
 MAX_CANONICAL_JSON_INTEGER = 2**64 - 1
 MAX_CANONICAL_JSON_DEPTH = 128
@@ -90,58 +83,6 @@ def encode_transaction_bytes(tx_str: str) -> bytes:
     tx_bytes = tx_str.encode("utf-8")
     tx_hex = binascii.hexlify(tx_bytes).decode("utf-8")
     return tx_hex.encode("utf-8")
-
-
-def extract_payload_string(json_str):
-    if _native_extract_payload_string is not None:
-        return _native_extract_payload_string(json_str)
-
-    try:
-        # Find the start of the 'payload' object
-        start_index = json_str.find('"payload":')
-        if start_index == -1:
-            raise ValueError("No 'payload' found in the provided JSON string.")
-
-        # Find the opening brace of the 'payload' object
-        start_brace_index = json_str.find("{", start_index)
-        if start_brace_index == -1:
-            raise ValueError("Malformed JSON: No opening brace for 'payload'.")
-
-        # Use a stack to find the matching closing brace, ignoring braces within strings
-        brace_count = 0
-        in_string = False
-        i = start_brace_index
-        while i < len(json_str):
-            char = json_str[i]
-
-            if char == '"' and not _is_escaped(json_str, i):
-                in_string = not in_string
-
-            if not in_string:
-                if char == "{":
-                    brace_count += 1
-                elif char == "}":
-                    brace_count -= 1
-
-            # When brace_count is zero, we've found the matching closing brace
-            if brace_count == 0:
-                return json_str[start_brace_index : i + 1]
-
-            i += 1
-
-        raise ValueError("Malformed JSON: No matching closing brace for 'payload'.")
-    except Exception as e:
-        logger.bind(**error_fields(e)).error("Transaction encoding failed")
-        raise
-
-
-def _is_escaped(json_str: str, index: int) -> bool:
-    slash_count = 0
-    cursor = index - 1
-    while cursor >= 0 and json_str[cursor] == "\\":
-        slash_count += 1
-        cursor -= 1
-    return slash_count % 2 == 1
 
 
 def hash_bytes(bytes):

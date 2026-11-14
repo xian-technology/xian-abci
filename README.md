@@ -46,12 +46,10 @@ uv run xian-bds-snapshot --help
 uv run xian-bds-spool --help
 ```
 
-Native V2 bindings are installed through the `xian-tech-contracting` dependency.
-Optional extras:
+The native VM (`xian-tech-vm-core`) is a required dependency: it executes
+blocks and is the one transaction admission implementation (CheckTx,
+PrepareProposal, ProcessProposal and FinalizeBlock). Optional extra:
 
-- `vm` — retains compatibility with install commands requesting the bindings explicitly.
-- `native` — enables native admission helpers for development and release
-  validation.
 - `zk` — enables the native zk verifier required by nodes on chains with the
   `zk` runtime feature.
 
@@ -112,9 +110,8 @@ It defaults to Python `3.14` (override with `XIAN_ABCI_VALIDATE_PYTHON`) and
 runs:
 
 - `./scripts/validate-repo.sh`, including protobuf regeneration and stale-stub
-  checks, lint, formatting, and the full node test suite
-- `./scripts/validate-native-fastpath.sh`, which rebuilds optional Rust admission
-  helpers and checks them against the Python transaction validator
+  checks, lint, formatting, and the full node test suite (with the transaction
+  admission parity corpus, `tests/unit/test_admission_parity.py`)
 
 Faster local loops:
 

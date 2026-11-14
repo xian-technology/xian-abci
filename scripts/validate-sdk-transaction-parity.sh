@@ -32,8 +32,7 @@ cd "${repo_root}"
 UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" sync \
   --python "${python_version}" \
   --group dev \
-  --extra native \
-  --reinstall-package xian-tech-fastpath-core
+  --reinstall-package xian-tech-vm-core
 UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" sync \
   --project "${xian_py_dir}" \
   --python "${python_version}" \

@@ -3,32 +3,12 @@ import json
 from collections.abc import Callable
 from copy import deepcopy
 
-from loguru import logger
-from xian_accounts import verify_message
 from xian_runtime_types.encoding import decode_wire_numbers, encode_wire
+from xian_vm_core import decode_and_validate_transaction
 
 from xian.exceptions import TransactionException
 from xian.execution_policy import VM_EXECUTION_MODE
 from xian.fee_policy import chain_chi_rate
-from xian.formatting import (
-    TRANSACTION_PAYLOAD_RULES,
-    TRANSACTION_RULES,
-    contract_name_is_formatted,
-    signature_is_formatted,
-    vk_is_formatted,
-)
-from xian.utils.encoding import decode_transaction_bytes
-
-try:
-    from xian_fastpath_core import (
-        decode_and_validate_transaction_static as _native_decode_and_validate_transaction_static,
-    )
-except ImportError:  # pragma: no cover - exercised through fallback path
-    _native_decode_and_validate_transaction_static = None
-
-
-def verify(vk: str, msg: str, signature: str):
-    return verify_message(vk, msg, signature)
 
 
 def canonical_json(value: dict) -> str:
@@ -37,29 +17,6 @@ def canonical_json(value: dict) -> str:
         ensure_ascii=False,
         separators=(",", ":"),
     )
-
-
-def unpack_transaction(tx):
-    timestamp = tx["metadata"].get("timestamp", None)
-    if timestamp:
-        logger.info("Please remove timestamp from metadata")
-    chain_id = tx["payload"].get("chain_id", "")
-    if not chain_id:
-        logger.debug("Please add chain_id to payload")
-
-    sender = tx["payload"]["sender"]
-    signature = tx["metadata"]["signature"]
-    tx_for_verification = {
-        "chain_id": chain_id,
-        "contract": tx["payload"]["contract"],
-        "function": tx["payload"]["function"],
-        "kwargs": tx["payload"]["kwargs"],
-        "nonce": tx["payload"]["nonce"],
-        "sender": tx["payload"]["sender"],
-        "chi_supplied": tx["payload"]["chi_supplied"],
-    }
-    tx_for_verification = canonical_json(tx_for_verification)
-    return sender, signature, tx_for_verification
 
 
 def tx_hash_from_tx(tx):
@@ -78,34 +35,6 @@ def canonical_transaction_size_bytes(tx: dict) -> int:
         }
     )
     return len(encode_wire(tx_dict, vm_profile=VM_EXECUTION_MODE).encode("utf-8"))
-
-
-def recurse_rules(d: dict, rule: dict | Callable):
-    if callable(rule):
-        return rule(d)
-
-    for key, subrule in rule.items():
-        if key not in d:
-            return False
-        arg = d[key]
-
-        if callable(subrule):
-            if not subrule(arg):
-                return False
-
-        elif isinstance(arg, dict):
-            if not recurse_rules(arg, subrule):
-                return False
-
-        elif isinstance(arg, list):
-            for a in arg:
-                if not recurse_rules(a, subrule):
-                    return False
-
-        else:
-            return False
-
-    return True
 
 
 INSUFFICIENT_FEE_BALANCE = (
@@ -134,73 +63,6 @@ def check_enough_chi(
     if contract == "currency" and function == "transfer":
         if (balance - amount) * chi_per_tau < chi_supplied:
             raise TransactionException(TRANSFER_EXCEEDS_BALANCE)
-
-
-def check_format(d: dict, rule: dict):
-    expected_keys = set(rule.keys())
-
-    if not dict_has_keys(d, expected_keys):
-        raise TransactionException("Transaction has unexpected or missing keys")
-    if not recurse_rules(d, rule):
-        raise TransactionException("Transaction has wrongly formatted dictionary")
-
-
-def check_tx_keys(tx):
-    metadata = tx.get("metadata")
-
-    if not isinstance(metadata, dict) or not metadata:
-        raise TransactionException("Metadata is missing")
-    if len(metadata.keys()) != 1:
-        raise TransactionException("Wrong number of metadata entries")
-
-    payload = tx.get("payload")
-
-    if not isinstance(payload, dict) or not payload:
-        raise TransactionException("Payload is missing")
-
-    expected_payload_keys = set(TRANSACTION_PAYLOAD_RULES)
-    payload_keys = set(payload)
-    unexpected_payload_keys = payload_keys - expected_payload_keys
-    if unexpected_payload_keys:
-        raise TransactionException("Payload keys are not valid")
-
-    required_payload_keys = ("sender", "contract", "function", "chi_supplied")
-    for key in required_payload_keys:
-        if key not in payload or payload[key] in (None, ""):
-            raise TransactionException(f"Payload key '{key}' is missing")
-
-
-def check_tx_formatting(tx: dict):
-    check_tx_keys(tx)
-    check_format(tx, TRANSACTION_RULES)
-
-
-def check_contract_name(contract, function, name):
-    if (
-        contract == "submission"
-        and function == "submit_contract"
-        and not contract_name_is_formatted(name)
-    ):
-        raise TransactionException("Transaction contract name is invalid")
-
-
-def validate_transaction(
-    client,
-    nonce_storage,
-    tx,
-    *,
-    tx_hash: str,
-    chain_id: str,
-    fee_policy=None,
-):
-    validate_transaction_static(tx, chain_id=chain_id)
-    validate_transaction_after_static(
-        client,
-        nonce_storage,
-        tx,
-        tx_hash=tx_hash,
-        fee_policy=fee_policy,
-    )
 
 
 def validate_transaction_after_static(
@@ -273,21 +135,10 @@ def decode_and_validate_transaction_static_bytes(
         raise TransactionException(
             f"Transaction exceeds maximum configured size of {max_raw_tx_bytes} bytes"
         )
-    if _native_decode_and_validate_transaction_static is not None:
-        try:
-            tx = _native_decode_and_validate_transaction_static(
-                raw_tx,
-                chain_id,
-            )
-        except Exception as exc:
-            raise TransactionException(str(exc)) from exc
-        _require_canonical_identity(tx)
-        _validate_wire_payload(tx["payload"])
-        return tx
-
-    tx, _ = decode_transaction_bytes(raw_tx)
-    validate_transaction_static(tx, chain_id=chain_id)
-    return tx
+    try:
+        return decode_and_validate_transaction(raw_tx, chain_id)
+    except ValueError as exc:
+        raise TransactionException(str(exc)) from exc
 
 
 class SequentialNonceTracker:
@@ -321,65 +172,12 @@ class SequentialNonceTracker:
         self._latest_nonces[sender] = tx_nonce
 
 
-def _require_canonical_identity(tx: dict) -> None:
-    # Keep admission independent of the installed fastpath's hex-case rule.
-    if not vk_is_formatted(tx["payload"]["sender"]) or not signature_is_formatted(
-        tx["metadata"]["signature"]
-    ):
-        raise TransactionException("Transaction identity must be canonical lowercase hex")
-
-
-def _validate_wire_payload(payload: dict) -> None:
-    try:
-        decode_wire_numbers(payload)
-    except (TypeError, ValueError, ArithmeticError, AssertionError) as exc:
-        # The native parser can represent a bare u64 before V2 checks its wire form.
-        raise TransactionException("Transaction bytes are not canonical") from exc
-
-
-def validate_transaction_static(tx: dict, *, chain_id: str) -> None:
-    check_tx_formatting(tx)
-    _validate_wire_payload(tx["payload"])
-
-    sender, signature, payload = unpack_transaction(tx)
-    if not verify(sender, payload, signature):
-        raise TransactionException("Bad signature")
-
-    tx_chain_id = tx["payload"].get("chain_id", "")
-    if tx_chain_id != chain_id:
-        raise TransactionException("Wrong chain_id")
-
-    name = tx["payload"]["kwargs"].get("name")
-    check_contract_name(
-        tx["payload"]["contract"],
-        tx["payload"]["function"],
-        name,
-    )
-
-
-def validate_consensus_transaction(
-    tx: dict,
-    *,
-    chain_id: str,
-    nonce_tracker: SequentialNonceTracker,
-) -> None:
-    validate_transaction_static(tx, chain_id=chain_id)
-    validate_consensus_transaction_after_static(
-        tx,
-        nonce_tracker=nonce_tracker,
-    )
-
-
 def validate_consensus_transaction_after_static(
     tx: dict,
     *,
     nonce_tracker: SequentialNonceTracker,
 ) -> None:
     nonce_tracker.validate_and_advance(tx)
-
-
-def dict_has_keys(d: dict, keys: set) -> bool:
-    return set(d) == keys
 
 
 def format_dictionary(d: dict) -> dict:

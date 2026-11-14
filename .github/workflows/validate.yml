@@ -121,10 +121,6 @@ jobs:
         run: |
           ./scripts/validate-repo.sh
 
-      - name: Validate native fastpath parity
-        working-directory: xian-abci
-        run: ./scripts/validate-native-fastpath.sh
-
       - name: Validate SDK transaction parity
         working-directory: xian-abci
         env:

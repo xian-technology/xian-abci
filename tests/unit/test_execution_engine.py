@@ -26,12 +26,12 @@ from xian.execution_engine import (
     prepare_vm_contract,
     vm_metering_writes,
 )
-from xian.execution_policy import VM_EXECUTION_REVISION
+from xian.execution_policy import TX_ADMISSION_REVISION, VM_EXECUTION_REVISION
 from xian.fee_policy import TxFeePolicy
 from xian.nonce import NonceStorage
 from xian.processor import TxProcessor
 from xian.utils.encoding import normalize_for_abci_json, stringify_decimals
-from xian.utils.tx import canonical_json, tx_hash_from_tx, validate_transaction
+from xian.utils.tx import canonical_json, tx_hash_from_tx, validate_transaction_after_static
 
 
 def augment_execution_output_with_driver_state(
@@ -143,12 +143,11 @@ def hidden():
                         "payload": payload,
                         "metadata": {"signature": account.sign_msg(canonical_json(payload))},
                     }
-                    validate_transaction(
+                    validate_transaction_after_static(
                         client,
                         NonceStorage(client),
                         tx,
                         tx_hash=tx_hash_from_tx(tx),
-                        chain_id="xian-local",
                         fee_policy=policy,
                     )
                     tx["b_meta"] = {
@@ -178,6 +177,7 @@ def hidden():
                 "vm_profile": "xian_vm_v2",
                 "execution_revision": VM_EXECUTION_REVISION,
                 "set_codec": "xian-set-1",
+                "tx_admission_revision": TX_ADMISSION_REVISION,
             },
             supports_execution_policy=lambda *_args: False,
         )
@@ -196,6 +196,7 @@ def hidden():
                 "host_catalog_version": "xian_vm_v2_host_v1",
                 "execution_revision": VM_EXECUTION_REVISION,
                 "set_codec": "xian-set-1",
+                "tx_admission_revision": TX_ADMISSION_REVISION,
             },
             supports_execution_policy=lambda *_args: True,
         )
@@ -233,6 +234,7 @@ def hidden():
                 "host_catalog_version": "xian_vm_v2_host_v1",
                 "execution_revision": VM_EXECUTION_REVISION,
                 "set_codec": "xian-set-1",
+                "tx_admission_revision": TX_ADMISSION_REVISION,
             },
             supports_execution_policy=lambda *_args: True,
             validate_module_ir=mock.Mock(),
@@ -281,6 +283,7 @@ def hidden():
                 "host_catalog_version": "xian_vm_v2_host_v1",
                 "execution_revision": VM_EXECUTION_REVISION,
                 "set_codec": "xian-set-1",
+                "tx_admission_revision": TX_ADMISSION_REVISION,
             },
             supports_execution_policy=lambda *_args: True,
             validate_module_ir=mock.Mock(),
@@ -1368,6 +1371,7 @@ def hidden():
                 "host_catalog_version": "xian_vm_v2_host_v1",
                 "execution_revision": VM_EXECUTION_REVISION,
                 "set_codec": "xian-set-1",
+                "tx_admission_revision": TX_ADMISSION_REVISION,
             },
             supports_execution_policy=lambda *_args: True,
         )

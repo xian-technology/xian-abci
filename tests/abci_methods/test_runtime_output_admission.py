@@ -18,7 +18,6 @@ from cometbft.abci.v1beta3.types_pb2 import (
 from xian.constants import Constants
 from xian.fee_policy import TxFeePolicy
 from xian.state_root import StateRootCache
-from xian.utils import tx as tx_validation
 from xian.utils.encoding import canonical_json_text, encode_transaction_bytes
 from xian.xian_abci import Xian
 
@@ -197,16 +196,7 @@ def test_finalize_persists_timedelta_and_bytearray_and_reads_them_next_block(
 
 
 @pytest.mark.parametrize("policy", [TxFeePolicy.paid_metered(), TxFeePolicy.free_metered()])
-@pytest.mark.parametrize("native_admission", [False, True])
-def test_zero_chi_is_rejected_by_all_transaction_entrypoints(
-    tmp_path, policy, native_admission, monkeypatch
-):
-    if native_admission:
-        if tx_validation._native_decode_and_validate_transaction_static is None:
-            pytest.skip("native admission helper is not installed")
-    else:
-        monkeypatch.setattr(tx_validation, "_native_decode_and_validate_transaction_static", None)
-
+def test_zero_chi_is_rejected_by_all_transaction_entrypoints(tmp_path, policy):
     async def run():
         async with isolated_app(tmp_path, "@export\ndef good():\n    return 1\n") as app:
             app.tx_fee_policy = policy

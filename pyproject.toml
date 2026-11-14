@@ -20,6 +20,7 @@ dependencies = [
     "xian-tech-accounts>=0.1.3,<0.2",
     "xian-tech-contracting>=1.1.4,<2",
     "xian-tech-runtime-types>=0.1.6,<0.2",
+    "xian-tech-vm-core>=0.1.3,<0.2",
 ]
 keywords = ["blockchain", "cometbft", "abci", "xian", "python"]
 classifiers = [
@@ -29,12 +30,6 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-native = [
-    "xian-tech-fastpath-core>=0.1.0,<0.2",
-]
-vm = [
-    "xian-tech-vm-core>=0.1.3,<0.2",
-]
 zk = [
     "xian-tech-contracting[zk]>=1.1.4,<2",
 ]
@@ -102,5 +97,4 @@ xian-tech-compiler-core = { path = "../xian-contracting/packages/xian-compiler-c
 xian-tech-accounts = { path = "../xian-contracting/packages/xian-accounts", editable = true }
 xian-tech-contracting = { path = "../xian-contracting", editable = true }
 xian-tech-runtime-types = { path = "../xian-contracting/packages/xian-runtime-types", editable = true }
-xian-tech-fastpath-core = { path = "../xian-contracting/packages/xian-fastpath-core", editable = true }
 xian-tech-vm-core = { path = "../xian-contracting/packages/xian-vm-core" }

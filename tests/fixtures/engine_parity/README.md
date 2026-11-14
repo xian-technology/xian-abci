@@ -22,8 +22,7 @@ and the production path both reproduce them byte for byte.
 | `inputs/groth16_bn254_demo.json` | Input: the demo Groth16 key, proof and public input (from `xian-zk`). |
 
 The zk corpus needs the native verifier (`--extra zk`); without it the test
-skips that corpus. All other corpora run with the default `vm` and `native`
-extras.
+skips that corpus. All other corpora run with the default dependencies.
 
 ## When the golden fixtures may be regenerated
 

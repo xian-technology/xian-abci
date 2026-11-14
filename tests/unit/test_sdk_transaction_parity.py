@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,9 +17,6 @@ if os.environ.get("XIAN_SDK_TRANSACTION_PARITY") != "1":
         "set XIAN_SDK_TRANSACTION_PARITY=1 to run cross-SDK parity",
         allow_module_level=True,
     )
-
-xian_fastpath_core = pytest.importorskip("xian_fastpath_core")
-_native_decode_static = xian_fastpath_core.decode_and_validate_transaction_static
 
 CHAIN_ID = "xian-local"
 PRIVATE_KEY = "".join(f"{value:02x}" for value in range(32))
@@ -217,31 +213,18 @@ console.log(JSON.stringify(records));
     return json.loads(output)
 
 
-@contextmanager
-def _validation_mode(*, native: bool):
-    original_decode_static = tx_utils._native_decode_and_validate_transaction_static
-    tx_utils._native_decode_and_validate_transaction_static = (
-        _native_decode_static if native else None
-    )
+def _validate(raw_tx: bytes, *, chain_id: str = CHAIN_ID) -> ValidationResult:
     try:
-        yield
-    finally:
-        tx_utils._native_decode_and_validate_transaction_static = original_decode_static
-
-
-def _validate(raw_tx: bytes, *, native: bool, chain_id: str = CHAIN_ID) -> ValidationResult:
-    with _validation_mode(native=native):
-        try:
-            value = tx_utils.decode_and_validate_transaction_static_bytes(
-                raw_tx,
-                chain_id=chain_id,
-            )
-        except Exception as exc:
-            return ValidationResult(accepted=False, error=str(exc))
+        value = tx_utils.decode_and_validate_transaction_static_bytes(
+            raw_tx,
+            chain_id=chain_id,
+        )
+    except tx_utils.TransactionException as exc:
+        return ValidationResult(accepted=False, error=str(exc))
     return ValidationResult(accepted=True, value=value)
 
 
-def test_python_and_js_sdk_transactions_match_admission_fastpath():
+def test_python_and_js_sdk_transactions_pass_node_admission():
     if not XIAN_PY_DIR.exists():
         pytest.fail(f"xian-py checkout not found at {XIAN_PY_DIR}")
     if not XIAN_JS_DIR.exists():
@@ -262,11 +245,9 @@ def test_python_and_js_sdk_transactions_match_admission_fastpath():
 
         assert js_record["tx_hex"] == python_record["tx_hex"], name
         raw_tx = python_record["tx_hex"].encode("ascii")
-        python_result = _validate(raw_tx, native=False)
-        native_result = _validate(raw_tx, native=True)
-        assert python_result.accepted, name
-        assert native_result.accepted == python_result.accepted, name
-        assert native_result.value == python_result.value, name
+        result = _validate(raw_tx)
+        assert result.accepted, (name, result.error)
+        assert result.value == json.loads(bytes.fromhex(python_record["tx_hex"])), name
 
 
 def test_default_sdk_signatures_match_v2_fixtures_and_node():
@@ -312,10 +293,7 @@ for (const { payload } of vectors.cases) {
     ):
         expected = case["transaction_json"].encode("utf-8").hex()
         assert python_wire == js_wire == expected, case["name"]
-        for native in (False, True):
-            result = _validate(
-                python_wire.encode("ascii"), native=native, chain_id=case["payload"]["chain_id"]
-            )
-            assert result.accepted, result.error
-            assert result.value["payload"] == case["payload"]
-            assert result.value["metadata"]["signature"] == case["signature"]
+        result = _validate(python_wire.encode("ascii"), chain_id=case["payload"]["chain_id"])
+        assert result.accepted, result.error
+        assert result.value["payload"] == case["payload"]
+        assert result.value["metadata"]["signature"] == case["signature"]

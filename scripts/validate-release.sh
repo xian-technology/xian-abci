@@ -5,4 +5,3 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cd "${repo_root}"
 ./scripts/validate-repo.sh "$@"
-./scripts/validate-native-fastpath.sh
