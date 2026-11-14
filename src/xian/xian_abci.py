@@ -220,6 +220,7 @@ class Xian:
         )
         self.tx_processor = TxProcessor(
             client=self.client,
+            profiler=self.profiler,
             trace_logging=self.transaction_trace_debug_logging,
         )
         try:

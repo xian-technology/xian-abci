@@ -7,6 +7,7 @@ from xian_vm_core import BlockExecutor, native_error_result
 from xian.app_logging import build_log_fields
 from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.fee_policy import TxFeePolicy
+from xian.perf import NoopPerfTracker
 from xian.utils.encoding import normalize_contract_result
 from xian.utils.tx import transaction_bytes, tx_hash_from_tx
 
@@ -17,8 +18,12 @@ class TxProcessor:
     response: the receipt FinalizeBlock returns, with the per-transaction
     log records."""
 
-    def __init__(self, client, trace_logging: bool = False):
+    def __init__(self, client, profiler=None, trace_logging: bool = False):
         self.client = client
+        # `tx_process_total`: the time a block's transactions take to run
+        # and to become receipts (the node's perf summary subtracts it from
+        # `finalize_block`).
+        self.profiler = profiler or NoopPerfTracker()
         self.trace_logging = trace_logging
 
     def reset_block_cache(self) -> None:
@@ -44,11 +49,12 @@ class TxProcessor:
         """
         if not txs:
             return []
-        outcomes = self._block_executor(txs, raw_txs, fee_policy).run()
-        return [
-            self._native_response(tx, outcome, fee_policy)
-            for tx, outcome in zip(txs, outcomes, strict=True)
-        ]
+        with self.profiler.scope("tx_process_total", block_scoped=True):
+            outcomes = self._block_executor(txs, raw_txs, fee_policy).run()
+            return [
+                self._native_response(tx, outcome, fee_policy)
+                for tx, outcome in zip(txs, outcomes, strict=True)
+            ]
 
     def _block_executor(self, txs, raw_txs, fee_policy: TxFeePolicy):
         environment, overlay = self.client.raw_driver.committed_storage()
