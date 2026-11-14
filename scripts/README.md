@@ -13,7 +13,8 @@ importable runtime code.
 - `validate-sdk-transaction-parity.sh`: cross-checks SDK-built transactions
   against runtime admission
 - `benchmark_shielded_chi.py`: manual shielded-fee benchmark harness for the
-  shielded note-token path
+  shielded note-token path (through the block executor; `--per-tx` runs the
+  Python per-transaction path, which must report the same chi)
 - `benchmark_state_root.py`: manual state-root performance benchmark
 
 ## Notes

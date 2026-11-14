@@ -34,14 +34,23 @@ from xian_zk import (
     zero_root,
 )
 
+from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 
+# `--per-tx` runs every transaction through `TxProcessor.process_tx` (the
+# Python per-transaction path) instead of the block executor; both must
+# report the same chi.
+PER_TX = "--per-tx" in sys.argv[1:]
+# The chain's chi price (chi per XIAN); the chi used does not depend on it.
+CHI_RATE = 20
+
+# Execution revision 14 (`xvm-gas-6`).
 BASELINE = {
-    "deposit_2_outputs": 87622,
-    "transfer_2in_2out": 87896,
-    "withdraw_1in_1out": 45081,
-    "withdraw_exact": 2107,
-    "relay_transfer": 113839,
+    "deposit_2_outputs": 10133,
+    "transfer_2in_2out": 10484,
+    "withdraw_1in_1out": 9058,
+    "withdraw_exact": 6078,
+    "relay_transfer": 15886,
 }
 
 
@@ -167,7 +176,12 @@ def process(
         "metadata": {"signature": "benchmark"},
         "b_meta": create_block_meta(height),
     }
-    result = processor.process_tx(enabled_fees=True, tx=tx)
+    policy = TxFeePolicy.paid_metered()
+    if PER_TX:
+        result = processor.process_tx(tx, fee_policy=policy)
+    else:
+        # The production path: the block executor runs the transaction.
+        (result,) = processor.process_block([tx], fee_policy=policy)
     tx_result = result["tx_result"]
     if tx_result["status"] != 0:
         raise RuntimeError(f"{function} failed: {tx_result['result']}")
@@ -195,6 +209,7 @@ def benchmark() -> dict[str, int]:
         relayer = "relayer-1"
         client.raw_driver.set("currency.balances:alice", 1_000_000_000)
         client.raw_driver.set("currency.balances:relayer-1", 1_000_000_000)
+        client.raw_driver.set("chi_cost.S:value", CHI_RATE)
         token.mint_public(amount=100, to=alice, signer="sys")
 
         asset_id = asset_id_for_contract("con_shielded_note_token")
@@ -398,6 +413,7 @@ def benchmark() -> dict[str, int]:
         token = client.get_contract_proxy("con_shielded_note_token")
         client.raw_driver.set("currency.balances:alice", 1_000_000_000)
         client.raw_driver.set("currency.balances:relayer-1", 1_000_000_000)
+        client.raw_driver.set("chi_cost.S:value", CHI_RATE)
         token.mint_public(amount=100, to=alice, signer="sys")
         asset_id = asset_id_for_contract("con_shielded_note_token")
         alice_wallet = ShieldedWallet.from_parts(
