@@ -107,7 +107,8 @@ reads them, so bundles may not write them freely:
   value governs execution, deployment and simulation from the block after the
   activation block, on running and restarted nodes alike. While `zk` is off,
   transactions that deploy or call contracts using zk host syscalls fail with
-  an ordinary failed receipt; shielded funds stay locked until it is on again.
+  an ordinary failed receipt (`zk.is_available` returns `False`, every
+  other zk syscall fails); shielded funds stay locked until it is on again.
 - `__fee_policy` may change, but only to a policy node startup accepts: the
   canonical `tx_fee_mode`/`max_tx_chi`/`max_block_chi` object with
   `0 < max_tx_chi <= max_block_chi <= 10,000,000` and `max_tx_chi` within the

@@ -125,10 +125,11 @@ fixtures were regenerated with them and the diff reviewed case by case:
     type fail with a `TypeError`; runtime-feature text with non-ASCII
     characters is refused; an unknown host syscall fails as
     `unsupported host syscall`.
-  - zk off (finding 9): every zk syscall fails while the chain's zk
-    runtime feature is off, however the contract was reached (a dynamic
-    import too): `zk.<function> is unavailable: the chain zk runtime
-    feature is disabled`. No golden case reached it.
+  - zk off (finding 9): `zk.is_available` (the capability probe) returns
+    `False` while the chain's zk runtime feature is off, and every other zk
+    syscall fails, however the contract was reached (a dynamic import too):
+    `zk.<function> is unavailable: the chain zk runtime feature is
+    disabled`. No golden case reached it.
   - The base chi counts against `chi_supplied` (finding 7): a V2
     transaction runs out of chi when its work and the 5 base chi exceed the
     supply (`raw / 1000 + 5 > chi_supplied`), so `chi_used` never exceeds it
