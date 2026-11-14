@@ -10,7 +10,10 @@ it pays none, Python pays none too, raises, or the case has such an input.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import random
+from pathlib import Path
 
 import pytest
 from test_reward_output_corpus import FAILED_FIXTURE, FIXTURE, _Client, cases, failed_cases
@@ -20,6 +23,11 @@ from xian_runtime_types.encoding import encode
 from xian.rewards import RewardsHandler
 
 native = pytest.importorskip("xian_vm_core._native")
+
+# The wide corpus's Rust outcomes as 16-hex-digit SHA-256 prefixes of their
+# encodings, frozen where they matched the Python reference (before it was
+# deleted): "-" for no rewards.
+WIDE_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "reward_outputs_wide.json"
 
 
 def _encoded(result):
@@ -223,12 +231,23 @@ def _python_or_raised(case):
 NO_REWARDS = _encoded((None, {}, []))
 
 
-def test_rust_rewards_pay_what_python_pays_or_nothing_for_invalid_inputs():
+def wide_digest(encoded: str) -> str:
+    if encoded == NO_REWARDS:
+        return "-"
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
+def wide_cases():
     rng = random.Random(20261113)
+    return [_wide_case(rng, index) for index in range(3000)]
+
+
+def test_rust_rewards_pay_what_python_pays_or_nothing_for_invalid_inputs():
+    frozen = json.loads(WIDE_FIXTURE.read_text())
     paid = unpaid = 0
-    for index in range(3000):
-        case = _wide_case(rng, index)
+    for index, case in enumerate(wide_cases()):
         rust = _encoded(_rust(case))
+        assert wide_digest(rust) == frozen[index], index
         python = _python_or_raised(case)
         if rust != NO_REWARDS:
             paid += 1

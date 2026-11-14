@@ -34,6 +34,9 @@ from xian.execution_engine import (
 )
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "fee_outputs.json"
+# The wide corpus's Rust outcomes (None where Rust refuses a balance), frozen
+# where they matched the Python reference before it was deleted.
+WIDE_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "fee_outputs_wide.json"
 SEED = 20261113
 CASES = 400
 KEY = "currency.balances:sender"
@@ -207,13 +210,18 @@ def test_rust_fee_settlement_reproduces_the_pinned_corpus():
         assert _wire(outcome) == revision_14(case, expected[index]), index
 
 
+def wide_cases():
+    odd = [_Raw(value) for value in (True, "5", "", [1], {"a": 1})]
+    return case_list(seed=SEED + 1, count=1500, balances=BALANCES + odd, written=WRITTEN + odd)
+
+
 def test_rust_fee_settlement_answers_only_what_python_answers_the_same():
     native = pytest.importorskip("xian_vm_core._native")
-    odd = [_Raw(value) for value in (True, "5", "", [1], {"a": 1})]
-    cases = case_list(seed=SEED + 1, count=1500, balances=BALANCES + odd, written=WRITTEN + odd)
+    frozen = json.loads(WIDE_FIXTURE.read_text())
     answered = 0
-    for index, case in enumerate(cases):
+    for index, case in enumerate(wide_cases()):
         outcome = rust_outcome(native, case)
+        assert (None if outcome is None else _wire(outcome)) == frozen[index], index
         if outcome is None:
             continue
         answered += 1

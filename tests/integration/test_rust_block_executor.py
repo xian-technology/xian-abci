@@ -24,6 +24,7 @@ from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
 from xian.utils.encoding import encode_abci_json
+from golden_support import assert_matches_golden
 
 pytest.importorskip("xian_vm_core")
 
@@ -401,6 +402,8 @@ def test_rust_block_execution_matches_the_per_transaction_path(tmp_path, monkeyp
     blocks = [_block(seed, 40, height) for height, seed in enumerate((11, 12, 13), start=1)]
     expected, _ = _run(tmp_path / "python", blocks, native=False)
     actual, python_runs = _run(tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch)
+    assert_matches_golden("block_executor/paid_blocks", expected)
+    assert_matches_golden("block_executor/paid_blocks", actual)
     assert len(actual) == len(expected)
     for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
         assert left == right, index
@@ -427,6 +430,8 @@ def test_unmetered_system_execution_matches_the_per_transaction_path(tmp_path, m
     actual, python_runs = _run(
         tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch, policy=policy
     )
+    assert_matches_golden("block_executor/unmetered_blocks", expected)
+    assert_matches_golden("block_executor/unmetered_blocks", actual)
     assert len(actual) == len(expected)
     for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
         assert left == right, index
@@ -484,6 +489,8 @@ def test_contract_metadata_changes_run_in_rust_like_the_python_path(tmp_path, mo
     actual, python_runs = _run(
         tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch, **options
     )
+    assert_matches_golden(f"block_executor/metadata_{policy}", expected)
+    assert_matches_golden(f"block_executor/metadata_{policy}", actual)
     assert actual == expected
     assert python_runs == []
     receipts = [json.loads(entry[0]) for entry in actual if isinstance(entry, tuple)]
@@ -579,6 +586,8 @@ def test_deployments_run_in_rust_like_the_python_path(tmp_path, monkeypatch, pol
     actual, python_runs = _run(
         tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch, **options
     )
+    assert_matches_golden(f"block_executor/deployments_{policy}", expected)
+    assert_matches_golden(f"block_executor/deployments_{policy}", actual)
     for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
         assert left == right, index
     assert python_runs == []
@@ -672,6 +681,8 @@ def test_hash_scans_and_contract_metadata_run_in_rust_like_the_python_path(tmp_p
     blocks = _scan_blocks()
     expected, _ = _run(tmp_path / "python", blocks, native=False)
     actual, python_runs = _run(tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch)
+    assert_matches_golden("block_executor/scans", expected)
+    assert_matches_golden("block_executor/scans", actual)
     assert len(actual) == len(expected)
     for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
         assert left == right, index
@@ -688,6 +699,8 @@ def test_entry_results_are_charged_in_their_v2_encoding_like_the_python_path(tmp
     ]
     expected, _ = _run(tmp_path / "python", [txs], native=False)
     actual, _ = _run(tmp_path / "rust", [txs], native=True)
+    assert_matches_golden("block_executor/v2_entry_results", expected)
+    assert_matches_golden("block_executor/v2_entry_results", actual)
     assert actual == expected
 
 
@@ -744,6 +757,8 @@ def test_random_runs_in_rust_like_the_python_path(tmp_path, monkeypatch):
     blocks = _random_blocks()
     expected, _ = _run(tmp_path / "python", blocks, native=False)
     actual, python_runs = _run(tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch)
+    assert_matches_golden("block_executor/random", expected)
+    assert_matches_golden("block_executor/random", actual)
     assert len(actual) == len(expected)
     for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
         assert left == right, index
@@ -813,6 +828,8 @@ def test_timedelta_and_bytearray_values_are_stored_returned_and_emitted(tmp_path
     ]
 
     actual, python_runs = _run(tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch)
+    assert_matches_golden("block_executor/times", expected)
+    assert_matches_golden("block_executor/times", actual)
     assert actual == expected
     # The Rust executor settles these values itself.
     assert python_runs == []
@@ -869,6 +886,9 @@ def test_rust_block_execution_writes_the_per_transaction_logs(tmp_path, trace_lo
     actual = _per_tx_logs(
         tmp_path / "rust", blocks, native=True, trace_logging=trace_logging, policy=fee_policy
     )
+    name = f"block_executor/logs_{policy}_{'trace' if trace_logging else 'plain'}"
+    assert_matches_golden(name, expected)
+    assert_matches_golden(name, actual)
     stages = {record[2]["stage"] for record in expected}
     assert stages >= ({"execute_tx", "tx_result"} if trace_logging else {"process_tx_output"})
     assert len(actual) == len(expected)
@@ -920,6 +940,8 @@ def test_values_the_receipt_encoding_refuses_never_reach_the_effects(tmp_path, m
     actual, python_runs = _run(
         tmp_path / "rust", [txs], native=True, monkeypatch=monkeypatch, contracts=contracts
     )
+    assert_matches_golden("block_executor/unencodable", expected)
+    assert_matches_golden("block_executor/unencodable", actual)
     assert actual == expected
     assert python_runs == []
     receipts = [json.loads(receipt) for receipt, _, _ in actual[:-1]]

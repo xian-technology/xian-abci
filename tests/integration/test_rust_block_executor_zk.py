@@ -26,6 +26,7 @@ from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.utils.encoding import encode_abci_json
 from xian.utils.tx import transaction_bytes
+from golden_support import assert_matches_golden
 
 pytest.importorskip("xian_vm_core")
 
@@ -281,12 +282,12 @@ def _dynamic_block(height):
     ]
 
 
-def _assert_dynamic_zk_call_fails(tmp_path, monkeypatch, blocks, patches, probe, message):
+def _assert_dynamic_zk_call_fails(tmp_path, monkeypatch, name, blocks, patches, probe, message):
     """Revision 14: with the zk feature off (or unreadable) the capability
     probe answers ``probe`` and every other zk syscall fails, however its
     contract was reached; the Python path ran them. The blocks before the
     dynamic imports' own last block are identical."""
-    receipts = _assert_same(tmp_path, monkeypatch, blocks[:-1], patches=patches)
+    receipts = _assert_same(tmp_path, monkeypatch, name, blocks[:-1], patches=patches)
     actual, python_runs = _run(
         tmp_path / "rust-dynamic", blocks, native=True, monkeypatch=monkeypatch, patches=patches
     )
@@ -363,13 +364,15 @@ def _run(home, blocks, *, native, monkeypatch, patches=None):
     return receipts, python_runs
 
 
-def _assert_same(tmp_path, monkeypatch, blocks, patches=None):
+def _assert_same(tmp_path, monkeypatch, name, blocks, patches=None):
     expected, _ = _run(
         tmp_path / "python", blocks, native=False, monkeypatch=monkeypatch, patches=patches
     )
     actual, python_runs = _run(
         tmp_path / "rust", blocks, native=True, monkeypatch=monkeypatch, patches=patches
     )
+    assert_matches_golden(name, expected)
+    assert_matches_golden(name, actual)
     assert len(actual) == len(expected)
     for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
         assert _digest(left) == _digest(right), index
@@ -379,7 +382,7 @@ def _assert_same(tmp_path, monkeypatch, blocks, patches=None):
 
 
 def test_zk_syscalls_run_in_rust_like_the_python_path(tmp_path, monkeypatch):
-    receipts = _assert_same(tmp_path, monkeypatch, _zk_blocks())
+    receipts = _assert_same(tmp_path, monkeypatch, "block_executor_zk/syscalls", _zk_blocks())
     results = [receipt["result"] for receipt in receipts]
     assert 20 < sum(receipt["status"] == 0 for receipt in receipts) < len(receipts) - 20
     assert any("Unknown verifying key id" in str(result) for result in results)
@@ -392,6 +395,7 @@ def test_contracts_using_zk_fail_while_zk_is_off(tmp_path, monkeypatch):
     receipts = _assert_dynamic_zk_call_fails(
         tmp_path,
         monkeypatch,
+        "block_executor_zk/feature_off",
         blocks,
         {2: {"__runtime_features.zk": False}},
         [False],
@@ -409,6 +413,7 @@ def test_a_feature_value_the_check_refuses_fails_like_the_python_path(tmp_path, 
     receipts = _assert_dynamic_zk_call_fails(
         tmp_path,
         monkeypatch,
+        "block_executor_zk/feature_refused",
         blocks,
         {1: {"__runtime_features.zk": "maybe"}},
         None,
