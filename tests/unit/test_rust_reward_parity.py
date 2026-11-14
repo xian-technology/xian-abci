@@ -6,7 +6,10 @@ may not hold (or an amount the decimal context cannot represent) means no
 rewards for that transaction. Until increment 9 of the single-engine plan
 every paid outcome was compared with the Python reference and every unpaid
 one checked against it; the outcomes were frozen then (``WIDE_FIXTURE``).
-The pinned corpus is ``test_reward_output_corpus``.
+The VM boundary refuses a state value V2 cannot store (a dictionary keyed by
+a codec tag such as ``{"__fixed__": "1"}``), so those cases raise; each of
+them was frozen as no rewards. The pinned corpus is
+``test_reward_output_corpus``.
 """
 
 from __future__ import annotations
@@ -126,6 +129,7 @@ def _wide_case(rng, index):
 
 
 NO_REWARDS = _encoded((None, {}, []))
+UNSTORABLE = "V2 wire dictionaries require string keys and cannot use reserved codec tags"
 
 
 def wide_digest(encoded: str) -> str:
@@ -143,7 +147,12 @@ def test_rust_rewards_reproduce_the_frozen_wide_corpus():
     frozen = json.loads(WIDE_FIXTURE.read_text())
     paid = unpaid = 0
     for index, case in enumerate(wide_cases()):
-        rust = _encoded(_rust(case))
+        try:
+            rust = _encoded(_rust(case))
+        except ValueError as error:
+            assert str(error) == UNSTORABLE, index
+            assert frozen[index] == "-", index
+            continue
         assert wide_digest(rust) == frozen[index], index
         paid += rust != NO_REWARDS
         unpaid += rust == NO_REWARDS
