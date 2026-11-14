@@ -10,10 +10,13 @@ Main areas:
 - `src/xian/processor.py`, `execution_engine.py`, and `execution_policy.py`:
   transaction execution flow; blocks run serially in the Rust `BlockExecutor`
   (`processor.process_block`), and so do the unmetered system transactions
-  (epoch rebalance, evidence penalties: `processor.process_system_tx`)
+  (epoch rebalance, evidence penalties: `processor.process_system_tx`);
+  readonly simulations, contract-view queries and genesis contract deploys
+  run one call with the same Rust code (`xian_vm_core.execute_tx` over a
+  fork of the pending state, or the genesis driver's own)
 - `src/xian/services/`: BDS and snapshot/state-sync services
-- `src/xian/dashboard/`, `metrics.py`, `simulator.py`, and
-  `simulator_worker.py`: optional node-adjacent surfaces
+- `src/xian/dashboard/`, `metrics.py` and `simulator.py`: optional
+  node-adjacent surfaces
 - `src/xian/utils/state_patches.py` and `src/xian/tools/state_patches/`:
   governed state-patch loading and execution
 - `src/xian/node_setup.py` and `src/xian/node_admin.py`: reusable home/config

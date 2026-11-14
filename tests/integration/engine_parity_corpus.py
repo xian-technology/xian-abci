@@ -12,12 +12,12 @@ Each corpus runs on two paths:
 
 * the Python path: every transaction through ``TxProcessor.process_tx``
   (``TxProcessor._block_executor`` patched to ``None``; no production flag),
-  simulations through ``TransactionSimulator`` in-process, contract views
-  through ``execute_vm_contract``;
+  simulations through ``TransactionSimulator.simulate_on_python_path``,
+  contract views through ``execute_vm_contract``;
 * the production path: ``TxProcessor.process_block`` (Rust with hand-backs),
-  simulations through the ``QuerySimulationService`` worker process, contract
-  views through the query handler's ``_call_contract_view``, system
-  transactions through ``FinalizeBlock``.
+  simulations through ``QuerySimulationService`` and contract views through
+  the query handler's ``_call_contract_view`` (both ``xian_vm_core.execute_tx``
+  with hand-backs), system transactions through ``FinalizeBlock``.
 
 ``tests/fixtures/engine_parity/`` freezes the Python-path outputs; see the
 README there for when they may be regenerated:
@@ -1168,15 +1168,14 @@ def _encoded(result: Any) -> dict:
 
 
 def _simulate(client, simulation: Simulation, raw_hex: str, *, python: bool) -> Any:
-    """The ``simulate_tx`` query result: decoded as the query decodes it,
-    then run in-process (Python path) or in the simulation worker."""
-    from xian.simulator import QuerySimulationService, TransactionSimulator
+    """The ``simulate_tx`` query result: decoded and forked as the query
+    does it, then run on the Python path or as the node runs it."""
+    from xian.simulator import QuerySimulationService
 
     meta = block_meta(SIMULATION_HEIGHT)
     service = QuerySimulationService(
-        storage_home=client.raw_driver.storage_home,
+        client=client,
         get_block_meta=lambda: meta,
-        get_state_snapshot=client.raw_driver.snapshot_state,
         chain_id=CHAIN_ID,
         max_chi=simulation.max_chi,
         charge_fees=simulation.charge_fees,
@@ -1185,29 +1184,56 @@ def _simulate(client, simulation: Simulation, raw_hex: str, *, python: bool) -> 
     prepared = service.prepare_encoded_transaction(raw_hex)
     if isinstance(prepared, dict):
         return prepared
-    if not python:
-        return asyncio.run(prepared.run())
-    simulator = TransactionSimulator(
-        client=client,
-        get_block_meta=lambda: meta,
-        chain_id=CHAIN_ID,
-        charge_fees=simulation.charge_fees,
-    )
-    return simulator.simulate(prepared.payload, max_chi=simulation.max_chi)
+    if python:
+        return prepared.simulator.simulate_on_python_path(
+            prepared.payload, block_meta=meta, max_chi=simulation.max_chi
+        )
+    return asyncio.run(prepared.run())
 
 
-def run_simulations(home: Path, *, python: bool) -> dict:
-    """Each simulation's query response on one path."""
+@contextmanager
+def single_tx_routes(module) -> Iterator[list[str]]:
+    """Records the route of each ``execute_tx`` call ``module`` makes: Rust,
+    or the reason it was handed back to the Python path."""
+    from xian_vm_core import HandedBack
+
+    routes: list[str] = []
+    execute_tx = module.execute_tx
+
+    def recorded(*args, **kwargs):
+        run = execute_tx(*args, **kwargs)
+        routes.append(run.reason if isinstance(run, HandedBack) else RUST)
+        return run
+
+    with mock.patch.object(module, "execute_tx", recorded):
+        yield routes
+
+
+def _route(routes: list[str]) -> str:
+    """The route of one query: Rust unless its execution was handed back
+    (a query refused before execution runs nothing)."""
+    assert len(routes) <= 1, routes
+    route = routes[0] if routes else RUST
+    routes.clear()
+    return route
+
+
+def run_simulations(home: Path, *, python: bool) -> tuple[dict, dict[str, str]]:
+    """Each simulation's query response on one path, and its route."""
+    from xian import simulator as simulator_module
+
     client, _processor, _rewards = open_chain(home)
-    results = {}
+    results, routes = {}, {}
     try:
-        for simulation in simulations():
-            raw = json.dumps(simulation.payload, separators=(",", ":")).encode("utf-8")
-            result = _simulate(client, simulation, raw.hex(), python=python)
-            results[simulation.case] = _encoded(result)
+        with single_tx_routes(simulator_module) as calls:
+            for simulation in simulations():
+                raw = json.dumps(simulation.payload, separators=(",", ":")).encode("utf-8")
+                result = _simulate(client, simulation, raw.hex(), python=python)
+                results[simulation.case] = _encoded(result)
+                routes[simulation.case] = _route(calls) if not python else PER_TX_PATH
     finally:
         client.raw_driver.close()
-    return results
+    return results, routes
 
 
 # (case, sender, contract, function, kwargs)
@@ -1259,10 +1285,11 @@ def _python_contract_view(ctx, contract: str, function: str, kwargs: dict) -> An
     return output.result if output.status_code == 0 else None
 
 
-def run_contract_views(home: Path, *, python: bool) -> dict:
-    """Each contract view's query response on one path; a view that raises
-    fails the query."""
+def run_contract_views(home: Path, *, python: bool) -> tuple[dict, dict[str, str]]:
+    """Each contract view's query response on one path (a view that raises
+    fails the query), and its route."""
     from xian.execution_engine import VmRuntime
+    from xian.methods import query as query_module
     from xian.methods.query import QueryContext, _call_contract_view
 
     client, _processor, _rewards = open_chain(home)
@@ -1273,19 +1300,20 @@ def run_contract_views(home: Path, *, python: bool) -> dict:
         chain_id=CHAIN_ID,
     )
     view = _python_contract_view if python else _call_contract_view
-    results = {}
+    results, routes = {}, {}
     try:
-        for case, sender, contract, function, kwargs in CONTRACT_VIEWS:
-            ctx = QueryContext(app=app, path_parts=[], params={}, route="view", key=sender)
-            try:
-                result = view(ctx, contract, function, kwargs=kwargs)
-            except Exception as exc:  # noqa: BLE001 - recorded: the query fails
-                results[case] = {"error": type(exc).__name__}
-                continue
-            results[case] = _encoded(result)
+        with single_tx_routes(query_module) as calls:
+            for case, sender, contract, function, kwargs in CONTRACT_VIEWS:
+                ctx = QueryContext(app=app, path_parts=[], params={}, route="view", key=sender)
+                try:
+                    result = view(ctx, contract, function, kwargs=kwargs)
+                    results[case] = _encoded(result)
+                except Exception as exc:  # noqa: BLE001 - recorded: the query fails
+                    results[case] = {"error": type(exc).__name__}
+                routes[case] = _route(calls) if not python else PER_TX_PATH
     finally:
         client.raw_driver.close()
-    return results
+    return results, routes
 
 
 # --- system transactions through FinalizeBlock ---------------------------------
@@ -1535,33 +1563,21 @@ def python_path_outputs(tmp: Path) -> dict[str, dict]:
         outputs[f"blocks_{corpus.name}"], _routes = run_corpus(
             tmp / corpus.name, corpus, python=True
         )
-    outputs["simulations"] = run_simulations(tmp / "simulations", python=True)
-    outputs["contract_views"] = run_contract_views(tmp / "views", python=True)
+    outputs["simulations"], _routes = run_simulations(tmp / "simulations", python=True)
+    outputs["contract_views"], _routes = run_contract_views(tmp / "views", python=True)
     outputs["system_blocks"], _routes = run_system_blocks(python=True)
     return outputs
 
 
-# What runs outside ``process_block`` today, and where.
-OUTSIDE_BLOCK_EXECUTOR = {
-    "simulations": "simulator worker: execute_vm_transaction",
-    "contract_views": "execute_vm_contract",
-}
-
-
 def handback_inventory(tmp: Path) -> dict[str, dict[str, str]]:
-    """The cases the production path runs on the Python path, by corpus:
-    measured for blocks and system transactions, by entry point for the rest."""
+    """The cases the production path runs on the Python path, by corpus."""
     inventory = {
         corpus.name: handed_back(run_corpus(tmp / corpus.name, corpus, python=False)[1])
         for corpus in corpora()
     }
     inventory["system_blocks"] = run_system_blocks(python=False)[1]
-    inventory["simulations"] = {
-        simulation.case: OUTSIDE_BLOCK_EXECUTOR["simulations"] for simulation in simulations()
-    }
-    inventory["contract_views"] = {
-        case: OUTSIDE_BLOCK_EXECUTOR["contract_views"] for case, *_ in CONTRACT_VIEWS
-    }
+    inventory["simulations"] = handed_back(run_simulations(tmp / "sims", python=False)[1])
+    inventory["contract_views"] = handed_back(run_contract_views(tmp / "views", python=False)[1])
     return inventory
 
 

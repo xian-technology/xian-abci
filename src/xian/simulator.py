@@ -3,21 +3,28 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 
 from contracting.local import ContractingClient
+from contracting.runtime_features import (
+    RUNTIME_FEATURE_ZK,
+    get_driver_runtime_features,
+    runtime_feature_without_state,
+    set_driver_runtime_features,
+)
+from contracting.storage.driver import Driver
 from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, loads_wire_json
 from xian_runtime_types.time import Datetime
+from xian_vm_core import HandedBack, TxRun, execute_tx
 
-from xian import simulator_ipc
 from xian.app_logging import build_log_fields
 from xian.execution_engine import (
     VmRuntime,
     execute_vm_transaction,
+    vm_call_context,
 )
+from xian.execution_policy import EXECUTION_POLICY_KEY, VM_EXECUTION_MODE
 from xian.fee_policy import chain_chi_rate
 from xian.utils.block import (
     get_latest_block_nanos,
@@ -25,6 +32,9 @@ from xian.utils.block import (
 )
 from xian.utils.encoding import normalize_contract_result, normalize_for_abci_json
 from xian.utils.tx import canonical_transaction_size_bytes, format_dictionary
+
+# The chi a simulation may spend when the caller sets no cap.
+DEFAULT_SIMULATION_CHI = 1_000_000
 
 
 def _simulation_error_result(
@@ -60,7 +70,30 @@ def _estimated_transaction_size(payload: dict, *, chain_id: str | None) -> int:
     )
 
 
+def _simulation_result(payload: dict, *, status: int, writes, events, chi_used, result) -> dict:
+    """The ``simulate_tx`` response of a finished simulation."""
+    response = {
+        "payload": payload,
+        "status": status,
+        "state": [{"key": key, "value": value} for key, value in writes.items()],
+        "events": events,
+        "chi_used": chi_used,
+        "result": normalize_contract_result(result),
+    }
+    return normalize_for_abci_json(format_dictionary(response))
+
+
 class TransactionSimulator:
+    """A readonly dry run of one call against node state.
+
+    The call runs in Rust with the code a block runs (``xian_vm_core.
+    execute_tx``) over a fork of the pending block state, which is dropped
+    afterwards: metered, with the chain's fee policy, but without reserving
+    the fee budget (a dry run reports the chi used, so a small balance still
+    gets an estimate). The few calls the Rust executor leaves to Python run
+    on the Python per-transaction path instead, over the same state.
+    """
+
     def __init__(
         self,
         *,
@@ -83,25 +116,17 @@ class TransactionSimulator:
         block_meta: dict | None = None,
         max_chi: int | None = None,
     ) -> dict:
+        """The simulation of ``payload`` against the client's pending state."""
         normalized_payload = self._normalize_payload(payload)
-        try:
-            return self._execute(
-                normalized_payload,
-                block_meta=block_meta,
-                max_chi=max_chi,
+        _environment, overlay = self.client.raw_driver.committed_storage()
+        outcome = self.simulate_in_rust(
+            normalized_payload, block_meta=block_meta, max_chi=max_chi, pending=overlay
+        )
+        if isinstance(outcome, HandedBack):
+            return self.simulate_on_python_path(
+                normalized_payload, block_meta=block_meta, max_chi=max_chi
             )
-        except Exception as exc:
-            logger.bind(
-                **build_log_fields(
-                    stage="simulate_tx",
-                    payload=normalized_payload,
-                    extra={"error_type": type(exc).__name__},
-                )
-            ).error("Simulation failed")
-            return _simulation_error_result(
-                payload=normalized_payload,
-                message=f"Simulation error: {exc}",
-            )
+        return outcome
 
     def simulate_encoded_transaction(
         self,
@@ -117,14 +142,120 @@ class TransactionSimulator:
             max_chi=max_chi,
         )
 
-    def _execute(
+    def simulate_in_rust(
+        self,
+        payload: dict,
+        *,
+        pending,
+        block_meta: dict | None = None,
+        max_chi: int | None = None,
+    ) -> dict | HandedBack:
+        """The simulation of the normalized ``payload`` over a fork of
+        ``pending`` (a ``BlockState``), or ``HandedBack`` for the Python
+        path. Thread-safe: it reads only ``pending`` and LMDB."""
+        return self._guarded(
+            payload,
+            lambda: self._execute_in_rust(
+                payload, pending=pending, block_meta=block_meta, max_chi=max_chi
+            ),
+        )
+
+    def simulate_on_python_path(
         self,
         payload: dict,
         *,
         block_meta: dict | None = None,
         max_chi: int | None = None,
     ) -> dict:
-        state_snapshot = self._snapshot_driver_state()
+        """The simulation of the normalized ``payload`` on the Python
+        per-transaction path; the driver's pending state is restored after."""
+        return self._guarded(
+            payload,
+            lambda: self._execute_on_python_path(payload, block_meta=block_meta, max_chi=max_chi),
+        )
+
+    @staticmethod
+    def _guarded(payload: dict, run) -> dict | HandedBack:
+        try:
+            return run()
+        except Exception as exc:
+            logger.bind(
+                **build_log_fields(
+                    stage="simulate_tx",
+                    payload=payload,
+                    extra={"error_type": type(exc).__name__},
+                )
+            ).error("Simulation failed")
+            return _simulation_error_result(
+                payload=payload,
+                message=f"Simulation error: {exc}",
+            )
+
+    @staticmethod
+    def _budget(max_chi: int | None) -> int:
+        return max(int(max_chi or DEFAULT_SIMULATION_CHI), 1)
+
+    def _transaction_size(self, payload: dict, environment: dict) -> int:
+        """The transaction size the simulation is charged for."""
+        return _estimated_transaction_size(payload, chain_id=environment.get("chain_id"))
+
+    def _execute_in_rust(
+        self,
+        payload: dict,
+        *,
+        pending,
+        block_meta: dict | None,
+        max_chi: int | None,
+    ) -> dict | HandedBack:
+        driver = self.client.raw_driver
+        storage, _overlay = driver.committed_storage()
+        kwargs = decode_wire_numbers(payload.get("kwargs", {}))
+        environment = self._make_environment(payload, block_meta=block_meta)
+        run = execute_tx(
+            storage,
+            pending.snapshot(),
+            sender=payload["sender"],
+            contract_name=payload["contract"],
+            function_name=payload["function"],
+            kwargs=kwargs,
+            context=vm_call_context(
+                sender=payload["sender"],
+                contract_name=payload["contract"],
+                function_name=payload["function"],
+                kwargs=kwargs,
+                environment=environment,
+            ),
+            meter=True,
+            charge_fees=self.charge_fees,
+            chi_budget=self._budget(max_chi),
+            transaction_size_bytes=self._transaction_size(payload, environment),
+            protected_keys=(EXECUTION_POLICY_KEY,),
+            zk_enabled_without_state=runtime_feature_without_state(driver, RUNTIME_FEATURE_ZK),
+            estimate=True,
+        )
+        if isinstance(run, HandedBack):
+            return run
+        return self._rust_result(payload, run)
+
+    @staticmethod
+    def _rust_result(payload: dict, run: TxRun) -> dict:
+        return _simulation_result(
+            payload,
+            status=run.status_code,
+            writes=run.writes,
+            events=run.events,
+            chi_used=run.chi_used,
+            result=run.result,
+        )
+
+    def _execute_on_python_path(
+        self,
+        payload: dict,
+        *,
+        block_meta: dict | None,
+        max_chi: int | None,
+    ) -> dict:
+        state_snapshot = self.client.raw_driver.snapshot_state()
         try:
             # Read inside the snapshot so the estimate leaves no tracked reads.
             chi_cost = chain_chi_rate(self.client) if self.charge_fees else None
@@ -138,13 +269,7 @@ class TransactionSimulator:
                 chi_cost=chi_cost,
             )
         finally:
-            self._restore_driver_state(state_snapshot)
-
-    def _snapshot_driver_state(self) -> dict:
-        return self.client.raw_driver.snapshot_state()
-
-    def _restore_driver_state(self, state_snapshot: dict) -> None:
-        self.client.raw_driver.restore_state(state_snapshot)
+            self.client.raw_driver.restore_state(state_snapshot)
 
     def _execute_vm_simulation(
         self,
@@ -163,28 +288,23 @@ class TransactionSimulator:
             function_name=payload["function"],
             kwargs=kwargs,
             environment=environment,
-            chi_budget=max(int(max_chi or 1_000_000), 1),
-            transaction_size_bytes=_estimated_transaction_size(
-                payload, chain_id=environment.get("chain_id")
-            ),
+            chi_budget=self._budget(max_chi),
+            transaction_size_bytes=self._transaction_size(payload, environment),
             chi_cost=chi_cost,
             meter=True,
             apply_metering_on_success_only=False,
-            apply_metering_writes=bool(getattr(self, "charge_fees", True)),
+            apply_metering_writes=self.charge_fees,
             # This is a cost estimate, not a transaction with a submitted budget.
             reserve_fee_budget=False,
         )
-
-        writes = [{"key": key, "value": value} for key, value in outcome.writes.items()]
-        result = {
-            "payload": payload,
-            "status": outcome.output.status_code,
-            "state": writes,
-            "events": outcome.output.events,
-            "chi_used": outcome.chi_used,
-            "result": normalize_contract_result(outcome.output.result),
-        }
-        return normalize_for_abci_json(format_dictionary(result))
+        return _simulation_result(
+            payload,
+            status=outcome.output.status_code,
+            writes=outcome.writes,
+            events=outcome.output.events,
+            chi_used=outcome.chi_used,
+            result=outcome.output.result,
+        )
 
     @staticmethod
     def _normalize_payload(payload: dict) -> dict:
@@ -259,26 +379,30 @@ class TransactionSimulator:
 
 
 class QuerySimulationService:
+    """The node's ``simulate_tx`` queries, run in-process.
+
+    ``prepare_encoded_transaction`` forks the pending block state while the
+    caller holds the node state lock; the simulation then runs in Rust on a
+    worker thread with the GIL released, so consensus keeps going. Chi bounds
+    the work; the timeout bounds how long a query waits for its answer.
+    """
+
     def __init__(
         self,
         *,
-        storage_home: str | Path,
+        client: ContractingClient,
         execution_runtime: VmRuntime | None = None,
         get_block_meta=None,
-        get_state_snapshot=None,
         chain_id: str | None = None,
         enabled: bool = True,
         max_concurrency: int = 2,
         timeout_ms: int = 3000,
-        max_chi: int = 1_000_000,
+        max_chi: int = DEFAULT_SIMULATION_CHI,
         charge_fees: bool = True,
-        runtime_features: dict[str, bool] | None = None,
     ) -> None:
-        self.storage_home = Path(storage_home)
-        self.runtime_features = dict(runtime_features) if runtime_features is not None else None
+        self.client = client
         self.execution_runtime = execution_runtime or VmRuntime()
         self.get_block_meta = get_block_meta or (lambda: None)
-        self.get_state_snapshot = get_state_snapshot or (lambda: None)
         self.chain_id = chain_id
         self.enabled = enabled
         self.max_concurrency = max(int(max_concurrency), 1)
@@ -286,7 +410,6 @@ class QuerySimulationService:
         self.max_chi = max(int(max_chi), 1)
         self.charge_fees = bool(charge_fees)
         self._active_requests = 0
-        self._counter_lock = asyncio.Lock()
 
     async def simulate_encoded_transaction(self, raw_payload_hex: str) -> dict:
         prepared = self.prepare_encoded_transaction(raw_payload_hex)
@@ -295,10 +418,10 @@ class QuerySimulationService:
         return await prepared.run()
 
     def prepare_encoded_transaction(self, raw_payload_hex: str) -> "PreparedSimulation | dict":
-        """Capture node state for a simulation without starting its worker.
+        """Fork node state for a simulation without running it.
 
         Callers holding the node state lock can release it before awaiting
-        ``PreparedSimulation.run``; the worker can run for the full timeout.
+        ``PreparedSimulation.run``.
         """
         try:
             decoded_payload = loads_wire_json(bytes.fromhex(raw_payload_hex))
@@ -321,119 +444,73 @@ class QuerySimulationService:
                 message="Simulation is disabled on this node",
             )
 
-        task = {
-            "storage_home": str(self.storage_home),
-            "runtime_info": getattr(self.execution_runtime, "runtime_info", None),
-            "payload": normalized_payload,
-            "block_meta": self.get_block_meta() or {},
-            "chain_id": self.chain_id,
-            "max_chi": self.max_chi,
-            "charge_fees": self.charge_fees,
-            "runtime_features": self.runtime_features,
-            "driver_state": self.get_state_snapshot(),
-        }
-        return PreparedSimulation(service=self, task=task, payload=normalized_payload)
+        _environment, overlay = self.client.raw_driver.committed_storage()
+        return PreparedSimulation(
+            service=self,
+            simulator=self._simulator(self.client),
+            payload=normalized_payload,
+            block_meta=self.get_block_meta() or {},
+            max_chi=self.max_chi,
+            pending=overlay.snapshot(),
+        )
 
-    async def _run_prepared(self, task: dict, payload: dict) -> dict:
-        async with self._counter_lock:
-            if self._active_requests >= self.max_concurrency:
-                logger.bind(
-                    **build_log_fields(
-                        stage="simulate_tx",
-                        payload=payload,
-                        extra={
-                            "active_requests": self._active_requests,
-                            "simulation_max_concurrency": (self.max_concurrency),
-                        },
-                    )
-                ).warning("Rejected readonly simulation because capacity is exhausted")
-                return _simulation_error_result(
-                    payload=payload,
-                    message=("Simulation capacity exceeded on this node; retry later"),
-                )
-            self._active_requests += 1
+    def _simulator(self, client: ContractingClient) -> TransactionSimulator:
+        return TransactionSimulator(
+            client=client,
+            execution_runtime=self.execution_runtime,
+            chain_id=self.chain_id,
+            charge_fees=self.charge_fees,
+        )
 
-        try:
-            return await self._run_task(task, payload)
-        finally:
-            async with self._counter_lock:
-                self._active_requests -= 1
-
-    async def _run_task(self, task: dict, payload: dict) -> dict:
-        process = None
-        try:
-            process = await self._start_task_process(task)
-            return await asyncio.wait_for(
-                self._wait_for_task_result(process, task),
-                timeout=self.timeout_ms / 1000,
-            )
-        except asyncio.TimeoutError:
-            await self._terminate_process(process)
+    def _acquire(self, payload: dict) -> bool:
+        if self._active_requests >= self.max_concurrency:
             logger.bind(
                 **build_log_fields(
                     stage="simulate_tx",
                     payload=payload,
+                    extra={
+                        "active_requests": self._active_requests,
+                        "simulation_max_concurrency": (self.max_concurrency),
+                    },
+                )
+            ).warning("Rejected readonly simulation because capacity is exhausted")
+            return False
+        self._active_requests += 1
+        return True
+
+    def _release(self, _finished=None) -> None:
+        self._active_requests -= 1
+
+    async def _run_prepared(self, prepared: "PreparedSimulation") -> dict:
+        if not self._acquire(prepared.payload):
+            return _simulation_error_result(
+                payload=prepared.payload,
+                message=("Simulation capacity exceeded on this node; retry later"),
+            )
+        # The slot stays taken until the run finishes, even after a timeout.
+        running = asyncio.ensure_future(asyncio.to_thread(prepared.run_in_rust))
+        running.add_done_callback(self._release)
+        try:
+            outcome = await asyncio.wait_for(
+                asyncio.shield(running), timeout=self.timeout_ms / 1000
+            )
+        except TimeoutError:
+            logger.bind(
+                **build_log_fields(
+                    stage="simulate_tx",
+                    payload=prepared.payload,
                     extra={"simulation_timeout_ms": self.timeout_ms},
                 )
             ).warning("Readonly simulation timed out")
             return _simulation_error_result(
-                payload=payload,
+                payload=prepared.payload,
                 message=(f"Simulation timed out on this node after {self.timeout_ms} ms"),
             )
-        except Exception as exc:
-            logger.bind(
-                **build_log_fields(
-                    stage="simulate_tx",
-                    payload=payload,
-                    extra={"error_type": type(exc).__name__},
-                )
-            ).error("Simulation worker failed")
-            return _simulation_error_result(
-                payload=payload,
-                message=f"Simulation error: {exc}",
-            )
-        finally:
-            if process is not None:
-                await self._terminate_process(process)
-
-    async def _start_task_process(self, task: dict):
-        return await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "xian.simulator_worker",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-    async def _wait_for_task_result(self, process, task: dict) -> dict:
-        stdout, stderr = await process.communicate(simulator_ipc.dumps(task))
-        if process.returncode != 0:
-            detail = stderr.decode("utf-8", errors="replace").strip()
-            if not detail:
-                detail = f"Simulation worker exited with code {process.returncode}"
-            raise RuntimeError(detail)
-
-        try:
-            result = simulator_ipc.loads(stdout)
-            if not isinstance(result, dict):
-                raise ValueError("simulation worker response must be a JSON object")
-            return result
-        except Exception as exc:
-            stderr_text = stderr.decode("utf-8", errors="replace").strip()
-            detail = stderr_text or "Simulation worker returned invalid data"
-            raise RuntimeError(f"{detail}: {exc}") from exc
-
-    @staticmethod
-    async def _terminate_process(process) -> None:
-        if process.returncode is not None:
-            return
-        process.terminate()
-        try:
-            await asyncio.wait_for(process.wait(), timeout=0.1)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
+        if isinstance(outcome, HandedBack):
+            # The Python path shares process state with consensus execution,
+            # so it runs here, on the event loop, never on a worker thread.
+            return prepared.run_on_python_path()
+        return outcome
 
     def close(self) -> None:
         return None
@@ -442,8 +519,36 @@ class QuerySimulationService:
 @dataclass(frozen=True, slots=True)
 class PreparedSimulation:
     service: QuerySimulationService
-    task: dict
+    simulator: TransactionSimulator
     payload: dict
+    block_meta: dict
+    max_chi: int
+    # The fork of the pending block state the simulation reads.
+    pending: object
 
     async def run(self) -> dict:
-        return await self.service._run_prepared(self.task, self.payload)
+        return await self.service._run_prepared(self)
+
+    def run_in_rust(self) -> dict | HandedBack:
+        return self.simulator.simulate_in_rust(
+            self.payload, pending=self.pending, block_meta=self.block_meta, max_chi=self.max_chi
+        )
+
+    def run_on_python_path(self) -> dict:
+        """The simulation on the Python path, over a driver of its own that
+        holds the forked pending state and the node's runtime features."""
+        live = self.simulator.client.raw_driver
+        driver = Driver(vm_profile=VM_EXECUTION_MODE, storage_home=live.storage_home)
+        try:
+            driver.restore_state(
+                {"pending_writes": self.pending.items(), "transaction_writes": {}, "log_events": []}
+            )
+            set_driver_runtime_features(driver, get_driver_runtime_features(live))
+            client = ContractingClient(
+                vm_profile=VM_EXECUTION_MODE, driver=driver, submission_filename=None
+            )
+            return self.service._simulator(client).simulate_on_python_path(
+                self.payload, block_meta=self.block_meta, max_chi=self.max_chi
+            )
+        finally:
+            driver.close()

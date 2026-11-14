@@ -8,17 +8,22 @@ from datetime import datetime, timezone
 from typing import Any
 
 from contracting.compilation import parser
+from contracting.runtime_features import RUNTIME_FEATURE_ZK, runtime_feature_without_state
 from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal, canonical_fixed
 from xian_runtime_types.encoding import is_wrapper_set
 from xian_runtime_types.time import Datetime
+from xian_vm_core import HandedBack, execute_tx
 
 from cometbft.abci.v1beta1.types_pb2 import ResponseQuery
 from xian.constants import Constants as c
 from xian.execution_engine import (
+    ContractPreparationError,
     execute_vm_contract,
     prepare_vm_contract,
+    vm_call_context,
 )
+from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.log_safety import error_fields
 from xian.services.bds.candles import get_candle_source_spec
 from xian.utils.block import (
@@ -311,30 +316,55 @@ def _call_contract_view(
         if ctx.raw_driver.get_contract_source(contract_name) is None and contract_ir is None:
             return None
 
-    state = ctx.raw_driver.snapshot_state()
+    call = {
+        "sender": ctx.key or "__query__",
+        "contract_name": contract_name,
+        "function_name": function_name,
+        "kwargs": dict(kwargs or {}),
+        "environment": _make_vm_query_environment(ctx),
+    }
+    run = _run_contract_view(ctx.raw_driver, call)
+    if isinstance(run, HandedBack):
+        run = _python_contract_view(runtime, ctx.raw_driver, call)
+    elif run.unprepared:
+        raise ContractPreparationError(str(run.result))
+    if run.status_code != 0:
+        logger.bind(
+            contract=contract_name,
+            function=function_name,
+            status=run.status_code,
+            error_type=type(run.result).__name__,
+        ).error("VM query failed")
+        return None
+    return run.result
+
+
+def _run_contract_view(driver, call: dict[str, Any]):
+    """A view in Rust: unmetered, without fees, on a fork of the pending
+    state that is dropped afterwards."""
+    environment, overlay = driver.committed_storage()
+    return execute_tx(
+        environment,
+        overlay.snapshot(),
+        sender=call["sender"],
+        contract_name=call["contract_name"],
+        function_name=call["function_name"],
+        kwargs=call["kwargs"],
+        context=vm_call_context(**call),
+        meter=False,
+        protected_keys=(EXECUTION_POLICY_KEY,),
+        zk_enabled_without_state=runtime_feature_without_state(driver, RUNTIME_FEATURE_ZK),
+    )
+
+
+def _python_contract_view(runtime, driver, call: dict[str, Any]):
+    """A view the Rust executor leaves to the Python path."""
+    state = driver.snapshot_state()
     try:
-        prepare_vm_contract(runtime, ctx.raw_driver, contract_name)
-        output = execute_vm_contract(
-            runtime,
-            ctx.raw_driver,
-            sender=ctx.key or "__query__",
-            contract_name=contract_name,
-            function_name=function_name,
-            kwargs=dict(kwargs or {}),
-            environment=_make_vm_query_environment(ctx),
-            meter=False,
-        )
-        if output.status_code != 0:
-            logger.bind(
-                contract=contract_name,
-                function=function_name,
-                status=output.status_code,
-                error_type=type(output.result).__name__,
-            ).error("VM query failed")
-            return None
-        return output.result
+        prepare_vm_contract(runtime, driver, call["contract_name"])
+        return execute_vm_contract(runtime, driver, meter=False, **call)
     finally:
-        ctx.raw_driver.restore_state(state)
+        driver.restore_state(state)
 
 
 def _pending_validators_votes(

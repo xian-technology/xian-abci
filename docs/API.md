@@ -65,6 +65,16 @@ Its chi budget is the chain's per-transaction cap `max_tx_chi` from
 default. A committed fee-policy change applies to later simulations. A dry run therefore
 never reports success for more chi than CheckTx admits.
 
+A simulation runs in the node process with the code a block runs (the Rust
+`xian_vm_core.execute_tx`), over a fork of the pending state taken when the
+query arrives; the fork is dropped afterwards. It runs on a worker thread
+without the interpreter lock, so blocks keep going; its chi budget bounds the
+work. Unlike a transaction, it does not reserve the fee budget from the
+sender's balance, so a small balance still gets an estimate of the chi used.
+`simulation_timeout_ms` bounds how long the query waits for the answer;
+`simulation_max_concurrency` bounds how many run at once (a run keeps its slot
+until it finishes, even after its query timed out).
+
 ## BDS-Backed Indexed Queries
 
 When BDS is enabled, `xian-abci` also exposes indexed/history reads.

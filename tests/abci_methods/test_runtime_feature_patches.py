@@ -155,7 +155,7 @@ class Node:
         return {
             "committed": app.client.raw_driver.value_from_disk(ZK_FEATURE_KEY),
             "node": app.runtime_features,
-            "simulator": app.simulator.runtime_features,
+            # Simulations run in-process and read the node driver's features.
             "driver": get_driver_runtime_features(app.client.raw_driver),
         }
 
@@ -215,7 +215,7 @@ class Chain:
         running, restarted = (node.feature_copies() for node in self.nodes)
         assert running == restarted
         assert running["committed"] is enabled
-        assert running["node"] == running["simulator"] == running["driver"] == {"zk": enabled}
+        assert running["node"] == running["driver"] == {"zk": enabled}
 
 
 def assert_zk_disabled_failure(receipt: dict) -> None:

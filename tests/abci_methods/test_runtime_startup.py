@@ -87,11 +87,9 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(RuntimeFeatureUnsupportedError, "zk verifier"):
                 self.app.refresh_runtime_features()
         self.assertEqual(self.app.runtime_features, {"zk": False})
-        self.assertEqual(self.app.simulator.runtime_features, {"zk": False})
 
         with patch("contracting.stdlib.bridge.zk.is_available", return_value=True):
             self.assertEqual(self.app.refresh_runtime_features(), {"zk": True})
-        self.assertEqual(self.app.simulator.runtime_features, {"zk": True})
 
     async def test_startup_uses_authoritative_marker_when_mirror_repair_fails(self):
         storage_home = self.app.client.raw_driver.storage_home

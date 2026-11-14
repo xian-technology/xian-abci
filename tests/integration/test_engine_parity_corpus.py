@@ -66,12 +66,24 @@ def test_the_inventory_lists_every_hand_back_and_outside_entry_point(tmp_path):
 
 @pytest.mark.parametrize("python", [True, False], ids=["python", "production"])
 def test_simulations_match_the_golden_fixture(tmp_path, python):
-    assert run_simulations(tmp_path, python=python) == load_fixture("simulations")
+    results, routes = run_simulations(tmp_path, python=python)
+
+    assert results == load_fixture("simulations")
+    if python:
+        assert set(routes.values()) == {PER_TX_PATH}
+    else:
+        assert handed_back(routes) == load_fixture("handback_inventory")["simulations"]
 
 
 @pytest.mark.parametrize("python", [True, False], ids=["python", "production"])
 def test_contract_views_match_the_golden_fixture(tmp_path, python):
-    assert run_contract_views(tmp_path, python=python) == load_fixture("contract_views")
+    results, routes = run_contract_views(tmp_path, python=python)
+
+    assert results == load_fixture("contract_views")
+    if python:
+        assert set(routes.values()) == {PER_TX_PATH}
+    else:
+        assert handed_back(routes) == load_fixture("handback_inventory")["contract_views"]
 
 
 @pytest.mark.usefixtures("node_home")

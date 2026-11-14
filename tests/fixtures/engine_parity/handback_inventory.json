@@ -14,18 +14,9 @@
   "balance/hal_success": "bool balance"
  },
  "contract_views": {
-  "view/decimal": "execute_vm_contract",
-  "view/deploy": "execute_vm_contract",
-  "view/dict": "execute_vm_contract",
-  "view/failure": "execute_vm_contract",
-  "view/import_cycle": "execute_vm_contract",
-  "view/metadata": "execute_vm_contract",
-  "view/missing_contract": "execute_vm_contract",
-  "view/not_exported": "execute_vm_contract",
-  "view/owner_allowed": "execute_vm_contract",
-  "view/owner_rejected": "execute_vm_contract",
-  "view/random": "execute_vm_contract",
-  "view/zk": "execute_vm_contract"
+  "view/import_cycle": "import graph contains a cycle",
+  "view/not_exported": "function is not exported",
+  "view/owner_rejected": "caller is not the owner"
  },
  "deploy": {
   "deploy/call_failed_deploy": "contract has no persisted IR",
@@ -64,27 +55,10 @@
   "rewards/split_text_success": "str reward input"
  },
  "simulations": {
-  "simulate/bad_kwargs": "simulator worker: execute_vm_transaction",
-  "simulate/change_owner": "simulator worker: execute_vm_transaction",
-  "simulate/deploy": "simulator worker: execute_vm_transaction",
-  "simulate/deploy_bad_source": "simulator worker: execute_vm_transaction",
-  "simulate/factory": "simulator worker: execute_vm_transaction",
-  "simulate/failure": "simulator worker: execute_vm_transaction",
-  "simulate/float_kwargs": "simulator worker: execute_vm_transaction",
-  "simulate/free_failure": "simulator worker: execute_vm_transaction",
-  "simulate/free_success": "simulator worker: execute_vm_transaction",
-  "simulate/missing_contract": "simulator worker: execute_vm_transaction",
-  "simulate/not_exported": "simulator worker: execute_vm_transaction",
-  "simulate/out_of_chi": "simulator worker: execute_vm_transaction",
-  "simulate/owner_rejected": "simulator worker: execute_vm_transaction",
-  "simulate/random": "simulator worker: execute_vm_transaction",
-  "simulate/str_balance": "simulator worker: execute_vm_transaction",
-  "simulate/success": "simulator worker: execute_vm_transaction",
-  "simulate/transfer": "simulator worker: execute_vm_transaction",
-  "simulate/unfunded_failure": "simulator worker: execute_vm_transaction",
-  "simulate/unfunded_success": "simulator worker: execute_vm_transaction",
-  "simulate/unseeded_random": "simulator worker: execute_vm_transaction",
-  "simulate/zk_registry": "simulator worker: execute_vm_transaction"
+  "simulate/missing_contract": "contract has no persisted IR",
+  "simulate/not_exported": "function is not exported",
+  "simulate/owner_rejected": "caller is not the owner",
+  "simulate/str_balance": "str balance"
  },
  "system_blocks": {},
  "values": {

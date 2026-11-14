@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import unittest
 from datetime import UTC, datetime
 from io import BytesIO
@@ -15,6 +16,7 @@ from abci.server import ProtocolHandler
 from abci.utils import read_messages
 from cometbft.abci.v1beta1.types_pb2 import RequestQuery
 from cometbft.abci.v1beta3.types_pb2 import Request, Response
+from xian.simulator import PreparedSimulation
 from xian.utils.block import set_latest_block, stage_latest_block
 from xian.xian_abci import Xian
 
@@ -629,17 +631,16 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_simulate_tx_query_releases_state_lock_while_worker_runs(self):
-        # The worker may run until simulation_timeout_ms. Untrusted RPC
+        # A simulation may run until simulation_timeout_ms. Untrusted RPC
         # simulations must not hold FinalizeBlock, Commit or CheckTx for that.
-        worker_started = asyncio.Event()
-        release_worker = asyncio.Event()
-        captured_tasks = []
+        worker_started = threading.Event()
+        release_worker = threading.Event()
+        captured = []
 
-        async def slow_worker(process, task):
-            del process
-            captured_tasks.append(task)
+        def slow_run(prepared):
+            captured.append(prepared)
             worker_started.set()
-            await release_worker.wait()
+            release_worker.wait(timeout=5)
             return {"status": 0, "result": "done"}
 
         payload = {
@@ -649,20 +650,13 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             "kwargs": {"account": ACCOUNT},
         }
         encoded_payload = json.dumps(payload).encode("utf-8").hex()
-        with (
-            patch.object(
-                self.app.simulator,
-                "_start_task_process",
-                AsyncMock(return_value=None),
-            ),
-            patch.object(self.app.simulator, "_wait_for_task_result", slow_worker),
-        ):
+        with patch.object(PreparedSimulation, "run_in_rust", slow_run):
             query_task = asyncio.create_task(
                 self.process_request(
                     Request(query=RequestQuery(path=f"/simulate_tx/{encoded_payload}"))
                 )
             )
-            await asyncio.wait_for(worker_started.wait(), timeout=5)
+            await asyncio.wait_for(asyncio.to_thread(worker_started.wait, 5), timeout=5)
             try:
                 await asyncio.wait_for(self.app._state_transition_lock.acquire(), timeout=1)
                 self.app._state_transition_lock.release()
@@ -672,7 +666,7 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value), {"status": 0, "result": "done"})
-        self.assertEqual(captured_tasks[0]["block_meta"], self.app.current_block_meta)
+        self.assertEqual(captured[0].block_meta, self.app.current_block_meta)
 
     async def test_simulate_tx_query_returns_structured_failure_when_disabled(
         self,

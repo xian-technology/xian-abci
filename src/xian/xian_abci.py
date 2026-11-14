@@ -237,17 +237,15 @@ class Xian:
         self.enable_tx_fee = self.tx_fee_policy.charge_fees
         self.simulation_max_chi = xian_config.get("simulation_max_chi")
         self.simulator = QuerySimulationService(
-            storage_home=constants.STORAGE_HOME,
+            client=self.client,
             execution_runtime=self.execution_runtime,
             get_block_meta=lambda: self.current_block_meta,
-            get_state_snapshot=lambda: self.client.raw_driver.snapshot_state(),
             chain_id=self.chain_id,
             enabled=xian_config.get("simulation_enabled", True),
             max_concurrency=xian_config.get("simulation_max_concurrency", 2),
             timeout_ms=xian_config.get("simulation_timeout_ms", 3000),
             max_chi=self.simulation_chi_budget(),
             charge_fees=self.tx_fee_policy.charge_fees,
-            runtime_features=self.runtime_features,
         )
         self.rewards_handler = RewardsHandler(client=self.client)
         self.current_block_meta: dict = None
@@ -366,7 +364,6 @@ class Xian:
         require_runtime_feature_support(resolution.features)
         self.runtime_feature_resolution = resolution
         self.runtime_features = install_driver_runtime_features(self.client.raw_driver, resolution)
-        self.simulator.runtime_features = dict(self.runtime_features)
         return self.runtime_features
 
     def simulation_chi_budget(self) -> int:

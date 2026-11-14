@@ -325,6 +325,30 @@ def prepare_vm_contract(
     )
 
 
+def vm_call_context(
+    *,
+    sender: str,
+    contract_name: str,
+    function_name: str,
+    kwargs: dict[str, Any],
+    environment: dict[str, Any],
+) -> dict[str, Any]:
+    """The VM context of an external call from ``sender`` in ``environment``
+    (``execute_contract``'s context; the executor reads the owner itself)."""
+    return {
+        "signer": sender,
+        "caller": sender,
+        "this": contract_name,
+        "entry": (contract_name, function_name),
+        "submission_name": (kwargs.get("name") if contract_name == "submission" else None),
+        "now": environment.get("now"),
+        "block_num": environment.get("block_num"),
+        "block_hash": environment.get("block_hash"),
+        "chain_id": environment.get("chain_id"),
+        "__input_hash": environment.get("__input_hash"),
+    }
+
+
 def execute_vm_contract(
     runtime: VmRuntime,
     driver,
@@ -346,19 +370,14 @@ def execute_vm_contract(
         return _failed_vm_result(ValueError(vm_contract_source_error(contract_name, function_name)))
 
     bindings = _load_vm_runtime_bindings()
-    context = {
-        "signer": sender,
-        "caller": sender,
-        "this": contract_name,
-        "entry": (contract_name, function_name),
-        "owner": getattr(driver, "get_owner", lambda _name: None)(contract_name),
-        "submission_name": (kwargs.get("name") if contract_name == "submission" else None),
-        "now": environment.get("now"),
-        "block_num": environment.get("block_num"),
-        "block_hash": environment.get("block_hash"),
-        "chain_id": environment.get("chain_id"),
-        "__input_hash": environment.get("__input_hash"),
-    }
+    context = vm_call_context(
+        sender=sender,
+        contract_name=contract_name,
+        function_name=function_name,
+        kwargs=kwargs,
+        environment=environment,
+    )
+    context["owner"] = getattr(driver, "get_owner", lambda _name: None)(contract_name)
     try:
         output = bindings.execute_contract(
             vm_profile=VM_EXECUTION_MODE,
