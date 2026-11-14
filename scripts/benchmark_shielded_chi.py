@@ -182,8 +182,10 @@ def process(
 
 
 def benchmark() -> dict[str, int]:
-    with tempfile.TemporaryDirectory() as storage_home:
-        client = ContractingClient(storage_home=Path(storage_home))
+    with (
+        tempfile.TemporaryDirectory() as storage_home,
+        ContractingClient(storage_home=Path(storage_home)) as client,
+    ):
         client.flush()
         processor = TxProcessor(client=client)
         note_prover = ShieldedNoteProver.build_insecure_dev_bundle()

@@ -335,18 +335,18 @@ def _build_genesis_block(
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
     submission_time = parse_genesis_time(genesis_time)
-    driver = Driver(vm_profile=VM_EXECUTION_MODE, storage_home=storage_home)
-    deploy_bundle_contracts(
-        driver,
-        founder_private_key=founder_private_key,
-        network=network,
-        contracts_dir=contracts_dir,
-        constructor_overrides=constructor_overrides,
-        runtime_features=runtime_features,
-        fee_policy=fee_policy,
-        submission_time=submission_time,
-    )
-    return finalize_genesis_block(driver, founder_private_key=founder_private_key)
+    with Driver(vm_profile=VM_EXECUTION_MODE, storage_home=storage_home) as driver:
+        deploy_bundle_contracts(
+            driver,
+            founder_private_key=founder_private_key,
+            network=network,
+            contracts_dir=contracts_dir,
+            constructor_overrides=constructor_overrides,
+            runtime_features=runtime_features,
+            fee_policy=fee_policy,
+            submission_time=submission_time,
+        )
+        return finalize_genesis_block(driver, founder_private_key=founder_private_key)
 
 
 def build_genesis_block(

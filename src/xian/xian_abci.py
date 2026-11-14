@@ -522,6 +522,7 @@ class Xian:
         await self.metrics_service.close()
         if self.bds_enabled and hasattr(self, "bds"):
             await self.bds.close()
+        self.client.close()
 
 
 def main():
