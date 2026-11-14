@@ -47,6 +47,7 @@ from unittest import mock
 
 from loguru import logger
 
+from xian.utils.tx import transaction_bytes
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 
@@ -1014,7 +1015,7 @@ def _run_block(chain: _Chain, height: int, block: Block, txs: list[dict]) -> dic
         chain.driver.set(key, value)
     try:
         responses = chain.processor.process_block(
-            txs, fee_policy=chain.policy, rewards_handler=chain.rewards
+            txs, [transaction_bytes(tx) for tx in txs], fee_policy=chain.policy, rewards_handler=chain.rewards
         )
         receipts = [
             _receipt(call, response) for call, response in zip(block.calls, responses, strict=True)

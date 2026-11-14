@@ -19,6 +19,7 @@ from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, encode
 from xian_runtime_types.time import Timedelta
 
+from xian.utils.tx import transaction_bytes
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
@@ -377,7 +378,9 @@ def _run(home, blocks, *, native, monkeypatch=None, policy=None, contracts=()):
     receipts = []
     for txs in blocks:
         if native:
-            responses = processor.process_block(txs, fee_policy=policy, rewards_handler=rewards)
+            responses = processor.process_block(
+                txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy, rewards_handler=rewards
+            )
         else:
             responses = [processor.process_tx(tx, rewards, fee_policy=policy) for tx in txs]
         for response in responses:
@@ -857,7 +860,12 @@ def _per_tx_logs(home, blocks, *, native, trace_logging, policy):
     try:
         for txs in blocks:
             if native:
-                processor.process_block(txs, fee_policy=policy, rewards_handler=rewards)
+                processor.process_block(
+                    txs,
+                    [transaction_bytes(tx) for tx in txs],
+                    fee_policy=policy,
+                    rewards_handler=rewards,
+                )
             else:
                 for tx in txs:
                     processor.process_tx(tx, rewards, fee_policy=policy)

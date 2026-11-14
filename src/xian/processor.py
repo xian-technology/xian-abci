@@ -6,7 +6,7 @@ from contracting.stdlib.bridge import zk as zk_bridge
 from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, safe_repr
 from xian_runtime_types.time import Datetime
-from xian_vm_core import BlockExecutor, coerce_call_kwargs, native_error_result
+from xian_vm_core import BlockExecutor, native_error_result
 
 from xian.app_logging import build_log_fields
 from xian.execution_engine import (
@@ -22,7 +22,7 @@ from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.fee_policy import TxFeePolicy, chain_chi_rate
 from xian.utils.block import nanoseconds_to_utc_datetime
 from xian.utils.encoding import normalize_contract_result
-from xian.utils.tx import canonical_transaction_size_bytes, tx_hash_from_tx
+from xian.utils.tx import canonical_transaction_size_bytes, transaction_bytes, tx_hash_from_tx
 
 
 class TxProcessor:
@@ -118,19 +118,27 @@ class TxProcessor:
     def process_system_tx(self, tx) -> dict:
         """The ``process_tx`` response for a system transaction (epoch
         rebalance, evidence penalty): unmetered, no fees, no rewards."""
-        [response] = self.process_block([tx], fee_policy=TxFeePolicy.system_unmetered())
+        [response] = self.process_block(
+            [tx], [transaction_bytes(tx)], fee_policy=TxFeePolicy.system_unmetered()
+        )
         return response
 
-    def process_block(self, txs, *, fee_policy: TxFeePolicy, rewards_handler=None) -> list[dict]:
+    def process_block(
+        self, txs, raw_txs, *, fee_policy: TxFeePolicy, rewards_handler=None
+    ) -> list[dict]:
         """``process_tx`` responses for a block's transactions, in order.
 
-        The transactions run in Rust over the block overlay with the GIL
-        released; each transaction that needs Python
+        ``raw_txs`` are the transactions' wire bytes (``txs`` decoded, with
+        ``b_meta``). The transactions run in Rust over the block overlay with
+        the GIL released; Rust reads each one's call, arguments and context
+        from its bytes. Each transaction that needs Python
         (see ``xian_vm_core.BlockExecutor``) runs through ``process_tx`` in
         its place in the block, and Rust continues after it. The outcomes are
         byte-identical either way.
         """
-        executor = self._block_executor(txs, fee_policy, rewards_handler)
+        if not txs:
+            return []
+        executor = self._block_executor(txs, raw_txs, fee_policy, rewards_handler)
         if executor is None:
             return [self.process_tx(tx, rewards_handler, fee_policy=fee_policy) for tx in txs]
         responses = []
@@ -160,7 +168,7 @@ class TxProcessor:
             self.cached_chi_cost = None
         return responses
 
-    def _block_executor(self, txs, fee_policy: TxFeePolicy, rewards_handler):
+    def _block_executor(self, txs, raw_txs, fee_policy: TxFeePolicy, rewards_handler):
         storage = self.client.raw_driver.committed_storage()
         if storage is None:
             return None
@@ -177,43 +185,11 @@ class TxProcessor:
             zk_enabled_without_state=runtime_feature_without_state(
                 self.client.raw_driver, RUNTIME_FEATURE_ZK
             ),
+            block_meta=txs[0]["b_meta"],
         )
-        for tx in txs:
-            payload = tx["payload"]
-            environment = self.get_environment(tx=tx)
-            try:
-                kwargs = coerce_call_kwargs(decode_wire_numbers(payload["kwargs"]))
-            except Exception:  # noqa: BLE001 - process_tx records this failure
-                kwargs = None
-            executor.add(
-                payload["sender"],
-                payload["contract"],
-                payload["function"],
-                kwargs,
-                self._vm_context(payload, kwargs, environment),
-                payload["chi_supplied"],
-                canonical_transaction_size_bytes(tx),
-            )
+        for raw in raw_txs:
+            executor.add(raw)
         return executor
-
-    @staticmethod
-    def _vm_context(payload: dict, kwargs: dict | None, environment: dict) -> dict:
-        """The execution context ``execute_vm_contract`` gives a transaction
-        (without the owner, which the executor reads)."""
-        contract = payload["contract"]
-        submission = contract == "submission" and kwargs is not None
-        return {
-            "signer": payload["sender"],
-            "caller": payload["sender"],
-            "this": contract,
-            "entry": (contract, payload["function"]),
-            "submission_name": kwargs.get("name") if submission else None,
-            "now": environment["now"],
-            "block_num": environment["block_num"],
-            "block_hash": environment["block_hash"],
-            "chain_id": environment["chain_id"],
-            "__input_hash": environment["__input_hash"],
-        }
 
     def _native_response(self, tx, outcome, fee_policy: TxFeePolicy) -> dict:
         """The ``process_tx`` response for a transaction executed in Rust,

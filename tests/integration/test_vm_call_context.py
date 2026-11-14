@@ -3,6 +3,7 @@
 import pytest
 from fee_probe_support import make_processor, process, tx
 
+from xian.utils.tx import transaction_bytes
 from xian.fee_policy import TxFeePolicy
 
 CONTEXT = """@export
@@ -73,7 +74,7 @@ def test_a_transaction_to_submission_carries_its_name_argument(tmp_path, path):
             response = process(processor, rewards, transaction)
         else:
             [response] = processor.process_block(
-                [transaction], fee_policy=TxFeePolicy.paid_metered(), rewards_handler=rewards
+                [transaction], [transaction_bytes(transaction)], fee_policy=TxFeePolicy.paid_metered(), rewards_handler=rewards
             )
 
         result = response["tx_result"]

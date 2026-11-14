@@ -19,6 +19,7 @@ import pytest
 from contracting.local import ContractingClient
 from xian_runtime_types.decimal import ContractingDecimal
 
+from xian.utils.tx import transaction_bytes
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
@@ -90,7 +91,9 @@ def chain(request, tmp_path, monkeypatch):
     def run(txs, policy=None):
         policy = policy or TxFeePolicy.paid_metered()
         if request.param == "rust":
-            responses = processor.process_block(txs, fee_policy=policy, rewards_handler=rewards)
+            responses = processor.process_block(
+                txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy, rewards_handler=rewards
+            )
         else:
             responses = [processor.process_tx(tx, rewards, fee_policy=policy) for tx in txs]
         driver.commit()

@@ -292,11 +292,12 @@ def _execute_block_transactions(
     with self.profiler.scope("finalize_execute", block_scoped=True):
         # The processor turns every deterministic failure into a receipt;
         # anything it raises is a host fault and must halt the node.
-        decoded_txs = [entry["tx"] for entry in decoded_entries if "tx" in entry]
+        decoded = [entry for entry in decoded_entries if "tx" in entry]
         processed_results = []
-        if decoded_txs:
+        if decoded:
             processed_results = self.tx_processor.process_block(
-                decoded_txs,
+                [entry["tx"] for entry in decoded],
+                [entry["tx_bytes"] for entry in decoded],
                 fee_policy=self.tx_fee_policy,
                 rewards_handler=self.rewards_handler,
             )

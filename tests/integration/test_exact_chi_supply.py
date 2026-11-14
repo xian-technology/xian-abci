@@ -23,6 +23,7 @@ import pytest
 from contracting.local import ContractingClient
 from xian_runtime_types.decimal import ContractingDecimal
 
+from xian.utils.tx import transaction_bytes
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.rewards import RewardsHandler
@@ -118,7 +119,7 @@ def _transaction(call, *, nonce, chi_supplied, block_meta):
 
 def _execute(processor, rewards, transaction):
     responses = processor.process_block(
-        [transaction], fee_policy=TxFeePolicy.paid_metered(), rewards_handler=rewards
+        [transaction], [transaction_bytes(transaction)], fee_policy=TxFeePolicy.paid_metered(), rewards_handler=rewards
     )
     return responses[0]["tx_result"]
 

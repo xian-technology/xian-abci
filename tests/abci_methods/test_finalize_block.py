@@ -21,7 +21,7 @@ logging.disable(logging.CRITICAL)
 
 def per_tx(process_tx):
     """A ``process_block`` stand-in that processes each transaction alone."""
-    return lambda txs, **kwargs: [process_tx(tx) for tx in txs]
+    return lambda txs, raw_txs, **kwargs: [process_tx(tx) for tx in txs]
 
 
 async def deserialize(raw: bytes) -> Response:

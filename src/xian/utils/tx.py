@@ -9,6 +9,7 @@ from xian_vm_core import decode_and_validate_transaction
 from xian.exceptions import TransactionException
 from xian.execution_policy import VM_EXECUTION_MODE
 from xian.fee_policy import chain_chi_rate
+from xian.utils.encoding import canonical_json_text, encode_transaction_bytes
 
 
 def canonical_json(value: dict) -> str:
@@ -25,6 +26,14 @@ def tx_hash_from_tx(tx):
     encoded_tx = encode_wire(tx_dict, vm_profile=VM_EXECUTION_MODE).encode("utf-8")
     h.update(encoded_tx)
     return h.hexdigest()
+
+
+def transaction_bytes(tx: dict) -> bytes:
+    """The wire bytes of a transaction document the node built itself (the
+    system transactions): the hex of its canonical JSON."""
+    return encode_transaction_bytes(
+        canonical_json_text({"metadata": tx["metadata"], "payload": tx["payload"]})
+    )
 
 
 def canonical_transaction_size_bytes(tx: dict) -> int:
