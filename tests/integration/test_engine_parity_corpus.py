@@ -24,7 +24,6 @@ from engine_parity_corpus import (
     run_corpus,
     run_simulations,
     run_system_blocks,
-    zk_available,
 )
 
 pytest.importorskip("xian_vm_core")
@@ -33,10 +32,8 @@ CORPORA = {corpus.name: corpus for corpus in corpora()}
 
 
 def _corpus(name: str):
-    corpus = CORPORA[name]
-    if corpus.requires_zk and not zk_available():
-        pytest.skip("the zk corpus needs the native zk verifier (the zk extra)")
-    return corpus
+    # Every corpus runs: the VM links the zk verifier.
+    return CORPORA[name]
 
 
 def _assert_blocks_equal(actual: dict, expected: dict, path: str) -> None:
@@ -64,7 +61,6 @@ def test_block_corpus_matches_the_golden_fixture_on_both_paths(tmp_path, name):
 
 
 def test_the_inventory_lists_every_hand_back_and_outside_entry_point(tmp_path):
-    # The zk hand-backs are decided by the module, with or without the verifier.
     assert handback_inventory(tmp_path) == load_fixture("handback_inventory")
 
 

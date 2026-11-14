@@ -21,8 +21,8 @@ and the production path both reproduce them byte for byte.
 | `handback_inventory.json` | Not golden: the cases the production path still runs on the Python path, with the reason (`process_block` and system transaction hand-backs measured; simulation and contract views by entry point). |
 | `inputs/groth16_bn254_demo.json` | Input: the demo Groth16 key, proof and public input (from `xian-zk`). |
 
-The zk corpus needs the native verifier (`--extra zk`); without it the test
-skips that corpus. All other corpora run with the default dependencies.
+Every corpus runs with the default dependencies: the VM (`xian-tech-vm-core`)
+links the zk verifier.
 
 ## When the golden fixtures may be regenerated
 
@@ -32,7 +32,7 @@ recorded here), together with the change that causes it, and with the
 diff reviewed case by case. Never to make a failing parity test pass during
 a refactor or a port: a difference there is a bug in the port.
 
-Regenerate on the Python path (needs the zk extra):
+Regenerate on the Python path:
 
     python -m tests.integration.engine_parity_corpus --write
 

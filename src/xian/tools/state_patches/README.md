@@ -102,7 +102,8 @@ validates, so bundles may not write them freely:
   loaded. A node that cannot support an enabled feature (for `zk`, a node
   without the native zk verifier) refuses to apply the patch: it halts at the
   activation block before computing its state root and resumes once the
-  operator installs the support (`xian-tech-abci[zk]`) and restarts it. The new
+  operator installs the support (a `xian-tech-vm-core` that links the zk
+  verifier, as every current one does) and restarts it. The new
   value governs execution, deployment and simulation from the block after the
   activation block, on running and restarted nodes alike. While `zk` is off,
   transactions that deploy or call contracts using zk host syscalls fail with

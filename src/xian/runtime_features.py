@@ -17,8 +17,8 @@ from contracting.stdlib.bridge import zk as zk_bridge
 ZK_VERIFIER_MISSING = (
     "this node has no native zk verifier but the chain's zk runtime feature is on. "
     "Shielded-contract proof verification is consensus critical; a node missing the "
-    "backend would fork the network. Install xian-tech-abci[zk] "
-    "(or xian-tech-contracting[zk])."
+    "backend would fork the network. Install a xian-tech-vm-core that links the "
+    "zk verifier (every current release does)."
 )
 
 

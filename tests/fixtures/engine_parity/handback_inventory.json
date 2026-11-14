@@ -98,21 +98,5 @@
   "entry/private_function": "function is not exported",
   "entry/source_only": "contract has no persisted IR"
  },
- "zk": {
-  "zk/available": "module uses zk host syscalls",
-  "zk/call_with_zk_disabled": "module uses zk host syscalls",
-  "zk/has_registered_key": "module uses zk host syscalls",
-  "zk/has_unknown_key": "module uses zk host syscalls",
-  "zk/importer_with_zk_disabled": "module uses zk host syscalls",
-  "zk/info": "module uses zk host syscalls",
-  "zk/info_unknown": "module uses zk host syscalls",
-  "zk/verify": "module uses zk host syscalls",
-  "zk/verify_low_chi": "module uses zk host syscalls",
-  "zk/verify_malformed_hex": "module uses zk host syscalls",
-  "zk/verify_registered": "module uses zk host syscalls",
-  "zk/verify_registered_again": "module uses zk host syscalls",
-  "zk/verify_registered_earlier_in_block": "module uses zk host syscalls",
-  "zk/verify_unregistered": "module uses zk host syscalls",
-  "zk/verify_wrong_input": "module uses zk host syscalls"
- }
+ "zk": {}
 }

@@ -284,7 +284,8 @@ def build_verification_request(driver, tx: dict) -> dict[str, Any] | None:
 
 
 def _warm_verified_proofs(requests: list[dict]) -> list[bool]:
-    # Preverification only warms a cache, so it must never be able to fail a
+    # Preverification only warms the node's proof cache (vm-core's, which the
+    # Rust block executor verifies through), so it must never be able to fail a
     # block. Requests come from transaction kwargs; a request the bridge
     # rejects is counted as unverified and execution verifies it normally.
     try:

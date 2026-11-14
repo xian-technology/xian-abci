@@ -97,7 +97,6 @@ class Corpus:
     name: str
     blocks: tuple[Block, ...]
     policy: str = "paid"
-    requires_zk: bool = False
 
 
 def _deploy(case, sender, name, code, chi=100_000, **extra):
@@ -634,7 +633,6 @@ def _zk_corpus() -> Corpus:
                 patch={"__runtime_features.zk": False},
             ),
         ),
-        requires_zk=True,
     )
 
 
@@ -1516,12 +1514,6 @@ def run_system_blocks(*, python: bool) -> tuple[dict, dict[str, str]]:
 # --- the frozen fixtures --------------------------------------------------------
 
 
-def zk_available() -> bool:
-    from contracting.stdlib.bridge import zk
-
-    return zk.is_available()
-
-
 def fixture_path(name: str) -> Path:
     return FIXTURES / f"{name}.json"
 
@@ -1573,8 +1565,6 @@ def handback_inventory(tmp: Path) -> dict[str, dict[str, str]]:
 
 
 def _write(writer: Callable[[Path], dict[str, dict]]) -> None:
-    if not zk_available():
-        raise SystemExit("the zk corpus needs the native verifier: install the zk extra")
     with tempfile.TemporaryDirectory(prefix="engine-parity-") as tmp:
         for name, outputs in writer(Path(tmp)).items():
             _write_fixture(name, outputs)
