@@ -63,6 +63,10 @@ class TestMembersContract(unittest.TestCase):
                 constructor_args={
                     "genesis_nodes": [NODE1, NODE2, NODE3],
                     "genesis_registration_fee": 1000,
+                    # Selection mechanics in a three-validator set: every
+                    # newcomer would exceed the newcomer power cap (tested
+                    # in xian-configs), so it is lifted here.
+                    "max_new_power_bps": 10000,
                 },
             )
 

@@ -67,7 +67,6 @@ class ValidatorEpochRebalanceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.membership = self.app.client.get_contract_proxy("validators")
 
-
     def create_finalize_block_request(self, height: int) -> Request:
         timestamp = Timestamp()
         timestamp.seconds = height
@@ -115,6 +114,7 @@ class ValidatorEpochRebalanceTests(unittest.IsolatedAsyncioTestCase):
         self.driver.set(f"validators.reward_keys:{challenger}", challenger)
         self.driver.set(f"validators.eligible_at_epoch:{challenger}", 1)
         self.driver.set("validators.config:selection_mode", "auto_top_n")
+        self.driver.set("validators.config:max_new_power_bps", 10000)
         self.driver.set("validators.config:max_validators", 1)
         self.driver.set("validators.config:power_mode", "requested")
         self.driver.set("validators.config:rebalance_interval", 5)

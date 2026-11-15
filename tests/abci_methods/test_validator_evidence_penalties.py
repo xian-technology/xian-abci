@@ -72,7 +72,6 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
         )
         self.membership = self.app.client.get_contract_proxy("validators")
 
-
     def create_finalize_block_request(
         self,
         height: int,
@@ -176,6 +175,8 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
         self.driver.set("validators.config:rebalance_interval", 1)
         self.driver.set("validators.config:min_self_bond", 100)
         self.driver.set("validators.config:min_total_bond", 100)
+        # The refill is the point here, not the newcomer power cap.
+        self.driver.set("validators.config:max_new_power_bps", 10000)
         self.driver.set("currency.balances:validators", 470)
 
         await self.finalize_block(

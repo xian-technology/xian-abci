@@ -8,6 +8,7 @@ from xian.app_logging import build_log_fields
 from xian.constants import Constants as c
 from xian.log_safety import error_fields
 from xian.methods._evidence import maybe_apply_evidence_penalties
+from xian.methods._liveness import maybe_record_liveness
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.utils.block import (
     convert_cometbft_time_to_datetime,
@@ -401,6 +402,9 @@ def _apply_evidence_and_epoch_rebalance(
             req,
             height=height,
         )
+
+    with self.profiler.scope("finalize_liveness", block_scoped=True):
+        maybe_record_liveness(self, req, height=height)
 
     with self.profiler.scope("finalize_epoch_rebalance", block_scoped=True):
         _maybe_run_validator_epoch_rebalance(

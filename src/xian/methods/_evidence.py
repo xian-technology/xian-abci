@@ -27,19 +27,26 @@ def _validator_consensus_address(pubkey_hex: str) -> bytes | None:
         return None
 
 
-def _resolve_misbehaving_validator_key(self, validator_address: bytes) -> str | None:
-    if not validator_address:
-        return None
+def validator_keys_by_address(self) -> dict[bytes, str]:
+    """Every known validator's key by its CometBFT consensus address (the
+    persistent registry, so former validators still resolve)."""
     known_validators = (
         self.client.raw_driver.get("validators.validator_registry")
         or self.client.raw_driver.get("validators.active_validators")
         or []
     )
+    keys = {}
     for validator_key in known_validators:
         consensus_address = _validator_consensus_address(validator_key)
-        if consensus_address == validator_address:
-            return validator_key
-    return None
+        if consensus_address is not None:
+            keys[consensus_address] = validator_key
+    return keys
+
+
+def _resolve_misbehaving_validator_key(self, validator_address: bytes) -> str | None:
+    if not validator_address:
+        return None
+    return validator_keys_by_address(self).get(validator_address)
 
 
 def _misbehavior_type_name(raw_type: int) -> str | None:
