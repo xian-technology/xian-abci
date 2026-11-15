@@ -10,6 +10,7 @@ from xian_runtime_types.encoding import decode_wire_numbers
 
 from xian.constants import Constants as c
 from xian.log_safety import error_fields
+from xian.state_root import exported_nonce_items
 
 LATEST_BLOCK_DEFAULT = {"hash": "", "height": 0, "nanos": 0}
 LATEST_BLOCK_READ_RETRIES = 8
@@ -192,17 +193,17 @@ def get_nanotime_from_block_time(timeobj) -> int:
     return (seconds * 1_000_000_000) + nanos
 
 
-def apply_state_changes_from_block(client, nonce_storage, block):
+def apply_state_changes_from_block(client, block):
     state_changes = block.get("genesis", [])
     rewards = block.get("rewards", [])
-
-    nonces = block.get("nonces", [])
 
     for change in state_changes:
         client.raw_driver.set(change["key"], decode_wire_numbers(change["value"]))
 
-    for n in nonces:
-        nonce_storage.set_nonce(n["key"], n["value"])
+    # The keys the genesis hash covers (an export's form), not re-derived
+    # from the sender: a second delimiter would store other keys.
+    for key, value in exported_nonce_items(block):
+        client.raw_driver.set(key, value)
 
     for change in rewards:
         client.raw_driver.set(change["key"], decode_wire_numbers(change["value"]))
@@ -210,9 +211,9 @@ def apply_state_changes_from_block(client, nonce_storage, block):
     client.raw_driver.commit()
 
 
-async def store_genesis_block(client, nonce_storage, genesis_block: dict):
+async def store_genesis_block(client, genesis_block: dict):
     if genesis_block is not None:
-        apply_state_changes_from_block(client, nonce_storage, genesis_block)
+        apply_state_changes_from_block(client, genesis_block)
 
 
 def create_latest_block_json_if_not_exists(

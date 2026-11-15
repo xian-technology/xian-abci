@@ -29,7 +29,6 @@ from xian.genesis_builder import (
     update_cometbft_genesis,
     write_genesis_block,
 )
-from xian.nonce import NonceStorage
 from xian.state_root import StateRootCache
 from xian.utils.block import store_genesis_block
 
@@ -74,11 +73,9 @@ class GenesisBuilderTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp_dir:
                 client = ContractingClient(vm_profile="xian_vm_v2", storage_home=Path(tmp_dir))
                 self.addCleanup(client.close)
-                nonce_storage = NonceStorage(client)
                 client.raw_driver.flush_full()
                 await store_genesis_block(
                     client,
-                    nonce_storage,
                     loaded_genesis,
                 )
                 return StateRootCache.from_driver(

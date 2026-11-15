@@ -122,7 +122,6 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                     app.client.raw_driver.flush_full()
                     await store_genesis_block(
                         app.client,
-                        app.nonce_storage,
                         app.genesis["abci_genesis"],
                     )
                     state_root = app.state_root_cache.rebuild(
@@ -229,7 +228,7 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(app.tx_fee_policy.mode, "paid_metered")
                 self.assertEqual(app.simulator.max_chi, 50_000)
                 driver = app.client.raw_driver
-                await store_genesis_block(app.client, app.nonce_storage, app.genesis["abci_genesis"])
+                await store_genesis_block(app.client, app.genesis["abci_genesis"])
                 # A governed state change takes effect once it is committed.
                 free = TxFeePolicy.free_metered(max_tx_chi=7, max_block_chi=70)
                 driver.set(FEE_POLICY_KEY, free.to_state())

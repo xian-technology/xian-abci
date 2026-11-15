@@ -146,16 +146,23 @@ def compute_driver_state_root(driver) -> bytes:
     return StateRootCache.from_driver(driver).root_hash
 
 
+def exported_nonce_items(exported_state: dict[str, Any]) -> list[tuple[str, Any]]:
+    """The stored nonce entries of an export or genesis: each ``nonces`` key
+    is the stored key without its ``__n.`` prefix (``xian-export-state``)."""
+    nonce_prefix = f"__n{contracting_constants.INDEX_SEPARATOR}"
+    return [
+        (f"{nonce_prefix}{nonce['key']}", nonce["value"])
+        for nonce in exported_state.get("nonces", [])
+    ]
+
+
 def exported_state_items(
     exported_state: dict[str, Any],
 ) -> list[tuple[str, Any]]:
     items: list[tuple[str, Any]] = [
         (entry["key"], entry["value"]) for entry in exported_state.get("genesis", [])
     ]
-    nonce_prefix = f"__n{contracting_constants.INDEX_SEPARATOR}"
-    for nonce in exported_state.get("nonces", []):
-        items.append((f"{nonce_prefix}{nonce['key']}", nonce["value"]))
-    return items
+    return items + exported_nonce_items(exported_state)
 
 
 def compute_exported_state_root(exported_state: dict[str, Any]) -> bytes:

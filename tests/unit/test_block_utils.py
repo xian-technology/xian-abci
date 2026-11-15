@@ -235,15 +235,7 @@ def ping():
             def commit(self):
                 self.commits += 1
 
-        class _NonceStorage:
-            def __init__(self):
-                self.nonces = {}
-
-            def set_nonce(self, key, value):
-                self.nonces[key] = value
-
         raw_driver = _RawDriver()
-        nonce_storage = _NonceStorage()
         client = SimpleNamespace(raw_driver=raw_driver)
         block = {
             "genesis": [
@@ -254,7 +246,7 @@ def ping():
             "rewards": [],
         }
 
-        apply_state_changes_from_block(client, nonce_storage, block)
+        apply_state_changes_from_block(client, block)
 
         self.assertEqual(
             raw_driver.pending_writes["con_test.__source__"],

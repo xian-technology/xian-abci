@@ -30,7 +30,8 @@ def _exported(height=461):
         "nanos": 1_700_000_000_000_000_000,
         "origin": {"signature": "", "sender": ""},
         "genesis": [{"key": key, "value": value} for key, value in sorted(entries.items())],
-        "nonces": [{"key": "alice", "value": 3}],
+        # xian-export-state's form: the stored key without the "__n." prefix.
+        "nonces": [{"key": "alice:", "value": 3}],
     }
     state["hash"] = compute_exported_state_root(state).hex()
     return state
@@ -56,7 +57,7 @@ def test_the_online_validators_continue_the_chain_alone():
         assert state[f"validators.jail_reasons:{key}"] == "downtime"
         assert state[f"validators.last_jailed_at:{key}"] == Datetime(2026, 11, 16, 10)
     assert state["currency.balances:alice"] == 5
-    assert genesis["abci_genesis"]["nonces"] == [{"key": "alice", "value": 3}]
+    assert genesis["abci_genesis"]["nonces"] == [{"key": "alice:", "value": 3}]
 
 
 def test_the_recovery_genesis_continues_at_the_next_height_with_a_valid_root():
@@ -111,3 +112,34 @@ def test_the_cli_writes_the_same_genesis_for_every_operator(tmp_path):
         outputs.append(output.read_bytes())
 
     assert outputs[0] == outputs[1]
+
+
+def test_a_node_starting_from_the_written_genesis_reaches_its_app_hash(tmp_path):
+    """InitChain applies the genesis file and refuses it unless the state it
+    builds has the advertised root; the senders' nonces must survive, or
+    their committed transactions could be replayed on the recovered chain."""
+    import asyncio
+
+    from contracting.local import ContractingClient
+    from xian_runtime_types.encoding import loads_wire_json
+
+    from xian.genesis_builder import write_genesis_block
+    from xian.nonce import NonceStorage
+    from xian.state_root import StateRootCache
+    from xian.utils.block import store_genesis_block
+
+    path = tmp_path / "genesis.json"
+    write_genesis_block(
+        path,
+        build_recovery_genesis(_exported(), ONLINE, chain_id="c", genesis_time=GENESIS_TIME),
+    )
+    genesis = loads_wire_json(path.read_bytes())
+    client = ContractingClient(vm_profile="xian_vm_v2", storage_home=tmp_path / "home")
+    try:
+        client.raw_driver.flush_full()
+        asyncio.run(store_genesis_block(client, genesis["abci_genesis"]))
+        root = StateRootCache.from_driver(client.raw_driver).root_hash.hex()
+        assert root == genesis["app_hash"]
+        assert NonceStorage(client).get_nonce("alice") == 3
+    finally:
+        client.close()
