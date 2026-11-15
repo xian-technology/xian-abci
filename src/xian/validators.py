@@ -77,6 +77,15 @@ class ValidatorHandler:
     def to_bytes(self, data: str) -> bytes:
         return bytes.fromhex(data)
 
+    def update(self, validator: str, power: int) -> ValidatorUpdate:
+        return ValidatorUpdate(pub_key=PublicKey(ed25519=self.to_bytes(validator)), power=power)
+
+    def genesis_validators(self) -> list[ValidatorUpdate]:
+        """The validator set genesis state selects, for InitChain: CometBFT
+        starts from it, so every later update applies to the set it knows."""
+        validators = self.get_validators_from_state(committed=True) or {}
+        return [self.update(validator, power) for validator, power in validators.items()]
+
     def build_validator_updates(self, height) -> list[ValidatorUpdate]:
         validators_state = self.get_validators_from_state() or {}
         validators_committed = self.committed_validators()
@@ -95,23 +104,13 @@ class ValidatorHandler:
         for validator, power in validators_state.items():
             current_power = validators_committed.get(validator)
             if current_power != power:
-                updates.append(
-                    ValidatorUpdate(
-                        pub_key=PublicKey(ed25519=self.to_bytes(validator)),
-                        power=power,
-                    )
-                )
+                updates.append(self.update(validator, power))
                 logger.bind(
                     stage="validator_update", validator=validator, power=power, block_height=height
                 ).info("Updating validator voting power")
         for validator in validators_committed:
             if validator not in validators_state:
-                updates.append(
-                    ValidatorUpdate(
-                        pub_key=PublicKey(ed25519=self.to_bytes(validator)),
-                        power=0,
-                    )
-                )
+                updates.append(self.update(validator, 0))
                 logger.bind(
                     stage="validator_update", validator=validator, block_height=height
                 ).info("Removing validator from effective set")

@@ -24,4 +24,7 @@ async def init_chain(self, req) -> ResponseInitChain:
         height=int(abci_genesis_state.get("number", 0) or 0),
     )
 
-    return ResponseInitChain(app_hash=state_root)
+    return ResponseInitChain(
+        app_hash=state_root,
+        validators=self.validator_handler.genesis_validators(),
+    )
