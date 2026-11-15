@@ -107,7 +107,7 @@ fixtures were regenerated with them and the diff reviewed case by case:
   same way, nothing else.
 
 - Unused-chi charge (block-capacity censorship fix, revision 14): a paid
-  transaction is charged `used + (chi_supplied - used) // 10`, a tenth of
+  transaction is charged `used + (chi_supplied - used) // 2`, half of
   the supplied chi it left unused, rounded down, and its receipt's
   `chi_used` reports that charge. The charge is burned: rewards stay
   computed on the chi used. Changed in the paid corpora (`blocks_balances`,
@@ -120,8 +120,8 @@ fixtures were regenerated with them and the diff reviewed case by case:
   way (`block_executor/{deployments,metadata,logs}_paid*`, `paid_blocks`,
   `random`, `scans`, `times`, `unencodable`, `v2_entry_results`,
   `block_executor_zk/*`); in `paid_blocks` the charge also drains `bob`
-  (250.5 tokens) sooner, so 18 of his later transactions (13 successes, 5
-  other failures) fail their reservation instead, with the rewards and
+  (250.5 tokens) sooner, so 26 later transactions (19 successes, 7 other
+  failures) fail their reservation instead, with the rewards and
   pending state that follow, and 4 of `alice`'s results (her balance) are
   lower. The free and unmetered golden fixtures are byte for byte
   unchanged.

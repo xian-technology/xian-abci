@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 from contracting.local import ContractingClient
+from fee_probe_support import charged_chi
 from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.fee_policy import TxFeePolicy
@@ -165,14 +166,9 @@ def _simulate_then_execute(chain, call, *, nonce, height, block_meta=None):
     return simulated, generous, short, exact
 
 
-def _charged(supplied, used):
-    """A paid receipt's chi: the chi used and the unused-chi charge."""
-    return used + (supplied - used) // 10
-
-
 def _assert_exact_supply_executes_as_simulated(simulated, generous, short, exact):
     assert generous["status"] == simulated["status"]
-    assert abs(generous["chi_used"] - _charged(SIMULATION_CAP, simulated["chi_used"])) <= 1
+    assert abs(generous["chi_used"] - charged_chi(SIMULATION_CAP, simulated["chi_used"])) <= 1
     _assert_the_estimate_is_the_supply_that_succeeds(simulated, short, exact)
 
 
@@ -181,7 +177,7 @@ def _assert_the_estimate_is_the_supply_that_succeeds(simulated, short, exact):
     assert estimate > 5
     assert exact["status"] == simulated["status"]
     # Below the estimate only when no supply uses exactly itself, and then
-    # by less than the 10 chi an unused-chi charge would round up from.
+    # by a chi or two.
     assert estimate - 10 < exact["chi_used"] <= estimate
     assert (short["status"], short["chi_used"]) == (1, estimate - 1)
     assert "Out of chi" in str(short["result"])

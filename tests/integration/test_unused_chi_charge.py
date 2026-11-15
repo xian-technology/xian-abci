@@ -1,14 +1,15 @@
-"""A paid transaction pays a tenth of the chi it supplied but did not use.
+"""A paid transaction pays half of the chi it supplied but did not use.
 
 Block capacity (``max_block_chi``) is counted over ``chi_supplied``: it is
 the only cost known before execution. Before revision 14's unused-chi
 charge a sender paid only the chi it used, so three transactions of 166,666
 supplied chi filled a 500k block for ~255 chi each and kept every honest
 transaction out (rv-network, B-censorship). Now the sender is charged
-``used + (supplied - used) // 10``. The extra charge is burned: fee rewards
+``used + (supplied - used) // 2``. The extra charge is burned: fee rewards
 stay computed on the chi used, so neither a validator nor a contract
-developer earns from wasted capacity. A client that supplies its estimate
-plus the 2-chi margin pays exactly its estimate.
+developer earns from wasted capacity. A 1-chi margin is free; a client that
+supplies its estimate plus the SDKs' 2-chi margin pays one chi more than
+its estimate.
 """
 
 import pytest
@@ -64,7 +65,7 @@ def used_chi(processor, function: str, budget: int) -> int:
 
 
 @pytest.mark.parametrize("function, status", [("touch", 0), ("fail", 1)])
-def test_unused_supplied_chi_is_charged_at_a_tenth_and_burned(processor, function, status):
+def test_unused_supplied_chi_is_charged_at_half_and_burned(processor, function, status):
     driver = processor.client.raw_driver
     budget = 9_999
     used = used_chi(processor, function, budget)
@@ -83,8 +84,8 @@ def test_unused_supplied_chi_is_charged_at_a_tenth_and_burned(processor, functio
     assert before - supply(driver) == ContractingDecimal(charged - used) / RATE
 
 
-@pytest.mark.parametrize("margin", [0, 2, 9])
-def test_a_supply_within_ten_chi_of_the_use_pays_only_the_use(processor, margin):
+@pytest.mark.parametrize("margin, extra", [(0, 0), (1, 0), (2, 1), (9, 4)])
+def test_a_margin_pays_half_of_itself_rounded_down(processor, margin, extra):
     driver = processor.client.raw_driver
     used = used_chi(processor, "touch", 9_000)
 
@@ -93,8 +94,8 @@ def test_a_supply_within_ten_chi_of_the_use_pays_only_the_use(processor, margin)
     ]
 
     assert result["status"] == 0
-    assert result["chi_used"] == used
-    assert driver.get("currency.balances:alice") == 10_000 - ContractingDecimal(used) / RATE
+    assert result["chi_used"] == used + extra
+    assert driver.get("currency.balances:alice") == 10_000 - ContractingDecimal(used + extra) / RATE
 
 
 def test_running_out_of_chi_leaves_nothing_unused(processor):
@@ -134,7 +135,7 @@ def test_free_execution_charges_nothing_for_unused_chi(processor):
     assert driver.get("currency.balances:alice") == 10_000
 
 
-def test_filling_a_block_by_supplied_chi_costs_a_tenth_of_the_block(tmp_path):
+def test_filling_a_block_by_supplied_chi_costs_half_of_the_block(tmp_path):
     """The B-censorship block: three senders, 166,666 supplied chi each."""
     processor = make_processor(tmp_path, balance=10_000, rate=RATE)
     driver = processor.client.raw_driver
@@ -156,6 +157,6 @@ def test_filling_a_block_by_supplied_chi_costs_a_tenth_of_the_block(tmp_path):
         paid = before - supply(driver, senders)
         charged = sum(response["tx_result"]["chi_used"] for response in responses)
         assert paid == ContractingDecimal(charged) / RATE
-        assert charged >= (DEFAULT_MAX_BLOCK_CHI - 3 * 100) // 10
+        assert charged >= (DEFAULT_MAX_BLOCK_CHI - 3 * 100) // 2
     finally:
         driver.close()

@@ -30,11 +30,16 @@ def set_value(new_value: int):
 """
 
 
+# The share (in percent) of the budget left unused that a paid transaction
+# is charged (xian-vm-core settlement::UNUSED_CHI_CHARGE_PERCENT).
+UNUSED_CHI_CHARGE_PERCENT = 50
+
+
 def charged_chi(budget: int, used: int) -> int:
     """A paid receipt's ``chi_used``: the chi used plus the unused-chi charge,
-    a tenth of the budget left unused, rounded down (revision 14). Fee
-    rewards are paid on ``used`` alone; the charge is burned."""
-    return used + max(budget - used, 0) // 10
+    half of the budget left unused, rounded down (revision 14). Fee rewards
+    are paid on ``used`` alone; the charge is burned."""
+    return used + max(budget - used, 0) * UNUSED_CHI_CHARGE_PERCENT // 100
 
 
 def paid_out_chi(result, rate: int) -> int:
