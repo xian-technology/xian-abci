@@ -17,6 +17,11 @@ NEW_MEMBER = "aa" * 32
 
 
 class TestMembersContract(unittest.TestCase):
+    def _delegated(self, delegator, validator):
+        return self.members.get_delegation(
+            delegator=delegator, validator=validator, signer=delegator
+        )["amount"]
+
     def setUp(self):
         # Bootstrap the environment
         self.chain_id = "test-chain"
@@ -225,7 +230,15 @@ class TestMembersContract(unittest.TestCase):
             ("change_registration_fee", -1),
             ("change_registration_fee", True),
             ("reward_change", [ContractingDecimal("0.5"), ContractingDecimal("0.5")]),
-            ("reward_change", [ContractingDecimal("0.5"), ContractingDecimal("0.6"), ContractingDecimal("-0.1"), 0]),
+            (
+                "reward_change",
+                [
+                    ContractingDecimal("0.5"),
+                    ContractingDecimal("0.6"),
+                    ContractingDecimal("-0.1"),
+                    0,
+                ],
+            ),
             ("dao_payout", {"amount": 10, "to": "recipient"}),
             (
                 "dao_payout",
@@ -835,7 +848,7 @@ class TestMembersContract(unittest.TestCase):
         self.assertTrue(NODE1 in self.members.active_validators.get())
         self.assertEqual(self.members.self_bond[NODE1], 240)
         self.assertEqual(self.members.total_delegated[NODE1], 160)
-        self.assertEqual(self.members.delegations["delegator1", NODE1], 160)
+        self.assertEqual(self._delegated("delegator1", NODE1), 160)
         self.assertEqual(self.members.total_slashed[NODE1], 100)
         self.assertIsNotNone(self.members.last_slashed_at[NODE1])
         self.assertEqual(self.currency.balances["slash_treasury"], treasury_balance_before + 100)
@@ -1045,7 +1058,7 @@ class TestMembersContract(unittest.TestCase):
         self.assertEqual(self.members.holdings[NEW_MEMBER], 0)
         self.assertEqual(self.currency.balances[NEW_MEMBER], before_balance + 1000)
 
-    def test_leave_forces_pending_unbonds_for_validator_and_delegator_stake(self):
+    def test_leave_unbonds_the_self_bond_and_delegators_leave_on_the_exit_clock(self):
         start_time = Datetime(year=2024, month=1, day=1, hour=12, minute=0, second=0)
         leave_time = Datetime(year=2024, month=1, day=8, hour=13, minute=0, second=0)
         claim_time = Datetime(year=2024, month=1, day=16, hour=13, minute=0, second=0)
@@ -1089,11 +1102,15 @@ class TestMembersContract(unittest.TestCase):
 
         self.assertEqual(self.members.statuses[NEW_MEMBER], "left")
         self.assertEqual(self.members.self_bond[NEW_MEMBER], 0)
-        self.assertEqual(self.members.total_delegated[NEW_MEMBER], 0)
-        self.assertEqual(self.members.delegations["delegator1", NEW_MEMBER], 0)
-        self.assertEqual(
-            self.members.get_delegators(validator=NEW_MEMBER, signer=NEW_MEMBER),
-            [],
+        # Delegations stay in the exited validator's pool until each
+        # delegator leaves; its unbond unlocks on the exit's clock.
+        self.assertEqual(self.members.total_delegated[NEW_MEMBER], 200)
+        self.assertEqual(self._delegated("delegator1", NEW_MEMBER), 200)
+        self.members.undelegate(
+            validator=NEW_MEMBER,
+            amount=200,
+            signer="delegator1",
+            environment={"now": claim_time, "block_num": 9},
         )
 
         validator_unbond_ids = self.members.get_pending_unbond_ids(
@@ -1122,7 +1139,7 @@ class TestMembersContract(unittest.TestCase):
         self.assertEqual(validator_unbond["reason"], "left")
         self.assertEqual(delegator_unbond["kind"], "delegation")
         self.assertEqual(delegator_unbond["amount"], 200)
-        self.assertEqual(delegator_unbond["reason"], "left")
+        self.assertEqual(delegator_unbond["unlock_at"], validator_unbond["unlock_at"])
 
         self.members.claim_unbond(
             unbond_id=validator_unbond["id"],
@@ -1144,7 +1161,7 @@ class TestMembersContract(unittest.TestCase):
             delegator_balance_before_claim + 200,
         )
 
-    def test_remove_member_forces_pending_unbonds_for_validator_and_delegator_stake(
+    def test_remove_member_unbonds_the_self_bond_and_keeps_delegations(
         self,
     ):
         self.currency.transfer(amount=3000, to=NEW_MEMBER, signer=self.deployer_vk)
@@ -1184,8 +1201,9 @@ class TestMembersContract(unittest.TestCase):
 
         self.assertEqual(self.members.statuses[NEW_MEMBER], "removed")
         self.assertEqual(self.members.self_bond[NEW_MEMBER], 0)
-        self.assertEqual(self.members.total_delegated[NEW_MEMBER], 0)
-        self.assertEqual(self.members.delegations["delegator1", NEW_MEMBER], 0)
+        self.assertEqual(self.members.total_delegated[NEW_MEMBER], 200)
+        self.assertEqual(self._delegated("delegator1", NEW_MEMBER), 200)
+        self.members.undelegate(validator=NEW_MEMBER, amount=200, signer="delegator1")
 
         validator_unbond_ids = self.members.get_pending_unbond_ids(
             owner=NEW_MEMBER,
@@ -1209,8 +1227,8 @@ class TestMembersContract(unittest.TestCase):
             self.members.get_pending_unbond(
                 unbond_id=delegator_unbond_ids[0],
                 signer="delegator1",
-            )["reason"],
-            "removed",
+            )["kind"],
+            "delegation",
         )
 
     def test_self_bond_and_delegation_update_reward_distribution_state(self):
@@ -1235,11 +1253,9 @@ class TestMembersContract(unittest.TestCase):
 
         self.assertEqual(self.members.self_bond[NODE1], 300)
         self.assertEqual(self.members.total_delegated[NODE1], 200)
-        self.assertEqual(self.members.delegations["delegator1", NODE1], 200)
-        self.assertEqual(
-            self.members.get_delegators(validator=NODE1, signer=NODE1),
-            ["delegator1"],
-        )
+        self.assertEqual(self._delegated("delegator1", NODE1), 200)
+        self.assertEqual(reward_info["delegator_count"], 1)
+        self.assertEqual(reward_info["total_shares"], 200)
         self.assertEqual(reward_info["commission_bps"], 1200)
         self.assertEqual(reward_info["total_bond"], 500)
 
@@ -1265,7 +1281,7 @@ class TestMembersContract(unittest.TestCase):
 
         self.assertEqual(unbond["amount"], 50)
         self.assertEqual(unbond["owner"], "delegator1")
-        self.assertEqual(self.members.delegations["delegator1", NODE1], 150)
+        self.assertEqual(self._delegated("delegator1", NODE1), 150)
 
         claimed = self.members.claim_unbond(
             unbond_id=unbond["id"],
@@ -1312,7 +1328,7 @@ class TestMembersContract(unittest.TestCase):
         self.assertTrue(result["applied"])
         self.assertEqual(result["slash_result"]["delegated_slashed"], 7.5)
         self.assertEqual(result["slash_result"]["pending_unbond_slashed"], 2.5)
-        self.assertEqual(self.members.delegations["delegator1", NODE1], 142.5)
+        self.assertEqual(self._delegated("delegator1", NODE1), 142.5)
         self.assertEqual(self.members.total_delegated[NODE1], 142.5)
         self.assertEqual(unbond_after["created_block"], 7)
         self.assertEqual(unbond_after["amount"], 47.5)
@@ -1371,13 +1387,13 @@ class TestMembersContract(unittest.TestCase):
         self.assertTrue(result["applied"])
         self.assertEqual(result["slash_result"]["delegated_slashed"], 7.5)
         self.assertEqual(result["slash_result"]["pending_unbond_slashed"], 0)
-        self.assertEqual(self.members.delegations["delegator1", NODE1], 142.5)
+        self.assertEqual(self._delegated("delegator1", NODE1), 142.5)
         self.assertEqual(self.members.total_delegated[NODE1], 142.5)
         self.assertEqual(unbond_after["created_block"], 7)
         self.assertEqual(unbond_after["amount"], 50)
         self.assertEqual(self.currency.balances["dao"], dao_balance_before + 7.5)
 
-    def test_unregister_forces_pending_unbonds_for_candidate_stake(self):
+    def test_unregister_unbonds_the_self_bond_and_keeps_delegations(self):
         self.currency.transfer(amount=3000, to=NEW_MEMBER, signer=self.deployer_vk)
         self.currency.transfer(amount=2000, to="delegator1", signer=self.deployer_vk)
         self.currency.approve(amount=2000, to="validators", signer=NEW_MEMBER)
@@ -1399,8 +1415,10 @@ class TestMembersContract(unittest.TestCase):
         self.assertEqual(self.members.statuses[NEW_MEMBER], "withdrawn")
         self.assertFalse(NEW_MEMBER in self.members.candidates.get())
         self.assertEqual(self.members.self_bond[NEW_MEMBER], 0)
-        self.assertEqual(self.members.total_delegated[NEW_MEMBER], 0)
-        self.assertEqual(self.members.delegations["delegator1", NEW_MEMBER], 0)
+        self.assertEqual(self._delegated("delegator1", NEW_MEMBER), 200)
+        self.members.undelegate(
+            validator=NEW_MEMBER, amount=200, signer="delegator1", environment={"block_num": 2}
+        )
 
         validator_unbond_ids = self.members.get_pending_unbond_ids(
             owner=NEW_MEMBER,
@@ -1424,8 +1442,8 @@ class TestMembersContract(unittest.TestCase):
             self.members.get_pending_unbond(
                 unbond_id=delegator_unbond_ids[0],
                 signer="delegator1",
-            )["reason"],
-            "withdrawn",
+            )["kind"],
+            "delegation",
         )
 
         validators = self.members.get_validators(signer=NODE1)

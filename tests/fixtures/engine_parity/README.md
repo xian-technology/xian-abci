@@ -49,6 +49,19 @@ adds.
 Execution revision 14 (unreleased) folds in these consensus changes; the
 fixtures were regenerated with them and the diff reviewed case by case:
 
+- Lazy delegator rewards (reward per share, folded into revision 14): every
+  paid receipt's `rewards` names its delegator bucket `delegator_pool_reward`
+  (was `delegator_reward`); no corpus validator has delegations, so the
+  bucket is empty everywhere and nothing else in the block corpora changed
+  (each block file is the old one with the key renamed; app hashes
+  unchanged). `system_blocks.json`: the system receipts are identical; every
+  app hash (and the response bytes that carry it) changes because the
+  harness deploys the current `validators` contract, whose source and state
+  layout changed (with the previous contract the new engine reproduces the
+  old file exactly). The block executor goldens
+  (`fixtures/golden/block_executor`) are byte-identical once the bucket is
+  renamed back.
+
 - Random work bounds (single-engine plan, finding 8): `random.seed` accepts
   only a str, int (bool included) or `None` salt (decision 4); any other salt
   fails with `random.seed() salt must be a str, int or None`. Changed:
