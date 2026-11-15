@@ -9,7 +9,6 @@ from xian.constants import Constants as c
 from xian.log_safety import error_fields
 from xian.methods._evidence import maybe_apply_evidence_penalties
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
-from xian.shielded_preverify import warm_shielded_proof_cache
 from xian.utils.block import (
     convert_cometbft_time_to_datetime,
     get_nanotime_from_block_time,
@@ -268,19 +267,6 @@ def _decode_block_transactions(self, req, *, height: int, block_hash: str):
     return decoded_entries, decoded_txs
 
 
-def _preverify_shielded_for_serial_execution(self, decoded_txs: list[dict]):
-    with self.profiler.scope("finalize_shielded_preverify", block_scoped=True):
-        shielded_preverify_stats = warm_shielded_proof_cache(
-            driver=self.tx_processor.client.raw_driver,
-            txs=decoded_txs,
-        )
-    self.profiler.set_block_metadata(
-        shielded_preverify_candidates=shielded_preverify_stats.candidate_count,
-        shielded_preverify_verified=shielded_preverify_stats.verified_count,
-        shielded_preverify_failed=shielded_preverify_stats.failed_count,
-    )
-
-
 def _execute_block_transactions(
     self,
     decoded_entries: list[dict],
@@ -536,7 +522,6 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         height=height,
         block_hash=block_hash,
     )
-    _preverify_shielded_for_serial_execution(self, decoded_txs)
 
     with self.profiler.scope("finalize_tx_loop", block_scoped=True):
         processed_entries = _execute_block_transactions(
