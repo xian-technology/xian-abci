@@ -7,6 +7,7 @@ from unittest.mock import patch
 import nacl.encoding
 import nacl.signing
 import pytest
+from loguru import logger
 from xian_runtime_types.encoding import decode, encode
 
 from abci.server import ProtocolHandler
@@ -171,6 +172,52 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(list(response.prepare_proposal.txs), [valid_tx])
+
+    async def test_prepare_proposal_reports_skipped_transactions_once(self):
+        # A mempool far larger than one block is the normal case under load;
+        # one log record per skipped transaction made proposals miss the
+        # propose timeout, so the proposer reports skips once per proposal.
+        self.app.tx_fee_policy = TxFeePolicy.free_metered(
+            max_tx_chi=100,
+            max_block_chi=150,
+        )
+        included = make_signed_tx_bytes(nonce=0, chi_supplied=100)
+        over_block_chi = make_signed_tx_bytes(nonce=1, chi_supplied=100)
+        nonce_gap = make_signed_tx_bytes(nonce=2, chi_supplied=10)
+        invalid = make_signed_tx_bytes(nonce=1, chi_supplied=10, mutate_signature=True)
+        over_block_bytes = make_signed_tx_bytes(nonce=1, chi_supplied=10, memo="x" * 1000)
+        skipped = [over_block_chi, nonce_gap, invalid]
+        max_tx_bytes = len(included) + max(map(len, skipped))
+        records = []
+        sink = logger.add(lambda message: records.append(message.record), level="DEBUG")
+        self.addCleanup(logger.remove, sink)
+
+        response = await self.process_request(
+            "prepare_proposal",
+            Request(
+                prepare_proposal=RequestPrepareProposal(
+                    max_tx_bytes=max_tx_bytes,
+                    txs=[included, over_block_bytes, *skipped],
+                )
+            ),
+        )
+
+        self.assertEqual(list(response.prepare_proposal.txs), [included])
+        proposal_records = [
+            record for record in records if record["extra"].get("stage") == "prepare_proposal"
+        ]
+        self.assertEqual(len(proposal_records), 1)
+        counts = proposal_records[0]["extra"]
+        self.assertEqual(
+            (
+                counts["included_txs"],
+                counts["skipped_over_block_chi"],
+                counts["skipped_nonce"],
+                counts["skipped_invalid"],
+                counts["skipped_over_block_bytes"],
+            ),
+            (1, 1, 1, 1, 1),
+        )
 
     async def test_prepare_proposal_filters_duplicate_nonce(self):
         tx_one = make_signed_tx_bytes(nonce=0)

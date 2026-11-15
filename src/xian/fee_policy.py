@@ -212,8 +212,11 @@ class TxFeePolicy:
                 f"per-transaction limit of {self.max_tx_chi} chi"
             )
 
+    def fits_block(self, total_chi_supplied: int) -> bool:
+        return not self.meter_execution or total_chi_supplied <= self.max_block_chi
+
     def validate_block_total(self, total_chi_supplied: int) -> None:
-        if self.meter_execution and total_chi_supplied > self.max_block_chi:
+        if not self.fits_block(total_chi_supplied):
             raise TransactionException(
                 f"Block chi_supplied {total_chi_supplied} would exceed the chain's "
                 f"per-block limit of {self.max_block_chi} chi"
