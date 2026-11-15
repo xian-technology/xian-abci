@@ -772,7 +772,7 @@ class TestMembersContract(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.members.propose_vote(
                 type_of_vote="jail_member",
-                arg={"member": NODE1, "reason": "downtime"},
+                arg={"member": NODE1, "reason": "maintenance"},
                 signer=NODE1,
             )
 
@@ -922,7 +922,7 @@ class TestMembersContract(unittest.TestCase):
 
         self.members.propose_vote(
             type_of_vote="jail_member",
-            arg={"member": NODE1, "reason": "downtime"},
+            arg={"member": NODE1, "reason": "maintenance"},
             signer=NODE2,
         )
         self.members.vote(proposal_id=1, vote="yes", signer=NODE1)
@@ -936,7 +936,7 @@ class TestMembersContract(unittest.TestCase):
         self.assertEqual(self.members.total_delegated[NODE1], 200)
         self.assertEqual(
             self.members.get_validator(account=NODE1, signer=NODE1)["jail_reason"],
-            "downtime",
+            "maintenance",
         )
         self.assertIsNotNone(
             self.members.get_validator(account=NODE1, signer=NODE1)["last_jailed_at"]
@@ -1006,7 +1006,7 @@ class TestMembersContract(unittest.TestCase):
 
         self.members.propose_vote(
             type_of_vote="jail_member",
-            arg={"member": NODE1, "reason": "downtime"},
+            arg={"member": NODE1, "reason": "maintenance"},
             signer=NODE2,
             environment={"block_num": 1},
         )

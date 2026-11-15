@@ -368,7 +368,7 @@ class MyTestCase(unittest.TestCase):
                     "function": "propose_vote",
                     "kwargs": {
                         "type_of_vote": "jail_member",
-                        "arg": {"member": NEW_NODE, "reason": "downtime"},
+                        "arg": {"member": NEW_NODE, "reason": "maintenance"},
                     },
                     "chi_supplied": 1000,
                 },
