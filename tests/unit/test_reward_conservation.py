@@ -3,7 +3,10 @@
 A transaction is charged ``chi / rate`` (a ``ContractingDecimal`` truncated
 to 30 places). Its rewards are paid from that fee: every share is truncated,
 none is negative, and their sum never exceeds the fee. What is not paid
-(the burn share and the truncation dust) is burned. A split whose paid
+(the burn share and the truncation dust) is burned. A validator's
+delegators are paid through its pool: the pool's credit goes to the
+``validators`` balance, and the rate per share it adds can never let the
+pool's shares claim more than that credit. A split whose paid
 ratios are negative or sum to more than 1 pays no rewards (the fee is
 burned).
 """
@@ -40,9 +43,27 @@ def _assert_conserves(case):
     if rewards is None:
         return False
     assert all(amount >= 0 for amount in deltas.values()), deltas
-    paid = sum(deltas.values(), ContractingDecimal(0))
+    balances = {key: amount for key, amount in deltas.items() if key.startswith("currency.")}
+    paid = sum(balances.values(), ContractingDecimal(0))
     assert paid <= _fee(case), (paid, _fee(case), case["state"]["rewards.S:value"])
+    _assert_pools_hold_their_claims(case, deltas)
     return True
+
+
+def _assert_pools_hold_their_claims(case, deltas):
+    """A pool credit reaches the validators balance in full, and its shares
+    can never claim more than it: rate per share * shares <= credit."""
+    pools = {
+        key.removeprefix("validators.reward_pool:"): amount
+        for key, amount in deltas.items()
+        if key.startswith("validators.reward_pool:")
+    }
+    credited = deltas.get("currency.balances:validators", ContractingDecimal(0))
+    assert sum(pools.values(), ContractingDecimal(0)) == credited, deltas
+    for validator, pool in pools.items():
+        rate = deltas[f"validators.reward_per_share:{validator}"]
+        shares = case["state"][f"validators.total_shares:{validator}"]
+        assert rate > 0 and rate * shares <= pool, (validator, rate, shares, pool)
 
 
 @pytest.mark.parametrize("corpus", [cases, failed_cases], ids=["paid", "failed"])

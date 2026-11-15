@@ -7,7 +7,11 @@ They were frozen from the retired Python reference (28-digit Python decimal),
 then restated once for revision 14's ContractingDecimal arithmetic: the last
 digits of the shares, the foundation share rounded down at 8 places instead
 of half to even, and an operator share that truncates to zero is no longer a
-zero credit (``test_reward_conservation`` pins the rule).
+zero credit (``test_reward_conservation`` pins the rule). Restated a second
+time for revision 14's lazy delegator rewards: a validator's delegators are
+paid through its pool (one ``delegator_pool_reward`` per validator, no
+per-delegator credit), the operator takes the rounding of that split, and the
+commission is capped at the policy's ``max_commission_bps``.
 
 ``tests/fixtures/failed_reward_outputs.json`` pins the payout of a failed
 transaction over the same configurations: no developer reward, and a paid
@@ -86,6 +90,7 @@ def _case(rng, index):
             state[f"validators.delegator_reward_keys:{delegator}:{validator}"] = rng.choice(
                 [None, "", f"drk_{delegator}"]
             )
+    _add_pools(state, validators, index)
     contracts = [f"con_{n}" for n in range(rng.randrange(1, 4))]
     for contract in contracts:
         state[f"{contract}.__developer__"] = rng.choice([None, "sys", "", f"dev_{contract}"])
@@ -98,6 +103,27 @@ def _case(rng, index):
         "contract": contracts[0],
         "contract_costs": contract_costs,
     }
+
+
+def _add_pools(state, validators, index):
+    """Each validator's delegation pool (reward per share): it holds the
+    positive delegations drawn above, over shares drawn here, with the
+    policy's commission cap. A second generator draws them, so every earlier
+    draw is the one the corpus always had; the per-delegator keys stay in the
+    state, which the fee path must not read."""
+    rng = random.Random(SEED * 1000 + index)
+    state["validators.config:max_commission_bps"] = rng.choice([None, 0, 500, 2000, 10000])
+    for validator in validators:
+        delegations = [
+            value
+            for key, value in state.items()
+            if key.startswith("validators.delegations:") and key.endswith(f":{validator}")
+        ]
+        delegated = sum(value for value in delegations if value is not None and value > 0)
+        state[f"validators.total_delegated:{validator}"] = delegated
+        state[f"validators.total_shares:{validator}"] = rng.choice(
+            [None, 0, 1, 7, ContractingDecimal("0.5"), delegated or 1, ContractingDecimal("1e-30")]
+        )
 
 
 def cases():

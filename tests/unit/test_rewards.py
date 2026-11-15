@@ -22,7 +22,6 @@ class _FakeClient:
         commission_bps=None,
         self_bonds=None,
         delegations=None,
-        delegator_reward_keys=None,
     ):
         developers = developers or {
             "con_parent": "alice",
@@ -34,7 +33,6 @@ class _FakeClient:
         commission_bps = commission_bps or {}
         self_bonds = self_bonds or {}
         delegations = delegations or {}
-        delegator_reward_keys = delegator_reward_keys or {}
         self._values = {
             ("rewards", "S", ("value",)): [
                 Decimal("0"),
@@ -57,18 +55,11 @@ class _FakeClient:
             self._values[("validators", "commission_bps", (validator,))] = bps
         for validator, amount in self_bonds.items():
             self._values[("validators", "self_bond", (validator,))] = amount
-        delegator_lists: dict[str, list[str]] = {}
-        for (delegator, validator), amount in delegations.items():
-            self._values[
-                ("validators", "delegations", (delegator, validator))
-            ] = amount
-            delegator_lists.setdefault(validator, []).append(delegator)
-        for validator, delegators in delegator_lists.items():
-            self._values[("validators", "delegator_lists", (validator,))] = delegators
-        for (delegator, validator), reward_key in delegator_reward_keys.items():
-            self._values[
-                ("validators", "delegator_reward_keys", (delegator, validator))
-            ] = reward_key
+        # A delegation pool whose shares were bought at one token each.
+        for (_delegator, validator), amount in delegations.items():
+            for variable in ("total_delegated", "total_shares"):
+                key = ("validators", variable, (validator,))
+                self._values[key] = self._values.get(key, Decimal(0)) + amount
 
     def state(self) -> dict:
         """The values as state keys (decimals as stored, ContractingDecimal)."""
@@ -202,7 +193,6 @@ class RewardsHandlerTests(unittest.TestCase):
             reward_keys={"node1": "validator-reward"},
             self_bonds={"node1": Decimal("100")},
             delegations={("alice", "node1"): Decimal("100")},
-            delegator_reward_keys={("alice", "node1"): "alice-reward"},
         )
         client._values[("rewards", "S", ("value",))] = [
             Decimal("0.70"),
@@ -218,15 +208,17 @@ class RewardsHandlerTests(unittest.TestCase):
         )
 
         self.assertEqual(str(rewards["validator_reward"]["validator-reward"]), "2.5")
-        self.assertEqual(str(rewards["delegator_reward"]["alice-reward"]), "2.5")
+        self.assertEqual(str(rewards["delegator_pool_reward"]["validators"]), "2.5")
         self.assertEqual(rewards["developer_reward"], {})
         self.assertEqual(rewards["foundation_reward"], {})
         self.assertEqual(str(reward_deltas["currency.balances:validator-reward"]), "2.5")
-        self.assertEqual(str(reward_deltas["currency.balances:alice-reward"]), "2.5")
+        self.assertEqual(str(reward_deltas["currency.balances:validators"]), "2.5")
+        self.assertEqual(str(reward_deltas["validators.reward_pool:node1"]), "2.5")
+        self.assertEqual(str(reward_deltas["validators.reward_per_share:node1"]), "0.025")
         self.assertNotIn("currency.balances:foundation", reward_deltas)
         self.assertEqual(
             [record["type"] for record in reward_records],
-            ["validator_reward", "delegator_reward"],
+            ["validator_reward", "delegator_pool_reward"],
         )
 
     def test_only_unclaimed_developer_share_returns_to_validator_pool(self):
@@ -302,20 +294,16 @@ class RewardsHandlerTests(unittest.TestCase):
             contract="con_parent",
         )
 
+        self.assertEqual(str(rewards["validator_reward"]["validator-reward-1"]), "1.5")
+        self.assertEqual(str(rewards["validator_reward"]["validator-reward-2"]), "0.5")
+        self.assertEqual(str(reward_deltas["currency.balances:validator-reward-1"]), "1.5")
+        self.assertEqual(str(reward_deltas["currency.balances:validator-reward-2"]), "0.5")
         self.assertEqual(
-            str(rewards["validator_reward"]["validator-reward-1"]), "1.5"
-        )
-        self.assertEqual(
-            str(rewards["validator_reward"]["validator-reward-2"]), "0.5"
-        )
-        self.assertEqual(
-            str(reward_deltas["currency.balances:validator-reward-1"]), "1.5"
-        )
-        self.assertEqual(
-            str(reward_deltas["currency.balances:validator-reward-2"]), "0.5"
-        )
-        self.assertEqual(
-            [record["recipient_key"] for record in reward_records if record["type"] == "validator_reward"],
+            [
+                record["recipient_key"]
+                for record in reward_records
+                if record["type"] == "validator_reward"
+            ],
             ["validator-reward-1", "validator-reward-2"],
         )
 
@@ -352,9 +340,6 @@ class RewardsHandlerTests(unittest.TestCase):
                 ("alice", "node1"): Decimal("200"),
                 ("bob", "node1"): Decimal("500"),
             },
-            delegator_reward_keys={
-                ("alice", "node1"): "alice-reward",
-            },
         )
         client._values[("rewards", "S", ("value",))] = [
             Decimal("0.40"),
@@ -369,23 +354,15 @@ class RewardsHandlerTests(unittest.TestCase):
             contract="con_parent",
         )
 
-        self.assertEqual(
-            str(rewards["validator_reward"]["validator-reward"]), "0.74"
-        )
-        self.assertEqual(
-            str(rewards["delegator_reward"]["alice-reward"]), "0.36"
-        )
-        self.assertEqual(str(rewards["delegator_reward"]["bob"]), "0.9")
-        self.assertEqual(
-            str(reward_deltas["currency.balances:validator-reward"]), "0.74"
-        )
-        self.assertEqual(
-            str(reward_deltas["currency.balances:alice-reward"]), "0.36"
-        )
-        self.assertEqual(str(reward_deltas["currency.balances:bob"]), "0.9")
+        self.assertEqual(str(rewards["validator_reward"]["validator-reward"]), "0.74")
+        # The delegators' part (0.36 + 0.9) goes to the pool, per share.
+        self.assertEqual(str(rewards["delegator_pool_reward"]["validators"]), "1.26")
+        self.assertEqual(str(reward_deltas["currency.balances:validator-reward"]), "0.74")
+        self.assertEqual(str(reward_deltas["validators.reward_pool:node1"]), "1.26")
+        self.assertEqual(str(reward_deltas["validators.reward_per_share:node1"]), "0.0018")
         self.assertEqual(
             [record["type"] for record in reward_records if "validator_key" in record],
-            ["validator_reward", "delegator_reward", "delegator_reward"],
+            ["validator_reward", "delegator_pool_reward"],
         )
 
 

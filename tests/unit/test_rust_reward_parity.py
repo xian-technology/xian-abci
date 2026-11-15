@@ -12,7 +12,12 @@ digits; no rewards for a split whose paid ratios are negative or exceed one
 where the 28-digit context could not represent the shares (6).
 The VM boundary refuses a state value V2 cannot store (a dictionary keyed by
 a codec tag such as ``{"__fixed__": "1"}``), so those cases raise; each of
-them was frozen as no rewards. The pinned corpus is
+them was frozen as no rewards. Restated a second time for revision 14's lazy
+delegator rewards (delegation pools and the policy's commission cap, drawn
+from a second generator so the earlier draws are unchanged): 2973 of 3000
+outcomes unchanged, 25 paid amounts differ, one case is now unpaid (a pool
+input that is no number) and one now paid (an invalid per-delegator reward
+key, which the fee path no longer reads). The pinned corpus is
 ``test_reward_output_corpus``.
 """
 
@@ -114,6 +119,7 @@ def _wide_case(rng, index):
             state[f"validators.delegator_reward_keys:{delegator}:{validator}"] = rng.choice(
                 [None, "", "drk", False]
             )
+    _add_wide_pools(state, validators, index)
     contracts = [f"c{n}" for n in range(rng.randrange(1, 4))]
     for contract in contracts:
         state[f"{contract}.__developer__"] = rng.choice([None, "sys", "", "dev", 0, 9])
@@ -130,6 +136,17 @@ def _wide_case(rng, index):
         "contract_costs": costs,
         "pay_developers": rng.random() < 0.5,
     }
+
+
+def _add_wide_pools(state, validators, index):
+    """Delegation pools and the commission cap, from a second generator (so
+    the corpus's earlier draws are unchanged)."""
+    rng = random.Random(20261113 * 1000 + index)
+    state["validators.config:max_commission_bps"] = _wide_number(rng)
+    for validator in validators if isinstance(validators, list) else []:
+        validator = str(validator)
+        state[f"validators.total_delegated:{validator}"] = _wide_number(rng)
+        state[f"validators.total_shares:{validator}"] = _wide_number(rng)
 
 
 NO_REWARDS = _encoded((None, {}, []))
