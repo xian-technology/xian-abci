@@ -104,6 +104,22 @@ class ConfigureNodeExternalAddressTests(unittest.TestCase):
         self.assertEqual(first.p2p_external_address, "203.0.113.10:26656")
         self.assertEqual(second.p2p_external_address, "")
 
+    def test_genesis_sha256_reaches_the_home_configuration(self):
+        from unittest import mock
+
+        from xian.cli import configure_node
+
+        with mock.patch.object(configure_node, "configure_existing_home", return_value={}) as cfg:
+            configure_node.main(["--moniker", "v", "--genesis-sha256", "AB" * 32])
+            configure_node.main(["--moniker", "v"])
+
+        first, second = (call.args[0] for call in cfg.call_args_list)
+        self.assertEqual(first.expected_genesis_sha256, "ab" * 32)
+        self.assertIsNone(second.expected_genesis_sha256)
+        for invalid in ("abc", "zz" * 32):
+            with self.subTest(invalid=invalid), self.assertRaises(SystemExit):
+                build_parser().parse_args(["--moniker", "v", "--genesis-sha256", invalid])
+
 
 class ConfigureNodeFeePolicyTests(unittest.TestCase):
     def test_fee_policy_flags_are_genesis_inputs(self):
@@ -149,3 +165,18 @@ class ConfigureNodeFeePolicyTests(unittest.TestCase):
             configure_node.main(
                 ["--moniker", "v", "--genesis-bundle", "devnet", "--chain-id", "xian-devnet-1"]
             )
+
+
+class ConfigureNodeGenesisFlagTests(unittest.TestCase):
+    def test_conflicting_or_incomplete_genesis_flags_are_refused(self):
+        from xian.cli import configure_node
+
+        bundle = ["--genesis-bundle", "devnet", "--genesis-time", "2026-03-30T00:00:00Z"]
+        cases = (
+            (["--genesis-time", "2026-03-30T00:00:00Z"], "--genesis-time requires"),
+            (["--genesis-source", "devnet", *bundle], "not both"),
+            (bundle, "--chain-id is required"),
+        )
+        for flags, message in cases:
+            with self.subTest(flags=flags), self.assertRaisesRegex(ValueError, message):
+                configure_node.main(["--moniker", "v", *flags])

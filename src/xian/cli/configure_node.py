@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from argparse import ArgumentParser, BooleanOptionalAction
+from argparse import ArgumentParser, ArgumentTypeError, BooleanOptionalAction
 
 from xian.fee_policy import (
     FEE_POLICY_FIELDS,
@@ -21,6 +21,13 @@ from xian.node_setup import (
 )
 
 BDS_DEFAULTS = BdsOptions()
+
+
+def _sha256_hex(value: str) -> str:
+    normalized = value.lower()
+    if len(normalized) != 64 or any(ch not in "0123456789abcdef" for ch in normalized):
+        raise ArgumentTypeError("must be a 64-character hex sha256")
+    return normalized
 
 
 def build_parser() -> ArgumentParser:
@@ -99,6 +106,15 @@ def build_parser() -> ArgumentParser:
         help=(
             "genesis source inside xian-configs, for example "
             "'networks/custom/genesis.json' or a relative path"
+        ),
+        required=False,
+    )
+    parser.add_argument(
+        "--genesis-sha256",
+        type=_sha256_hex,
+        help=(
+            "the network's pinned genesis_sha256; refuse to configure the home "
+            "when the requested (or already installed) genesis hashes differently"
         ),
         required=False,
     )
@@ -515,31 +531,44 @@ def _genesis_fee_policy(args) -> dict[str, object]:
     }
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if args.genesis_bundle is not None and args.genesis_source is not None:
-        raise ValueError("pass either --genesis-source or --genesis-bundle, not both")
-    if args.genesis_time is not None and args.genesis_bundle is None:
+def _reject_bundle_only_flags(args, fee_policy: dict[str, object]) -> None:
+    if args.genesis_time is not None:
         raise ValueError("--genesis-time requires --genesis-bundle")
-    if args.genesis_bundle is not None and args.genesis_time is None:
+    if fee_policy:
+        raise ValueError("fee policy options are genesis inputs and require --genesis-bundle")
+
+
+def _require_bundle_inputs(args) -> None:
+    if args.genesis_source is not None:
+        raise ValueError("pass either --genesis-source or --genesis-bundle, not both")
+    if args.genesis_time is None:
         raise ValueError(
             "--genesis-bundle requires --genesis-time so all operators build one chain"
         )
+    if not args.chain_id:
+        raise ValueError("--chain-id is required with --genesis-bundle")
+
+
+def _requested_bundle_genesis(args) -> dict | None:
+    """Build the --genesis-bundle genesis after checking the genesis flags fit together."""
     fee_policy = _genesis_fee_policy(args)
-    if fee_policy and args.genesis_bundle is None:
-        raise ValueError("fee policy options are genesis inputs and require --genesis-bundle")
-    genesis_payload = None
-    if args.genesis_bundle is not None:
-        if not args.chain_id:
-            raise ValueError("--chain-id is required with --genesis-bundle")
-        genesis_payload = build_bundle_network_genesis(
-            chain_id=args.chain_id,
-            network=args.genesis_bundle,
-            genesis_time=args.genesis_time,
-            runtime_features={"zk": args.runtime_feature_zk},
-            fee_policy=fee_policy,
-        )
+    if args.genesis_bundle is None:
+        _reject_bundle_only_flags(args, fee_policy)
+        return None
+    _require_bundle_inputs(args)
+    return build_bundle_network_genesis(
+        chain_id=args.chain_id,
+        network=args.genesis_bundle,
+        genesis_time=args.genesis_time,
+        runtime_features={"zk": args.runtime_feature_zk},
+        fee_policy=fee_policy,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    genesis_payload = _requested_bundle_genesis(args)
     result = configure_existing_home(
         ExistingHomeOptions(
             moniker=args.moniker,
@@ -552,6 +581,7 @@ def main(argv: list[str] | None = None) -> int:
             snapshot_expected_chain_id=args.snapshot_expected_chain_id,
             genesis_source=args.genesis_source,
             genesis_payload=genesis_payload,
+            expected_genesis_sha256=args.genesis_sha256,
             node_config=NodeConfigOptions(
                 moniker=args.moniker,
                 p2p_external_address=args.p2p_external_address,

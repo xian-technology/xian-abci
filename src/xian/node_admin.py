@@ -20,7 +20,10 @@ from xian.constants import Constants as c
 from xian.node_setup import (
     NodeConfigOptions,
     build_priv_validator_key,
+    genesis_sha256,
+    load_genesis,
     render_node_configs,
+    verify_genesis_sha256,
     write_json,
     write_toml,
 )
@@ -61,6 +64,7 @@ class ExistingHomeOptions:
     snapshot_expected_chain_id: str | None = None
     genesis_source: str | None = None
     genesis_payload: dict[str, Any] | None = None
+    expected_genesis_sha256: str | None = None
     node_config: NodeConfigOptions | None = None
 
 
@@ -369,6 +373,7 @@ def configure_existing_home(request: ExistingHomeOptions) -> dict[str, str | lis
     rendered_config = rendered_configs["cometbft"]
     xian_config = rendered_configs["xian"]
     config = preserve_runtime_config(rendered_config, existing_config)
+    _verify_genesis_pin(request, config["genesis_file"])
 
     snapshot_archive_name = _restore_snapshot(request)
     genesis_target_path = _install_genesis(request, config["genesis_file"])
@@ -399,6 +404,19 @@ def _restore_snapshot(request: ExistingHomeOptions) -> str | None:
         trusted_manifest_public_keys=list(request.snapshot_signing_public_keys) or None,
         expected_chain_id=request.snapshot_expected_chain_id,
     )
+
+
+def _verify_genesis_pin(request: ExistingHomeOptions, genesis_file: str) -> None:
+    """Refuse, before anything is written, a home whose genesis would differ from the pin."""
+    if request.expected_genesis_sha256 is None:
+        return
+    if request.genesis_payload is not None:
+        genesis = request.genesis_payload
+    elif request.genesis_source is not None:
+        genesis = load_genesis(resolve_genesis_source(request.genesis_source))
+    else:
+        genesis = load_genesis(resolve_home_relative_path(request.home, genesis_file))
+    verify_genesis_sha256(genesis_sha256(genesis), request.expected_genesis_sha256)
 
 
 def _install_genesis(request: ExistingHomeOptions, genesis_file: str) -> Path | None:

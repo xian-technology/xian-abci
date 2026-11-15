@@ -22,10 +22,14 @@ from xian.node_admin import (
 from xian.node_setup import (
     AppLoggingOptions,
     BdsOptions,
+    GenesisIntegrityError,
     MetricsOptions,
     NodeConfigOptions,
     SimulationOptions,
     StateSyncOptions,
+    genesis_sha256,
+    render_node_configs,
+    write_json,
     write_toml,
 )
 from xian.toml_utils import load as load_toml
@@ -782,3 +786,94 @@ prometheus = false
 
 if __name__ == "__main__":
     unittest.main()
+
+
+PINNED_GENESIS = {"chain_id": "xian-pinned-1", "validators": [], "abci_genesis": {}}
+OTHER_GENESIS = PINNED_GENESIS | {"chain_id": "xian-other-1"}
+
+
+class ConfigureExistingHomeGenesisPinTests(unittest.TestCase):
+    """configure_existing_home (xian-configure-node, xian-deploy) enforces genesis_sha256."""
+
+    def _home(self, tmp_path: Path, *, installed_genesis: dict | None = None) -> Path:
+        home = tmp_path / ".cometbft"
+        (home / "config").mkdir(parents=True)
+        initial = render_node_configs(options=NodeConfigOptions(moniker="initial"))
+        write_toml(home / "config" / "config.toml", initial["cometbft"])
+        if installed_genesis is not None:
+            write_json(home / "config" / "genesis.json", installed_genesis)
+        return home
+
+    def _files(self, home: Path) -> dict[Path, bytes]:
+        return {path: path.read_bytes() for path in home.rglob("*") if path.is_file()}
+
+    def _sources(self, tmp_path: Path) -> dict[str, dict]:
+        configs_dir = tmp_path / "xian-configs"
+        (configs_dir / "networks" / "other").mkdir(parents=True)
+        (configs_dir / "networks" / "other" / "genesis.json").write_text(
+            json.dumps(OTHER_GENESIS, indent=2), encoding="utf-8"
+        )
+        return {
+            "genesis_source": {"genesis_source": "other"},
+            "genesis_payload": {"genesis_payload": OTHER_GENESIS},
+        }
+
+    def test_a_requested_genesis_other_than_the_pin_is_refused_before_any_write(self):
+        for name in ("genesis_source", "genesis_payload"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_path = Path(tmp_dir)
+                home = self._home(tmp_path)
+                request = self._sources(tmp_path)[name]
+                before = self._files(home)
+                env = {"XIAN_CONFIGS_DIR": str(tmp_path / "xian-configs")}
+                with patch.dict("os.environ", env), self.assertRaises(GenesisIntegrityError):
+                    configure_existing_home(
+                        ExistingHomeOptions(
+                            moniker="pinned",
+                            home=home,
+                            expected_genesis_sha256=genesis_sha256(PINNED_GENESIS),
+                            **request,
+                        )
+                    )
+                self.assertEqual(self._files(home), before)
+
+    def test_the_pinned_genesis_is_installed(self):
+        for name in ("genesis_source", "genesis_payload"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_path = Path(tmp_dir)
+                home = self._home(tmp_path)
+                request = self._sources(tmp_path)[name]
+                env = {"XIAN_CONFIGS_DIR": str(tmp_path / "xian-configs")}
+                with patch.dict("os.environ", env):
+                    result = configure_existing_home(
+                        ExistingHomeOptions(
+                            moniker="pinned",
+                            home=home,
+                            expected_genesis_sha256=genesis_sha256(OTHER_GENESIS),
+                            **request,
+                        )
+                    )
+                installed = json.loads(Path(result["genesis_path"]).read_text())
+                self.assertEqual(installed, OTHER_GENESIS)
+
+    def test_without_a_requested_genesis_the_installed_one_is_checked(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = self._home(Path(tmp_dir), installed_genesis=OTHER_GENESIS)
+            before = self._files(home)
+            with self.assertRaises(GenesisIntegrityError):
+                configure_existing_home(
+                    ExistingHomeOptions(
+                        moniker="pinned",
+                        home=home,
+                        expected_genesis_sha256=genesis_sha256(PINNED_GENESIS),
+                    )
+                )
+            self.assertEqual(self._files(home), before)
+            result = configure_existing_home(
+                ExistingHomeOptions(
+                    moniker="pinned",
+                    home=home,
+                    expected_genesis_sha256=genesis_sha256(OTHER_GENESIS),
+                )
+            )
+            self.assertIsNone(result["genesis_path"])
