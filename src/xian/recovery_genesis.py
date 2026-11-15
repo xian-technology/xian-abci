@@ -5,16 +5,20 @@ CometBFT cannot commit another block, and no transaction (governance or
 downtime jailing) can change the set. The remaining operators then restart
 the chain from its last committed state: each stops its node, exports the
 state (``xian-export-state``), and everyone builds the same recovery genesis
-from it. The genesis keeps the chain id and continues at the next height;
-only the validators kept stay active, and the others leave the set as
-validators jailed for downtime do (power 0, ``approved``, jailed with reason
-``downtime`` at the genesis time), so they return through the usual unjail
-path once their nodes run again.
+from it. The genesis keeps the chain id and continues two heights after the
+export: the halted chain voted on the height after it and never committed
+it, so no height carries votes of both chains (old votes cannot become
+duplicate-vote evidence, and every signer may sign the first new height
+without resetting its last-signed state). Only the validators kept stay
+active, and the others leave the set as validators jailed for downtime do
+(power 0, ``approved``, jailed with reason ``downtime`` at the genesis time),
+so they return through the usual unjail path once their nodes run again.
 """
 
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
 from typing import Any
 
 from xian_runtime_types.time import Datetime
@@ -22,10 +26,12 @@ from xian_runtime_types.time import Datetime
 from xian.genesis_builder import (
     build_cometbft_genesis,
     build_validator_genesis_entry_from_public_key,
+    normalize_genesis_time,
     parse_genesis_time,
 )
 from xian.state_export import prepare_state_import
 from xian.state_root import compute_exported_state_root
+from xian.utils.block import nanoseconds_to_utc_datetime
 from xian.validators import CONSENSUS_VALIDATORS_KEY
 
 ACTIVE_KEY = "validators.active_validators"
@@ -72,6 +78,14 @@ def _recovered_entries(
     return entries
 
 
+def _require_later_than_export(exported_state: dict[str, Any], genesis_time: str) -> None:
+    last_block_time = nanoseconds_to_utc_datetime(int(exported_state["nanos"]))
+    if datetime.fromisoformat(normalize_genesis_time(genesis_time)) <= last_block_time:
+        raise ValueError(
+            f"the recovery genesis time must be after the last block ({last_block_time})"
+        )
+
+
 def build_recovery_genesis(
     exported_state: dict[str, Any],
     keep: list[str],
@@ -82,6 +96,7 @@ def build_recovery_genesis(
     """The CometBFT genesis that restarts the chain from ``exported_state``
     (its last committed state) with only the active validators in ``keep``."""
     prepare_state_import(exported_state)  # refuses a tampered export
+    _require_later_than_export(exported_state, genesis_time)
     abci_genesis = deepcopy(exported_state)
     state = {entry["key"]: entry["value"] for entry in abci_genesis["genesis"]}
     state.update(_recovered_entries(state, keep, parse_genesis_time(genesis_time)))
@@ -98,6 +113,6 @@ def build_recovery_genesis(
         ],
         genesis_time=genesis_time,
     )
-    # The first block after the export's last committed height.
-    genesis["initial_height"] = str(int(abci_genesis["number"]) + 1)
+    # Skip the height the halted chain was voting on (see the module docstring).
+    genesis["initial_height"] = str(int(abci_genesis["number"]) + 2)
     return genesis

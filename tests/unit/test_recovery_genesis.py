@@ -60,14 +60,18 @@ def test_the_online_validators_continue_the_chain_alone():
     assert genesis["abci_genesis"]["nonces"] == [{"key": "alice:", "value": 3}]
 
 
-def test_the_recovery_genesis_continues_at_the_next_height_with_a_valid_root():
+def test_the_recovery_genesis_skips_the_halted_height_with_a_valid_root():
     genesis = build_recovery_genesis(
         _exported(461), ONLINE, chain_id="xian-test-1", genesis_time=GENESIS_TIME
     )
 
     abci_genesis = genesis["abci_genesis"]
     assert abci_genesis["number"] == 461
-    assert genesis["initial_height"] == "462"
+    # The halted chain voted on 462 and never committed it. Starting at 463
+    # leaves no height both chains signed: no duplicate-vote evidence from
+    # the halted chain's votes, and no validator waits for its signer's
+    # last round.
+    assert genesis["initial_height"] == "463"
     assert bytes.fromhex(abci_genesis["hash"]) == compute_exported_state_root(abci_genesis)
     assert genesis["app_hash"] == abci_genesis["hash"]
     assert genesis["chain_id"] == "xian-test-1"
@@ -83,6 +87,14 @@ def test_the_recovery_genesis_continues_at_the_next_height_with_a_valid_root():
 def test_the_validators_kept_must_be_distinct_active_validators(keep, message):
     with pytest.raises(ValueError, match=message):
         build_recovery_genesis(_exported(), keep, chain_id="c", genesis_time=GENESIS_TIME)
+
+
+def test_a_genesis_time_before_the_last_block_is_refused():
+    # 1_700_000_000 s is 2023-11-14T22:13:20Z: contract time must not go back.
+    with pytest.raises(ValueError, match="after the last block"):
+        build_recovery_genesis(
+            _exported(), ONLINE, chain_id="c", genesis_time="2023-11-14T22:13:20.000000Z"
+        )
 
 
 def test_a_tampered_export_is_refused():
