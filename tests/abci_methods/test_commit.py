@@ -51,6 +51,15 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
         driver_commit.assert_called_once_with()
         self.assertEqual(self.app.nonce_storage.pending_nonces, {})
 
+    async def test_commit_reports_the_check_tx_rejections_of_its_block(self):
+        self.app.check_tx_rejections["TransactionException"] += 2
+
+        with patch("xian.methods.commit.report_check_tx_rejections") as report:
+            with patch.object(self.app.client.raw_driver, "commit"):
+                await self.process_request(Request(commit=RequestCommit()))
+
+        report.assert_called_once_with(self.app, height=0)
+
     async def test_pruning_retains_exactly_blocks_to_keep(self):
         self.app.pruning_enabled = True
         self.app.blocks_to_keep = 10

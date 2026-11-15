@@ -7,6 +7,7 @@ from unittest.mock import patch
 import nacl.encoding
 import nacl.signing
 import pytest
+from loguru import logger
 from xian_runtime_types.encoding import decode, encode
 
 from abci.server import ProtocolHandler
@@ -14,6 +15,7 @@ from abci.utils import read_messages
 from cometbft.abci.v1beta1.types_pb2 import RequestCheckTx
 from cometbft.abci.v1beta3.types_pb2 import Request, Response
 from xian.fee_policy import DEFAULT_MAX_TX_CHI, TxFeePolicy
+from xian.methods.check_tx import report_check_tx_rejections
 from xian.utils.encoding import encode_transaction_bytes
 from xian.xian_abci import Xian
 
@@ -205,6 +207,38 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
                 self.app.nonce_storage.get_next_nonce(SENDER),
                 VALID_NONCE,
             )
+
+    async def test_check_tx_rejections_are_counted_not_logged_per_transaction(self):
+        # A public RPC node can be sent any number of invalid transactions;
+        # a WARNING record per rejection, which re-encoded the transaction to
+        # hash it, turned that into log and CPU spam. Rejections are counted
+        # and reported once per committed block; the responses are unchanged.
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+        rejected = [
+            make_signed_tx_bytes(nonce=VALID_NONCE + 5),
+            make_signed_tx_bytes(nonce=VALID_NONCE + 6),
+            b"not hex",
+        ]
+        records = []
+        sink = logger.add(lambda message: records.append(message.record), level="INFO")
+        self.addCleanup(logger.remove, sink)
+
+        with patch("xian.app_logging.tx_hash_from_tx", side_effect=AssertionError):
+            responses = [
+                (await self.process_request(self.make_request(tx))).check_tx for tx in rejected
+            ]
+
+        self.assertEqual([response.code for response in responses], [1, 1, 1])
+        self.assertIn("Transaction nonce is invalid", responses[0].log)
+        self.assertEqual([record for record in records if record["level"].no >= 20], [])
+        report_check_tx_rejections(self.app, height=7)
+        report_check_tx_rejections(self.app, height=8)
+        (summary,) = records
+        self.assertEqual(summary["level"].name, "INFO")
+        self.assertEqual(summary["extra"]["block_height"], 7)
+        self.assertEqual(summary["extra"]["stage"], "check_tx")
+        self.assertEqual(summary["extra"]["rejected_txs"], 3)
+        self.assertEqual(summary["extra"]["TransactionException"], 3)
 
     async def test_check_tx_bad_signature_does_not_reserve_nonce(self):
         self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)

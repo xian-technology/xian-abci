@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -148,12 +149,14 @@ def test_sink_rotates_by_time_and_preserves_unowned_names(tmp_path):
 def test_check_tx_failure_logs_reason_without_exception_payload(tmp_path):
     from xian.methods.check_tx import _rejected_check_tx
 
-    configure_logging(SimpleNamespace(STORAGE_HOME=tmp_path), {})
+    # Rejections are DEBUG records (counted per block at INFO).
+    configure_logging(SimpleNamespace(STORAGE_HOME=tmp_path), {"app_log_level": "DEBUG"})
+    node = SimpleNamespace(check_tx_rejections=Counter())
     try:
         result = _rejected_check_tx(
-            error=ValueError("secret-signed-request"), raw_tx=b"secret-signed-request"
+            node, error=ValueError("secret-signed-request"), raw_tx=b"secret-signed-request"
         )
-        _rejected_check_tx(error=ValueError("Bad signature"), raw_tx=b"bad")
+        _rejected_check_tx(node, error=ValueError("Bad signature"), raw_tx=b"bad")
         logger.complete()
     finally:
         logger.remove()

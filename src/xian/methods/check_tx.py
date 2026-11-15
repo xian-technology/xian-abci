@@ -12,20 +12,34 @@ from xian.utils.tx import (
 )
 
 
-def _rejected_check_tx(
-    *,
-    error: Exception,
-    raw_tx: bytes,
-    tx: dict | None = None,
-) -> ResponseCheckTx:
-    log_fields = {"stage": "check_tx", "raw_tx": raw_tx, "extra": error_fields(error)}
-    if tx is not None:
-        log_fields["tx"] = tx
-    logger.bind(**build_log_fields(**log_fields)).warning("Rejected transaction during CheckTx")
-    return ResponseCheckTx(
-        code=c.ErrorCode,
-        log=f"{type(error).__name__}: {error}",
-    )
+def _rejected_check_tx(self, *, error: Exception, raw_tx: bytes) -> ResponseCheckTx:
+    """Refuse a transaction; the refusal is counted, not logged one by one.
+
+    Anyone can send a public node invalid transactions, so a rejection costs a
+    counter update and a DEBUG record that does not re-encode the transaction;
+    Commit reports the counts once per block (``report_check_tx_rejections``).
+    """
+    error_type = type(error).__name__
+    self.check_tx_rejections[error_type] += 1
+    logger.bind(
+        **build_log_fields(stage="check_tx", raw_tx=raw_tx, extra=error_fields(error))
+    ).debug("Rejected transaction during CheckTx")
+    return ResponseCheckTx(code=c.ErrorCode, log=f"{error_type}: {error}")
+
+
+def report_check_tx_rejections(self, *, height: int) -> None:
+    """Log the CheckTx rejections since the last report as one record."""
+    if not self.check_tx_rejections:
+        return
+    counts = dict(self.check_tx_rejections)
+    self.check_tx_rejections.clear()
+    logger.bind(
+        **build_log_fields(
+            stage="check_tx",
+            block_height=height,
+            extra={"rejected_txs": sum(counts.values()), **counts},
+        )
+    ).info("Rejected transactions during CheckTx")
 
 
 async def check_tx(self, raw_tx) -> ResponseCheckTx:
@@ -36,7 +50,7 @@ async def check_tx(self, raw_tx) -> ResponseCheckTx:
             max_raw_tx_bytes=self.max_tx_bytes,
         )
     except Exception as e:
-        return _rejected_check_tx(error=e, raw_tx=raw_tx)
+        return _rejected_check_tx(self, error=e, raw_tx=raw_tx)
 
     try:
         tx_hash = hashlib.sha256(raw_tx).hexdigest()
@@ -51,4 +65,4 @@ async def check_tx(self, raw_tx) -> ResponseCheckTx:
             )
         return ResponseCheckTx(code=c.OkCode)
     except Exception as e:
-        return _rejected_check_tx(error=e, raw_tx=raw_tx, tx=tx)
+        return _rejected_check_tx(self, error=e, raw_tx=raw_tx)

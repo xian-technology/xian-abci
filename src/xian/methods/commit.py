@@ -1,4 +1,5 @@
 from cometbft.abci.v1beta3.types_pb2 import ResponseCommit
+from xian.methods.check_tx import report_check_tx_rejections
 from xian.utils.block import stage_latest_block, try_write_latest_block
 
 
@@ -35,6 +36,7 @@ async def commit(self) -> ResponseCommit:
         if self.current_block_meta["height"] > self.blocks_to_keep:
             retain_height = self.current_block_meta["height"] - self.blocks_to_keep
 
+    report_check_tx_rejections(self, height=self.current_block_meta["height"])
     self.current_block_meta = None
 
     return ResponseCommit(retain_height=retain_height)

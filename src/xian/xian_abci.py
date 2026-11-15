@@ -4,6 +4,7 @@ import gc
 import importlib
 import signal
 import sys
+from collections import Counter
 from dataclasses import replace
 
 
@@ -279,6 +280,8 @@ class Xian:
             raise ValueError("No value set for 'abci_genesis' in Tendermint genesis.json")
 
         self.current_block_rewards = {}
+        # CheckTx refusals by error type since the last committed block.
+        self.check_tx_rejections = Counter()
 
         self.state_patch_manager = StatePatchManager(
             self.client.raw_driver,
