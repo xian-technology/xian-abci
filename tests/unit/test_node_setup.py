@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import stat
@@ -8,12 +9,14 @@ from pathlib import Path
 from xian.node_setup import (
     AppLoggingOptions,
     BdsOptions,
+    GenesisIntegrityError,
     MetricsOptions,
     NodeConfigOptions,
     SimulationOptions,
     StateSyncOptions,
     build_priv_validator_key,
     generate_validator_material,
+    genesis_sha256,
     load_genesis,
     materialize_cometbft_home,
     render_cometbft_config,
@@ -568,6 +571,58 @@ class NodeSetupTests(unittest.TestCase):
             )
             saved = json.loads(Path(result["genesis_path"]).read_text(encoding="utf-8"))
         self.assertEqual(saved, genesis)
+
+    def test_genesis_sha256_is_the_sha256_of_the_installed_genesis_file(self):
+        genesis = {"chain_id": "xian-local-1", "validators": [], "abci_genesis": {}}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = materialize_cometbft_home(
+                home=Path(tmp_dir) / "node",
+                config={},
+                xian_config={},
+                genesis=genesis,
+                priv_validator_key=build_priv_validator_key("01" * 32),
+                expected_genesis_sha256=genesis_sha256(genesis),
+            )
+            installed = Path(result["genesis_path"]).read_bytes()
+        self.assertEqual(result["genesis_sha256"], hashlib.sha256(installed).hexdigest())
+        self.assertEqual(result["genesis_sha256"], genesis_sha256(genesis))
+
+    def test_materialize_home_refuses_a_genesis_other_than_the_pinned_one(self):
+        pinned = {"chain_id": "xian-local-1", "validators": [], "abci_genesis": {}}
+        tampered = pinned | {"validators": [{"power": "10"}]}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = Path(tmp_dir) / "node"
+            first = materialize_cometbft_home(
+                home=home,
+                config={},
+                xian_config={},
+                genesis=pinned,
+                priv_validator_key=build_priv_validator_key("01" * 32),
+            )
+            before = {path: path.read_bytes() for path in home.rglob("*") if path.is_file()}
+            with self.assertRaisesRegex(GenesisIntegrityError, genesis_sha256(tampered)):
+                materialize_cometbft_home(
+                    home=home,
+                    config={"moniker": "changed"},
+                    xian_config={},
+                    genesis=tampered,
+                    priv_validator_key=build_priv_validator_key("02" * 32),
+                    overwrite=True,
+                    expected_genesis_sha256=first["genesis_sha256"],
+                )
+            after = {path: path.read_bytes() for path in home.rglob("*") if path.is_file()}
+            fresh = Path(tmp_dir) / "fresh"
+            with self.assertRaises(GenesisIntegrityError):
+                materialize_cometbft_home(
+                    home=fresh,
+                    config={},
+                    xian_config={},
+                    genesis=tampered,
+                    priv_validator_key=build_priv_validator_key("02" * 32),
+                    expected_genesis_sha256=first["genesis_sha256"],
+                )
+            self.assertFalse(fresh.exists())
+        self.assertEqual(after, before)
 
     def test_build_priv_validator_key_rejects_invalid_hex(self):
         with self.assertRaisesRegex(ValueError, "private key must be a 64-character hex string"):

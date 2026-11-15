@@ -653,6 +653,10 @@ def _write_text(path: Path, text: str, *, overwrite: bool, private: bool) -> Non
         f.write(text)
 
 
+def _json_file_text(payload: dict[str, Any]) -> str:
+    return encode_wire(payload, vm_profile=VM_EXECUTION_MODE) + "\n"
+
+
 def write_json(
     path: Path,
     payload: dict[str, Any],
@@ -660,12 +664,33 @@ def write_json(
     overwrite: bool = False,
     private: bool = False,
 ) -> None:
-    _write_text(
-        path,
-        encode_wire(payload, vm_profile=VM_EXECUTION_MODE) + "\n",
-        overwrite=overwrite,
-        private=private,
-    )
+    _write_text(path, _json_file_text(payload), overwrite=overwrite, private=private)
+
+
+class GenesisIntegrityError(ValueError):
+    """The genesis is not the one the network pinned with ``genesis_sha256``."""
+
+
+def genesis_sha256(genesis: dict[str, Any]) -> str:
+    """A network's genesis pin: the SHA-256 of the ``config/genesis.json`` bytes a home gets.
+
+    Any formatting of the same document hashes alike, because a home always
+    receives the canonical encoding; any other document hashes differently.
+    """
+    return _text_sha256(_json_file_text(genesis))
+
+
+def _text_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def verify_genesis_sha256(observed: str, expected: str | None) -> None:
+    """Refuse a genesis whose SHA-256 differs from the network's pin (no pin: accept)."""
+    if expected is not None and observed != expected:
+        raise GenesisIntegrityError(
+            f"genesis sha256 {observed} does not match the network's pinned "
+            f"genesis_sha256 {expected}; refusing this genesis"
+        )
 
 
 def write_toml(
@@ -687,7 +712,11 @@ def materialize_cometbft_home(
     priv_validator_key: dict[str, Any],
     node_key: dict[str, Any] | None = None,
     overwrite: bool = False,
+    expected_genesis_sha256: str | None = None,
 ) -> dict[str, str]:
+    genesis_text = _json_file_text(genesis)
+    installed_genesis_sha256 = _text_sha256(genesis_text)
+    verify_genesis_sha256(installed_genesis_sha256, expected_genesis_sha256)
     config_dir = home / "config"
     data_dir = home / "data"
     storage_dir = home / "xian"
@@ -705,7 +734,7 @@ def materialize_cometbft_home(
 
     write_toml(config_path, config, overwrite=overwrite)
     write_toml(xian_config_path, xian_config, overwrite=overwrite, private=True)
-    write_json(genesis_path, genesis, overwrite=overwrite)
+    _write_text(genesis_path, genesis_text, overwrite=overwrite, private=False)
 
     validator_payload = {
         key: value for key, value in priv_validator_key.items() if key != "_private_key_hex"
@@ -739,6 +768,7 @@ def materialize_cometbft_home(
         "config_path": str(config_path),
         "xian_config_path": str(xian_config_path),
         "genesis_path": str(genesis_path),
+        "genesis_sha256": installed_genesis_sha256,
         "priv_validator_key_path": str(priv_validator_key_path),
         "node_key_path": str(node_key_path),
         "priv_validator_state_path": str(priv_validator_state_path),
