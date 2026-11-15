@@ -243,7 +243,7 @@ def hidden():
                 "chain_id": "xian-local",
             },
             meter=True,
-            chi_budget=10_000,
+            chi_budget=30_000,
             transaction_size_bytes=256,
         )
 

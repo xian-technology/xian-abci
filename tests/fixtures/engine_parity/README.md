@@ -63,6 +63,20 @@ fixtures were regenerated with them and the diff reviewed case by case:
   `test_native_vm_work_bounds.py` cover them). `importlib.code_hash` now
   charges 4 raw chi per hashed byte; no frozen case calls it.
 
+- Deployment charged before compiling (compile-bomb fix): a deployment costs
+  15,000,000 raw (15,000 chi) plus 100 per submitted source byte, recorded
+  before the source is compiled, so a source that fails to compile pays it
+  too (it was 5,000 plus 1 per normalized source byte, recorded only after
+  a successful deployment). Changed: every deployment's `chi_used` and the
+  fee, reward and `currency.balances` values that follow it in
+  `blocks_deploy` (and its app hashes and write digests), the deployment of
+  `blocks_policy_free` and `blocks_policy_unmetered`, and `simulate/deploy`,
+  `deploy_bad_source` and `factory` in `simulations`. The golden fixtures
+  `block_executor/deployments_{free,paid,unmetered}` (their budgets now cross
+  the deployment charge first), `scans`, `logs_{free,paid}_trace`,
+  `unmetered_blocks` and `block_executor_zk/feature_{off,refused}` change the
+  same way, nothing else.
+
 - Transaction admission revision 3 (`xian-fastpath-admission-3`, unreleased):
   admission refuses documents with keys beside `metadata` and `payload`. No
   corpus transaction had such keys; the genesis fixtures' `__execution_policy`

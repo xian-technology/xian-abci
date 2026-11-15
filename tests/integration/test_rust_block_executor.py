@@ -507,12 +507,14 @@ def relay(name: str, code: str):
 
 @pytest.mark.parametrize("policy", sorted(POLICIES))
 def test_deployments_reproduce_the_frozen_receipts(tmp_path, policy):
-    # Budgets from too small for the call to enough for the deployment: each
-    # failure point (VM, constructor, metadata writes, deployment cost) is
-    # crossed. Then constructor arguments, owners and a relayed deployment.
+    # Budgets from too small for the deployment cost (charged before
+    # compiling, revision 14: 15,000 chi plus 0.1 per source byte) to enough
+    # for the deployment: each failure point (deployment cost, VM,
+    # constructor, metadata writes) is crossed. Then constructor arguments,
+    # owners and a relayed deployment.
     calls = [
         ("alice", "submission", "make", {"name": f"con_b{budget}", "code": DEPLOYED}, budget)
-        for budget in range(20, 420, 5)
+        for budget in [20, *range(15_025, 15_420, 5)]
     ]
     arguments = {
         "start": 3,
