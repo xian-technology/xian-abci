@@ -9,11 +9,9 @@ block is committed."""
 from __future__ import annotations
 
 import asyncio
-import logging
 from unittest.mock import patch
 
 import pytest
-from loguru import logger
 from xian_accounts import Ed25519Account
 
 from abci_node import (
@@ -26,6 +24,7 @@ from abci_node import (
 )
 
 pytest.importorskip("xian_vm_core")
+pytestmark = pytest.mark.usefixtures("quiet_node_logs")
 
 BOB = Ed25519Account("22" * 32)
 COUNTER = """counter = Variable()
@@ -67,15 +66,6 @@ def _blocks() -> list[list[bytes]]:
         ],
         [signed_tx(FOUNDER, "currency", "transfer", {"amount": 7, "to": BOB.public_key}, nonce=3)],
     ]
-
-
-@pytest.fixture(autouse=True)
-def _quiet():
-    logging.disable(logging.CRITICAL)
-    logger.disable("xian")
-    yield
-    logger.enable("xian")
-    logging.disable(logging.NOTSET)
 
 
 async def _run_chain(root, *, crash=None) -> list:

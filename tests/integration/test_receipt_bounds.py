@@ -11,14 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 
 import pytest
-from loguru import logger
 
 from abci_node import FOUNDER, AbciNode, local_genesis, node_constants, signed_tx
 
 pytest.importorskip("xian_vm_core")
+pytestmark = pytest.mark.usefixtures("quiet_node_logs")
 
 SHARING = """values = Hash()
 
@@ -42,15 +41,6 @@ def returns_text(size: int):
     return "r" * size
 """
 ONE_MB_COPIES = 200
-
-
-@pytest.fixture(autouse=True)
-def _quiet():
-    logging.disable(logging.CRITICAL)
-    logger.disable("xian")
-    yield
-    logger.enable("xian")
-    logging.disable(logging.NOTSET)
 
 
 async def _receipts(root, calls: list[tuple[str, dict]]) -> list[tuple[int, dict, int]]:

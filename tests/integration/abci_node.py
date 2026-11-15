@@ -8,10 +8,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import shutil
+import logging
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
+from loguru import logger
 from xian_accounts import Ed25519Account
 
 from abci.server import ProtocolHandler
@@ -159,3 +162,13 @@ def block_digest(response) -> tuple:
         [(result.code, result.data, result.gas_used) for result in response.tx_results],
         [(update.pub_key.ed25519, update.power) for update in response.validator_updates],
     )
+
+
+@pytest.fixture
+def quiet_node_logs():
+    """A node logs every block; tests that run many keep the output short."""
+    logging.disable(logging.CRITICAL)
+    logger.disable("xian")
+    yield
+    logger.enable("xian")
+    logging.disable(logging.NOTSET)
