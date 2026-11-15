@@ -4,7 +4,7 @@
  },
  "simulate/change_owner": {
   "type": "dict",
-  "value": "{\"chi_used\":221,\"events\":[{\"caller\":\"alice\",\"contract\":\"submission\",\"data\":{\"previous_owner\":\"alice\"},\"data_indexed\":{\"contract\":\"con_owned_alice\",\"new_owner\":\"bob\"},\"event\":\"ContractOwnerChanged\",\"signer\":\"alice\"}],\"payload\":{\"contract\":\"submission\",\"function\":\"change_owner\",\"kwargs\":{\"contract\":\"con_owned_alice\",\"new_owner\":\"bob\"},\"sender\":\"alice\"},\"result\":null,\"state\":[{\"key\":\"con_owned_alice.__owner__\",\"value\":\"bob\"},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99988.95\"}}],\"status\":0}"
+  "value": "{\"chi_used\":220,\"events\":[{\"caller\":\"alice\",\"contract\":\"submission\",\"data\":{\"previous_owner\":\"alice\"},\"data_indexed\":{\"contract\":\"con_owned_alice\",\"new_owner\":\"bob\"},\"event\":\"ContractOwnerChanged\",\"signer\":\"alice\"}],\"payload\":{\"contract\":\"submission\",\"function\":\"change_owner\",\"kwargs\":{\"contract\":\"con_owned_alice\",\"new_owner\":\"bob\"},\"sender\":\"alice\"},\"result\":null,\"state\":[{\"key\":\"con_owned_alice.__owner__\",\"value\":\"bob\"},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99989\"}}],\"status\":0}"
  },
  "simulate/deploy": {
   "type": "dict",
@@ -12,7 +12,7 @@
  },
  "simulate/deploy_bad_source": {
   "type": "dict",
-  "value": "{\"chi_used\":15254,\"events\":[],\"payload\":{\"contract\":\"submission\",\"function\":\"submit_contract\",\"kwargs\":{\"code\":\"@export\\ndef get(:\\n    return 1\\n\",\"name\":\"con_sim\"},\"sender\":\"alice\"},\"result\":\"CompilerError: xian.syntax.parse_error: invalid syntax. Got unexpected token ':'\\n[{\\\"severity\\\":\\\"error\\\",\\\"code\\\":\\\"xian.syntax.parse_error\\\",\\\"message\\\":\\\"invalid syntax. Got unexpected token ':'\\\",\\\"range\\\":{\\\"start_line\\\":2,\\\"start_column\\\":8,\\\"end_line\\\":2,\\\"end_column\\\":9}}]\",\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99237.3\"}}],\"status\":1}"
+  "value": "{\"chi_used\":15253,\"events\":[],\"payload\":{\"contract\":\"submission\",\"function\":\"submit_contract\",\"kwargs\":{\"code\":\"@export\\ndef get(:\\n    return 1\\n\",\"name\":\"con_sim\"},\"sender\":\"alice\"},\"result\":\"CompilerError: xian.syntax.parse_error: invalid syntax. Got unexpected token ':'\\n[{\\\"severity\\\":\\\"error\\\",\\\"code\\\":\\\"xian.syntax.parse_error\\\",\\\"message\\\":\\\"invalid syntax. Got unexpected token ':'\\\",\\\"range\\\":{\\\"start_line\\\":2,\\\"start_column\\\":8,\\\"end_line\\\":2,\\\"end_column\\\":9}}]\",\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99237.35\"}}],\"status\":1}"
  },
  "simulate/factory": {
   "type": "dict",

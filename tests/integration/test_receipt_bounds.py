@@ -80,9 +80,12 @@ def test_shared_values_cannot_cross_the_vm_boundary_as_copies(tmp_path):
             ],
         )
     )
+    # 200 MB of copies: the copy is counted as element work before it is
+    # made, so it stops at one operation's work limit (64 MiB of text),
+    # before the heap bound (128 MiB) is reached.
     for code, receipt, size in receipts:
         assert code == 1
-        assert receipt["result"] == "'VM value traversal limit exceeded'"
+        assert receipt["result"] == "'operation exceeds the element work limit'"
         assert size < 4096
 
 

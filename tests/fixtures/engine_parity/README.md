@@ -126,6 +126,25 @@ fixtures were regenerated with them and the diff reviewed case by case:
   lower. The free and unmetered golden fixtures are byte for byte
   unchanged.
 
+- Element work counted before the work (vm-core review, branch
+  `review/rv-vm`): a copy across the VM boundary (storage write, return
+  value, event, cross-contract or host argument) is counted once, node by
+  node, before it is made (it was snapshotted twice and partly charged
+  afterwards), and the entry's result copy is charged; each byte an
+  iterator yields is one unit; a builtin callback (`map`, `filter`, sort
+  keys) pays the 5,000 raw call dispatch per call; zk arguments are measured
+  in place (warm requests held by reference pay their inputs, plural payload
+  hashes pay per byte); set member keys count their copy; an oversized hash
+  key is refused before it is built. Changed: `chi_used` by -1..+105 (one
+  copy instead of two moves deployments and failing calls with large
+  arguments down by one chi; result copies, zk inputs and callbacks move
+  others up), and the fees, rewards, `currency.balances` values, write
+  digests and app hashes that follow. No status, result or write set
+  changed; in `block_executor/metadata_*` one budget of the sweep now runs
+  out in the VM (`Out of chi.`) instead of the host. The golden fixtures
+  `block_executor/*`, `block_executor_zk/syscalls` and the shielded
+  benchmark `BASELINE` change the same way.
+
 - Transaction admission revision 3 (`xian-fastpath-admission-3`, unreleased):
   admission refuses documents with keys beside `metadata` and `payload`. No
   corpus transaction had such keys; the genesis fixtures' `__execution_policy`

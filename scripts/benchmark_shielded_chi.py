@@ -41,15 +41,13 @@ from xian.utils.tx import transaction_bytes
 # The chain's chi price (chi per XIAN); the chi used does not depend on it.
 CHI_RATE = 20
 
-# Execution revision 14 (`xvm-gas-6`), metered free. (A paid run supplying
-# 25,000,000 chi measured the relay transfer at 15,890: the reserved budget's
-# digits cost a chi.)
+# Execution revision 14 (`xvm-gas-6`), metered free.
 BASELINE = {
     "deposit_2_outputs": 10135,
     "transfer_2in_2out": 10487,
-    "withdraw_1in_1out": 9061,
-    "withdraw_exact": 6081,
-    "relay_transfer": 15889,
+    "withdraw_1in_1out": 9060,
+    "withdraw_exact": 6079,
+    "relay_transfer": 15890,
 }
 
 

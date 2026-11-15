@@ -27,7 +27,7 @@
     {
      "case": "free/rotate_validators",
      "code": 0,
-     "data": "{\"chi_used\":28,\"events\":[],\"hash\":\"dc32758b2472a1b5e150a1bf007bf19f115610a5f83f65a68e92ebec35600407\",\"result\":null,\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"validators.active_validators\",\"value\":[\"val1\",\"val2\",\"val3\"]},{\"key\":\"validators.powers:val3\",\"value\":3}],\"status\":0}"
+     "data": "{\"chi_used\":29,\"events\":[],\"hash\":\"dc32758b2472a1b5e150a1bf007bf19f115610a5f83f65a68e92ebec35600407\",\"result\":null,\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"validators.active_validators\",\"value\":[\"val1\",\"val2\",\"val3\"]},{\"key\":\"validators.powers:val3\",\"value\":3}],\"status\":0}"
     },
     {
      "case": "free/out_of_chi",
