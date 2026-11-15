@@ -44,6 +44,16 @@ This file records the runtime properties that must hold before an
   takes effect at the Commit of its activation block, so every stage of the
   next block uses it on running and restarted nodes alike. Bundles cannot
   write `__execution_policy` at all.
+- The block cap counts supplied chi, so supplied chi that goes unused must
+  cost the sender: in paid mode the Rust executor charges `used + (chi_supplied
+  - used) // 10` (the unused-chi charge, revision 14) and reports it as the
+  receipt's `chi_used`. Fee rewards are computed on `used` alone; the charge is
+  burned, so no validator or developer earns from wasted block capacity and no
+  token is created. Without it, a few transactions that supply far more than
+  they use fill every block for almost nothing and keep honest transactions
+  out. The simulator settles its estimate as execution would settle a
+  transaction supplying it (reservation, refund, unused-chi charge), so a
+  supply of the estimate is charged what the estimate reports.
 - The chain chi rate (`chi_cost.S:value`) prices every fee. Admission,
   execution (the Rust executor) and simulation refuse a rate that is not an
   integer in `1..=10**61 - 1` (the node halts rather than guess a price), so

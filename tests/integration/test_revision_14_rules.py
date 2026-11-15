@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 from contracting.local import ContractingClient
+from fee_probe_support import charged_chi
 from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.fee_policy import TxFeePolicy
@@ -92,7 +93,7 @@ def chain(tmp_path):
 def test_an_owner_that_is_not_a_string_is_no_caller(chain):
     chain[0].raw_driver.set("con_ping.__owner__", 5)
     receipt = _run(chain, "con_ping", "ping")
-    assert (receipt["status"], receipt["chi_used"]) == (1, 5)
+    assert (receipt["status"], receipt["chi_used"]) == (1, charged_chi(5_000, 5))
     assert receipt["result"] == "Exception('Caller is not the owner!')"
 
 
@@ -105,7 +106,9 @@ def test_a_persisted_ir_that_is_no_valid_module_has_one_failure_text(chain):
 
 def test_a_budget_beyond_the_raw_chi_range_fails_in_the_host_runtime(chain):
     receipt = _run(chain, "con_ping", "ping", chi=2**63)
-    assert (receipt["status"], receipt["chi_used"]) == (1, 5)
+    # The base chi, and the unused-chi charge on the rest of the budget.
+    assert receipt["status"] == 1
+    assert receipt["chi_used"] == {"__big_int__": str(charged_chi(2**63, 5))}
     assert receipt["result"] == "RuntimeError('Transaction failed in the host runtime.')"
 
 

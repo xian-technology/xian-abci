@@ -1,9 +1,14 @@
-"""Paid execution isolates the submitted fee budget from contract spending."""
+"""Paid execution isolates the submitted fee budget from contract spending.
+
+The sender is charged the receipt's ``chi_used``: the chi used plus the
+unused-chi charge on the rest of the budget. Only the chi used is paid out
+(here wholly to the one validator); the charge is burned.
+"""
 
 import pytest
 from contracting.constants import TRANSACTION_BASE_CHI
 from contracting.storage.driver import Driver
-from fee_probe_support import ROOT, make_processor, process, tx
+from fee_probe_support import ROOT, charged_chi, make_processor, paid_out_chi, process, tx
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import decode_wire_numbers
 from xian_vm_core import execute_tx
@@ -23,9 +28,11 @@ def test_unfunded_budget_has_no_execution_effects_and_pays_out_its_fee(tmp_path,
         assert result is not None
         assert result["status"] == 1
         assert "chi" in result["result"].lower()
-        # A failed transaction pays base chi from whatever balance remains.
-        charged = max(balance - ContractingDecimal(TRANSACTION_BASE_CHI) / 100, 0)
-        assert result["chi_used"] == TRANSACTION_BASE_CHI
+        # A failed transaction pays base chi (and the unused-chi charge on the
+        # rest of its budget) from whatever balance remains.
+        chi = charged_chi(1000, TRANSACTION_BASE_CHI)
+        charged = max(balance - ContractingDecimal(chi) / 100, 0)
+        assert result["chi_used"] == chi
         assert result["events"] == []
         assert driver.get("con_probe.value") is None
         assert driver.get("currency.balances:alice") == charged
@@ -34,8 +41,8 @@ def test_unfunded_budget_has_no_execution_effects_and_pays_out_its_fee(tmp_path,
             assert result["state"] == [{"key": "currency.balances:alice", "value": charged}]
             assert result["rewards"] is None
         else:
-            # The fee goes to the one validator (split 1/0/0/0).
-            fee = balance - charged
+            # The base fee goes to the one validator (split 1/0/0/0).
+            fee = ContractingDecimal(TRANSACTION_BASE_CHI) / 100
             assert result["rewards"]["validator_reward"] == {"validator": fee}
             assert driver.get("currency.balances:validator") == fee
     finally:
@@ -51,11 +58,13 @@ def test_paid_execution_sees_spendable_balance_and_refunds_unused_budget(tmp_pat
         assert result["status"] == 0, result
         # 1000 chi at 100 chi/token reserves ten native tokens during execution.
         assert decode_wire_numbers(result["result"]) == balance - 10
-        fee = ContractingDecimal(result["chi_used"]) / 100
-        assert 0 < fee < 10
-        assert driver.get("currency.balances:alice") == balance - fee
+        used = paid_out_chi(result, 100)
+        assert result["chi_used"] == charged_chi(1000, used)
+        charged = ContractingDecimal(result["chi_used"]) / 100
+        assert 0 < charged < 10
+        assert driver.get("currency.balances:alice") == balance - charged
         assert driver.get("con_probe.value") == 123
-        assert driver.get("currency.balances:validator") == fee
+        assert driver.get("currency.balances:validator") == ContractingDecimal(used) / 100
     finally:
         driver.close()
 
@@ -81,9 +90,7 @@ def test_unfunded_cost_estimation_runs_without_reserving_inferred_budget(tmp_pat
     driver = processor.client.raw_driver
     try:
         before = driver.snapshot_state()
-        estimate = TransactionSimulator(
-            client=processor.client, chain_id="local"
-        ).simulate(
+        estimate = TransactionSimulator(client=processor.client, chain_id="local").simulate(
             {
                 "sender": "alice",
                 "contract": "con_probe",
@@ -106,9 +113,13 @@ def test_nonterminating_conversion_refund_preserves_exact_charged_fee(tmp_path):
     try:
         result = process(processor, tx())["tx_result"]
         assert result["status"] == 0, result
-        fee = ContractingDecimal(result["chi_used"]) / 3
-        assert driver.get("currency.balances:alice") == 1000 - fee
-        assert driver.get("currency.balances:validator") == fee
+        used = paid_out_chi(result, 3)
+        assert result["chi_used"] == charged_chi(1000, used)
+        assert (
+            driver.get("currency.balances:alice")
+            == 1000 - ContractingDecimal(result["chi_used"]) / 3
+        )
+        assert driver.get("currency.balances:validator") == ContractingDecimal(used) / 3
     finally:
         driver.close()
 
@@ -156,15 +167,16 @@ def test_contract_failure_rolls_back_spending_and_charges_only_consumed_chi(
             tx(function="spend", kwargs={"amount": amount, "fail": deliberate_failure}),
         )["tx_result"]
         assert result["status"] == 1
-        fee = ContractingDecimal(result["chi_used"]) / 100
-        assert 0 < fee <= 10
-        assert driver.get("currency.balances:alice") == 100 - fee
+        used = paid_out_chi(result, 100)
+        assert result["chi_used"] == charged_chi(1000, used)
+        charged = ContractingDecimal(result["chi_used"]) / 100
+        assert 0 < charged <= 10
+        assert driver.get("currency.balances:alice") == 100 - charged
         assert driver.get("currency.balances:recipient") is None
         assert driver.get("con_probe.value") is None
         assert result["events"] == []
-        # The charged fee is paid out, to the validator alone.
-        assert result["rewards"]["validator_reward"] == {"validator": fee}
-        assert driver.get("currency.balances:validator") == fee
+        # The fee of the chi used is paid out, to the validator alone.
+        assert driver.get("currency.balances:validator") == ContractingDecimal(used) / 100
         assert {write["key"] for write in result["state"]} == {
             "currency.balances:alice",
             "currency.balances:validator",
@@ -177,14 +189,16 @@ def test_successful_native_spend_cannot_consume_reserved_fee(tmp_path):
     processor = make_processor(tmp_path)
     driver = processor.client.raw_driver
     try:
-        result = process(processor, tx(function="spend", kwargs={"amount": 90}))[
-            "tx_result"
-        ]
+        result = process(processor, tx(function="spend", kwargs={"amount": 90}))["tx_result"]
         assert result["status"] == 0, result
-        fee = ContractingDecimal(result["chi_used"]) / 100
-        assert driver.get("currency.balances:alice") == 10 - fee
+        used = paid_out_chi(result, 100)
+        assert result["chi_used"] == charged_chi(1000, used)
+        assert (
+            driver.get("currency.balances:alice")
+            == 10 - ContractingDecimal(result["chi_used"]) / 100
+        )
         assert driver.get("currency.balances:recipient") == 90
-        assert driver.get("currency.balances:validator") == fee
+        assert driver.get("currency.balances:validator") == ContractingDecimal(used) / 100
     finally:
         driver.close()
 

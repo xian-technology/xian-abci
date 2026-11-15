@@ -1,12 +1,13 @@
 """One failed-receipt policy for every user transaction that cannot run.
 
 Failures before or around contract execution must be deterministic receipts
-that charge the transaction base chi, pay that fee out to the validators and
+that charge the transaction base chi (plus the unused-chi charge on the rest
+of the budget, which is burned), pay the base fee out to the validators and
 consume the nonce. (Host faults halt the node: see test_chain_chi_rate.)
 """
 
 from contracting.constants import TRANSACTION_BASE_CHI
-from fee_probe_support import make_processor, process, tx
+from fee_probe_support import charged_chi, make_processor, process, tx
 from xian_runtime_types.decimal import ContractingDecimal
 
 from xian.fee_policy import TxFeePolicy
@@ -18,14 +19,18 @@ def _balance_after_base_charge(balance=100, chi=TRANSACTION_BASE_CHI):
     return balance - ContractingDecimal(chi) / RATE
 
 
-def _assert_base_charge_receipt(response, driver, *, chi=TRANSACTION_BASE_CHI, paid_out=True):
-    """The base charge, paid out whole to the one validator (split 1/0/0/0)."""
+def _assert_base_charge_receipt(
+    response, driver, *, chi=TRANSACTION_BASE_CHI, budget=1000, paid_out=True
+):
+    """The base charge, paid out whole to the one validator (split 1/0/0/0);
+    the unused-chi charge on the rest of the budget is burned."""
     result = response["tx_result"]
     assert result is not None
     assert result["status"] == 1
-    assert result["chi_used"] == chi
+    assert result["chi_used"] == charged_chi(budget, chi)
     assert result["events"] == []
-    charged = {"key": "currency.balances:alice", "value": _balance_after_base_charge(chi=chi)}
+    sender = _balance_after_base_charge(chi=charged_chi(budget, chi))
+    charged = {"key": "currency.balances:alice", "value": sender}
     fee = ContractingDecimal(chi) / RATE
     if paid_out:
         assert result["rewards"]["validator_reward"] == {"validator": fee}
@@ -35,7 +40,7 @@ def _assert_base_charge_receipt(response, driver, *, chi=TRANSACTION_BASE_CHI, p
         assert result["rewards"] is None
         assert result["state"] == [charged]
         assert driver.get("currency.balances:validator") is None
-    assert driver.get("currency.balances:alice") == _balance_after_base_charge(chi=chi)
+    assert driver.get("currency.balances:alice") == sender
     return result
 
 
@@ -75,7 +80,7 @@ def test_failed_receipt_charge_never_exceeds_the_submitted_budget(tmp_path):
     driver = processor.client.raw_driver
     try:
         response = process(processor, tx(contract="con_missing", budget=3))
-        _assert_base_charge_receipt(response, driver, chi=3)
+        _assert_base_charge_receipt(response, driver, chi=3, budget=3)
     finally:
         driver.close()
 

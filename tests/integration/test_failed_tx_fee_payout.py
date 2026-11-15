@@ -5,8 +5,9 @@ split: the validator share to the active validators by power, the foundation
 share to ``foundation.owner``, the burn share burned. A failed call earns no
 developer reward, so the developer share goes to the validators, as it does
 for a contract without a developer. A sender who cannot cover the failure fee
-pays its whole balance, and exactly that is paid out. Native supply only
-shrinks by the burn share.
+pays its whole balance, and exactly that is paid out. The fee paid out is
+that of the chi used; the unused-chi charge on the rest of the budget is
+burned. Native supply only shrinks by the burn share and that charge.
 """
 
 from __future__ import annotations
@@ -16,11 +17,12 @@ from pathlib import Path
 
 import pytest
 from contracting.local import ContractingClient
+from fee_probe_support import charged_chi
 from xian_runtime_types.decimal import ContractingDecimal
 
-from xian.utils.tx import transaction_bytes
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
+from xian.utils.tx import transaction_bytes
 
 pytest.importorskip("xian_vm_core")
 
@@ -77,15 +79,24 @@ def chain(tmp_path):
     driver.commit()
     processor = TxProcessor(client=client)
 
-    def run(txs, policy=None):
-        policy = policy or TxFeePolicy.paid_metered()
+    def execute(txs, policy):
         responses = processor.process_block(
             txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy
         )
-        driver.commit()
         return [response["tx_result"] for response in responses]
 
-    yield run, driver
+    def run(txs, policy=None):
+        results = execute(txs, policy or TxFeePolicy.paid_metered())
+        driver.commit()
+        return results
+
+    def used(tx):
+        """The chi ``tx`` uses (whose fee is paid out): a free run, dropped."""
+        [result] = execute([tx], TxFeePolicy.free_metered())
+        driver.rollback()
+        return result["chi_used"]
+
+    yield run, driver, used
     driver.close()
 
 
@@ -122,40 +133,47 @@ def _assert_paid_out(driver, fee, validators):
     assert _balance(driver, "dev") == 0
 
 
+def _fee(chi):
+    return Decimal(chi) / RATE
+
+
 def test_failed_transaction_fee_goes_to_validators_and_foundation(chain):
-    run, driver = chain
+    run, driver, used = chain
     supply = _supply(driver)
+    fee = _fee(used(_tx("alice", "fail")))
 
     [result] = run([_tx("alice", "fail")])
 
     assert result["status"] == 1
-    fee = Decimal(result["chi_used"]) / RATE
-    assert _balance(driver, "alice") == 1000 - fee
+    charged = _fee(result["chi_used"])
+    assert charged > fee
+    assert _balance(driver, "alice") == 1000 - charged
     _assert_paid_out(driver, fee, {"val1": 1, "val2": 3})
     assert result["rewards"]["developer_reward"] == {}
     assert {record["type"] for record in result["reward_records"]} == {
         "validator_reward",
         "foundation_reward",
     }
-    assert _supply(driver) == supply - fee * BURN_SHARE
+    assert _supply(driver) == supply - fee * BURN_SHARE - (charged - fee)
     assert driver.get("con_probe.v") is None
 
 
 def test_a_successful_transaction_still_pays_its_developer(chain):
-    run, driver = chain
+    run, driver, used = chain
     supply = _supply(driver)
+    fee = _fee(used(_tx("alice", "ok")))
 
     [result] = run([_tx("alice", "ok")])
 
     assert result["status"] == 0
-    fee = Decimal(result["chi_used"]) / RATE
+    charged = _fee(result["chi_used"])
     assert _balance(driver, "dev") == fee * Decimal(SPLIT[3])
     assert _balance(driver, "val1") + _balance(driver, "val2") == fee * Decimal(SPLIT[0])
-    assert _supply(driver) == supply - fee * BURN_SHARE
+    assert _supply(driver) == supply - fee * BURN_SHARE - (charged - fee)
 
 
 def test_a_sender_who_cannot_cover_the_failure_fee_pays_out_its_whole_balance(chain):
-    run, driver = chain
+    run, driver, _used = chain
     supply = _supply(driver)
 
     # dave cannot reserve the budget; the 5-chi base fee (0.25) exceeds his
@@ -163,7 +181,7 @@ def test_a_sender_who_cannot_cover_the_failure_fee_pays_out_its_whole_balance(ch
     [result] = run([_tx("dave", "fail")])
 
     assert result["status"] == 1
-    assert result["chi_used"] == 5
+    assert result["chi_used"] == charged_chi(1000, 5)
     assert _balance(driver, "dave") == 0
     paid = Decimal("0.0003")
     _assert_paid_out(driver, paid, {"val1": 1, "val2": 3})
@@ -171,34 +189,36 @@ def test_a_sender_who_cannot_cover_the_failure_fee_pays_out_its_whole_balance(ch
 
 
 def test_a_balance_of_exactly_the_failure_fee_is_paid_out_whole(chain):
-    run, driver = chain
+    run, driver, _used = chain
 
-    # frank cannot reserve the budget; the base fee takes his whole balance.
+    # frank cannot reserve the budget; the base fee (with the unused-chi
+    # charge) takes his whole balance, and only the base fee is paid out.
     [result] = run([_tx("frank", "fail")])
 
     assert result["status"] == 1
-    assert result["chi_used"] == 5
+    assert result["chi_used"] == charged_chi(1000, 5)
     assert _balance(driver, "frank") == 0
     fee = Decimal("0.25")
     _assert_paid_out(driver, fee, {"val1": 1, "val2": 3})
 
 
 def test_a_validator_is_charged_and_paid_by_its_own_failure(chain):
-    run, driver = chain
+    run, driver, used = chain
     driver.set("currency.balances:val1", ContractingDecimal("10"))
     driver.commit()
     supply = _supply(driver)
+    fee = _fee(used(_tx("val1", "fail", budget=100)))
 
     [result] = run([_tx("val1", "fail", budget=100)])
 
     assert result["status"] == 1
-    fee = Decimal(result["chi_used"]) / RATE
-    assert _balance(driver, "val1") == 10 - fee + fee * VALIDATOR_SHARE / 4
-    assert _supply(driver) == supply - fee * BURN_SHARE
+    charged = _fee(result["chi_used"])
+    assert _balance(driver, "val1") == 10 - charged + fee * VALIDATOR_SHARE / 4
+    assert _supply(driver) == supply - fee * BURN_SHARE - (charged - fee)
 
 
 def test_a_sender_without_balance_pays_out_nothing(chain):
-    run, driver = chain
+    run, driver, _used = chain
     supply = _supply(driver)
 
     [result] = run([_tx("carol", "fail")])
@@ -211,20 +231,20 @@ def test_a_sender_without_balance_pays_out_nothing(chain):
 
 
 def test_a_failure_after_the_validator_set_changed_pays_the_new_set(chain):
-    run, driver = chain
+    run, driver, used = chain
+    rotate_tx, fail_tx = _tx("alice", "rotate", contract="validators"), _tx("alice", "fail")
+    rotate_fee, fee = _fee(used(rotate_tx)), _fee(used(fail_tx))
 
-    rotate, failed = run([_tx("alice", "rotate", contract="validators"), _tx("alice", "fail")])
+    rotate, failed = run([rotate_tx, fail_tx])
 
     assert rotate["status"] == 0 and failed["status"] == 1
-    rotate_fee = Decimal(rotate["chi_used"]) / RATE
-    fee = Decimal(failed["chi_used"]) / RATE
     # rotate has no developer, so its whole validator share went to the old set.
     assert _balance(driver, "val1") + _balance(driver, "val2") == rotate_fee * VALIDATOR_SHARE
     assert _balance(driver, "val3") == fee * VALIDATOR_SHARE
 
 
-def test_supply_shrinks_only_by_the_burn_share_in_a_mixed_block(chain):
-    run, driver = chain
+def test_supply_shrinks_only_by_the_burn_share_and_the_unused_chi_charge(chain):
+    run, driver, used = chain
     supply = _supply(driver)
     transfer = _tx(
         "alice",
@@ -232,23 +252,24 @@ def test_supply_shrinks_only_by_the_burn_share_in_a_mixed_block(chain):
         contract="currency",
         kwargs={"amount": {"__fixed__": "1"}, "to": "erin"},
     )
+    txs = [
+        _tx("alice", "ok"),
+        _tx("alice", "fail"),
+        _tx("dave", "fail"),
+        _tx("carol", "fail"),
+        transfer,
+        _tx("dave", "fail"),
+        _tx("alice", "fail", budget=3),
+    ]
+    alice = (0, 1, 4, 6)
+    alice_fees = sum(_fee(used(txs[index])) for index in alice)
 
-    results = run(
-        [
-            _tx("alice", "ok"),
-            _tx("alice", "fail"),
-            _tx("dave", "fail"),
-            _tx("carol", "fail"),
-            transfer,
-            _tx("dave", "fail"),
-            _tx("alice", "fail", budget=3),
-        ]
-    )
+    results = run(txs)
 
     assert [result["status"] for result in results] == [0, 1, 1, 1, 0, 1, 1]
-    alice_fees = sum(Decimal(results[index]["chi_used"]) / RATE for index in (0, 1, 4, 6))
+    alice_charged = sum(_fee(results[index]["chi_used"]) for index in alice)
     paid = alice_fees + Decimal("0.0003")
-    assert _supply(driver) == supply - paid * BURN_SHARE
+    assert _supply(driver) == supply - paid * BURN_SHARE - (alice_charged - alice_fees)
     assert _balance(driver, "erin") == 1
 
 
@@ -260,7 +281,7 @@ def test_supply_shrinks_only_by_the_burn_share_in_a_mixed_block(chain):
     ],
 )
 def test_modes_without_fee_rewards_pay_nothing_for_a_failure(chain, policy):
-    run, driver = chain
+    run, driver, _used = chain
     supply = _supply(driver)
 
     [result] = run([_tx("alice", "fail")], policy)

@@ -41,13 +41,15 @@ from xian.utils.tx import transaction_bytes
 # The chain's chi price (chi per XIAN); the chi used does not depend on it.
 CHI_RATE = 20
 
-# Execution revision 14 (`xvm-gas-6`).
+# Execution revision 14 (`xvm-gas-6`), metered free. (A paid run supplying
+# 25,000,000 chi measured the relay transfer at 15,890: the reserved budget's
+# digits cost a chi.)
 BASELINE = {
     "deposit_2_outputs": 10135,
     "transfer_2in_2out": 10487,
     "withdraw_1in_1out": 9061,
     "withdraw_exact": 6081,
-    "relay_transfer": 15890,
+    "relay_transfer": 15889,
 }
 
 
@@ -153,7 +155,7 @@ def setup_contract(
     return token
 
 
-def process(
+def execute(
     processor: TxProcessor,
     *,
     function: str,
@@ -161,7 +163,10 @@ def process(
     kwargs: dict[str, object],
     height: int,
     chi: int = 25_000_000,
-) -> int:
+) -> dict:
+    """The receipt of one flow's transaction, metered free: it reports the
+    chi the flow uses, where a paid receipt would add the unused-chi charge
+    on this generous budget."""
     tx = {
         "payload": {
             "contract": "con_shielded_note_token",
@@ -173,9 +178,15 @@ def process(
         "metadata": {"signature": "benchmark"},
         "b_meta": create_block_meta(height),
     }
-    policy = TxFeePolicy.paid_metered()
+    policy = TxFeePolicy.free_metered()
     (result,) = processor.process_block([tx], [transaction_bytes(tx)], fee_policy=policy)
-    tx_result = result["tx_result"]
+    return result["tx_result"]
+
+
+def process(processor: TxProcessor, **call) -> int:
+    """The chi one flow's transaction uses (``execute``)."""
+    tx_result = execute(processor, **call)
+    function = call["function"]
     if tx_result["status"] != 0:
         raise RuntimeError(f"{function} failed: {tx_result['result']}")
     return int(tx_result["chi_used"])

@@ -1,5 +1,6 @@
 """Shared fee-probe processor setup for the paid-execution integration tests."""
 
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -27,6 +28,20 @@ RATE = """S = Hash()
 def set_value(new_value: int):
     S['value'] = new_value
 """
+
+
+def charged_chi(budget: int, used: int) -> int:
+    """A paid receipt's ``chi_used``: the chi used plus the unused-chi charge,
+    a tenth of the budget left unused, rounded down (revision 14). Fee
+    rewards are paid on ``used`` alone; the charge is burned."""
+    return used + max(budget - used, 0) // 10
+
+
+def paid_out_chi(result, rate: int) -> int:
+    """The chi whose fee ``result`` paid out. The probe chains split fees
+    1/0/0/0, so the one validator's reward is that chi's worth."""
+    reward = result["rewards"]["validator_reward"]["validator"]
+    return round(Decimal(str(reward)) * rate)
 
 
 def make_processor(home, *, balance=100, rate=100):

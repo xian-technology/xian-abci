@@ -106,6 +106,26 @@ fixtures were regenerated with them and the diff reviewed case by case:
   `unmetered_blocks` and `block_executor_zk/feature_{off,refused}` change the
   same way, nothing else.
 
+- Unused-chi charge (block-capacity censorship fix, revision 14): a paid
+  transaction is charged `used + (chi_supplied - used) // 10`, a tenth of
+  the supplied chi it left unused, rounded down, and its receipt's
+  `chi_used` reports that charge. The charge is burned: rewards stay
+  computed on the chi used. Changed in the paid corpora (`blocks_balances`,
+  `blocks_deploy`, `blocks_owner`, `blocks_random`, `blocks_rewards`,
+  `blocks_values`, `blocks_zk`): `chi_used`, the sender's
+  `currency.balances` value after it, and the app hashes and write digests;
+  no reward, status or result changes. `blocks_policy_free`,
+  `blocks_policy_unmetered`, `simulations`, `contract_views` and
+  `system_blocks` are unchanged. The paid golden fixtures change the same
+  way (`block_executor/{deployments,metadata,logs}_paid*`, `paid_blocks`,
+  `random`, `scans`, `times`, `unencodable`, `v2_entry_results`,
+  `block_executor_zk/*`); in `paid_blocks` the charge also drains `bob`
+  (250.5 tokens) sooner, so 18 of his later transactions (13 successes, 5
+  other failures) fail their reservation instead, with the rewards and
+  pending state that follow, and 4 of `alice`'s results (her balance) are
+  lower. The free and unmetered golden fixtures are byte for byte
+  unchanged.
+
 - Transaction admission revision 3 (`xian-fastpath-admission-3`, unreleased):
   admission refuses documents with keys beside `metadata` and `payload`. No
   corpus transaction had such keys; the genesis fixtures' `__execution_policy`
@@ -178,10 +198,11 @@ fixtures were regenerated with them and the diff reviewed case by case:
     transaction runs out of chi when its work and the 5 base chi exceed the
     supply (`raw / 1000 + 5 > chi_supplied`), so `chi_used` never exceeds it
     and a transaction can no longer supply up to 4 chi less than it uses. No
-    golden case sat in that window. The simulator sizes the real envelope
-    (the client's nonce, else the sender's next committed one, and its own
-    estimate as `chi_supplied`, re-estimated until the digit count holds):
-    supplying the estimate succeeds, one chi less runs out
+    golden case sat in that window. The simulator runs the transaction as
+    submitted (the client's nonce, else the sender's next committed one, its
+    own estimate as `chi_supplied` and, when the sender can pay it, that
+    estimate's fee reservation), searching the smallest supply that pays for
+    its own run: supplying the estimate succeeds, one chi less runs out
     (`tests/integration/test_exact_chi_supply.py`).
   - The receipt encoding check of raw decimals, decimal tuples, floats and
     heap references is gone on both paths: V2 contracts cannot produce them

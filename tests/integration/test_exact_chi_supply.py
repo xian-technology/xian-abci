@@ -16,7 +16,8 @@ using exactly what it supplied.
 Execution caps the charge at the supplied chi, so the same call is also run
 with a generous budget: its cost may differ from the estimate only by the
 digits of that budget, never by a whole chi of work, so the exact receipt
-does not hide a higher real cost.
+does not hide a higher real cost. That run also pays the unused-chi charge on
+the budget it leaves unused.
 """
 
 from __future__ import annotations
@@ -164,9 +165,14 @@ def _simulate_then_execute(chain, call, *, nonce, height, block_meta=None):
     return simulated, generous, short, exact
 
 
+def _charged(supplied, used):
+    """A paid receipt's chi: the chi used and the unused-chi charge."""
+    return used + (supplied - used) // 10
+
+
 def _assert_exact_supply_executes_as_simulated(simulated, generous, short, exact):
     assert generous["status"] == simulated["status"]
-    assert abs(generous["chi_used"] - simulated["chi_used"]) <= 1
+    assert abs(generous["chi_used"] - _charged(SIMULATION_CAP, simulated["chi_used"])) <= 1
     _assert_the_estimate_is_the_supply_that_succeeds(simulated, short, exact)
 
 
@@ -175,7 +181,7 @@ def _assert_the_estimate_is_the_supply_that_succeeds(simulated, short, exact):
     assert estimate > 5
     assert exact["status"] == simulated["status"]
     # Below the estimate only when no supply uses exactly itself, and then
-    # by a chi or two.
+    # by less than the 10 chi an unused-chi charge would round up from.
     assert estimate - 10 < exact["chi_used"] <= estimate
     assert (short["status"], short["chi_used"]) == (1, estimate - 1)
     assert "Out of chi" in str(short["result"])

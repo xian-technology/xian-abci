@@ -19,6 +19,8 @@ import pytest
 from contracting.local import ContractingClient
 from contracting.local.client import AbstractContract
 from contracting.stdlib.bridge import zk as zk_bridge
+from fee_probe_support import charged_chi
+from golden_support import assert_matches_golden
 from xian_runtime_types.encoding import encode
 from xian_runtime_types.time import Datetime
 
@@ -26,7 +28,6 @@ from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.utils.encoding import encode_abci_json
 from xian.utils.tx import transaction_bytes
-from golden_support import assert_matches_golden
 
 pytest.importorskip("xian_vm_core")
 
@@ -380,7 +381,8 @@ def test_contracts_using_zk_fail_while_zk_is_off(tmp_path):
     assert [receipt["status"] for receipt in disabled] == [1, 1, 1, 0, 1]
     message = "uses zk host syscalls, but the chain zk runtime feature is disabled"
     assert all(message in disabled[index]["result"] for index in (0, 1, 2, 4))
-    assert disabled[0]["chi_used"] == 5
+    # The base chi, and the unused-chi charge on the rest of the budget.
+    assert disabled[0]["chi_used"] == charged_chi(200_000, 5)
 
 
 def test_a_feature_value_the_check_refuses_fails_every_zk_call(tmp_path):
@@ -415,25 +417,12 @@ def _shielded_run(benchmark, monkeypatch):
     # wall-clock minute: both runs deploy at one fixed time.
     monkeypatch.setattr(AbstractContract, "now", lambda self: Datetime(2026, 1, 2, 3, 4))
 
-    def process(processor, *, function, sender, kwargs, height, chi=25_000_000):
-        # The relay proof binds the benchmark's chain id.
-        tx = _tx(
-            height,
-            0,
-            height,
-            sender,
-            "con_shielded_note_token",
-            function,
-            kwargs,
-            chi,
-            "test-chain",
-        )
-        policy = TxFeePolicy.paid_metered()
-        (response,) = processor.process_block([tx], [transaction_bytes(tx)], fee_policy=policy)
-        records.append(encode_abci_json(response["tx_result"]))
+    def process(processor, **call):
+        tx_result = benchmark.execute(processor, **call)
+        records.append(encode_abci_json(tx_result))
         records.append(encode(processor.client.raw_driver.pending_items()))
-        assert response["tx_result"]["status"] == 0, response["tx_result"]["result"]
-        return int(response["tx_result"]["chi_used"])
+        assert tx_result["status"] == 0, tx_result["result"]
+        return int(tx_result["chi_used"])
 
     monkeypatch.setattr(benchmark, "process", process)
     return benchmark.benchmark(), records
