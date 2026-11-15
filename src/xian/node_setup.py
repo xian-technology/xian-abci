@@ -4,6 +4,7 @@ import hashlib
 import os
 import secrets
 from dataclasses import dataclass, field
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -14,6 +15,7 @@ from xian_runtime_types.encoding import encode_wire, loads_wire_json
 from xian import toml_utils
 from xian.execution_policy import VM_EXECUTION_MODE
 from xian.services.bds.config import validate_dsn
+from xian.utils.cometbft import split_host_port
 
 DEFAULT_COMETBFT_CONFIG_TOML = """
 version = "0.39.3"
@@ -247,6 +249,9 @@ class NodeConfigOptions:
     moniker: str
     p2p_seeds: tuple[str, ...] = ()
     p2p_persistent_peers: tuple[str, ...] = ()
+    # host:port other nodes dial; without it CometBFT advertises its listen
+    # address (0.0.0.0), which no peer's address book accepts.
+    p2p_external_address: str = ""
     allow_cors: bool = True
     bds_enabled: bool = False
     enable_pruning: bool = False
@@ -287,6 +292,25 @@ def resolve_block_policy(
         return False, interval
 
     return True, interval
+
+
+def resolve_p2p_external_address(value: str) -> str:
+    """Return ``value`` when peers can dial it as ``host:port``; "" stays unset."""
+    if value == "":
+        return value
+    host, port = split_host_port(value)
+    if not host or "/" in host or _is_unspecified_ip(host):
+        raise ValueError(f"p2p external_address needs a dialable host: {value!r}")
+    if port is None or not port.isdigit() or not 0 < int(port) < 65536:
+        raise ValueError(f"p2p external_address needs a port 1-65535: {value!r}")
+    return value
+
+
+def _is_unspecified_ip(host: str) -> bool:
+    try:
+        return ip_address(host).is_unspecified
+    except ValueError:
+        return False
 
 
 def resolve_simulation_settings(
@@ -536,6 +560,9 @@ def render_node_configs(
     cometbft_config["consensus"]["create_empty_blocks_interval"] = create_empty_blocks_interval
     cometbft_config["p2p"]["seeds"] = ",".join(options.p2p_seeds)
     cometbft_config["p2p"]["persistent_peers"] = ",".join(options.p2p_persistent_peers)
+    cometbft_config["p2p"]["external_address"] = resolve_p2p_external_address(
+        options.p2p_external_address
+    )
     cometbft_config["rpc"]["cors_allowed_origins"] = ["*"] if options.allow_cors else []
     cometbft_config["instrumentation"]["prometheus"] = options.prometheus
     cometbft_config["statesync"]["enable"] = resolved_statesync["enable"]

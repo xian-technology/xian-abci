@@ -51,6 +51,15 @@ def build_parser() -> ArgumentParser:
         required=False,
     )
     parser.add_argument(
+        "--p2p-external-address",
+        type=str,
+        default="",
+        help=(
+            "host:port other nodes dial to reach this node (CometBFT "
+            "p2p.external_address); empty leaves it unset"
+        ),
+    )
+    parser.add_argument(
         "--moniker",
         type=str,
         help="name of your node",
@@ -545,6 +554,7 @@ def main(argv: list[str] | None = None) -> int:
             genesis_payload=genesis_payload,
             node_config=NodeConfigOptions(
                 moniker=args.moniker,
+                p2p_external_address=args.p2p_external_address,
                 allow_cors=args.allow_cors,
                 bds_enabled=args.bds_enabled,
                 enable_pruning=args.enable_pruning,

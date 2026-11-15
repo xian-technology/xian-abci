@@ -382,6 +382,39 @@ class NodeSetupTests(unittest.TestCase):
                 trust_hash="ab" * 32,
             )
 
+    def test_render_config_advertises_the_p2p_external_address(self):
+        default = render_cometbft_config(options=_node_options())
+        config = render_cometbft_config(
+            options=_node_options(p2p_external_address="203.0.113.10:26656")
+        )
+
+        self.assertEqual(default["p2p"]["external_address"], "")
+        self.assertEqual(config["p2p"]["external_address"], "203.0.113.10:26656")
+        self.assertEqual(
+            render_cometbft_config(
+                options=_node_options(p2p_external_address="validator-1.example.org:26656")
+            )["p2p"]["external_address"],
+            "validator-1.example.org:26656",
+        )
+        for edge in ("203.0.113.10:1", "203.0.113.10:65535", "[2001:db8::7]:26656"):
+            with self.subTest(edge=edge):
+                rendered = render_cometbft_config(options=_node_options(p2p_external_address=edge))
+                self.assertEqual(rendered["p2p"]["external_address"], edge)
+
+    def test_render_config_rejects_an_external_address_peers_cannot_dial(self):
+        for value in (
+            "203.0.113.10",
+            "0.0.0.0:26656",
+            "[::]:26656",
+            ":26656",
+            "203.0.113.10:0",
+            "203.0.113.10:65536",
+            "203.0.113.10:p2p",
+            "tcp://203.0.113.10:26656",
+        ):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "external_address"):
+                render_cometbft_config(options=_node_options(p2p_external_address=value))
+
     def test_render_config_supports_periodic_block_policy(self):
         config = render_cometbft_config(
             options=_node_options(

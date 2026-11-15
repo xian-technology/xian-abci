@@ -90,6 +90,21 @@ class ConfigureNodeCliTests(unittest.TestCase):
         self.assertEqual(args.bds_rpc_url, "http://rpc.internal:26657")
 
 
+class ConfigureNodeExternalAddressTests(unittest.TestCase):
+    def test_external_address_reaches_the_rendered_config(self):
+        from unittest import mock
+
+        from xian.cli import configure_node
+
+        with mock.patch.object(configure_node, "configure_existing_home", return_value={}) as cfg:
+            configure_node.main(["--moniker", "v", "--p2p-external-address", "203.0.113.10:26656"])
+            configure_node.main(["--moniker", "v"])
+
+        first, second = (call.args[0].node_config for call in cfg.call_args_list)
+        self.assertEqual(first.p2p_external_address, "203.0.113.10:26656")
+        self.assertEqual(second.p2p_external_address, "")
+
+
 class ConfigureNodeFeePolicyTests(unittest.TestCase):
     def test_fee_policy_flags_are_genesis_inputs(self):
         from unittest import mock
@@ -126,7 +141,6 @@ class ConfigureNodeFeePolicyTests(unittest.TestCase):
             build.call_args.kwargs["fee_policy"],
             {"tx_fee_mode": "free_metered", "max_tx_chi": 500, "max_block_chi": 900},
         )
-
 
     def test_bundle_genesis_requires_a_pinned_genesis_time(self):
         from xian.cli import configure_node
