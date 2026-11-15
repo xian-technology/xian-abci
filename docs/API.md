@@ -69,8 +69,11 @@ A simulation runs in the node process with the code a block runs (the Rust
 `xian_vm_core.execute_tx`), over a fork of the pending state taken when the
 query arrives; the fork is dropped afterwards. It runs on a worker thread
 without the interpreter lock, so blocks keep going; its chi budget bounds the
-work. Unlike a transaction, it does not reserve the fee budget from the
-sender's balance, so a small balance still gets an estimate of the chi used.
+work. It runs the transaction as it will be submitted, supplying its own
+estimate: when the sender can pay that estimate it is reserved from the
+sender's balance as execution does, so a call that writes the sender's
+balance stores what execution stores; a sender who cannot pay it still gets
+an estimate (nothing is reserved then).
 `simulation_timeout_ms` bounds how long the query waits for the answer;
 `simulation_max_concurrency` bounds how many run at once (a run keeps its slot
 until it finishes, even after its query timed out).

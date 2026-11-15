@@ -21,7 +21,7 @@ from xian.simulator import (
     QuerySimulationService,
     TransactionSimulator,
     _estimated_transaction_size,
-    estimate_to_fixpoint,
+    estimate_chi_supply,
 )
 from xian.utils.block import set_latest_block_nanos
 from xian.utils.tx import transaction_bytes
@@ -494,18 +494,47 @@ def test_query_simulation_rejects_noncanonical_json_tokens(token):
     assert result["chi_used"] == 0
 
 
-def test_the_estimate_is_rerun_until_its_digit_count_holds():
-    # The chi used grows with the digits of chi_supplied in the envelope.
+def _recorded(use):
+    """``use`` as a simulation run, and the supplies it was run with."""
     supplied = []
 
     def run(chi_supplied):
         supplied.append(chi_supplied)
-        return 9_998 + len(str(chi_supplied))
+        return use(chi_supplied)
 
-    assert estimate_to_fixpoint(run, lambda chi: chi) == 10_003
-    assert supplied == [1, 9_999, 10_002]
-    # A one-digit estimate needs no second run.
-    assert estimate_to_fixpoint(lambda _chi: 7, lambda chi: chi) == 7
+    return run, supplied
+
+
+def test_the_supply_rises_to_the_chi_its_run_uses():
+    # The chi used grows with the digits of chi_supplied in the envelope.
+    run, supplied = _recorded(lambda chi: 9_998 + len(str(chi)))
+
+    assert estimate_chi_supply(run, lambda chi: chi) == (10_003, 10_003)
+    # One chi less is tried and runs out.
+    assert supplied == [1, 9_999, 10_002, 10_003, 10_002]
+    assert estimate_chi_supply(lambda _chi: 7, lambda chi: chi) == (7, 7)
+
+
+def test_without_an_exact_supply_the_smallest_supply_that_pays_for_itself_is_the_estimate():
+    # The reserved balance of 255 chi at rate 30 is short (x.5), that of 254
+    # has 30 digits: supplying 254 uses 255, supplying 255 uses 254.
+    run, supplied = _recorded(lambda chi: 254 if chi == 255 else 255)
+
+    assert estimate_chi_supply(run, lambda chi: chi) == (255, 254)
+    assert supplied == [1, 255, 254]
+
+
+def test_the_supply_falls_while_one_chi_less_still_pays_for_itself():
+    # At rate 20 both 254 (x.7) and 255 (x.75) chi reserve a balance whose
+    # write costs exactly the supply.
+    run, supplied = _recorded(lambda chi: chi if chi in (254, 255) else 256)
+
+    assert estimate_chi_supply(run, lambda chi: chi) == (254, 254)
+    assert supplied == [1, 256, 255, 254, 253]
+
+
+def test_a_supply_that_never_pays_for_itself_reports_the_chi_its_last_run_used():
+    assert estimate_chi_supply(lambda chi: chi + 1, lambda chi: chi, rounds=3) == (4, 4)
 
 
 def test_the_estimated_envelope_carries_the_nonce_and_chi_supplied():
@@ -514,7 +543,9 @@ def test_the_estimated_envelope_carries_the_nonce_and_chi_supplied():
     assert _estimated_transaction_size(PAYLOAD, chain_id="x", nonce=0, chi_supplied=999) == size + 2
     # A request's nonce is not counted twice.
     with_nonce = {**PAYLOAD, "nonce": 12}
-    assert _estimated_transaction_size(with_nonce, chain_id="x", nonce=12, chi_supplied=1) == size + 1
+    assert (
+        _estimated_transaction_size(with_nonce, chain_id="x", nonce=12, chi_supplied=1) == size + 1
+    )
 
 
 def test_a_simulation_nonce_must_be_a_non_negative_integer():

@@ -1,14 +1,17 @@
 """A transaction that supplies exactly its simulated chi executes as simulated.
 
 Clients supply the simulated ``chi_used`` with no headroom. That only works
-if, for the same state, the simulator (no fee reservation) reports the chi
-that block execution (fee reservation, the Rust block executor) charges. The
-simulator sizes the real signed envelope: the nonce the client passes and
-the estimate itself as ``chi_supplied`` (re-estimated until its digit count
-holds). Each case simulates a call, then executes it in a block with
-``chi_supplied`` equal to the estimate (same status and ``chi_used``) and
-with one chi less: since revision 14 the base chi counts against the supply,
-so that runs out of chi, using exactly what it supplied.
+if, for the same state, the simulator reports the chi that block execution
+(the Rust block executor) charges. The simulator runs the transaction as it
+will be submitted: the real signed envelope (the nonce the client passes and
+the estimate itself as ``chi_supplied``) and, when the sender can pay it, the
+fee reservation of the estimate, whose reserved balance is what a call that
+writes the sender's balance stores. Each case simulates a call, then
+executes it in a block with ``chi_supplied`` equal to the estimate (same
+status and ``chi_used``, or one the digits of the reserved balance make
+smaller when no supply uses exactly itself) and with one chi less: since
+revision 14 the base chi counts against the supply, so that runs out of chi,
+using exactly what it supplied.
 
 Execution caps the charge at the supplied chi, so the same call is also run
 with a generous budget: its cost may differ from the estimate only by the
@@ -25,10 +28,10 @@ import pytest
 from contracting.local import ContractingClient
 from xian_runtime_types.decimal import ContractingDecimal
 
-from xian.utils.tx import transaction_bytes
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.simulator import TransactionSimulator
+from xian.utils.tx import transaction_bytes
 
 pytest.importorskip("xian_vm_core")
 
@@ -162,11 +165,19 @@ def _simulate_then_execute(chain, call, *, nonce, height, block_meta=None):
 
 
 def _assert_exact_supply_executes_as_simulated(simulated, generous, short, exact):
-    assert simulated["chi_used"] > 5
     assert generous["status"] == simulated["status"]
     assert abs(generous["chi_used"] - simulated["chi_used"]) <= 1
-    assert (exact["status"], exact["chi_used"]) == (simulated["status"], simulated["chi_used"])
-    assert (short["status"], short["chi_used"]) == (1, simulated["chi_used"] - 1)
+    _assert_the_estimate_is_the_supply_that_succeeds(simulated, short, exact)
+
+
+def _assert_the_estimate_is_the_supply_that_succeeds(simulated, short, exact):
+    estimate = simulated["chi_used"]
+    assert estimate > 5
+    assert exact["status"] == simulated["status"]
+    # Below the estimate only when no supply uses exactly itself, and then
+    # by a chi or two.
+    assert estimate - 10 < exact["chi_used"] <= estimate
+    assert (short["status"], short["chi_used"]) == (1, estimate - 1)
     assert "Out of chi" in str(short["result"])
 
 
@@ -306,3 +317,55 @@ def test_shielded_note_transactions_execute_as_simulated(monkeypatch):
     monkeypatch.setattr(benchmark, "process", process)
     benchmark.benchmark()
     assert len(checked) == 6
+
+
+def _transfer_chain(home, *, rate, balance):
+    """A chain whose only sender, ALICE, holds ``balance`` at chi ``rate``."""
+    client = ContractingClient(vm_profile="xian_vm_v2", storage_home=home)
+    driver = client.raw_driver
+    driver.set_contract_from_source(
+        "currency", (ROOT / "xian-configs/contracts/currency.s.py").read_text()
+    )
+    driver.set(f"currency.balances:{ALICE}", ContractingDecimal(balance))
+    driver.set("chi_cost.S:value", rate)
+    driver.set("foundation.owner", "foundation")
+    driver.set("validators.active_validators", ["validator"])
+    driver.set("rewards.S:value", [ContractingDecimal("0.7"), 0, 0, ContractingDecimal("0.3")])
+    driver.commit()
+    return (
+        client,
+        TxProcessor(client=client),
+        TransactionSimulator(client=client, chain_id=CHAIN_ID),
+    )
+
+
+def _balances(rate):
+    """Sender balances that afford the transfer: the rv-ops repro first,
+    then seeded ones with 0 to 30 fractional digits."""
+    rng = random.Random(1234 + rate)
+    balances = ["4756837851", "7084746880", "9184290314", "977069.91", "4286", "128.5"]
+    for _ in range(40):
+        whole = rng.randrange(100, 10 ** rng.randrange(3, 12))
+        digits = rng.choice([0, 0, 1, 2, 5, 8, 12, 18, 25, 29, 30])
+        fraction = str(rng.randrange(0, 10**digits)).zfill(digits).rstrip("0") if digits else ""
+        balances.append(f"{whole}.{fraction}" if fraction else str(whole))
+    return balances
+
+
+@pytest.mark.parametrize("rate", [7, 20, 30])
+def test_supplying_the_estimate_succeeds_whatever_the_sender_balance(tmp_path, rate):
+    # The transfer writes the sender's balance, whose stored size is metered.
+    # Execution writes it after the fee reservation (balance - chi_supplied /
+    # rate), so the simulator must see the same reserved balance (rv-ops:
+    # 10 of 300 exact-estimate transfers at rate 20 ran out of chi). Small
+    # balances cannot pay the generous budget, so only the estimate is run.
+    call = (ALICE, "currency", "transfer", {"amount": 1, "to": BOB})
+    for index, balance in enumerate(_balances(rate)):
+        chain = _transfer_chain(tmp_path / str(index), rate=rate, balance=balance)
+        try:
+            simulated, _generous, short, exact = _simulate_then_execute(
+                chain, call, nonce=0, height=1
+            )
+            _assert_the_estimate_is_the_supply_that_succeeds(simulated, short, exact)
+        finally:
+            chain[0].raw_driver.close()

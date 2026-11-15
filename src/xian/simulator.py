@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TypeVar
 
 from contracting.local import ContractingClient
@@ -82,27 +82,37 @@ def _estimated_transaction_size(
 Estimate = TypeVar("Estimate")
 
 
-def estimate_to_fixpoint(
-    run: Callable[[int], Estimate], chi_used: Callable[[Estimate], int], *, rounds: int = 4
-) -> Estimate:
-    """The estimate of a transaction that supplies exactly the chi it uses.
+def estimate_chi_supply(
+    run: Callable[[int], Estimate], chi_used: Callable[[Estimate], int], *, rounds: int = 8
+) -> tuple[int, Estimate]:
+    """The smallest chi a transaction can supply to pay for its own run, and
+    that run.
 
-    ``run(chi_supplied)`` simulates with ``chi_supplied`` in the envelope; its
-    digits are bytes the transaction pays for, so the estimate is re-run with
-    its own chi until the digit count no longer changes (the chi used grows
-    with the digits, so this ends at the smallest self-consistent estimate).
-    Execution counts the base chi against ``chi_supplied``, so supplying the
-    estimate succeeds and one chi less runs out.
+    ``run(chi_supplied)`` simulates a transaction supplying ``chi_supplied``:
+    its digits are bytes the transaction pays for, and its fee reservation
+    (``balance - chi_supplied / rate``) is the sender balance the call sees,
+    whose stored size is metered when the call writes it. So the chi used
+    depends on the supply itself. A supply below its use runs out of chi, so
+    the supply rises to the use until it covers it, then falls while one chi
+    less still covers its own use. Supplying the estimate succeeds (charged
+    the chi its run used, which is the estimate unless the digits make every
+    nearby supply use another amount) and one chi less runs out. After
+    ``rounds`` runs the last run's use is reported as found.
     """
-    supplied = 1
-    estimate = run(supplied)
-    for _ in range(rounds):
-        used = chi_used(estimate)
-        if len(str(used)) == len(str(supplied)):
+    supplied, estimate = 1, run(1)
+    used, runs = chi_used(estimate), 1
+    while used > supplied and runs < rounds:
+        supplied, estimate = used, run(used)
+        used, runs = chi_used(estimate), runs + 1
+    if used > supplied:
+        return used, estimate
+    while runs < rounds:
+        lower = run(supplied - 1)
+        runs += 1
+        if chi_used(lower) > supplied - 1:
             break
-        supplied = used
-        estimate = run(supplied)
-    return estimate
+        supplied, estimate = supplied - 1, lower
+    return supplied, estimate
 
 
 def _simulation_result(payload: dict, *, status: int, writes, events, chi_used, result) -> dict:
@@ -123,10 +133,12 @@ class TransactionSimulator:
 
     The call runs in Rust with the code a block runs (``xian_vm_core.
     execute_tx``) over a fork of the pending block state, which is dropped
-    afterwards: metered, with the chain's fee policy, but without reserving
-    the fee budget (a dry run reports the chi used, so a small balance still
-    gets an estimate). The estimate sizes the signed envelope as it will be
-    submitted (``envelope_nonce``, ``estimate_to_fixpoint``).
+    afterwards: metered up to the simulation cap, with the chain's fee
+    policy. The estimate is the transaction as it will be submitted: its
+    signed envelope (``envelope_nonce``) and, when the sender can pay it, the
+    fee reservation of the estimate itself (``estimate_chi_supply``), so the
+    call sees the balance execution will. A sender who cannot pay still gets
+    an estimate (nothing is reserved then).
     """
 
     def __init__(
@@ -246,7 +258,7 @@ class TransactionSimulator:
         kwargs = decode_wire_numbers(payload.get("kwargs", {}))
         environment = self._make_environment(payload, block_meta=block_meta)
         zk_without_state = runtime_feature_without_state(driver, RUNTIME_FEATURE_ZK)
-        run = estimate_to_fixpoint(
+        chi_supplied, run = estimate_chi_supply(
             lambda chi_supplied: self._run_in_rust(
                 storage,
                 pending,
@@ -254,18 +266,31 @@ class TransactionSimulator:
                 kwargs,
                 environment,
                 max_chi=max_chi,
-                size=self._transaction_size(
-                    payload, environment, nonce=nonce, chi_supplied=chi_supplied
-                ),
+                nonce=nonce,
+                chi_supplied=chi_supplied,
                 zk_without_state=zk_without_state,
             ),
             lambda run: run.chi_used,
         )
-        return self._rust_result(payload, run)
+        # The response reports the chi to supply (above the run's own chi
+        # only when no nearby supply uses exactly itself).
+        return self._rust_result(payload, replace(run, chi_used=chi_supplied))
 
     def _run_in_rust(
-        self, storage, pending, payload, kwargs, environment, *, max_chi, size, zk_without_state
+        self,
+        storage,
+        pending,
+        payload,
+        kwargs,
+        environment,
+        *,
+        max_chi,
+        nonce,
+        chi_supplied,
+        zk_without_state,
     ):
+        """A dry run of the transaction supplying ``chi_supplied`` (its
+        envelope size and fee reservation), metered up to the simulation cap."""
         return execute_tx(
             storage,
             pending.snapshot(),
@@ -283,10 +308,12 @@ class TransactionSimulator:
             meter=True,
             charge_fees=self.charge_fees,
             chi_budget=self._budget(max_chi),
-            transaction_size_bytes=size,
+            transaction_size_bytes=self._transaction_size(
+                payload, environment, nonce=nonce, chi_supplied=chi_supplied
+            ),
             protected_keys=(EXECUTION_POLICY_KEY,),
             zk_enabled_without_state=zk_without_state,
-            estimate=True,
+            estimate_chi_supplied=chi_supplied,
         )
 
     @staticmethod
