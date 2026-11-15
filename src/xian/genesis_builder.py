@@ -118,7 +118,6 @@ def _stage_native_submission_contract(driver: Driver, *, submission_time: Dateti
     artifacts = build_contract_artifacts(
         module_name="submission",
         source=source,
-        lint=False,
         vm_profile=VM_EXECUTION_MODE,
     )
     driver.set_contract(

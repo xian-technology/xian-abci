@@ -53,9 +53,7 @@ def build_contract_artifacts_from_source(
     artifacts = build_contract_artifacts(
         module_name=contract_name,
         source=change["value"],
-        lint=False,
         vm_profile=VM_EXECUTION_MODE,
-        compact=False,
     )
     return (
         artifacts["source"],
