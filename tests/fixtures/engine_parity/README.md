@@ -60,7 +60,15 @@ fixtures were regenerated with them and the diff reviewed case by case:
   layout changed (with the previous contract the new engine reproduces the
   old file exactly). The block executor goldens
   (`fixtures/golden/block_executor`) are byte-identical once the bucket is
-  renamed back.
+  renamed back (large entries too: their digests match the old ones when the
+  receipt text is hashed with the old bucket name).
+- Downtime jailing and the newcomer power cap (validator liveness, folded
+  into revision 14): `system_blocks.json` again changes only its app hashes
+  (the `validators` contract changed). The rebalance block lifts the new
+  `max_new_power_bps` cap, so the newcomer still joins the one-validator set
+  and the later duplicate-vote jail still applies; without it the cap keeps
+  the newcomer out (tested in xian-configs). The blocks carry no commit
+  votes, so FinalizeBlock runs no liveness transaction.
 
 - Random work bounds (single-engine plan, finding 8): `random.seed` accepts
   only a str, int (bool included) or `None` salt (decision 4); any other salt

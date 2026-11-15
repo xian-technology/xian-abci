@@ -1207,6 +1207,9 @@ def system_blocks() -> tuple[SystemBlock, ...]:
         "validators.config:rebalance_interval": 5,
         "validators.config:min_self_bond": 0,
         "validators.config:min_total_bond": 0,
+        # Admit the newcomer into a one-validator set (the newcomer power cap
+        # is tested in xian-configs), so the rotation and the jail still run.
+        "validators.config:max_new_power_bps": 10000,
         "validators.last_rebalance_epoch": 0,
     }
     return (
