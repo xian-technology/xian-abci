@@ -68,7 +68,9 @@ fixtures were regenerated with them and the diff reviewed case by case:
   `max_new_power_bps` cap, so the newcomer still joins the one-validator set
   and the later duplicate-vote jail still applies; without it the cap keeps
   the newcomer out (tested in xian-configs). The blocks carry no commit
-  votes, so FinalizeBlock runs no liveness transaction.
+  votes, so FinalizeBlock runs no liveness transaction. The epoch rebalance's
+  receipt (height 5) also writes `validators.missed_blocks:<newcomer> = 0`:
+  every active stint starts with no missed blocks.
 
 - Random work bounds (single-engine plan, finding 8): `random.seed` accepts
   only a str, int (bool included) or `None` salt (decision 4); any other salt
