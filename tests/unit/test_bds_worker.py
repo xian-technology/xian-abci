@@ -339,6 +339,44 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(bds.persisted_heights, [11, 12])
 
+    async def test_a_recovered_chain_is_indexed_from_its_initial_height(self):
+        # A recovery genesis starts two heights after the export (the halted
+        # height is skipped); the indexer, at the export's height, must not
+        # wait for a block that never exists.
+        with TemporaryDirectory() as spool_dir:
+            bds = _RecordingBDS(spool_dir, indexed_height=10)
+            Path(spool_dir).mkdir(parents=True, exist_ok=True)
+            bds.follow_chain_start({"initial_height": "12"})
+            bds._start_worker()
+
+            await bds.enqueue_block(_payload(12, "FIRST"))
+            await bds.flush()
+            await bds.close()
+
+            self.assertEqual(bds.persisted_heights, [12])
+
+    async def test_catch_up_starts_no_earlier_than_the_initial_height(self):
+        with TemporaryDirectory() as spool_dir:
+            bds = _RecordingBDS(spool_dir, indexed_height=10)
+            bds.follow_chain_start({"initial_height": "12"})
+            bds._ensure_catchup_runtime = AsyncMock()
+            bds._block_source = MagicMock(latest_height=AsyncMock(return_value=13))
+            bds._reindexer = MagicMock(
+                build_payload=AsyncMock(side_effect=lambda height: _payload(height, "C"))
+            )
+
+            await bds._catch_up_once()
+
+            requested = [call.args[0] for call in bds._reindexer.build_payload.await_args_list]
+            self.assertEqual(requested, [12, 13])
+
+    def test_a_chain_from_height_one_is_unchanged(self):
+        bds = _RecordingBDS("unused", indexed_height=0)
+        bds.follow_chain_start({"initial_height": "1"})
+        self.assertEqual(bds._next_expected_height(), 1)
+        bds.follow_chain_start({})
+        self.assertEqual(bds._next_expected_height(), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -161,6 +161,9 @@ class BDS:
         self._worker_task: asyncio.Task | None = None
         self._catchup_task: asyncio.Task | None = None
         self._indexed_height: int | None = None
+        # The chain's first block (CometBFT genesis initial_height): 1, or
+        # later for a chain restarted from a recovery genesis.
+        self._first_height = 1
         self._last_enqueue_error: dict[str, Any] | None = None
         self._block_source = None
         self._reindexer = None
@@ -183,6 +186,7 @@ class BDS:
         reset: bool = False,
     ) -> None:
         validate_genesis_execution_policy(cometbft_genesis)
+        self.follow_chain_start(cometbft_genesis)
         await self.open_storage()
         if reset:
             self.clear_spool()
@@ -192,6 +196,9 @@ class BDS:
 
         if not await self.db.has_entries("blocks"):
             await self.process_genesis_block(cometbft_genesis)
+
+    def follow_chain_start(self, cometbft_genesis: dict) -> None:
+        self._first_height = int(cometbft_genesis.get("initial_height") or 1)
 
     async def init(self, cometbft_genesis: dict):
         await self.initialize_storage(cometbft_genesis)
@@ -391,7 +398,7 @@ class BDS:
     def _next_expected_height(self) -> int:
         if self._indexed_height is None:
             return 0
-        return int(self._indexed_height) + 1
+        return max(int(self._indexed_height) + 1, self._first_height)
 
     def _has_next_pending_payload(self) -> bool:
         return self._next_expected_height() in self._pending_payloads
@@ -684,7 +691,7 @@ class BDS:
         indexed_height = self._indexed_height if self._indexed_height is not None else 0
         highest_pending = max(self._pending_payloads, default=indexed_height)
         target_height = max(int(latest_height), int(highest_pending))
-        next_height = indexed_height + 1
+        next_height = max(indexed_height + 1, self._first_height)
 
         while next_height <= target_height:
             if len(self._pending_payloads) >= max(self.config.queue_max_size, 1):
