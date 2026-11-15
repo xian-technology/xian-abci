@@ -71,6 +71,12 @@ fixtures were regenerated with them and the diff reviewed case by case:
   votes, so FinalizeBlock runs no liveness transaction. The epoch rebalance's
   receipt (height 5) also writes `validators.missed_blocks:<newcomer> = 0`:
   every active stint starts with no missed blocks.
+- Direct re-entry after a downtime jail (same revision): the epoch
+  rebalance's receipt at height 5 also records the newcomer power admitted
+  in its selection epoch (`validators.admission_epoch = 1`,
+  `validators.admitted_new_power = 21`), the budget that `unjail()`
+  re-entries share; every other receipt is identical and only the app
+  hashes change.
 
 - Random work bounds (single-engine plan, finding 8): `random.seed` accepts
   only a str, int (bool included) or `None` salt (decision 4); any other salt
