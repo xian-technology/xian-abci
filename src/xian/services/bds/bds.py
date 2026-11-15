@@ -259,12 +259,21 @@ class BDS:
             )
 
     async def _replay_spool(self) -> None:
-        for spool_path in self._validated_spool_files():
-            payload = self._read_spool_file(spool_path)
-            if self._is_stale_payload(payload):
+        """Enqueue spooled blocks the pending buffer lacks, in height order.
+
+        The worker calls this after every persisted block, so only files that
+        can be enqueued are read: the spool name carries the block height.
+        """
+        for spool_path in self._pending_spool_files():
+            height = self._spool_file_height(spool_path)
+            if self._indexed_height is not None and height <= self._indexed_height:
                 spool_path.unlink(missing_ok=True)
                 continue
-            self._enqueue_pending_payload(payload)
+            if height in self._pending_payloads:
+                continue
+            if self._pending_buffer_full():
+                return
+            self._enqueue_pending_payload(self._read_spool_file(spool_path))
 
     async def flush(self) -> None:
         if self._worker_task is None:
@@ -316,6 +325,10 @@ class BDS:
         temp_path.replace(spool_path)
         return spool_path
 
+    @staticmethod
+    def _spool_file_height(spool_path: Path) -> int:
+        return int(spool_path.name.split("-", 1)[0])
+
     def _remove_spool_file(self, payload: BdsBlockPayload) -> None:
         self._spool_file_path(payload).unlink(missing_ok=True)
 
@@ -349,6 +362,9 @@ class BDS:
     def _clear_enqueue_error(self) -> None:
         self._last_enqueue_error = None
 
+    def _pending_buffer_full(self) -> bool:
+        return len(self._pending_payloads) >= max(self.config.queue_max_size, 1)
+
     def _enqueue_pending_payload(self, payload: BdsBlockPayload) -> bool:
         validate_execution_policy(payload.execution_policy)
         height = int(payload.block_meta["height"])
@@ -356,7 +372,7 @@ class BDS:
             return True
         if height in self._pending_payloads:
             return True
-        if len(self._pending_payloads) >= max(self.config.queue_max_size, 1):
+        if self._pending_buffer_full():
             return False
         self._pending_payloads[height] = payload
         self._pending_event.set()

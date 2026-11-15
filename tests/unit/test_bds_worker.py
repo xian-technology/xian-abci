@@ -53,6 +53,7 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
             first = _payload(11, "A")
             second = _payload(12, "B")
             bds._write_spool_file(_payload(9, "STALE"))
+            bds._write_spool_file(_payload(10, "INDEXED"))
             bds._write_spool_file(second)
             bds._write_spool_file(first)
 
@@ -64,6 +65,44 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(
                 (Path(spool_dir) / "00000000000000000009-STALE.json").exists()
             )
+            self.assertFalse(
+                (Path(spool_dir) / "00000000000000000010-INDEXED.json").exists()
+            )
+
+    async def test_replay_spool_reads_only_files_it_can_enqueue(self):
+        # The worker replays the spool after every persisted block; reading
+        # and decoding every pending file each time made indexing quadratic in
+        # the backlog, so BDS fell further behind after a burst of full blocks.
+        with TemporaryDirectory() as spool_dir:
+            bds = _RecordingBDS(spool_dir, indexed_height=10)
+            Path(spool_dir).mkdir(parents=True, exist_ok=True)
+            for height in range(11, 17):
+                bds._write_spool_file(_payload(height, f"H{height}"))
+            bds._enqueue_pending_payload(_payload(11, "H11"))
+            bds._enqueue_pending_payload(_payload(12, "H12"))
+            read_heights = []
+            read_spool_file = bds._read_spool_file
+
+            def recording_read(spool_path):
+                payload = read_spool_file(spool_path)
+                read_heights.append(payload.block_meta["height"])
+                return payload
+
+            bds._read_spool_file = recording_read
+
+            await bds._replay_spool()
+
+            self.assertEqual(read_heights, [13, 14])
+            self.assertEqual(sorted(bds._pending_payloads), [11, 12, 13, 14])
+
+    async def test_pending_buffer_holds_at_least_one_block(self):
+        with TemporaryDirectory() as spool_dir:
+            bds = _RecordingBDS(spool_dir)
+            bds.config = BdsConfig(queue_max_size=0, spool_dir=spool_dir)
+
+            self.assertTrue(bds._enqueue_pending_payload(_payload(1, "A")))
+            self.assertFalse(bds._enqueue_pending_payload(_payload(2, "B")))
+            self.assertEqual(list(bds._pending_payloads), [1])
 
     async def test_enqueue_block_does_not_block_when_queue_is_full(self):
         with TemporaryDirectory() as spool_dir:
