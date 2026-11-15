@@ -43,11 +43,11 @@ CHI_RATE = 20
 
 # Execution revision 14 (`xvm-gas-6`).
 BASELINE = {
-    "deposit_2_outputs": 10133,
-    "transfer_2in_2out": 10484,
-    "withdraw_1in_1out": 9058,
-    "withdraw_exact": 6078,
-    "relay_transfer": 15886,
+    "deposit_2_outputs": 10135,
+    "transfer_2in_2out": 10487,
+    "withdraw_1in_1out": 9061,
+    "withdraw_exact": 6081,
+    "relay_transfer": 15890,
 }
 
 

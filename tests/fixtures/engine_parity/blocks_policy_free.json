@@ -7,7 +7,7 @@
     {
      "case": "free/success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"p\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"383ef7411ae730cdb9150717e6b5b7116927ec365cbf9487f377a031d233f4c3\",\"result\":{\"counter\":1,\"key\":\"p\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":1},{\"key\":\"con_probe.items:p\",\"value\":1}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"p\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"383ef7411ae730cdb9150717e6b5b7116927ec365cbf9487f377a031d233f4c3\",\"result\":{\"counter\":1,\"key\":\"p\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":1},{\"key\":\"con_probe.items:p\",\"value\":1}],\"status\":0}"
     },
     {
      "case": "free/failure",
@@ -22,7 +22,7 @@
     {
      "case": "free/random",
      "code": 0,
-     "data": "{\"chi_used\":74,\"events\":[],\"hash\":\"f437aa1c7c1d7d9e5ebab2a09ba4aceae7144db464c013a780fcdbeab68af41d\",\"result\":[3,\"a\",[\"x\",\"y\",\"x\"],[5,4,7,3,6,2,1],{\"__big_int__\":\"935994352283543157298\"},0,0],\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":0}"
+     "data": "{\"chi_used\":76,\"events\":[],\"hash\":\"f437aa1c7c1d7d9e5ebab2a09ba4aceae7144db464c013a780fcdbeab68af41d\",\"result\":[3,\"a\",[\"x\",\"y\",\"x\"],[5,4,7,3,6,2,1],{\"__big_int__\":\"935994352283543157298\"},0,0],\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":0}"
     },
     {
      "case": "free/rotate_validators",

@@ -1,7 +1,7 @@
 {
  "blocks": [
   {
-   "app_hash": "6b2cb5b1c5708b8b499d49f760eaee45c9fc23245207f0c01a3fa55697ff62a4",
+   "app_hash": "6261c567ea1b50b16c1a31e3615b57693a65161fc69245f7f12776ae34c26f02",
    "height": 1,
    "txs": [
     {
@@ -12,291 +12,291 @@
     {
      "case": "rewards/split_changed_in_block_then_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"efb1d547834214cff8b0b77d57e87abb840b261d452e3836af43d9f69e8a527e\",\"result\":{\"counter\":1,\"key\":\"r\"},\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"1.0625\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"0.265625\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"0.796875\"}},{\"recipient_key\":\"dev\",\"source_contract\":\"con_probe\",\"type\":\"developer_reward\",\"value\":{\"__fixed__\":\"2.125\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{\"dev\":{\"__fixed__\":\"2.125\"}},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"1.0625\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"0.265625\"},\"val2\":{\"__fixed__\":\"0.796875\"}}},\"state\":[{\"key\":\"con_probe.counter\",\"value\":1},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99994.85\"}},{\"key\":\"currency.balances:dev\",\"value\":{\"__fixed__\":\"1002.125\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"1.3325\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"0.423125\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"1.269375\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"efb1d547834214cff8b0b77d57e87abb840b261d452e3836af43d9f69e8a527e\",\"result\":{\"counter\":1,\"key\":\"r\"},\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"1.075\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"0.26875\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"0.80625\"}},{\"recipient_key\":\"dev\",\"source_contract\":\"con_probe\",\"type\":\"developer_reward\",\"value\":{\"__fixed__\":\"2.15\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{\"dev\":{\"__fixed__\":\"2.15\"}},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"1.075\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"0.26875\"},\"val2\":{\"__fixed__\":\"0.80625\"}}},\"state\":[{\"key\":\"con_probe.counter\",\"value\":1},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99994.8\"}},{\"key\":\"currency.balances:dev\",\"value\":{\"__fixed__\":\"1002.15\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"1.345\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"0.42625\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"1.27875\"}}],\"status\":0}"
     },
     {
      "case": "rewards/validators_changed_in_block",
      "code": 0,
-     "data": "{\"chi_used\":28,\"events\":[],\"hash\":\"196fb42b9a2dd6498d24d0a711e60687334d852d56b39b8599a875899a329a64\",\"result\":null,\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"0.35\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"0.2625\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"0.7875\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"0.35\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"0.2625\"},\"val2\":{\"__fixed__\":\"0.7875\"}}},\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99993.45\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"1.6825\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"0.685625\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"2.056875\"}},{\"key\":\"validators.active_validators\",\"value\":[\"val1\",\"val2\",\"val3\"]},{\"key\":\"validators.powers:val3\",\"value\":3}],\"status\":0}"
+     "data": "{\"chi_used\":28,\"events\":[],\"hash\":\"196fb42b9a2dd6498d24d0a711e60687334d852d56b39b8599a875899a329a64\",\"result\":null,\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"0.35\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"0.2625\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"0.7875\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"0.35\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"0.2625\"},\"val2\":{\"__fixed__\":\"0.7875\"}}},\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99993.4\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"1.695\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"0.68875\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"2.06625\"}},{\"key\":\"validators.active_validators\",\"value\":[\"val1\",\"val2\",\"val3\"]},{\"key\":\"validators.powers:val3\",\"value\":3}],\"status\":0}"
     },
     {
      "case": "rewards/validators_changed_in_block_then_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"82a1c02bd616ae3166363978b0e613313e134ce6021940e2d9f1a4cf807e6e28\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"0.7625\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"0.326785714285714285714285714285\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"0.980357142857142857142857142857\"}},{\"recipient_key\":\"val3\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val3\",\"value\":{\"__fixed__\":\"0.980357142857142857142857142857\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"0.7625\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"0.326785714285714285714285714285\"},\"val2\":{\"__fixed__\":\"0.980357142857142857142857142857\"},\"val3\":{\"__fixed__\":\"0.980357142857142857142857142857\"}}},\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99990.4\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"2.445\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"1.012410714285714285714285714285\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"3.037232142857142857142857142857\"}},{\"key\":\"currency.balances:val3\",\"value\":{\"__fixed__\":\"0.980357142857142857142857142857\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"82a1c02bd616ae3166363978b0e613313e134ce6021940e2d9f1a4cf807e6e28\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"0.7625\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"0.326785714285714285714285714285\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"0.980357142857142857142857142857\"}},{\"recipient_key\":\"val3\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val3\",\"value\":{\"__fixed__\":\"0.980357142857142857142857142857\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"0.7625\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"0.326785714285714285714285714285\"},\"val2\":{\"__fixed__\":\"0.980357142857142857142857142857\"},\"val3\":{\"__fixed__\":\"0.980357142857142857142857142857\"}}},\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99990.35\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"2.4575\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"1.015535714285714285714285714285\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"3.046607142857142857142857142857\"}},{\"key\":\"currency.balances:val3\",\"value\":{\"__fixed__\":\"0.980357142857142857142857142857\"}}],\"status\":1}"
     }
    ],
    "write_count": 13,
-   "writes_sha256": "5132cba32878c21e971c187ce7b4e51134721888a412a09dbd939cb54bb901aa"
+   "writes_sha256": "f943c91b549e3c30edb5ffbe89d711bec9a7d17b7f2ad91dee518cf78b0b6ef0"
   },
   {
-   "app_hash": "a7a19a1961c53d5bba9a80eb61a7f6598f84aa4cfc5a4c0c350309f3170b35d1",
+   "app_hash": "c67efa111f5ef924fdc68fddb517f3f3e72f5b81c062135952473f986628d9ce",
    "height": 2,
    "txs": [
     {
      "case": "rewards/split_text_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"9e6c9aee363f3b89a7b3fc05618b3e7dc83cd1bb6b3ff7cfec03d7043bcda4fa\",\"result\":{\"counter\":2,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":2},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99986.15\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"9e6c9aee363f3b89a7b3fc05618b3e7dc83cd1bb6b3ff7cfec03d7043bcda4fa\",\"result\":{\"counter\":2,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":2},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99986.05\"}}],\"status\":0}"
     },
     {
      "case": "rewards/split_text_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"3c15373fabd7c42adb311c63e34e029b38556a90d9f31d54b2aa9948881158d0\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99983.1\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"3c15373fabd7c42adb311c63e34e029b38556a90d9f31d54b2aa9948881158d0\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99983\"}}],\"status\":1}"
     }
    ],
    "write_count": 7,
-   "writes_sha256": "0fa3bb7e3638bdc42da8ec588773e3673446955b1b8797742be79729ef3a082d"
+   "writes_sha256": "a3f23952400fd597273895341cc2e08b1294c166e7e012750570b08a891b6291"
   },
   {
-   "app_hash": "87be9fc257b0d102356cc907b3ce7a1da57ba73bdbfb9ef9fe515bfc12c3400d",
+   "app_hash": "4f0d4828efc220cee4f8d5ad309df43b1dde332dd6df9aaa44536b28caed0eff",
    "height": 3,
    "txs": [
     {
      "case": "rewards/split_short_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"b4cdad9f3fffd1675a4ac5a6482dfe8baf2b14929b4c0546bf35516b1c7aa0c7\",\"result\":{\"counter\":3,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":3},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99978.85\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"b4cdad9f3fffd1675a4ac5a6482dfe8baf2b14929b4c0546bf35516b1c7aa0c7\",\"result\":{\"counter\":3,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":3},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99978.7\"}}],\"status\":0}"
     },
     {
      "case": "rewards/split_short_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"64026f981b633f4e9a1950c1aba9f62b807d85c210fb38ffccefd0c4855012fb\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99975.8\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"64026f981b633f4e9a1950c1aba9f62b807d85c210fb38ffccefd0c4855012fb\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99975.65\"}}],\"status\":1}"
     }
    ],
    "write_count": 7,
-   "writes_sha256": "8c77c6f8a9a7358059bdae5f3b31c6113ee5904b231f156a8294009fbe460d88"
+   "writes_sha256": "bece56a33a5893d8caf7373e3798d517b51cceabd3038e1462a0f3d00048bb32"
   },
   {
-   "app_hash": "ee5154ca4f9984c9c9ac09df953708b7866a324520ff7704d6aecea3400ea4f5",
+   "app_hash": "60103f47c153f28848613148d80ec9cf05d27e347d4ffaae0932e5784981959c",
    "height": 4,
    "txs": [
     {
      "case": "rewards/split_not_list_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"c14fa509399074f59c0a149097395d2d588ede9aee4325a5d492f354972aa75a\",\"result\":{\"counter\":4,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":4},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99971.55\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"c14fa509399074f59c0a149097395d2d588ede9aee4325a5d492f354972aa75a\",\"result\":{\"counter\":4,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":4},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99971.35\"}}],\"status\":0}"
     },
     {
      "case": "rewards/split_not_list_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"2c925df10f86cb39e47470da31341be6aa30b994b943b8501910bb3d300e4d73\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99968.5\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"2c925df10f86cb39e47470da31341be6aa30b994b943b8501910bb3d300e4d73\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99968.3\"}}],\"status\":1}"
     }
    ],
    "write_count": 7,
-   "writes_sha256": "822923b9a53b7fb7d1d3d4caed093a7239fed7a9ba66c5725337063891077ad8"
+   "writes_sha256": "e6323aa861abbd593d4f24516e69b7ae972066211fcc311176f00ff05ed0ce1b"
   },
   {
-   "app_hash": "33674d8cff9cfc467d038720fb3d7b42b7347decb5aeffa7b8fcccbf8c2bf316",
+   "app_hash": "efac3477e56e95443c1ee7aa057a0fcea630fbe498bd7fbec73df430addb3305",
    "height": 5,
    "txs": [
     {
      "case": "rewards/split_empty_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"9d17ba357f32845be2272fef050ef51f03221397ddaf08b08a0aacf7c25aa4e2\",\"result\":{\"counter\":5,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":5},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99964.25\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"9d17ba357f32845be2272fef050ef51f03221397ddaf08b08a0aacf7c25aa4e2\",\"result\":{\"counter\":5,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":5},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99964\"}}],\"status\":0}"
     },
     {
      "case": "rewards/split_empty_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"4517a9050e6aec4f7e6b8cecee4e8458e86bc8b7b65a5543d9ef5dcb16a9285c\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99961.2\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"4517a9050e6aec4f7e6b8cecee4e8458e86bc8b7b65a5543d9ef5dcb16a9285c\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99960.95\"}}],\"status\":1}"
     }
    ],
    "write_count": 7,
-   "writes_sha256": "91ec853e6465b1d2fbb0fc4afcb9a661c2352f7cf4ccdd7acc5ee9dc423957ba"
+   "writes_sha256": "00250e24e78a238b8cba1f2b6e39ff43a4ceb111e3745aa861c487888a92eabd"
   },
   {
-   "app_hash": "b76e9b68d4dde8c505cc5a3927e7ac74b4b1db905a621cc2a732d66127f2751f",
+   "app_hash": "a5c3333cd4761591a405e9950c2c754b3ad640fc60ec204ca83b79b6917041d2",
    "height": 6,
    "txs": [
     {
      "case": "rewards/split_dict_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"11319848d7621fae0634a74d68467e91bbb3fe683ed28d5480e3fe539657f998\",\"result\":{\"counter\":6,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":6},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99956.95\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"11319848d7621fae0634a74d68467e91bbb3fe683ed28d5480e3fe539657f998\",\"result\":{\"counter\":6,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":6},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99956.65\"}}],\"status\":0}"
     },
     {
      "case": "rewards/split_dict_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"c6b243cd35f91f70cbfc90bb27a6b9828523ca135e2917491bb5ad58925c3d73\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99953.9\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"c6b243cd35f91f70cbfc90bb27a6b9828523ca135e2917491bb5ad58925c3d73\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99953.6\"}}],\"status\":1}"
     }
    ],
    "write_count": 7,
-   "writes_sha256": "c79371031cac2584f60054089c8a73d423ee0c7015cd5990162cd8a0337b7cd9"
+   "writes_sha256": "dc65ec36e963ed96fb52bddc605d286ceeeafc6e26c91822bd5e928a4162cb43"
   },
   {
-   "app_hash": "5fe672daeb79b97e43ad8756567e334085ee27004fbadd9a323b183c1a80d167",
+   "app_hash": "e9616af9efbf7c1d4043f2b22abbda9752fff7b6263c4eb6048ec54fd977650a",
    "height": 7,
    "txs": [
     {
      "case": "rewards/split_member_none_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"19138fc3c481b1ecffe0715285d9575cb3d2ef58fd66db6447656e1ecd806d1d\",\"result\":{\"counter\":7,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":7},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99949.65\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"19138fc3c481b1ecffe0715285d9575cb3d2ef58fd66db6447656e1ecd806d1d\",\"result\":{\"counter\":7,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":7},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99949.3\"}}],\"status\":0}"
     },
     {
      "case": "rewards/split_member_none_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"73ce6b3689bb531ab70f3f6af1bc743c5170795e25d5fef013980690e06bd709\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99946.6\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"73ce6b3689bb531ab70f3f6af1bc743c5170795e25d5fef013980690e06bd709\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99946.25\"}}],\"status\":1}"
     }
    ],
    "write_count": 7,
-   "writes_sha256": "1716266afd9f68bbe906094f0a7ca292e6ef7a64641ca2e9a3b1acb045deffdb"
+   "writes_sha256": "eef88381290cb37fa704ebc01f0e8b29fe08a4e22fb2c2c5183148c48a39dacf"
   },
   {
-   "app_hash": "f5ad9f158773027ba3cea20ce15e1d40fc3ea7bed3acd6ce492cbd5e43f48d5f",
+   "app_hash": "995a36d84fd7909b638e635e1b44819780913f47accc071a099707772410fc42",
    "height": 8,
    "txs": [
     {
      "case": "rewards/foundation_owner_missing_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"1f081946af55d39247bc49ad11215fce296c32ef5ac590f559c00e0f3add1938\",\"result\":{\"counter\":8,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":8},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99942.35\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"1f081946af55d39247bc49ad11215fce296c32ef5ac590f559c00e0f3add1938\",\"result\":{\"counter\":8,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":8},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99941.95\"}}],\"status\":0}"
     },
     {
      "case": "rewards/foundation_owner_missing_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"129d547d97b389c77f807627b9c7df9616b402d6d0bedfeeddc9d4d4adae64ab\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99939.3\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"129d547d97b389c77f807627b9c7df9616b402d6d0bedfeeddc9d4d4adae64ab\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99938.9\"}}],\"status\":1}"
     }
    ],
    "write_count": 7,
-   "writes_sha256": "6aac24ea2702d396dd31cb5fe3f316146365caa36b56c6f497b314f1262060ac"
+   "writes_sha256": "444e32818f07a2d4ee6bd759bffcb732f2d1bedc6a60ebc50aa1f11846b10b42"
   },
   {
-   "app_hash": "236b83507b22fd3a7102baf991fa8499c1333b8c6580fcf5899f4a20d6216dd8",
+   "app_hash": "7d2f04350fd58e0b4073822b287c55a386c35e5e15b9cc932d97e5f4c9d44ba6",
    "height": 9,
    "txs": [
     {
      "case": "rewards/foundation_owner_int_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"3f4905e98059151c9ac05e9548589dc31cdc9dbf16217dde446ec4e1754e5de7\",\"result\":{\"counter\":9,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":9},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99935.05\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"3f4905e98059151c9ac05e9548589dc31cdc9dbf16217dde446ec4e1754e5de7\",\"result\":{\"counter\":9,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":9},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99934.6\"}}],\"status\":0}"
     },
     {
      "case": "rewards/foundation_owner_int_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"bbde18e3713774d9c8c670099979bf4a678c2db8de438e40aac3b3ae8a2c2486\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99932\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"bbde18e3713774d9c8c670099979bf4a678c2db8de438e40aac3b3ae8a2c2486\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99931.55\"}}],\"status\":1}"
     }
    ],
    "write_count": 7,
-   "writes_sha256": "0f93f28f26d7279ad9933b65ac33125c2cb31a3db666edfcd38e5b159793d991"
+   "writes_sha256": "18df23cb7dbe737eb6ab5a3392a07d28c920497ae1255b4e2bdd1a03dbfff7c6"
   },
   {
-   "app_hash": "6230e1dfbb7f9b723065b56cee3430fdac47bfaaa4472dac0bfcbd867ab91752",
+   "app_hash": "64e7f1a711df6ca0ec8c65b686df5226965b51a90d76f79814610f084ea694a3",
    "height": 10,
    "txs": [
     {
      "case": "rewards/power_text_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"e02197496b721d99f370de57a3b1fb512691286959ce8c500ad32840ca199917\",\"result\":{\"counter\":10,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":10},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99927.75\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"e02197496b721d99f370de57a3b1fb512691286959ce8c500ad32840ca199917\",\"result\":{\"counter\":10,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":10},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99927.25\"}}],\"status\":0}"
     },
     {
      "case": "rewards/power_text_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"a45d0e7a928057c40a5b4d6ee52f785f0840ef3d84026d986c3535c9bac8056b\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99924.7\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"a45d0e7a928057c40a5b4d6ee52f785f0840ef3d84026d986c3535c9bac8056b\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99924.2\"}}],\"status\":1}"
     }
    ],
    "write_count": 7,
-   "writes_sha256": "70b961daf970633e14d3cf7ae108328339f1c1298985b5d2f34b8a672ad9c4c7"
+   "writes_sha256": "9e4845fe0c32996edfde10c568c6de0b5e31b0afe97f87b69a3c811a7e6de5da"
   },
   {
-   "app_hash": "13d690e8c54754f73f9c649a0811fe49328b56aedb78619ba46297a62d1212b7",
+   "app_hash": "f4a39f89b1d7f12306c42985811fa851ddb945f1c22a7f447998b5adfa90af20",
    "height": 11,
    "txs": [
     {
      "case": "rewards/power_decimal_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"27b41dacfb8067ce206b915673aa0d2e73cd9f4152e73d93e06e1e97a704519b\",\"result\":{\"counter\":11,\"key\":\"r\"},\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"1.275\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"0.607142857142857142857142857142\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"1.517857142857142857142857142857\"}},{\"recipient_key\":\"dev\",\"source_contract\":\"con_probe\",\"type\":\"developer_reward\",\"value\":{\"__fixed__\":\"0.85\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{\"dev\":{\"__fixed__\":\"0.85\"}},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"1.275\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"0.607142857142857142857142857142\"},\"val2\":{\"__fixed__\":\"1.517857142857142857142857142857\"}}},\"state\":[{\"key\":\"con_probe.counter\",\"value\":11},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99920.45\"}},{\"key\":\"currency.balances:dev\",\"value\":{\"__fixed__\":\"1002.975\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"3.72\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"1.619553571428571428571428571427\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"4.555089285714285714285714285714\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"27b41dacfb8067ce206b915673aa0d2e73cd9f4152e73d93e06e1e97a704519b\",\"result\":{\"counter\":11,\"key\":\"r\"},\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"1.29\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"0.614285714285714285714285714285\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"1.535714285714285714285714285714\"}},{\"recipient_key\":\"dev\",\"source_contract\":\"con_probe\",\"type\":\"developer_reward\",\"value\":{\"__fixed__\":\"0.86\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{\"dev\":{\"__fixed__\":\"0.86\"}},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"1.29\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"0.614285714285714285714285714285\"},\"val2\":{\"__fixed__\":\"1.535714285714285714285714285714\"}}},\"state\":[{\"key\":\"con_probe.counter\",\"value\":11},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99919.9\"}},{\"key\":\"currency.balances:dev\",\"value\":{\"__fixed__\":\"1003.01\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"3.7475\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"1.62982142857142857142857142857\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"4.582321428571428571428571428571\"}}],\"status\":0}"
     },
     {
      "case": "rewards/power_decimal_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"e011602ca283e6c0a79e5f185078aac8f0ddc322f30c38f0d978edb4f97e6717\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"0.915\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"0.61\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"1.525\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"0.915\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"0.61\"},\"val2\":{\"__fixed__\":\"1.525\"}}},\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99917.4\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"4.635\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"2.229553571428571428571428571427\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"6.080089285714285714285714285714\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"e011602ca283e6c0a79e5f185078aac8f0ddc322f30c38f0d978edb4f97e6717\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"0.915\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"0.61\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"1.525\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"0.915\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"0.61\"},\"val2\":{\"__fixed__\":\"1.525\"}}},\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99916.85\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"4.6625\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"2.23982142857142857142857142857\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"6.107321428571428571428571428571\"}}],\"status\":1}"
     }
    ],
    "write_count": 11,
-   "writes_sha256": "009a84cfd0e69ab7c51a016bb5a06a7221321feb86b31ca35d2668de0d321895"
+   "writes_sha256": "fefa2f188e908d0932496ab69941ca2dfacb3b76a0962d79b75c178d305ca6ad"
   },
   {
-   "app_hash": "5e5698325670d6675b01049ae1fd0b00f7ee22033dc159fdef1229390ffc55bf",
+   "app_hash": "b0836b4eb1b14fad44ca53eaae3ea0053dab0a28bee71b325ee6288875386daf",
    "height": 12,
    "txs": [
     {
      "case": "rewards/power_negative_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"5ad0565c9ee400b020d3a0767afdd1a1a3cf7c5de6c8cf7daf753845cc9cc087\",\"result\":{\"counter\":12,\"key\":\"r\"},\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"1.275\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"1.0625\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"1.0625\"}},{\"recipient_key\":\"dev\",\"source_contract\":\"con_probe\",\"type\":\"developer_reward\",\"value\":{\"__fixed__\":\"0.85\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{\"dev\":{\"__fixed__\":\"0.85\"}},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"1.275\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"1.0625\"},\"val2\":{\"__fixed__\":\"1.0625\"}}},\"state\":[{\"key\":\"con_probe.counter\",\"value\":12},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99913.15\"}},{\"key\":\"currency.balances:dev\",\"value\":{\"__fixed__\":\"1003.825\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"5.91\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"3.292053571428571428571428571427\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"7.142589285714285714285714285714\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"5ad0565c9ee400b020d3a0767afdd1a1a3cf7c5de6c8cf7daf753845cc9cc087\",\"result\":{\"counter\":12,\"key\":\"r\"},\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"1.29\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"1.075\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"1.075\"}},{\"recipient_key\":\"dev\",\"source_contract\":\"con_probe\",\"type\":\"developer_reward\",\"value\":{\"__fixed__\":\"0.86\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{\"dev\":{\"__fixed__\":\"0.86\"}},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"1.29\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"1.075\"},\"val2\":{\"__fixed__\":\"1.075\"}}},\"state\":[{\"key\":\"con_probe.counter\",\"value\":12},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99912.55\"}},{\"key\":\"currency.balances:dev\",\"value\":{\"__fixed__\":\"1003.87\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"5.9525\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"3.31482142857142857142857142857\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"7.182321428571428571428571428571\"}}],\"status\":0}"
     },
     {
      "case": "rewards/power_negative_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"b5d06540b3249d08f424a04fb00078a170fa4c6acd1d366a0b7cdbc8b2504a68\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"0.915\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"1.0675\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"1.0675\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"0.915\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"1.0675\"},\"val2\":{\"__fixed__\":\"1.0675\"}}},\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99910.1\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"6.825\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"4.359553571428571428571428571427\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"8.210089285714285714285714285714\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"b5d06540b3249d08f424a04fb00078a170fa4c6acd1d366a0b7cdbc8b2504a68\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"0.915\"}},{\"recipient_key\":\"val1\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val1\",\"value\":{\"__fixed__\":\"1.0675\"}},{\"recipient_key\":\"val2\",\"source_contract\":null,\"type\":\"validator_reward\",\"validator_key\":\"val2\",\"value\":{\"__fixed__\":\"1.0675\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"0.915\"}},\"validator_reward\":{\"val1\":{\"__fixed__\":\"1.0675\"},\"val2\":{\"__fixed__\":\"1.0675\"}}},\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99909.5\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"6.8675\"}},{\"key\":\"currency.balances:val1\",\"value\":{\"__fixed__\":\"4.38232142857142857142857142857\"}},{\"key\":\"currency.balances:val2\",\"value\":{\"__fixed__\":\"8.249821428571428571428571428571\"}}],\"status\":1}"
     }
    ],
    "write_count": 11,
-   "writes_sha256": "6e3e06cb8147ea881b782248949d2cbccbcf0b6e711d71553c2a225964a9b32b"
+   "writes_sha256": "37f02a4c5f5bb196b0954b266794d4efed43bdf8ee9910e76964ad23e0de7af5"
   },
   {
-   "app_hash": "1bc16e0ef2ec6980421aaa13496a8b83b3ea299adc5d1825d87f2287d6de05bc",
+   "app_hash": "457b1f678fd1b45eb6d1d3bbab2620010bfe43591dc46e3fa71cefe878297092",
    "height": 13,
    "txs": [
     {
      "case": "rewards/active_dict_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"91ff1811feaee655faaade9aee0e51fb2cd4cd335a7fd9f89ba18e4ce286122d\",\"result\":{\"counter\":13,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":13},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99905.85\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"91ff1811feaee655faaade9aee0e51fb2cd4cd335a7fd9f89ba18e4ce286122d\",\"result\":{\"counter\":13,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":13},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99905.2\"}}],\"status\":0}"
     },
     {
      "case": "rewards/active_dict_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"441eaef2357c5d53c1dd4f2573eee645df0a0afc2ee18d1b37261384f645140b\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99902.8\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"441eaef2357c5d53c1dd4f2573eee645df0a0afc2ee18d1b37261384f645140b\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99902.15\"}}],\"status\":1}"
     }
    ],
    "write_count": 7,
-   "writes_sha256": "b7408e1211511a3917f44690cc44193701b47c784022648e2cdebe0e0146eccf"
+   "writes_sha256": "22a6b4fc056815ec02c4ad1f60f54d58dac46bb197ae8a6b305cce16f30454f8"
   },
   {
-   "app_hash": "df153e0100229714852fe64e05027db5ddf2f4956f320680c537850dbeed9239",
+   "app_hash": "dd317dc796afead12b51295718692c48841ce14754a02fb07c9f6721872a7eb9",
    "height": 14,
    "txs": [
     {
      "case": "rewards/active_int_member_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"8c15c1380e3493fe7041393dc000c4070489ff550eb3a742f6014d1670fc16e3\",\"result\":{\"counter\":14,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":14},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99898.55\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"8c15c1380e3493fe7041393dc000c4070489ff550eb3a742f6014d1670fc16e3\",\"result\":{\"counter\":14,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":14},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99897.85\"}}],\"status\":0}"
     },
     {
      "case": "rewards/active_int_member_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"974194d6ba43d07ce15ed241fb3e170fa1e8d196647a88d00f22e2bd21f31dc3\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99895.5\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"974194d6ba43d07ce15ed241fb3e170fa1e8d196647a88d00f22e2bd21f31dc3\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99894.8\"}}],\"status\":1}"
     }
    ],
    "write_count": 7,
-   "writes_sha256": "2bc8372b46b46ca22e973f4c456029ab0a3ff07e5f61fb844a502594de3a7bb7"
+   "writes_sha256": "f61b9676c55a0450e12e67bf54163d9d2cea8a8d0153400cf2b3aa485fd81bd5"
   },
   {
-   "app_hash": "b135a17f5a4aa69504561edcfdec3db143d2f8a32233403e50384d1b34cc330e",
+   "app_hash": "3677f8b559fffd0a56705e85849b69b7c7edb4bcf4e29223384770152ce76a34",
    "height": 15,
    "txs": [
     {
      "case": "rewards/active_empty_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"f4689b9f93b77d23ee3e5b0f8e7b394347a693b3a83d9a72698903f30cee8a5b\",\"result\":{\"counter\":15,\"key\":\"r\"},\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"1.275\"}},{\"recipient_key\":\"dev\",\"source_contract\":\"con_probe\",\"type\":\"developer_reward\",\"value\":{\"__fixed__\":\"0.85\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{\"dev\":{\"__fixed__\":\"0.85\"}},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"1.275\"}},\"validator_reward\":{}},\"state\":[{\"key\":\"con_probe.counter\",\"value\":15},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99891.25\"}},{\"key\":\"currency.balances:dev\",\"value\":{\"__fixed__\":\"1004.675\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"8.1\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"f4689b9f93b77d23ee3e5b0f8e7b394347a693b3a83d9a72698903f30cee8a5b\",\"result\":{\"counter\":15,\"key\":\"r\"},\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"1.29\"}},{\"recipient_key\":\"dev\",\"source_contract\":\"con_probe\",\"type\":\"developer_reward\",\"value\":{\"__fixed__\":\"0.86\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{\"dev\":{\"__fixed__\":\"0.86\"}},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"1.29\"}},\"validator_reward\":{}},\"state\":[{\"key\":\"con_probe.counter\",\"value\":15},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99890.5\"}},{\"key\":\"currency.balances:dev\",\"value\":{\"__fixed__\":\"1004.73\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"8.1575\"}}],\"status\":0}"
     },
     {
      "case": "rewards/active_empty_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"22170a069566a3eeeeb324ff45edfde679143ddc9218b49f8f8fd1acfbb2bdf3\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"0.915\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"0.915\"}},\"validator_reward\":{}},\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99888.2\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"9.015\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"22170a069566a3eeeeb324ff45edfde679143ddc9218b49f8f8fd1acfbb2bdf3\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":[{\"recipient_key\":\"foundation\",\"source_contract\":null,\"type\":\"foundation_reward\",\"value\":{\"__fixed__\":\"0.915\"}}],\"rewards\":{\"delegator_reward\":{},\"developer_reward\":{},\"foundation_reward\":{\"foundation\":{\"__fixed__\":\"0.915\"}},\"validator_reward\":{}},\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99887.45\"}},{\"key\":\"currency.balances:foundation\",\"value\":{\"__fixed__\":\"9.0725\"}}],\"status\":1}"
     }
    ],
    "write_count": 9,
-   "writes_sha256": "7e8f863fbc204a60419e4eb94aa78185c0cc81ae90684d4372b6cbbb608be44d"
+   "writes_sha256": "34db7c881d85ded11a9390a961bccd8e2c8af46cbe5c299aab73ab57dc0bfa31"
   },
   {
-   "app_hash": "f92ce44e63ac9a931d5475ff21e66c4077084b385610f8fb8a665ddb4cbedd76",
+   "app_hash": "0bd750dba0b6e759200edb5d3b17915a413e28375376282927365650a85988b8",
    "height": 16,
    "txs": [
     {
      "case": "rewards/active_text_balance_success",
      "code": 0,
-     "data": "{\"chi_used\":85,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"b750aae67a34416320418193c952643e6bf3cc44b2af6af4b0c9209eae3f9894\",\"result\":{\"counter\":16,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":16},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99883.95\"}}],\"status\":0}"
+     "data": "{\"chi_used\":86,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"r\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"b750aae67a34416320418193c952643e6bf3cc44b2af6af4b0c9209eae3f9894\",\"result\":{\"counter\":16,\"key\":\"r\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":16},{\"key\":\"con_probe.items:r\",\"value\":1},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99883.15\"}}],\"status\":0}"
     },
     {
      "case": "rewards/active_text_balance_failure",
      "code": 1,
-     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"0a712874265c5b1bb590359d7d0071295d38623986c248b01935d940e70c35f2\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99880.9\"}}],\"status\":1}"
+     "data": "{\"chi_used\":61,\"events\":[],\"hash\":\"0a712874265c5b1bb590359d7d0071295d38623986c248b01935d940e70c35f2\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99880.1\"}}],\"status\":1}"
     }
    ],
    "write_count": 7,
-   "writes_sha256": "2aff3f67db0fdf7feaa44be01021014e0e6eaa74ec4a245bbc8c608e28b2ea50"
+   "writes_sha256": "d91b22a9a525db0bc12c85370b51ffea32c3b668fccc428262f265f64dc11213"
   }
  ],
  "policy": "paid"
