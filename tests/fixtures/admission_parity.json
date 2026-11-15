@@ -9437,8 +9437,8 @@
  },
  "raw/uppercase_hex": {
   "outcome": [
-   "ok",
-   "01e4c6cc5a658fe6"
+   "error",
+   "Transaction bytes are not canonical"
   ],
   "raw": "6e81ff9f7c12ba83"
  },
