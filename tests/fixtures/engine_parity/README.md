@@ -77,6 +77,12 @@ fixtures were regenerated with them and the diff reviewed case by case:
   `validators.admitted_new_power = 21`), the budget that `unjail()`
   re-entries share; every other receipt is identical and only the app
   hashes change.
+- Bounded validator selection and exited-account unjailing (genesis contract):
+  the current `validators` source limits its active/candidate pool to 64 and
+  preserves withdrawal/removal when lifting a downtime jail. Every
+  `system_blocks.json` system receipt is byte-identical; each serialized
+  FinalizeBlock response differs only in its app hash because the deployed
+  canonical contract source changed. No runtime execution rule changed.
 
 - Random work bounds (single-engine plan, finding 8): `random.seed` accepts
   only a str, int (bool included) or `None` salt (decision 4); any other salt
