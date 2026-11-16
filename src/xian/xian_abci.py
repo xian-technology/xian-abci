@@ -93,7 +93,11 @@ from xian.services.bds.config import BdsConfig
 from xian.services.state_sync import StateSnapshotManager
 from xian.simulator import QuerySimulationService
 from xian.state_root import StateRootCache
-from xian.utils.block import get_latest_block_height, reconcile_latest_block
+from xian.utils.block import (
+    get_committed_latest_block,
+    get_latest_block_height,
+    reconcile_latest_block,
+)
 from xian.utils.cometbft import (
     load_genesis_data,
     load_tendermint_config,
@@ -185,9 +189,10 @@ class Xian:
             chain_id=self.chain_id,
             execution_mode=self.execution_mode,
         )
-        self.state_snapshot_manager = StateSnapshotManager(
+        self.state_snapshot_manager = StateSnapshotManager.from_config(
             storage_home=constants.STORAGE_HOME,
             chain_id=self.chain_id,
+            config=xian_config,
         )
         self.validator_handler = ValidatorHandler(self)
         self.nonce_storage = NonceStorage(
@@ -201,29 +206,7 @@ class Xian:
                 128,
             ),
         )
-        try:
-            configured_max_tx_bytes = int(
-                self.cometbft_config.get("mempool", {}).get(
-                    "max_tx_bytes",
-                    4 * 1024 * 1024,
-                )
-            )
-        except (TypeError, ValueError):
-            configured_max_tx_bytes = 4 * 1024 * 1024
-        self.max_tx_bytes = max(configured_max_tx_bytes, 1)
-        self.app_log_level = str(xian_config.get("app_log_level", "INFO")).upper()
-        self.transaction_trace_logging = xian_config.get("transaction_trace_logging", False)
-        self.transaction_trace_debug_logging = (
-            self.transaction_trace_logging and log_level_includes(self.app_log_level, "DEBUG")
-        )
-        self.transaction_trace_full_logging = self.transaction_trace_logging and log_level_includes(
-            self.app_log_level, "TRACE"
-        )
-        self.tx_processor = TxProcessor(
-            client=self.client,
-            profiler=self.profiler,
-            trace_logging=self.transaction_trace_debug_logging,
-        )
+        self._configure_transaction_processing(xian_config)
         try:
             reject_node_local_fee_settings(xian_config)
             self.tx_fee_policy = resolve_chain_fee_policy(
@@ -238,7 +221,7 @@ class Xian:
         self.simulator = QuerySimulationService(
             client=self.client,
             execution_runtime=self.execution_runtime,
-            get_block_meta=lambda: self.current_block_meta,
+            get_block_meta=self.committed_block_meta,
             chain_id=self.chain_id,
             enabled=xian_config.get("simulation_enabled", True),
             max_concurrency=xian_config.get("simulation_max_concurrency", 2),
@@ -327,6 +310,31 @@ class Xian:
             ).warning("No local state patch bundle directory found")
             self.state_patch_manager.loaded = True
 
+    def _configure_transaction_processing(self, xian_config):
+        try:
+            configured_max_tx_bytes = int(
+                self.cometbft_config.get("mempool", {}).get(
+                    "max_tx_bytes",
+                    4 * 1024 * 1024,
+                )
+            )
+        except (TypeError, ValueError):
+            configured_max_tx_bytes = 4 * 1024 * 1024
+        self.max_tx_bytes = max(configured_max_tx_bytes, 1)
+        self.app_log_level = str(xian_config.get("app_log_level", "INFO")).upper()
+        self.transaction_trace_logging = xian_config.get("transaction_trace_logging", False)
+        self.transaction_trace_debug_logging = (
+            self.transaction_trace_logging and log_level_includes(self.app_log_level, "DEBUG")
+        )
+        self.transaction_trace_full_logging = self.transaction_trace_logging and log_level_includes(
+            self.app_log_level, "TRACE"
+        )
+        self.tx_processor = TxProcessor(
+            client=self.client,
+            profiler=self.profiler,
+            trace_logging=self.transaction_trace_debug_logging,
+        )
+
     @classmethod
     async def create(cls, constants=Constants()):
         self = cls(constants=constants)
@@ -376,6 +384,15 @@ class Xian:
             return chain_cap
         return min(self.simulation_max_chi, chain_cap)
 
+    def committed_block_meta(self) -> dict:
+        """Readonly calls use the durable state height/time, not an in-flight block.
+
+        The commit marker's hash is an application root, not the CometBFT
+        block hash. Omit it so readonly calls derive their stable query hash.
+        """
+        latest = get_committed_latest_block(self.client.raw_driver)
+        return {"height": latest["height"], "nanos": latest["nanos"], "chain_id": self.chain_id}
+
     def _release_state_transition_lock(self):
         if self._state_transition_lock.locked():
             self._state_transition_lock.release()
@@ -396,6 +413,10 @@ class Xian:
 
     def _discard_pending_commit_driver_state(self):
         self._pending_commit_driver_state = None
+        self.client.raw_driver.rollback()
+        self.current_block_meta = None
+        self.merkle_root_hash = None
+        self.current_block_rewards = {}
 
     async def echo(self, req):
         """

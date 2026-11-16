@@ -182,6 +182,31 @@ class ABCIServer:
         await self.server.serve_forever()
 
     async def _handler(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        shutdown_required = True
+        try:
+            await self._process_requests(reader, writer)
+        except asyncio.CancelledError:
+            # Global shutdown already cancels connection tasks. Starting it
+            # again would make shutdown tasks cancel and await each other.
+            shutdown_required = False
+            raise
+        finally:
+            # A host fault must stop every ABCI connection, just as a normal
+            # CometBFT disconnect does. Continuing with a partially finalized
+            # block could serve uncommitted state or admit another block.
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except asyncio.CancelledError:
+                shutdown_required = False
+                raise
+            finally:
+                if shutdown_required:
+                    await _stop()
+
+    async def _process_requests(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         data = BytesIO()
         while True:
             # Read data from the reader
@@ -217,9 +242,6 @@ class ABCIServer:
             data = BytesIO()
             data.write(remaining_data)
             data.seek(0)  # Reset position to start of buffer
-
-        # Shut down if the connection is closed
-        await _stop()
 
 
 async def _stop() -> None:

@@ -8,7 +8,6 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import pytest
-from contracting.constants import TRANSACTION_BASE_CHI
 from contracting.local import ContractingClient
 from contracting.runtime_features import set_driver_runtime_features
 from xian_runtime_types.decimal import ContractingDecimal
@@ -272,7 +271,7 @@ def test_a_free_policy_simulation_writes_no_fee(chain):
     assert free["chi_used"] == paid["chi_used"]
 
 
-def test_a_submission_without_source_fails_with_the_base_charge(chain):
+def test_a_submission_without_source_pays_for_module_preparation(chain):
     result = _simulate(
         chain,
         {
@@ -285,8 +284,8 @@ def test_a_submission_without_source_fails_with_the_base_charge(chain):
 
     assert result["status"] == 1
     assert "requires source code" in result["result"]
-    # The estimate reports the same base charge a real failed tx pays.
-    assert result["chi_used"] == TRANSACTION_BASE_CHI
+    # Revision15 charges the submission module before its argument check.
+    assert result["chi_used"] == 82
 
 
 def test_a_simulated_deployment_reports_chi_and_leaves_no_state(chain):
@@ -389,6 +388,106 @@ def test_a_simulation_runs_on_a_fork_of_the_state_taken_when_prepared(chain):
     assert chain.raw_driver.get("con_reader.values:a") == 7
 
 
+def test_a_prepared_simulation_keeps_its_committed_read_snapshot(chain):
+    chain.raw_driver.set_contract_from_source("con_reader", READER)
+    chain.raw_driver.set("con_reader.values:a", 100)
+    chain.raw_driver.commit()
+    service = QuerySimulationService(client=chain, chain_id="test-chain")
+    read = {**PAYLOAD, "contract": "con_reader", "function": "read", "kwargs": {"key": "a"}}
+    prepared = service.prepare_encoded_transaction(json.dumps(read).encode().hex())
+    chain.raw_driver.set("con_reader.values:a", 7)
+    chain.raw_driver.commit()
+
+    result = asyncio.run(prepared.run())
+
+    assert (result["status"], result["result"]) == (0, 100)
+    assert chain.raw_driver.get("con_reader.values:a") == 7
+
+
+def test_prepared_simulations_reserve_reader_capacity_before_snapshot_creation(chain):
+    chain.raw_driver.set_contract_from_source("con_reader", READER)
+    chain.raw_driver.commit()
+    service = QuerySimulationService(client=chain, chain_id="test-chain", max_concurrency=2)
+    payload = json.dumps({**PAYLOAD, "contract": "con_reader", "function": "read", "kwargs": {"key": "a"}}).encode().hex()
+    first = service.prepare_encoded_transaction(payload)
+    second = service.prepare_encoded_transaction(payload)
+
+    refused = service.prepare_encoded_transaction(payload)
+
+    assert isinstance(refused, dict)
+    assert "capacity exceeded" in refused["result"]
+    assert service._active_requests == 2
+    del first
+    replacement = service.prepare_encoded_transaction(payload)
+    assert not isinstance(replacement, dict)
+    del second, replacement
+    assert service._active_requests == 0
+
+
+def test_snapshot_invalidation_is_retryable_without_mixing_committed_revisions(chain):
+    chain.raw_driver.set_contract_from_source("con_reader", READER)
+    chain.raw_driver.set("con_reader.values:a", 100)
+    chain.raw_driver.commit()
+    service = QuerySimulationService(client=chain, chain_id="test-chain")
+    payload = json.dumps({**PAYLOAD, "contract": "con_reader", "function": "read", "kwargs": {"key": "a"}}).encode().hex()
+    prepared = service.prepare_encoded_transaction(payload)
+    environment, _ = chain.raw_driver.committed_storage()
+    environment.set_map_size(environment.map_size() + 1_048_576)
+
+    refused = asyncio.run(prepared.run())
+
+    assert refused["status"] == 1
+    assert "invalidated by map resize" in refused["result"]
+    assert refused["state"] == []
+    fresh = service.prepare_encoded_transaction(payload)
+    result = asyncio.run(fresh.run())
+    assert (result["status"], result["result"]) == (0, 100)
+
+
+def test_finished_prepared_simulation_releases_its_reader_even_when_retained(chain):
+    chain.raw_driver.set_contract_from_source("con_reader", READER)
+    chain.raw_driver.commit()
+    service = QuerySimulationService(client=chain, chain_id="test-chain")
+    payload = json.dumps({**PAYLOAD, "contract": "con_reader", "function": "read", "kwargs": {"key": "a"}}).encode().hex()
+    prepared = service.prepare_encoded_transaction(payload)
+
+    assert asyncio.run(prepared.run())["status"] == 0
+
+    with pytest.raises(Exception, match="closed or invalidated"):
+        prepared.storage.get(b"con_reader.values:a")
+    assert service._active_requests == 0
+    repeated = asyncio.run(prepared.run())
+    assert "already been run" in repeated["result"]
+
+
+def test_snapshot_creation_failure_releases_admission_slot(monkeypatch):
+    service = _BlockingQuerySimulationService(max_concurrency=1)
+    environment, overlay = service.client.raw_driver.committed_storage()
+    environment.snapshot = lambda: (_ for _ in ()).throw(RuntimeError("reader unavailable"))
+    monkeypatch.setattr(service.client.raw_driver, "committed_storage", lambda: (environment, overlay))
+
+    result = service.prepare_encoded_transaction(ENCODED)
+
+    assert "reader unavailable" in result["result"]
+    assert service._active_requests == 0
+
+
+def test_simulation_admission_preserves_native_reader_headroom(chain):
+    chain.raw_driver.commit()
+    environment, _ = chain.raw_driver.committed_storage()
+    service = QuerySimulationService(client=chain, max_concurrency=environment.max_readers() * 2)
+    prepared = [service.prepare_encoded_transaction(ENCODED) for _ in range(environment.max_pinned_readers())]
+    assert all(not isinstance(item, dict) for item in prepared)
+
+    refused = service.prepare_encoded_transaction(ENCODED)
+
+    assert "capacity exceeded" in refused["result"]
+    assert environment.get(b"currency.balances:alice") is not None
+    assert chain.raw_driver.get("currency.balances:alice") == 100
+    prepared.clear()
+    assert service._active_requests == 0
+
+
 def test_a_failing_rust_run_is_a_simulation_error(chain, monkeypatch):
     def panicked(*_args, **_kwargs):
         raise RuntimeError("the transaction executor panicked: probe")
@@ -430,7 +529,10 @@ class _BlockingQuerySimulationService(QuerySimulationService):
 
 class _PendingDriver:
     def committed_storage(self):
-        return None, SimpleNamespace(snapshot=lambda: None)
+        return (
+            SimpleNamespace(snapshot=lambda: None, max_pinned_readers=lambda: 16),
+            SimpleNamespace(snapshot=lambda: None),
+        )
 
 
 ENCODED = (
@@ -439,6 +541,30 @@ ENCODED = (
 
 
 class QuerySimulationServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_same_preparation_cannot_start_a_second_worker_while_running(self):
+        service = _BlockingQuerySimulationService(max_concurrency=1, timeout_ms=5000)
+        prepared = service.prepare_encoded_transaction(ENCODED)
+        started = threading.Event()
+        calls = []
+        original = prepared.simulator.simulate_in_rust
+
+        def run(*args, **kwargs):
+            calls.append(1)
+            started.set()
+            return original(*args, **kwargs)
+
+        prepared.simulator.simulate_in_rust = run
+        task = asyncio.create_task(prepared.run())
+        await asyncio.wait_for(asyncio.to_thread(started.wait, 5), timeout=5)
+        try:
+            repeated = await prepared.run()
+            self.assertIn("already been run", repeated["result"])
+            self.assertEqual(service._active_requests, 1)
+            self.assertEqual(len(calls), 1)
+        finally:
+            service.release.set()
+            await task
+
     async def test_returns_disabled_result_when_simulation_is_off(self):
         service = _BlockingQuerySimulationService(enabled=False)
 

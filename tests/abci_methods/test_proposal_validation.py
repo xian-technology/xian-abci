@@ -19,6 +19,7 @@ from cometbft.abci.v1beta2.types_pb2 import (
 from cometbft.abci.v1beta3.types_pb2 import (
     Request,
     RequestFinalizeBlock,
+    RequestInitChain,
     RequestPrepareProposal,
     RequestProcessProposal,
     Response,
@@ -53,6 +54,7 @@ def make_signed_tx_bytes(
     memo: str | None = None,
     contract: str = "currency",
     function: str = "transfer",
+    kwargs: dict | None = None,
 ) -> bytes:
     signing_key = nacl.signing.SigningKey(SEED)
     sender = signing_key.verify_key.encode(
@@ -63,7 +65,7 @@ def make_signed_tx_bytes(
         "chain_id": chain_id,
         "contract": contract,
         "function": function,
-        "kwargs": {"amount": "1", "to": sender},
+        "kwargs": {"amount": "1", "to": sender} if kwargs is None else kwargs,
         "nonce": nonce,
         "sender": sender,
         "chi_supplied": chi_supplied,
@@ -570,6 +572,62 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                 await self.app.finalize_block(RequestFinalizeBlock(txs=[tx], height=1))
         self.assertIsNone(self.app._pending_commit_driver_state)
         self.assertFalse(self.app._state_transition_lock.locked())
+
+    async def test_paid_rejected_deployments_have_deterministic_error_receipts(self):
+        await self.app.init_chain(RequestInitChain())
+        sender = nacl.signing.SigningKey(SEED).verify_key.encode().hex()
+        driver = self.app.client.raw_driver
+        driver.set(f"currency.balances:{sender}", 1_000_000)
+        driver.commit()
+        self.app.state_root_cache.rebuild_from_driver(driver)
+        source = "a=1\nb=2\n@export\ndef a():\n    return 1\n@export\ndef b():\n    return 2\n"
+        errors = []
+
+        for nonce in range(16):
+            tx = make_signed_tx_bytes(
+                nonce=nonce,
+                contract="submission",
+                function="submit_contract",
+                chi_supplied=200_000,
+                kwargs={"name": "con_attack", "code": source},
+            )
+            response = await self.app.finalize_block(
+                RequestFinalizeBlock(txs=[tx], height=nonce + 1)
+            )
+            receipt = json.loads(response.tx_results[0].data)
+            self.assertEqual(receipt["status"], 1)
+            self.assertGreater(receipt["chi_used"], 0)
+            self.assertIn("conflicting module binding", receipt["result"])
+            errors.append(receipt["result"])
+            await self.app.commit()
+
+        self.assertEqual(len(set(errors)), 1, errors)
+        self.assertIsNone(driver.get("con_attack.__source__"))
+        self.assertEqual(self.app.nonce_storage.get_nonce(sender), 15)
+
+    async def test_finalize_host_fault_discards_partial_state_before_replay(self):
+        driver = self.app.client.raw_driver
+        driver.set("currency.balances:alice", 123)
+        driver.commit()
+        committed_root = self.app.state_root_cache.rebuild_from_driver(driver)
+
+        def partially_execute(*args, **kwargs):
+            driver.set("currency.balances:alice", 999)
+            driver.set("__n.alice:", 7)
+            raise OSError("injected host failure after first transaction")
+
+        with patch.object(self.app.tx_processor, "process_block", side_effect=partially_execute):
+            with self.assertRaises(OSError):
+                await self.app.finalize_block(
+                    RequestFinalizeBlock(txs=[make_signed_tx_bytes(nonce=0)], height=1)
+                )
+
+        self.assertEqual(driver.pending_items(), [])
+        self.assertEqual(driver.get("currency.balances:alice"), 123)
+        self.assertIsNone(driver.get("__n.alice:"))
+        self.assertEqual(self.app.state_root_cache.root_hash, committed_root)
+        self.assertIsNone(self.app.current_block_meta)
+        self.assertIsNone(self.app.merkle_root_hash)
 
     async def test_local_mempool_size_limit_does_not_change_block_validation(self):
         # mempool.max_tx_bytes is node-local. Consensus block size already

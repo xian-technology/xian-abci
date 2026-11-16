@@ -44,9 +44,10 @@ class TestMembersContract(unittest.TestCase):
             "chi_cost": {"initial_rate": 20},
             "rewards": None,
             "dao": None,
+            "validator_penalties": None,
         }
 
-        for contract in ["currency.s.py", "dao.s.py", "rewards.s.py", "chi_cost.s.py"]:
+        for contract in ["currency.s.py", "dao.s.py", "rewards.s.py", "chi_cost.s.py", "validator_penalties.s.py"]:
             path = os.path.join(self.contracts_dir, contract)
             with open(path) as f:
                 code = f.read()
@@ -1324,14 +1325,23 @@ class TestMembersContract(unittest.TestCase):
             signer="__evidence_penalty_driver__",
             environment={"now": base_time, "block_num": 10},
         )
+        queued = result["slash_result"]
+        self.assertTrue(queued["queued"])
+        penalties = self.client.get_contract_proxy("validator_penalties")
+        progress = penalties.process_pending_slashes(
+            signer="__penalty_driver__",
+            environment={"now": base_time, "block_num": 10},
+        )
+        self.assertIsNone(progress["head"])
+        completed = penalties.jobs[queued["job_id"]]
         unbond_after = self.members.get_pending_unbond(
             unbond_id=unbond["id"],
             signer="delegator1",
         )
 
         self.assertTrue(result["applied"])
-        self.assertEqual(result["slash_result"]["delegated_slashed"], 7.5)
-        self.assertEqual(result["slash_result"]["pending_unbond_slashed"], 2.5)
+        self.assertEqual(completed["delegated_slashed"], 7.5)
+        self.assertEqual(completed["pending_unbond_slashed"], 2.5)
         self.assertEqual(self._delegated("delegator1", NODE1), 142.5)
         self.assertEqual(self.members.total_delegated[NODE1], 142.5)
         self.assertEqual(unbond_after["created_block"], 7)

@@ -102,6 +102,31 @@ rejects the snapshot if it does not match the advertised application hash.
 Imported or exported application snapshots can then be served back to peers
 through the CometBFT snapshot lifecycle.
 
+### Local Resource Limits
+
+Application snapshot handling defaults to a 256 MiB compressed archive and a
+256 MiB exported-state file, with at most 64 KiB of metadata. Offers are checked
+before JSON decoding or staging; chunk counts and cumulative bytes are bounded.
+Gzip expansion and auxiliary tar-header reads are limited before extraction.
+Only the two expected regular files are accepted. Disk-space checks reserve
+16 MiB for other work, and failed incoming transfers remove their staging data.
+
+These are local service limits, not consensus rules or a maximum chain size.
+Set the following top-level values in `config/xian.toml` when a legitimate
+snapshot requires a larger local budget:
+
+```toml
+snapshot_max_state_bytes = 536870912
+snapshot_max_archive_bytes = 536870912
+snapshot_max_metadata_bytes = 65536
+snapshot_min_free_disk_bytes = 16777216
+```
+
+The snapshot CLI reads the same settings. `--max-state-bytes` and
+`--max-archive-bytes` override them for one command. Imported state is still
+materialized and verified in memory; the byte cap is not a RAM ceiling. Choose
+the limit and container memory together before raising the cap.
+
 ## Operator Tooling
 
 Use the dedicated snapshot CLI to manage application snapshots:
@@ -133,7 +158,7 @@ because a provider served them.
 
 The current implementation is intentionally conservative:
 
-- one supported snapshot format: `1`
+- one supported snapshot format: `2`
 - manual snapshot export
 - chunked peer serving from locally exported or imported snapshots
 - strict full-state import

@@ -1159,6 +1159,14 @@ def run_contract_views(home: Path) -> dict:
         current_block_meta=block_meta(SIMULATION_HEIGHT),
         chain_id=CHAIN_ID,
     )
+    from xian.utils.block import stage_latest_block
+    from xian.xian_abci import Xian
+
+    meta = block_meta(SIMULATION_HEIGHT)
+    stage_latest_block(client.raw_driver, block_hash=b"v" * 32,
+                       height=meta["height"], nanos=meta["nanos"])
+    client.raw_driver.commit()
+    app.committed_block_meta = lambda: Xian.committed_block_meta(app)
     results = {}
     try:
         for case, sender, contract, function, kwargs in CONTRACT_VIEWS:
@@ -1292,6 +1300,7 @@ def _deploy_system_contracts(client) -> None:
         ("dao", None),
         ("rewards", None),
         ("chi_cost", {"initial_rate": 20}),
+        ("validator_penalties", None),
         (
             "validators",
             {"genesis_nodes": [NODE_1, NODE_2, NODE_3], "genesis_registration_fee": 1000},
@@ -1339,6 +1348,7 @@ async def _finalize(handler, block: SystemBlock):
 SYSTEM_CASES = {
     "validator-epoch-rebalance": "system/epoch_rebalance",
     "evidence-penalty": "system/evidence_penalty",
+    "validator-penalty-batch": "system/penalty_continuation",
 }
 
 

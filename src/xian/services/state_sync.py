@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import shutil
 import tarfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -22,6 +21,7 @@ from cometbft.abci.v1beta1.types_pb2 import (
 )
 from xian.execution_policy import current_execution_policy, validate_execution_policy
 from xian.log_safety import error_fields
+from xian.services.snapshot_limits import SnapshotArchiveReader, SnapshotLimits
 from xian.state_export import (
     export_state,
     import_state,
@@ -33,6 +33,7 @@ SNAPSHOT_FORMAT_VERSION = 2
 DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024
 SNAPSHOT_METADATA_FILENAME = "metadata.json"
 SNAPSHOT_STATE_FILENAME = "exported_state.json"
+SNAPSHOT_ARCHIVE_FILES = frozenset({SNAPSHOT_METADATA_FILENAME, SNAPSHOT_STATE_FILENAME})
 
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:
@@ -54,13 +55,26 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _safe_extract_snapshot(archive: tarfile.TarFile, destination: Path) -> None:
-    destination_resolved = destination.resolve()
-    for member in archive.getmembers():
-        member_path = (destination / member.name).resolve()
-        if destination_resolved not in member_path.parents and member_path != destination_resolved:
-            raise ValueError(f"unsafe snapshot member path: {member.name}")
+def _safe_extract_snapshot(
+    archive: tarfile.TarFile, destination: Path, *, limits: SnapshotLimits | None = None
+) -> None:
+    limits = limits or SnapshotLimits()
+    names = set()
+    for member in archive:
+        _validate_snapshot_member(member, names)
+        limits.validate_member_size(member.name, member.size)
+        names.add(member.name)
+    if names != SNAPSHOT_ARCHIVE_FILES:
+        raise ValueError("snapshot archive must contain metadata.json and exported_state.json")
+    limits.require_disk_space(destination, sum(member.size for member in archive.getmembers()))
+    if isinstance(archive.fileobj, SnapshotArchiveReader):
+        archive.fileobj.allow_payload_reads()
     archive.extractall(path=destination, filter="data")
+
+
+def _validate_snapshot_member(member: tarfile.TarInfo, names: set[str]) -> None:
+    if member.name not in SNAPSHOT_ARCHIVE_FILES or not member.isfile() or member.name in names:
+        raise ValueError(f"unexpected, duplicate or non-file snapshot member: {member.name}")
 
 
 def _validate_trusted_snapshot(
@@ -73,6 +87,22 @@ def _validate_trusted_snapshot(
         raise ValueError("snapshot height does not match trusted offer")
     if app_hash_hex is not None and exported_state["hash"] != app_hash_hex:
         raise ValueError("snapshot app hash does not match trusted offer")
+
+
+def _validate_archive_metadata(metadata: dict, exported_state: dict, chain_id: str) -> None:
+    validate_execution_policy(metadata.get("execution_policy"))
+    if int(metadata["snapshot_format_version"]) != SNAPSHOT_FORMAT_VERSION:
+        raise ValueError("unsupported snapshot format version")
+    if str(metadata["chain_id"]) != chain_id:
+        raise ValueError("snapshot chain_id mismatch")
+    if int(metadata["height"]) != int(exported_state["number"]):
+        raise ValueError("snapshot height metadata mismatch")
+    if str(metadata["app_hash"]) != str(exported_state["hash"]):
+        raise ValueError("snapshot app hash metadata mismatch")
+
+
+def _valid_offer_envelope(snapshot: Snapshot, current_height: int) -> bool:
+    return snapshot.height > current_height and snapshot.chunks > 0 and len(snapshot.hash) == 32
 
 
 def default_snapshot_output_path(
@@ -120,6 +150,7 @@ class IncomingSnapshotSession:
     expected_app_hash_hex: str
     expected_snapshot_hash_hex: str
     next_index: int = 0
+    received_bytes: int = 0
 
     @property
     def temp_root(self) -> Path:
@@ -144,15 +175,25 @@ class StateSnapshotManager:
         storage_home: Path,
         chain_id: str,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
+        limits: SnapshotLimits | None = None,
     ) -> None:
         self.storage_home = Path(storage_home)
         self.chain_id = chain_id
         self.chunk_size = chunk_size
+        self.limits = limits or SnapshotLimits()
         self.snapshot_dir = self.storage_home / "snapshots"
         self.incoming_dir = self.snapshot_dir / "incoming"
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         self.incoming_dir.mkdir(parents=True, exist_ok=True)
         self._incoming_session: IncomingSnapshotSession | None = None
+
+    @classmethod
+    def from_config(cls, *, storage_home: Path, chain_id: str, config: dict):
+        return cls(
+            storage_home=storage_home,
+            chain_id=chain_id,
+            limits=SnapshotLimits.from_config(config),
+        )
 
     def _manifest_path(self, archive_path: Path) -> Path:
         return archive_path.parent / f"{archive_path.name}.manifest.json"
@@ -251,7 +292,11 @@ class StateSnapshotManager:
             self.snapshot_dir.glob("*.tar.gz.manifest.json"),
             reverse=True,
         ):
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            payload = json.loads(
+                self.limits.read_bytes(
+                    manifest_path, maximum=self.limits.max_metadata_bytes, label="manifest"
+                )
+            )
             archive_path = manifest_path.with_name(payload["archive_name"])
             if not archive_path.exists():
                 logger.warning(
@@ -300,6 +345,9 @@ class StateSnapshotManager:
                 storage_home=self.storage_home,
                 output_filename=SNAPSHOT_STATE_FILENAME,
             )
+            self.limits.check_size(
+                exported_state_path.stat().st_size, self.limits.max_state_bytes, "exported state"
+            )
             exported_state = load_exported_state(exported_state_path)
             height = int(exported_state["number"])
             app_hash_hex = str(exported_state["hash"])
@@ -336,6 +384,9 @@ class StateSnapshotManager:
                 with tarfile.open(staged_archive, "w:gz") as archive:
                     archive.add(metadata_path, arcname=SNAPSHOT_METADATA_FILENAME)
                     archive.add(exported_state_path, arcname=SNAPSHOT_STATE_FILENAME)
+                self.limits.check_size(
+                    staged_archive.stat().st_size, self.limits.max_archive_bytes, "archive"
+                )
                 staged_archive.replace(archive_path)
 
         assert archive_path is not None
@@ -370,28 +421,32 @@ class StateSnapshotManager:
     ) -> dict[str, Any]:
         if not snapshot_path.exists():
             raise FileNotFoundError(f"snapshot not found: {snapshot_path}")
+        self.limits.check_size(
+            snapshot_path.stat().st_size, self.limits.max_archive_bytes, "archive"
+        )
         with TemporaryDirectory(dir=self.incoming_dir) as temp_dir:
             temp_root = Path(temp_dir)
             staged_archive = temp_root / "snapshot.tar.gz"
-            shutil.copy2(snapshot_path, staged_archive)
+            self.limits.stage_archive(snapshot_path, staged_archive)
+            unpacked_archive = temp_root / "snapshot.tar"
+            self.limits.unpack_archive(staged_archive, unpacked_archive)
             extract_dir = temp_root / "extracted"
             extract_dir.mkdir(parents=True, exist_ok=True)
-            with tarfile.open(staged_archive, "r:gz") as archive:
-                _safe_extract_snapshot(archive, extract_dir)
+            with unpacked_archive.open("rb") as file:
+                with tarfile.open(
+                    fileobj=SnapshotArchiveReader(file, self.limits), mode="r:"
+                ) as archive:
+                    _safe_extract_snapshot(archive, extract_dir, limits=self.limits)
             metadata = json.loads(
-                (extract_dir / SNAPSHOT_METADATA_FILENAME).read_text(encoding="utf-8")
+                self.limits.read_bytes(
+                    extract_dir / SNAPSHOT_METADATA_FILENAME,
+                    maximum=self.limits.max_metadata_bytes,
+                    label="metadata",
+                )
             )
-            validate_execution_policy(metadata.get("execution_policy"))
             exported_state = load_exported_state(extract_dir / SNAPSHOT_STATE_FILENAME)
             exported_state_sha256 = _sha256_file(extract_dir / SNAPSHOT_STATE_FILENAME)
-            if int(metadata["snapshot_format_version"]) != SNAPSHOT_FORMAT_VERSION:
-                raise ValueError("unsupported snapshot format version")
-            if str(metadata["chain_id"]) != self.chain_id:
-                raise ValueError("snapshot chain_id mismatch")
-            if int(metadata["height"]) != int(exported_state["number"]):
-                raise ValueError("snapshot height metadata mismatch")
-            if str(metadata["app_hash"]) != str(exported_state["hash"]):
-                raise ValueError("snapshot app hash metadata mismatch")
+            _validate_archive_metadata(metadata, exported_state, self.chain_id)
             _validate_trusted_snapshot(
                 exported_state, height=expected_height, app_hash_hex=expected_app_hash_hex
             )
@@ -449,46 +504,51 @@ class StateSnapshotManager:
     ) -> ResponseOfferSnapshot:
         if req_snapshot.format != SNAPSHOT_FORMAT_VERSION:
             return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT_FORMAT)
-        if req_snapshot.height <= current_height:
-            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
-        if req_snapshot.chunks <= 0:
-            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
-        if len(req_snapshot.hash) != 32:
+        if not _valid_offer_envelope(req_snapshot, current_height):
             return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
         try:
-            metadata = json.loads(req_snapshot.metadata.decode("utf-8"))
-            if not isinstance(metadata, dict):
-                raise ValueError("snapshot metadata must be an object")
-            validate_execution_policy(metadata.get("execution_policy"))
-            metadata_height = int(metadata.get("height", -1))
-            metadata_chunk_size = int(metadata.get("chunk_size", 0))
+            chunk_size = self._validated_offer_chunk_size(req_snapshot, app_hash)
+            self.limits.require_disk_space(
+                self.incoming_dir,
+                min(req_snapshot.chunks * chunk_size, self.limits.max_archive_bytes),
+            )
+            self._reset_incoming_session()
+            self._incoming_session = IncomingSnapshotSession(
+                temp_dir=TemporaryDirectory(dir=self.incoming_dir),
+                expected_height=req_snapshot.height,
+                expected_format=req_snapshot.format,
+                expected_chunks=req_snapshot.chunks,
+                expected_chunk_size=chunk_size,
+                expected_app_hash_hex=app_hash.hex(),
+                expected_snapshot_hash_hex=req_snapshot.hash.hex(),
+            )
         except Exception:
             return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
-
-        if metadata.get("snapshot_format_version") != SNAPSHOT_FORMAT_VERSION:
-            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
-        if metadata.get("chain_id") != self.chain_id:
-            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
-        if metadata_height != req_snapshot.height:
-            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
-        if metadata_chunk_size <= 0 or metadata_chunk_size > self.chunk_size:
-            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
-        if metadata.get("archive_sha256") != req_snapshot.hash.hex():
-            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
-        if metadata.get("app_hash") != app_hash.hex():
-            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.REJECT)
-
-        self._reset_incoming_session()
-        self._incoming_session = IncomingSnapshotSession(
-            temp_dir=TemporaryDirectory(dir=self.incoming_dir),
-            expected_height=req_snapshot.height,
-            expected_format=req_snapshot.format,
-            expected_chunks=req_snapshot.chunks,
-            expected_chunk_size=metadata_chunk_size,
-            expected_app_hash_hex=app_hash.hex(),
-            expected_snapshot_hash_hex=req_snapshot.hash.hex(),
-        )
         return ResponseOfferSnapshot(result=ResponseOfferSnapshot.ACCEPT)
+
+    def _validated_offer_chunk_size(self, snapshot: Snapshot, app_hash: bytes) -> int:
+        self.limits.check_size(
+            len(snapshot.metadata), self.limits.max_metadata_bytes, "offer metadata"
+        )
+        metadata = json.loads(snapshot.metadata)
+        if not isinstance(metadata, dict):
+            raise ValueError("snapshot metadata must be an object")
+        validate_execution_policy(metadata.get("execution_policy"))
+        expected = {
+            "snapshot_format_version": SNAPSHOT_FORMAT_VERSION,
+            "chain_id": self.chain_id,
+            "height": snapshot.height,
+            "archive_sha256": snapshot.hash.hex(),
+            "app_hash": app_hash.hex(),
+        }
+        if any(metadata.get(key) != value for key, value in expected.items()):
+            raise ValueError("snapshot metadata does not match trusted offer")
+        chunk_size = metadata.get("chunk_size", 0)
+        if type(chunk_size) is not int or not 0 < chunk_size <= self.chunk_size:
+            raise ValueError("invalid snapshot chunk size")
+        maximum_chunks = (self.limits.max_archive_bytes + chunk_size - 1) // chunk_size
+        self.limits.check_size(snapshot.chunks, maximum_chunks, "chunk count")
+        return chunk_size
 
     def load_snapshot_chunk_response(
         self,
@@ -528,17 +588,32 @@ class StateSnapshotManager:
             return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.RETRY)
         if index < 0 or index >= session.expected_chunks:
             return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.REJECT_SNAPSHOT)
-        if len(chunk) > session.expected_chunk_size:
+        try:
+            self._append_snapshot_chunk(session, chunk)
+        except Exception as exc:
+            logger.bind(**error_fields(exc)).error("Failed to stage state sync snapshot chunk")
             self._reset_incoming_session()
             return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.REJECT_SNAPSHOT)
-
-        with open(session.archive_path, "ab") as handle:
-            handle.write(chunk)
         session.next_index += 1
 
         if session.next_index < session.expected_chunks:
             return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.ACCEPT)
 
+        return self._complete_incoming_snapshot(session)
+
+    def _append_snapshot_chunk(self, session: IncomingSnapshotSession, chunk: bytes) -> None:
+        self.limits.check_size(len(chunk), session.expected_chunk_size, "chunk")
+        self.limits.check_size(
+            session.received_bytes + len(chunk), self.limits.max_archive_bytes, "archive"
+        )
+        self.limits.require_disk_space(session.temp_root, len(chunk))
+        with open(session.archive_path, "ab") as handle:
+            handle.write(chunk)
+        session.received_bytes += len(chunk)
+
+    def _complete_incoming_snapshot(
+        self, session: IncomingSnapshotSession
+    ) -> ResponseApplySnapshotChunk:
         try:
             archive_sha256 = _sha256_file(session.archive_path)
             if archive_sha256 != session.expected_snapshot_hash_hex:

@@ -12,6 +12,7 @@ import hashlib
 from loguru import logger
 
 from xian.app_logging import build_log_fields
+from xian.formatting import vk_is_formatted
 
 SYSTEM_EVIDENCE_SENDER = "__evidence_penalty_driver__"
 MISBEHAVIOR_TYPE_NAMES = {
@@ -27,16 +28,13 @@ def _validator_consensus_address(pubkey_hex: str) -> bytes | None:
         return None
 
 
-def validator_keys_by_address(self) -> dict[bytes, str]:
-    """Every known validator's key by its CometBFT consensus address (the
-    persistent registry, so former validators still resolve)."""
-    known_validators = (
-        self.client.raw_driver.get("validators.validator_registry")
-        or self.client.raw_driver.get("validators.active_validators")
-        or []
-    )
+def active_validator_keys_by_address(self) -> dict[bytes, str]:
+    """Liveness resolves only the bounded active set, never lifetime history."""
+    known_validators = self.client.raw_driver.get("validators.active_validators") or []
     keys = {}
     for validator_key in known_validators:
+        if not vk_is_formatted(validator_key):
+            continue
         consensus_address = _validator_consensus_address(validator_key)
         if consensus_address is not None:
             keys[consensus_address] = validator_key
@@ -44,9 +42,12 @@ def validator_keys_by_address(self) -> dict[bytes, str]:
 
 
 def _resolve_misbehaving_validator_key(self, validator_address: bytes) -> str | None:
-    if not validator_address:
+    if len(validator_address) != 20:
         return None
-    return validator_keys_by_address(self).get(validator_address)
+    key = self.client.raw_driver.get(f"validators.consensus_keys:{validator_address.hex()}")
+    if not vk_is_formatted(key):
+        return None
+    return key if _validator_consensus_address(key) == validator_address else None
 
 
 def _misbehavior_type_name(raw_type: int) -> str | None:

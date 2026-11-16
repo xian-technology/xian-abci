@@ -55,6 +55,7 @@ class ValidatorLivenessTests(unittest.IsolatedAsyncioTestCase):
             "chi_cost": {"initial_rate": 20},
             "rewards": None,
             "dao": None,
+            "validator_penalties": None,
         }
         for name, constructor_args in args.items():
             self.app.client.submit(

@@ -764,17 +764,19 @@ class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
                 "validators_policy": {"selection_mode": "manual"},
                 "validators_active": [{"account": validator_pubkey_hex}],
                 "validators_candidates": [{"account": "candidate-1"}],
-                "validators_open_votes/limit=25/offset=0": [
-                    {"proposal_id": 7, "type": "update_policy"}
-                ],
+                "validators_open_votes_page/limit=25": {
+                    "items": [{"proposal_id": 7, "type": "update_policy"}],
+                    "next_cursor": None,
+                },
                 f"validators_validator/{validator_pubkey_hex}": {
                     "account": validator_pubkey_hex,
                     "status": "active",
                     "total_bond": 150,
                 },
-                f"validators_pending_unbonds/{validator_pubkey_hex}": [
-                    {"unbond_id": 4, "amount": 25}
-                ],
+                f"validators_pending_unbonds_page/{validator_pubkey_hex}/limit=100": {
+                    "unbonds": [{"unbond_id": 4, "amount": 25}],
+                    "next_cursor": None,
+                },
             }
             return responses.get(path)
 

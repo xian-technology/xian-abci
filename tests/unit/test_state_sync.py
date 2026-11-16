@@ -1,3 +1,4 @@
+import io
 import json
 import shutil
 import tarfile
@@ -15,7 +16,11 @@ from xian_runtime_types.encoding import encode
 
 from cometbft.abci.v1beta1.types_pb2 import Snapshot
 from xian.execution_policy import EXECUTION_POLICY_KEY, current_execution_policy
-from xian.services.state_sync import SNAPSHOT_FORMAT_VERSION, StateSnapshotManager
+from xian.services.state_sync import (
+    SNAPSHOT_FORMAT_VERSION,
+    StateSnapshotManager,
+    _safe_extract_snapshot,
+)
 from xian.state_export import load_exported_state
 from xian.state_root import compute_driver_state_root
 from xian.utils.block import (
@@ -60,6 +65,35 @@ def snapshot_metadata(**changes):
 
 
 class StateSyncTests(unittest.TestCase):
+    def test_snapshot_rejects_unexpected_duplicate_and_link_members_before_extraction(self):
+        for extra in ("padding", "duplicate", "link"):
+            with self.subTest(extra=extra), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                path = root / "snapshot.tar.gz"
+                destination = root / "unpacked"
+                destination.mkdir()
+                with tarfile.open(path, "w:gz") as archive:
+                    for name in ("metadata.json", "exported_state.json"):
+                        info = tarfile.TarInfo(name)
+                        info.size = 2
+                        archive.addfile(info, io.BytesIO(b"{}"))
+                    name = "metadata.json" if extra != "padding" else "padding.bin"
+                    info = tarfile.TarInfo(name)
+                    if extra == "link":
+                        info.type = tarfile.SYMTYPE
+                        info.linkname = "exported_state.json"
+                        archive.addfile(info)
+                    else:
+                        data = b"0" * 1_000_000 if extra == "padding" else b"{}"
+                        info.size = len(data)
+                        archive.addfile(info, io.BytesIO(data))
+
+                with tarfile.open(path) as archive:
+                    with self.assertRaises(ValueError):
+                        _safe_extract_snapshot(archive, destination)
+
+                self.assertEqual(list(destination.iterdir()), [])
+
     def test_snapshot_can_be_imported_from_its_own_snapshot_directory(self):
         with tempfile.TemporaryDirectory() as source_dir:
             home = Path(source_dir)
@@ -130,7 +164,7 @@ class StateSyncTests(unittest.TestCase):
     def test_snapshot_publication_failure_preserves_original_durable_state(self):
         from xian.utils.block import get_committed_latest_block
 
-        for failure in ("shutil.copy2", "StateSnapshotManager._write_manifest"):
+        for failure in ("SnapshotLimits.stage_archive", "StateSnapshotManager._write_manifest"):
             with (
                 self.subTest(failure=failure),
                 tempfile.TemporaryDirectory() as source_dir,

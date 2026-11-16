@@ -10,13 +10,14 @@ import time
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import aiohttp
 from aiohttp import web
 from loguru import logger
 
 from xian.config_values import finite_float
+from xian.dashboard.pages import bounded_page, namespace_cursor, numeric_cursor
 from xian.utils.cometbft import format_url_netloc, normalize_rpc_url
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -525,13 +526,43 @@ async def _abci_query(
         session,
         rpc_url,
         "abci_query",
-        {"path": f'"/{query_path}"'},
+        {"path": json.dumps(f"/{query_path}")},
     )
     response = result.get("response", {})
+    if int(response.get("code", 0)) != 0:
+        raise RuntimeError(response.get("log") or "ABCI query failed")
     val = response.get("value")
     if not val:
         return None
     return _decode_abci_value(val)
+
+
+async def _query_cursor_page(
+    session,
+    rpc,
+    path,
+    *,
+    limit,
+    cursor=None,
+    items_key="items",
+    next_key="next_cursor",
+    cursor_key="cursor",
+    parse_cursor=numeric_cursor,
+    descending=False,
+):
+    query_path = f"{path}/limit={limit}"
+    if cursor is not None:
+        query_path += f"/{cursor_key}={quote(str(cursor), safe='')}"
+    payload = await _abci_query(session, rpc, query_path)
+    return bounded_page(
+        payload,
+        items_key=items_key,
+        next_key=next_key,
+        limit=limit,
+        cursor=cursor,
+        parse_cursor=parse_cursor,
+        descending=descending,
+    )
 
 
 # ── Subscription manager ──────────────────────────────────────
@@ -1119,6 +1150,11 @@ async def handle_validators(request: web.Request) -> web.Response:
 async def handle_validator_dashboard(request: web.Request) -> web.Response:
     session = request.app["session"]
     rpc = await _request_rpc_url(request)
+    try:
+        votes_cursor = numeric_cursor(request.query.get("open_votes_cursor"))
+        unbonds_cursor = numeric_cursor(request.query.get("pending_unbonds_cursor"))
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text=str(exc)) from exc
 
     try:
         status = await _raw_rpc(session, rpc, "status")
@@ -1128,31 +1164,38 @@ async def handle_validator_dashboard(request: web.Request) -> web.Response:
             policy,
             active_validators,
             pending_candidates,
-            open_votes,
+            (open_votes, votes_next),
         ) = await asyncio.gather(
             _abci_query(session, rpc, "validators_policy"),
             _abci_query(session, rpc, "validators_active"),
             _abci_query(session, rpc, "validators_candidates"),
-            _abci_query(
+            _query_cursor_page(
                 session,
                 rpc,
-                "validators_open_votes/limit=25/offset=0",
+                "validators_open_votes_page",
+                limit=25,
+                cursor=votes_cursor,
+                descending=True,
             ),
         )
 
         local_validator = None
         local_pending_unbonds = []
+        unbonds_next = None
         if local_account:
-            local_validator, local_pending_unbonds = await asyncio.gather(
+            local_validator, (local_pending_unbonds, unbonds_next) = await asyncio.gather(
                 _abci_query(
                     session,
                     rpc,
                     f"validators_validator/{local_account}",
                 ),
-                _abci_query(
+                _query_cursor_page(
                     session,
                     rpc,
-                    f"validators_pending_unbonds/{local_account}",
+                    f"validators_pending_unbonds_page/{local_account}",
+                    limit=100,
+                    cursor=unbonds_cursor,
+                    items_key="unbonds",
                 ),
             )
 
@@ -1166,11 +1209,11 @@ async def handle_validator_dashboard(request: web.Request) -> web.Response:
                 "pending_candidates": (
                     pending_candidates if isinstance(pending_candidates, list) else []
                 ),
-                "open_votes": (open_votes if isinstance(open_votes, list) else []),
+                "open_votes": open_votes,
+                "open_votes_next_cursor": votes_next,
                 "local_validator": (local_validator if isinstance(local_validator, dict) else None),
-                "local_pending_unbonds": (
-                    local_pending_unbonds if isinstance(local_pending_unbonds, list) else []
-                ),
+                "local_pending_unbonds": local_pending_unbonds,
+                "local_pending_unbonds_next_cursor": unbonds_next,
             }
         )
     except aiohttp.ClientError as exc:
@@ -1407,26 +1450,34 @@ async def handle_addresses(request: web.Request) -> web.Response:
 async def handle_contracts(request: web.Request) -> web.Response:
     session = request.app["session"]
     rpc = await _request_rpc_url(request)
-    limit = min(_request_int(request, "limit", 100), 500)
-    offset = _request_int(request, "offset", 0)
-    sort = request.query.get("sort", "submitted_at")
-    order = request.query.get("order", "desc")
+    limit = max(1, min(_request_int(request, "limit", 100), 100))
+    try:
+        after = namespace_cursor(request.query.get("after"))
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text=str(exc)) from exc
+    if _request_int(request, "offset", 0):
+        raise web.HTTPBadRequest(text="Use the returned after cursor to continue contract pages.")
 
     try:
-        payload = await _abci_query(
+        items, following = await _query_cursor_page(
             session,
             rpc,
-            f"contracts/limit={limit}/offset={offset}/sort={sort}/order={order}",
+            "contracts_page",
+            limit=limit,
+            cursor=after,
+            next_key="next_after",
+            cursor_key="after",
+            parse_cursor=namespace_cursor,
         )
-        if not isinstance(payload, dict):
-            payload = {
-                "items": payload or [],
+        return web.json_response(
+            {
+                "items": items,
+                "next_after": following,
                 "limit": limit,
-                "offset": offset,
-                "sort": sort,
-                "order": order,
+                "sort": "name",
+                "order": "asc",
             }
-        return web.json_response(payload)
+        )
     except aiohttp.ClientError as exc:
         return web.json_response(
             {"error": f"CometBFT RPC unavailable: {exc}"},

@@ -166,9 +166,17 @@ class TransactionSimulator:
         """The simulation of ``payload`` against the client's pending state."""
         normalized_payload = self._normalize_payload(payload)
         nonce = self.envelope_nonce(normalized_payload)
-        _environment, overlay = self.client.raw_driver.committed_storage()
+        storage, overlay = self.client.raw_driver.committed_storage()
         return self.simulate_in_rust(
-            normalized_payload, block_meta=block_meta, max_chi=max_chi, pending=overlay, nonce=nonce
+            normalized_payload,
+            block_meta=block_meta,
+            max_chi=max_chi,
+            pending=overlay,
+            nonce=nonce,
+            storage=storage.snapshot(),
+            zk_without_state=runtime_feature_without_state(
+                self.client.raw_driver, RUNTIME_FEATURE_ZK
+            ),
         )
 
     def envelope_nonce(self, payload: dict) -> int:
@@ -204,6 +212,8 @@ class TransactionSimulator:
         nonce: int,
         block_meta: dict | None = None,
         max_chi: int | None = None,
+        storage=None,
+        zk_without_state: bool | None = None,
     ) -> dict:
         """The simulation of the normalized ``payload`` over a fork of
         ``pending`` (a ``BlockState``). Thread-safe: it reads only
@@ -211,7 +221,13 @@ class TransactionSimulator:
         return self._guarded(
             payload,
             lambda: self._execute_in_rust(
-                payload, pending=pending, nonce=nonce, block_meta=block_meta, max_chi=max_chi
+                payload,
+                pending=pending,
+                nonce=nonce,
+                block_meta=block_meta,
+                max_chi=max_chi,
+                storage=storage,
+                zk_without_state=zk_without_state,
             ),
         )
 
@@ -252,12 +268,17 @@ class TransactionSimulator:
         nonce: int,
         block_meta: dict | None,
         max_chi: int | None,
+        storage=None,
+        zk_without_state: bool | None = None,
     ) -> dict:
         driver = self.client.raw_driver
-        storage, _overlay = driver.committed_storage()
+        if storage is None:
+            environment, _overlay = driver.committed_storage()
+            storage = environment.snapshot()
         kwargs = decode_wire_numbers(payload.get("kwargs", {}))
         environment = self._make_environment(payload, block_meta=block_meta)
-        zk_without_state = runtime_feature_without_state(driver, RUNTIME_FEATURE_ZK)
+        if zk_without_state is None:
+            zk_without_state = runtime_feature_without_state(driver, RUNTIME_FEATURE_ZK)
         chi_supplied, run = estimate_chi_supply(
             lambda chi_supplied: self._run_in_rust(
                 storage,
@@ -471,17 +492,40 @@ class QuerySimulationService:
                 message="Simulation is disabled on this node",
             )
 
-        _environment, overlay = self.client.raw_driver.committed_storage()
-        simulator = self._simulator(self.client)
-        return PreparedSimulation(
-            service=self,
-            simulator=simulator,
-            payload=normalized_payload,
-            nonce=simulator.envelope_nonce(normalized_payload),
-            block_meta=self.get_block_meta() or {},
-            max_chi=self.max_chi,
-            pending=overlay.snapshot(),
-        )
+        return self._prepare_normalized(normalized_payload)
+
+    def _prepare_normalized(self, payload: dict) -> "PreparedSimulation | dict":
+        reservation = None
+        try:
+            storage, overlay = self.client.raw_driver.committed_storage()
+            if not self._acquire(payload, native_limit=storage.max_pinned_readers()):
+                return _simulation_error_result(
+                    payload=payload,
+                    message="Simulation capacity exceeded on this node; retry later",
+                )
+            reservation = _SimulationReservation(self)
+            simulator = self._simulator(self.client)
+            reservation.reader = storage.snapshot()
+            return PreparedSimulation(
+                service=self,
+                simulator=simulator,
+                payload=payload,
+                nonce=simulator.envelope_nonce(payload),
+                block_meta=self.get_block_meta() or {},
+                max_chi=self.max_chi,
+                pending=overlay.snapshot(),
+                storage=reservation.reader,
+                zk_without_state=runtime_feature_without_state(
+                    self.client.raw_driver, RUNTIME_FEATURE_ZK
+                ),
+                reservation=reservation,
+            )
+        except Exception as exc:
+            if reservation is not None:
+                reservation.release()
+            return _simulation_error_result(
+                payload=payload, message=f"Simulation preparation failed: {exc}"
+            )
 
     def _simulator(self, client: ContractingClient) -> TransactionSimulator:
         return TransactionSimulator(
@@ -491,8 +535,8 @@ class QuerySimulationService:
             charge_fees=self.charge_fees,
         )
 
-    def _acquire(self, payload: dict) -> bool:
-        if self._active_requests >= self.max_concurrency:
+    def _acquire(self, payload: dict, *, native_limit: int) -> bool:
+        if self._active_requests >= min(self.max_concurrency, native_limit):
             logger.bind(
                 **build_log_fields(
                     stage="simulate_tx",
@@ -511,14 +555,14 @@ class QuerySimulationService:
         self._active_requests -= 1
 
     async def _run_prepared(self, prepared: "PreparedSimulation") -> dict:
-        if not self._acquire(prepared.payload):
+        if not prepared.reservation.start():
             return _simulation_error_result(
                 payload=prepared.payload,
-                message=("Simulation capacity exceeded on this node; retry later"),
+                message="Prepared simulation has already been run.",
             )
         # The slot stays taken until the run finishes, even after a timeout.
         running = asyncio.ensure_future(asyncio.to_thread(prepared.run_in_rust))
-        running.add_done_callback(self._release)
+        running.add_done_callback(prepared.reservation.release)
         try:
             outcome = await asyncio.wait_for(
                 asyncio.shield(running), timeout=self.timeout_ms / 1000
@@ -541,6 +585,34 @@ class QuerySimulationService:
         return None
 
 
+class _SimulationReservation:
+    """One slot owns its pinned reader until abandoned or its worker finishes."""
+
+    def __init__(self, service: QuerySimulationService):
+        self.service = service
+        self.active = True
+        self.started = False
+        self.reader = None
+
+    def start(self) -> bool:
+        if self.started or not self.active:
+            return False
+        self.started = True
+        return True
+
+    def release(self, _finished=None) -> None:
+        if self.active:
+            self.active = False
+            try:
+                if self.reader is not None:
+                    self.reader.close()
+            finally:
+                self.service._release()
+
+    def __del__(self):
+        self.release()
+
+
 @dataclass(frozen=True, slots=True)
 class PreparedSimulation:
     service: QuerySimulationService
@@ -552,6 +624,10 @@ class PreparedSimulation:
     max_chi: int
     # The fork of the pending block state the simulation reads.
     pending: object
+    # A single committed MVCC snapshot is shared by every estimation round.
+    storage: object
+    zk_without_state: bool
+    reservation: _SimulationReservation
 
     async def run(self) -> dict:
         return await self.service._run_prepared(self)
@@ -563,4 +639,6 @@ class PreparedSimulation:
             nonce=self.nonce,
             block_meta=self.block_meta,
             max_chi=self.max_chi,
+            storage=self.storage,
+            zk_without_state=self.zk_without_state,
         )

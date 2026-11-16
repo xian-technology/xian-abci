@@ -341,16 +341,7 @@ tr.clickable{cursor:pointer}
       <div class="card" data-explorer-panel="contracts" style="display:none">
         <div class="card-header card-header-flex">
           <span>Contracts</span>
-          <div class="card-actions">
-            <select class="inline-select" id="contracts-sort">
-              <option value="submitted_at">Creation Date</option>
-              <option value="name">Name</option>
-            </select>
-            <select class="inline-select" id="contracts-order">
-              <option value="desc">Newest First</option>
-              <option value="asc">Oldest First</option>
-            </select>
-          </div>
+          <span class="summary-meta">Names A–Z</span>
         </div>
         <div class="card-body" id="explorer-contracts" style="padding:0"><div class="empty"><span class="loading"></span> Loading...</div></div>
       </div>
@@ -413,9 +404,11 @@ let latestValidatorDashboardSnapshot = null;
 let latestMonitoringSnapshot = null;
 let lastRefreshAt = null;
 let explorerView = "blocks";
-let explorerContractsOffset = 0;
-let explorerContractSort = "submitted_at";
-let explorerContractOrder = "desc";
+let explorerContractCursors = [null];
+let explorerContractsNext = null;
+let explorerContractsSeq = 0;
+let validatorCursors = {open_votes: null, pending_unbonds: null};
+let validatorDashboardSeq = 0;
 let explorerEventsOffset = 0;
 let currentAddress = null;
 let explorerAddressOffset = 0;
@@ -1112,7 +1105,7 @@ function renderLocalValidator(){
     '<div class="validator-summary panel-summary">'+
       '<div class="validator-metric"><div class="validator-metric-label">Total Bond</div><div class="validator-metric-value">'+escHtml(String(validator.total_bond ?? "\u2014"))+'</div></div>'+
       '<div class="validator-metric"><div class="validator-metric-label">Self Bond</div><div class="validator-metric-value">'+escHtml(String(validator.self_bond ?? "\u2014"))+'</div></div>'+
-      '<div class="validator-metric"><div class="validator-metric-label">Pending Unbonds</div><div class="validator-metric-value">'+escHtml(String(pendingUnbonds.length))+'</div></div>'+
+      '<div class="validator-metric"><div class="validator-metric-label">Pending Unbonds'+validatorPageLabel('pending_unbonds')+'</div><div class="validator-metric-value">'+escHtml(String(pendingUnbonds.length))+'</div></div>'+
     '</div>'+
     '<div class="data-row"><span class="data-key">Validator Account</span><span class="data-val">'+copyableHashValue(localAccount,{left:10,right:8})+'</span></div>'+
     '<div class="data-row"><span class="data-key">Status</span><span class="data-val">'+escHtml(statusText)+'</span></div>'+
@@ -1136,7 +1129,33 @@ function renderLocalValidator(){
     (showTotalSlashed
       ? '<div class="data-row"><span class="data-key">Total Slashed</span><span class="data-val">'+escHtml(totalSlashed)+'</span></div>'
       : ''
-    );
+    )+validatorPageControls('pending_unbonds');
+}
+
+function validatorNextCursor(kind){
+  const snapshot = latestValidatorDashboardSnapshot || {};
+  return snapshot[kind === 'open_votes' ? 'open_votes_next_cursor' : 'local_pending_unbonds_next_cursor'] ?? null;
+}
+
+function validatorPageLabel(kind){
+  return validatorCursors[kind] !== null || validatorNextCursor(kind) !== null ? ' (page)' : '';
+}
+
+function validatorPageControls(kind){
+  const next = validatorNextCursor(kind);
+  const current = validatorCursors[kind];
+  if(next === null && current === null) return '';
+  return '<div class="summary-meta">Showing one bounded page; counts describe this page.</div>'+
+    '<div class="pagination">'+
+    '<button class="btn btn-ghost" '+(current !== null ? pageAttrs(kind, 'first') : 'disabled')+'>First page</button>'+
+    '<button class="btn btn-ghost" '+(next !== null ? pageAttrs(kind, 'next') : 'disabled')+'>Next page →</button></div>';
+}
+
+function validatorPage(kind, dir){
+  const next = dir === 'first' ? null : validatorNextCursor(kind);
+  if(dir !== 'first' && (next === null || next === validatorCursors[kind])) return;
+  validatorCursors[kind] = next;
+  refreshValidatorDashboard();
 }
 
 function renderValidatorPolicy(){
@@ -1158,7 +1177,7 @@ function renderValidatorPolicy(){
     '<div class="validator-summary panel-summary">'+
       '<div class="validator-metric"><div class="validator-metric-label">Active</div><div class="validator-metric-value">'+escHtml(String(activeValidators.length))+'</div></div>'+
       '<div class="validator-metric"><div class="validator-metric-label">Candidates</div><div class="validator-metric-value">'+escHtml(String(pendingCandidates.length))+'</div></div>'+
-      '<div class="validator-metric"><div class="validator-metric-label">Open Votes</div><div class="validator-metric-value">'+escHtml(String(openVotes.length))+'</div></div>'+
+      '<div class="validator-metric"><div class="validator-metric-label">Open Votes'+validatorPageLabel('open_votes')+'</div><div class="validator-metric-value">'+escHtml(String(openVotes.length))+'</div></div>'+
     '</div>'+
     '<div class="data-row"><span class="data-key">Selection Mode</span><span class="data-val">'+escHtml(policy.selection_mode || "\u2014")+'</span></div>'+
     '<div class="data-row"><span class="data-key">Max Validators</span><span class="data-val">'+escHtml(String(policy.max_validators ?? "\u2014"))+'</span></div>'+
@@ -1186,7 +1205,7 @@ function renderValidatorVotes(){
   const votes = Array.isArray(snapshot.open_votes) ? snapshot.open_votes : [];
 
   if(!votes.length){
-    container.innerHTML = '<div class="empty">No open validator votes</div>';
+    container.innerHTML = '<div class="empty">'+(validatorPageLabel('open_votes') ? 'No open votes in this scanned page' : 'No open validator votes')+'</div>'+validatorPageControls('open_votes');
     return;
   }
 
@@ -1208,7 +1227,7 @@ function renderValidatorVotes(){
   });
   html += '</tbody></table>';
   html += '<div class="summary-meta">Counts are shown as voting weight with raw vote count in parentheses.</div>';
-  container.innerHTML = html;
+  container.innerHTML = html+validatorPageControls('open_votes');
 }
 
 function knownDashboardTargets(){
@@ -1267,6 +1286,7 @@ function runPageAction(page, dir){
   else if(page === "contracts") contractsPage(dir);
   else if(page === "events") eventsPage(dir);
   else if(page === "address") addressPage(dir);
+  else if(page === "open_votes" || page === "pending_unbonds") validatorPage(page, dir);
 }
 
 function isPlainLeftClick(event){
@@ -1716,12 +1736,17 @@ function renderValidatorSet(){
 }
 
 async function refreshValidatorDashboard(){
-  const snapshot = await api("validator_dashboard");
+  const seq = ++validatorDashboardSeq;
+  const params = new URLSearchParams();
+  if(validatorCursors.open_votes !== null) params.set('open_votes_cursor', validatorCursors.open_votes);
+  if(validatorCursors.pending_unbonds !== null) params.set('pending_unbonds_cursor', validatorCursors.pending_unbonds);
+  const snapshot = await api("validator_dashboard?"+params);
+  if(seq !== validatorDashboardSeq) return;
   if(snapshot.error){
     latestValidatorDashboardSnapshot = null;
-    $("local-validator").innerHTML = '<div class="empty">Validator contract data is unavailable</div>';
+    $("local-validator").innerHTML = '<div class="empty">Validator contract data is unavailable</div>'+validatorPageControls('pending_unbonds');
     $("validator-policy").innerHTML = '<div class="empty">Validator contract data is unavailable</div>';
-    $("validator-votes").innerHTML = '<div class="empty">Validator contract data is unavailable</div>';
+    $("validator-votes").innerHTML = '<div class="empty">Validator contract data is unavailable</div>'+validatorPageControls('open_votes');
     return;
   }
 
@@ -1843,14 +1868,21 @@ function addressesPage(dir){
 }
 
 async function loadExplorerContracts(){
-  const payload = await api("contracts?limit="+CONTRACTS_PER_PAGE+"&offset="+explorerContractsOffset+"&sort="+encodeURIComponent(explorerContractSort)+"&order="+encodeURIComponent(explorerContractOrder));
+  const seq = ++explorerContractsSeq;
+  const after = explorerContractCursors[explorerContractCursors.length - 1];
+  explorerContractsNext = null;
+  $("explorer-contracts").innerHTML = '<div class="empty"><span class="loading"></span> Loading...</div>';
+  const payload = await api("contracts?limit="+CONTRACTS_PER_PAGE+(after === null ? '' : '&after='+encodeURIComponent(after)));
+  if(seq !== explorerContractsSeq) return;
   const items = payload.items || [];
   if(payload.error){
     $("explorer-contracts").innerHTML = '<div class="empty">'+escHtml(payload.error)+'</div>';
     return;
   }
-  if(!items.length){
-    $("explorer-contracts").innerHTML = '<div class="empty">No deployed contracts found</div>';
+  explorerContractsNext = payload.next_after ?? null;
+  if(explorerContractsNext !== null && explorerContractCursors.includes(explorerContractsNext)){
+    $("explorer-contracts").innerHTML = '<div class="empty">Invalid repeated contract cursor</div>';
+    explorerContractsNext = null;
     return;
   }
   let html = '<table><thead><tr><th>Name</th><th>Created</th><th>Developer</th><th>Source</th></tr></thead><tbody>';
@@ -1863,20 +1895,23 @@ async function loadExplorerContracts(){
     '</tr>';
   });
   html += '</tbody></table>';
-  const total = Number(payload.total || items.length);
-  const start = total === 0 ? 0 : explorerContractsOffset + 1;
-  const end = Math.min(total, explorerContractsOffset + items.length);
+  if(!items.length) html = '<div class="empty">'+(after !== null || explorerContractsNext !== null ? 'No contracts in this scanned page' : 'No deployed contracts found')+'</div>';
   html += '<div class="pagination">'+
-    '<button class="btn btn-ghost" '+(end < total ? pageAttrs('contracts','older') : 'disabled')+'>\u2190 Older</button>'+
-    '<span class="page-info">'+start.toLocaleString()+' \u2013 '+end.toLocaleString()+' of '+total.toLocaleString()+'</span>'+
-    '<button class="btn btn-ghost" '+(explorerContractsOffset > 0 ? pageAttrs('contracts','newer') : 'disabled')+'>Newer \u2192</button>'+
+    '<button class="btn btn-ghost" '+(explorerContractCursors.length > 1 ? pageAttrs('contracts','newer') : 'disabled')+'>← Previous</button>'+
+    '<span class="page-info">Page '+explorerContractCursors.length+'</span>'+
+    '<button class="btn btn-ghost" '+(explorerContractsNext !== null ? pageAttrs('contracts','older') : 'disabled')+'>Next →</button>'+
   '</div>';
   $("explorer-contracts").innerHTML = html;
 }
 
 function contractsPage(dir){
-  if(dir === "newer") explorerContractsOffset = Math.max(0, explorerContractsOffset - CONTRACTS_PER_PAGE);
-  else explorerContractsOffset += CONTRACTS_PER_PAGE;
+  if(dir === "newer"){
+    if(explorerContractCursors.length <= 1) return;
+    explorerContractCursors.pop();
+  } else {
+    if(explorerContractsNext === null) return;
+    explorerContractCursors.push(explorerContractsNext);
+  }
   loadExplorerContracts();
 }
 
@@ -2565,18 +2600,6 @@ document.querySelectorAll("[data-explorer-view]").forEach(btn=>{
   btn.addEventListener("click", ()=> setExplorerView(btn.dataset.explorerView, true));
 });
 
-$("contracts-sort").addEventListener("change", ()=>{
-  explorerContractSort = $("contracts-sort").value;
-  explorerContractsOffset = 0;
-  loadExplorerContracts();
-});
-
-$("contracts-order").addEventListener("change", ()=>{
-  explorerContractOrder = $("contracts-order").value;
-  explorerContractsOffset = 0;
-  loadExplorerContracts();
-});
-
 document.addEventListener("click", event=>{
   if(!(event.target instanceof Element)) return;
 
@@ -2704,8 +2727,6 @@ async function init(){
   if(defaultRpcUrl && selectedRpc === defaultRpcUrl){
     setSelectedRpc(null);
   }
-  $("contracts-sort").value = explorerContractSort;
-  $("contracts-order").value = explorerContractOrder;
   history.replaceState(
     {view: initialRoute.view, id: initialRoute.id},
     "",

@@ -5,7 +5,7 @@ import unittest
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from cometbft.abci.v1beta1.types_pb2 import (
     ResponseApplySnapshotChunk,
@@ -148,6 +148,55 @@ class AbciServerHandlerTests(unittest.IsolatedAsyncioTestCase):
                 finally:
                     server.close()
                     await server.wait_closed()
+
+    async def test_host_failure_closes_connection_and_stops_all_abci_work(self):
+        app = AsyncMock()
+        app.echo.side_effect = OSError("injected host failure")
+        server = ABCIServer(app)
+        reader = asyncio.StreamReader()
+        request = Request()
+        request.echo.message = "ping"
+        reader.feed_data(write_message(request))
+        reader.feed_eof()
+        writer = MagicMock()
+        writer.wait_closed = AsyncMock()
+
+        with patch("abci.server._stop", new_callable=AsyncMock) as stop:
+            with self.assertRaisesRegex(OSError, "injected host failure"):
+                await server._handler(reader, writer)
+
+        writer.close.assert_called_once()
+        writer.wait_closed.assert_awaited_once()
+        stop.assert_awaited_once()
+
+    async def test_shutdown_cancellation_does_not_start_recursive_global_shutdown(self):
+        server = ABCIServer(AsyncMock())
+        reader = asyncio.StreamReader()
+        writer = MagicMock()
+        writer.wait_closed = AsyncMock()
+
+        with patch("abci.server._stop", new_callable=AsyncMock) as stop:
+            connection = asyncio.create_task(server._handler(reader, writer))
+            await asyncio.sleep(0)
+            connection.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await connection
+
+        writer.close.assert_called_once()
+        stop.assert_not_awaited()
+
+    async def test_cancellation_while_closing_does_not_restart_global_shutdown(self):
+        server = ABCIServer(AsyncMock())
+        reader = asyncio.StreamReader()
+        reader.feed_eof()
+        writer = MagicMock()
+        writer.wait_closed = AsyncMock(side_effect=asyncio.CancelledError())
+
+        with patch("abci.server._stop", new_callable=AsyncMock) as stop:
+            with self.assertRaises(asyncio.CancelledError):
+                await server._handler(reader, writer)
+
+        stop.assert_not_awaited()
 
 
 class StopTests(unittest.IsolatedAsyncioTestCase):

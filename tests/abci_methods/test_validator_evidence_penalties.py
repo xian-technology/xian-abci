@@ -1,9 +1,12 @@
 import hashlib
+import json
 import unittest
 from io import BytesIO
 
 import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
+from nacl.signing import SigningKey
+from xian_runtime_types.time import Datetime
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
@@ -15,9 +18,11 @@ from cometbft.abci.v1beta3.types_pb2 import (
     Response,
 )
 from xian.config_paths import resolve_contracts_dir
+from xian.utils.encoding import canonical_json_text, encode_transaction_bytes
 from xian.xian_abci import Xian
 
-NODE_1 = "11" * 32
+NODE_1_SIGNER = SigningKey(bytes([1]) * 32)
+NODE_1 = NODE_1_SIGNER.verify_key.encode().hex()
 NODE_2 = "22" * 32
 NODE_3 = "33" * 32
 
@@ -45,12 +50,14 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
             "chi_cost": {"initial_rate": 20},
             "rewards": None,
             "dao": None,
+            "validator_penalties": None,
         }
         for contract_file in [
             "currency.s.py",
             "dao.s.py",
             "rewards.s.py",
             "chi_cost.s.py",
+            "validator_penalties.s.py",
         ]:
             path = contracts_dir / contract_file
             code = path.read_text(encoding="utf-8")
@@ -140,6 +147,84 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
             after.finalize_block.app_hash,
         )
 
+    async def test_same_block_evidence_freezes_a_mature_claim_before_paid_transactions(self):
+        self.driver.set("validators.config:unbonding_period_days", 0)
+        self.driver.set(f"currency.balances:{NODE_1}", 100_000)
+        currency = self.app.client.get_contract_proxy("currency")
+        environment = {"block_num": 5, "now": Datetime(1970, 1, 1, 0, 0, 5)}
+        currency.approve(amount=40, to="validators", signer=NODE_1, environment=environment)
+        self.membership.bond_self(amount=40, signer=NODE_1, environment=environment)
+        unbond = self.membership.unbond_self(amount=40, signer=NODE_1, environment=environment)
+        self.driver.commit()
+        self.app.state_root_cache.rebuild_from_driver(self.driver)
+        dao_before = self.driver.get("currency.balances:dao") or 0
+
+        payload = {
+            "chain_id": self.app.chain_id, "sender": NODE_1, "nonce": 0,
+            "contract": "validators", "function": "claim_unbond",
+            "kwargs": {"unbond_id": unbond["id"]}, "chi_supplied": 200_000,
+        }
+        signature = NODE_1_SIGNER.sign(canonical_json_text(payload).encode()).signature.hex()
+        raw = encode_transaction_bytes(canonical_json_text({
+            "payload": payload, "metadata": {"signature": signature},
+        }))
+        request = self.create_finalize_block_request(
+            6, misbehavior=[self.duplicate_vote_evidence(NODE_1, height=4)]
+        )
+        request.finalize_block.txs.append(raw)
+        response = await self.app.finalize_block(request.finalize_block)
+        receipt = json.loads(response.tx_results[0].data)
+        await self.app.commit()
+
+        self.assertEqual(receipt["status"], 1, receipt)
+        self.assertIn("penalty pending", receipt["result"])
+        stored = self.driver.get(f"validators.pending_unbonds:{unbond['id']}")
+        self.assertFalse(stored["claimed"])
+        self.assertEqual(stored["amount"], 38)
+        self.assertEqual(self.driver.get("currency.balances:dao"), dao_before + 2)
+        self.assertTrue(self.driver.get(f"validators.jailed:{NODE_1}"))
+
+    async def test_bounded_penalty_resumes_after_restart_and_replays_identically(self):
+        self.driver.set("validators.config:unbonding_period_days", 0)
+        self.driver.set(f"currency.balances:{NODE_1}", 100_000)
+        environment = {"block_num": 5, "now": Datetime(1970, 1, 1, 0, 0, 5)}
+        self.app.client.get_contract_proxy("currency").approve(amount=40, to="validators", signer=NODE_1, environment=environment)
+        self.membership.bond_self(amount=40, signer=NODE_1, environment=environment)
+        ids = [self.membership.unbond_self(amount=1, signer=NODE_1, environment=environment)["id"] for _ in range(40)]
+        self.driver.commit()
+        self.app.state_root_cache.rebuild_from_driver(self.driver)
+        dao_before = self.driver.get("currency.balances:dao") or 0
+
+        await self.finalize_block(6, misbehavior=[self.duplicate_vote_evidence(NODE_1, height=4)])
+        job_id = self.driver.get("validator_penalties.pending_head")
+        self.assertIsNotNone(job_id)
+        committed_job = self.driver.get(f"validator_penalties.jobs:{job_id}")
+        self.assertEqual(committed_job["status"], "collect")
+        self.assertEqual(committed_job["cursor"], ids[32])
+        self.assertTrue(self.driver.get(f"validators.jailed:{NODE_1}"))
+        self.assertEqual(self.driver.get("currency.balances:dao"), dao_before)
+
+        # Execute but lose the next FinalizeBlock before Commit, as on a crash.
+        request = self.create_finalize_block_request(7).finalize_block
+        lost = await self.app.finalize_block(request)
+        await self.app.close()
+        self.app = await Xian.create(constants=self.constants)
+        self.addAsyncCleanup(self.app.close)
+        self.driver = self.app.client.raw_driver
+        self.handler = ProtocolHandler(self.app)
+        self.assertEqual(self.driver.get(f"validator_penalties.jobs:{job_id}"), committed_job)
+
+        replay = await self.app.finalize_block(request)
+        self.assertEqual(replay.SerializeToString(deterministic=True), lost.SerializeToString(deterministic=True))
+        await self.app.commit()
+        self.assertIsNotNone(self.driver.get("validator_penalties.pending_head"))
+        await self.finalize_block(8)
+
+        self.assertIsNone(self.driver.get("validator_penalties.pending_head"))
+        self.assertEqual(self.driver.get("currency.balances:dao"), dao_before + 2)
+        self.assertEqual(self.driver.get(f"validators.total_slashed:{NODE_1}"), 2)
+        self.assertEqual(sum(self.driver.get(f"validators.pending_unbonds:{item}")["amount"] for item in ids), 38)
+
     async def test_finalize_block_evidence_rebalances_auto_validator_set(self):
         self.driver.set("validators.active_validators", [NODE_1, NODE_2])
         self.driver.set("validators.candidates", [NODE_3])
@@ -207,8 +292,9 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
         self.driver.set(f"validators.self_bond:{NODE_1}", 0)
         self.driver.set(f"validators.total_delegated:{NODE_1}", 0)
         self.driver.set("validators.pending_unbond_counter", 1)
-        self.driver.set(f"validators.pending_unbond_owner_ids:{NODE_1}", [1])
-        self.driver.set(f"validators.pending_unbond_validator_ids:{NODE_1}", [1])
+        for kind in ("owner", "validator"):
+            self.driver.set(f"validators.pending_unbond_heads:{kind}:{NODE_1}", 1)
+            self.driver.set(f"validators.pending_unbond_tails:{kind}:{NODE_1}", 1)
         self.driver.set(
             "validators.pending_unbonds:1",
             {
@@ -224,6 +310,7 @@ class ValidatorEvidencePenaltyTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.driver.set("currency.balances:validators", 40)
+        self.app.client.get_contract_proxy("validator_penalties").track_unbond(unbond_id=1, signer="validators")
         dao_balance_before = self.driver.get("currency.balances:dao")
 
         before = await self.finalize_block(9)

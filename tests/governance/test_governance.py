@@ -138,6 +138,8 @@ class MyTestCase(unittest.TestCase):
         self.c.submit(contract, name="chi_cost", owner="validators")
         self.d.set(key="chi_cost.S:value", value=20)
 
+        self.c.submit((CONTRACTS_DIR / "validator_penalties.s.py").read_text(), name="validator_penalties")
+
         with open(members_contract_path) as f:
             contract = f.read()
         self.c.submit(

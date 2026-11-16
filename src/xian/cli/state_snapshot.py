@@ -6,7 +6,7 @@ from pathlib import Path
 
 from xian.constants import Constants
 from xian.services.state_sync import StateSnapshotManager
-from xian.utils.cometbft import load_genesis_data
+from xian.utils.cometbft import load_genesis_data, load_xian_config
 
 
 def build_parser() -> ArgumentParser:
@@ -33,23 +33,40 @@ def build_parser() -> ArgumentParser:
         help="Source .tar.gz snapshot file to import",
     )
 
-    subparsers.add_parser("list")
+    list_cmd = subparsers.add_parser("list")
+    for command in (export, import_cmd, list_cmd):
+        command.add_argument(
+            "--max-state-bytes",
+            type=int,
+            help="Local exported-state size limit in bytes (defaults to xian.toml or 256 MiB)",
+        )
+        command.add_argument(
+            "--max-archive-bytes",
+            type=int,
+            help="Local compressed archive size limit in bytes (defaults to xian.toml or 256 MiB)",
+        )
     return parser
 
 
-def _build_manager() -> StateSnapshotManager:
+def _build_manager(overrides: dict | None = None) -> StateSnapshotManager:
     constants = Constants()
     genesis = load_genesis_data(constants)
-    return StateSnapshotManager(
+    return StateSnapshotManager.from_config(
         storage_home=constants.STORAGE_HOME,
         chain_id=genesis["chain_id"],
+        config={**load_xian_config(constants), **(overrides or {})},
     )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    manager = _build_manager()
+    overrides = {
+        "snapshot_" + name: value
+        for name in ("max_state_bytes", "max_archive_bytes")
+        if (value := getattr(args, name)) is not None
+    }
+    manager = _build_manager(overrides) if overrides else _build_manager()
 
     if args.command == "export":
         result = manager.export_snapshot(

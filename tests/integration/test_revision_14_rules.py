@@ -93,7 +93,7 @@ def chain(tmp_path):
 def test_an_owner_that_is_not_a_string_is_no_caller(chain):
     chain[0].raw_driver.set("con_ping.__owner__", 5)
     receipt = _run(chain, "con_ping", "ping")
-    assert (receipt["status"], receipt["chi_used"]) == (1, charged_chi(5_000, 5))
+    assert (receipt["status"], receipt["chi_used"]) == (1, charged_chi(5_000, 10))
     assert receipt["result"] == "Exception('Caller is not the owner!')"
 
 

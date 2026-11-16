@@ -13,7 +13,7 @@ from loguru import logger
 
 from cometbft.types.v1beta1.validator_pb2 import BlockIDFlag
 from xian.app_logging import build_log_fields
-from xian.methods._evidence import validator_keys_by_address
+from xian.methods._evidence import active_validator_keys_by_address
 
 SYSTEM_LIVENESS_SENDER = "__liveness_driver__"
 
@@ -29,7 +29,7 @@ def absent_validator_keys(self, req) -> list[str]:
     ]
     if not absent:
         return []
-    keys = validator_keys_by_address(self)
+    keys = active_validator_keys_by_address(self)
     return [keys[address] for address in absent if address in keys]
 
 

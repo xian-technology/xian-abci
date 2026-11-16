@@ -46,6 +46,45 @@ adds.
 
 ## Approved changes since the corpora were frozen
 
+Execution revision 15 (`xvm-gas-7`) charges module preparation to the shared
+transaction budget before loading canonical IR. Cold and warm execution pay
+the same byte charge once per module and transaction. The lower-level
+`fixtures/golden/block_executor` and `block_executor_zk` fixtures reflect that
+approved cost change:
+
+- Metered chi, fee balances, rewards, corresponding trace fields and large
+  entry digests change. Random results and successful zk syscall results stay
+  the same. The three unmetered block, metadata and deployment files are
+  byte-identical to their prior values.
+- Tiny deployment and metadata budgets can now fail during preparation
+  rather than a later VM or constructor operation, changing the out-of-chi
+  wrapper and failure point. Metadata budgets 74 and 77, previously enough
+  for the body alone, now fail before their writes.
+- Owner and disabled-zk refusals include preparation work in their chi
+  charge. Shielded benchmark baselines include the same preparation charge.
+
+These lower-level files were captured twice on the final native revision,
+with identical outputs, and the expanded receipt changes were inspected
+before updating the fixtures.
+
+The complete engine parity corpora were also captured twice with identical
+outputs on this revision. Block roots include the execution-policy and
+canonical-source changes. Metered block/simulation receipts include the
+preparation costs and resulting fee balances; a budget exhausted inside an
+import can report its VM runtime wrapper. The unmetered policy corpus changes
+only its app hash. Contract views use the authoritative committed height/time
+and stable query block hash; the random view therefore has a different stable
+result. Its harness seeds the durable marker and calls the production metadata
+helper, so a missing mock method cannot become an accepted golden error.
+
+System blocks deploy the canonical penalty coordinator and indexed validators.
+Their roots and receipt state reflect those sources, address/registry indexes
+and cached summaries. Zero delegation amounts in slash results use fixed-point
+zero. The deliberately corrupt string-stake fixture fails at the earlier
+live-pair arithmetic check. The separate native node regression covers a
+40-unbond job across bounded continuation, lost FinalizeBlock, restart and
+byte-identical replay; it verifies one final slash transfer.
+
 Execution revision 14 (unreleased) folds in these consensus changes; the
 fixtures were regenerated with them and the diff reviewed case by case:
 

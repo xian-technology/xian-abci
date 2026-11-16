@@ -433,12 +433,13 @@ def hidden():
                 ("dao", None),
                 ("rewards", None),
                 ("chi_cost", {"initial_rate": 20}),
+                ("validator_penalties", None),
             ):
                 client.submit(
                     (contracts_dir / f"{name}.s.py").read_text(),
                     name=name,
                     constructor_args=constructor_args,
-                    owner="members" if name in {"dao", "rewards"} else None,
+                    owner="validators" if name in {"dao", "rewards"} else None,
                 )
 
             for node in ("11" * 32, "22" * 32, "33" * 32, "44" * 32, "55" * 32):
@@ -453,7 +454,7 @@ def hidden():
 
             client.submit(
                 (contracts_dir / "validators.s.py").read_text(),
-                name="members",
+                name="validators",
                 constructor_args={
                     "genesis_registration_fee": 100_000,
                     "genesis_nodes": [
@@ -491,7 +492,7 @@ def hidden():
             remove_flow = (
                 tx(
                     "11" * 32,
-                    "members",
+                    "validators",
                     "propose_vote",
                     {"type_of_vote": "remove_member", "arg": "33" * 32},
                     1,
@@ -499,7 +500,7 @@ def hidden():
                 ),
                 tx(
                     "22" * 32,
-                    "members",
+                    "validators",
                     "vote",
                     {"proposal_id": 1, "vote": "yes"},
                     1,
@@ -507,7 +508,7 @@ def hidden():
                 ),
                 tx(
                     "44" * 32,
-                    "members",
+                    "validators",
                     "vote",
                     {"proposal_id": 1, "vote": "yes"},
                     1,
@@ -515,7 +516,7 @@ def hidden():
                 ),
                 tx(
                     "55" * 32,
-                    "members",
+                    "validators",
                     "vote",
                     {"proposal_id": 1, "vote": "yes"},
                     1,
@@ -533,7 +534,7 @@ def hidden():
                     "33" * 32,
                     "currency",
                     "approve",
-                    {"amount": 100_000, "to": "members"},
+                    {"amount": 100_000, "to": "validators"},
                     1,
                     5,
                 ),
@@ -544,7 +545,7 @@ def hidden():
                 processor,
                 tx(
                     "33" * 32,
-                    "members",
+                    "validators",
                     "register",
                     {
                         "requested_validator_power": 12,
@@ -559,11 +560,11 @@ def hidden():
             self.assertIsNotNone(reregister_result["tx_result"])
             self.assertEqual(reregister_result["tx_result"]["status"], 0)
             self.assertEqual(
-                client.raw_driver.get(f"members.pending_registrations:{"33" * 32}"),
+                client.raw_driver.get(f"validators.pending_registrations:{"33" * 32}"),
                 True,
             )
-            self.assertIsNone(client.raw_driver.get(f"members.joined_at:{"33" * 32}"))
-            self.assertIsNone(client.raw_driver.get(f"members.left_at:{"33" * 32}"))
+            self.assertIsNone(client.raw_driver.get(f"validators.joined_at:{"33" * 32}"))
+            self.assertIsNone(client.raw_driver.get(f"validators.left_at:{"33" * 32}"))
         finally:
             client.flush()
 

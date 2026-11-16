@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import secrets
+import tempfile
 from dataclasses import dataclass, field
 from ipaddress import ip_address
 from pathlib import Path
@@ -644,13 +646,30 @@ def _write_text(path: Path, text: str, *, overwrite: bool, private: bool) -> Non
             f.write(text)
         return
 
+    _write_private_text(path, text, overwrite=overwrite)
+
+
+def _write_private_text(path: Path, text: str, *, overwrite: bool) -> None:
+    if path.is_symlink():
+        raise OSError(errno.ELOOP, "Refusing a symbolic link for a private file", str(path))
     path.parent.mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIR_MODE)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(path, flags, SECRET_FILE_MODE)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        # An existing file keeps its old mode; restrict it before writing.
-        os.fchmod(fd, SECRET_FILE_MODE)
-        f.write(text)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False
+        ) as target:
+            temporary = Path(target.name)
+            os.fchmod(target.fileno(), SECRET_FILE_MODE)
+            target.write(text)
+            target.flush()
+            os.fsync(target.fileno())
+        if overwrite:
+            os.replace(temporary, path)
+        else:
+            os.link(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _json_file_text(payload: dict[str, Any]) -> str:
@@ -703,6 +722,31 @@ def write_toml(
     _write_text(path, toml_utils.dumps(payload), overwrite=overwrite, private=private)
 
 
+def _signing_state_path(home: Path, config: dict[str, Any]) -> Path:
+    return home / config.get("priv_validator_state_file", "data/priv_validator_state.json")
+
+
+def _has_runtime_data(home: Path) -> bool:
+    return any(path.is_dir() and any(path.iterdir()) for path in (home / "data", home / "xian"))
+
+
+def _require_existing_signing_state(home: Path, config: dict[str, Any]) -> None:
+    previous_path = home / "config/config.toml"
+    previous = toml_utils.load(previous_path) if previous_path.exists() else {}
+    previous_key = home / previous.get("priv_validator_key_file", "config/priv_validator_key.json")
+    default_key = home / "config/priv_validator_key.json"
+    if not (previous_key.exists() or default_key.exists() or _has_runtime_data(home)):
+        return
+    original = _signing_state_path(home, previous)
+    if original.resolve() != _signing_state_path(home, config).resolve():
+        raise ValueError("Refusing to change an existing validator's signing state path.")
+    if not original.is_file():
+        raise ValueError(
+            "Existing node has no validator signing state; restore its original signing state "
+            "instead of recreating a zero-height file."
+        )
+
+
 def materialize_cometbft_home(
     *,
     home: Path,
@@ -717,6 +761,7 @@ def materialize_cometbft_home(
     genesis_text = _json_file_text(genesis)
     installed_genesis_sha256 = _text_sha256(genesis_text)
     verify_genesis_sha256(installed_genesis_sha256, expected_genesis_sha256)
+    _require_existing_signing_state(home, config)
     config_dir = home / "config"
     data_dir = home / "data"
     storage_dir = home / "xian"
@@ -730,7 +775,7 @@ def materialize_cometbft_home(
     genesis_path = config_dir / "genesis.json"
     priv_validator_key_path = config_dir / "priv_validator_key.json"
     node_key_path = config_dir / "node_key.json"
-    priv_validator_state_path = data_dir / "priv_validator_state.json"
+    priv_validator_state_path = _signing_state_path(home, config)
 
     write_toml(config_path, config, overwrite=overwrite)
     write_toml(xian_config_path, xian_config, overwrite=overwrite, private=True)

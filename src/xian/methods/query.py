@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -23,11 +23,16 @@ from xian.execution_engine import (
 )
 from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.log_safety import error_fields
+from xian.methods._query_pages import (
+    MAX_ARCHIVE_SCAN,
+    MAX_LEGACY_CONTRACTS,
+    contract_names_page,
+    open_votes_page,
+    parse_contract_cursor,
+)
 from xian.services.bds.candles import get_candle_source_spec
 from xian.utils.block import (
     get_committed_latest_block,
-    get_latest_block_height,
-    get_latest_block_nanos,
     nanoseconds_to_utc_datetime,
 )
 from xian.utils.encoding import encode_abci_json, encode_str, normalize_for_abci_json
@@ -36,6 +41,7 @@ DEFAULT_KEYS_QUERY_LIMIT = 100
 MAX_KEYS_QUERY_LIMIT = 200
 DEFAULT_LIST_QUERY_LIMIT = 100
 MAX_LIST_QUERY_LIMIT = 1000
+MAX_UNBOND_PAGE_LIMIT = 100
 DEFAULT_DEX_CANDLE_INTERVAL_SECONDS = 60
 MAX_DEX_CANDLE_INTERVAL_SECONDS = 604800
 
@@ -61,6 +67,7 @@ class QueryContext:
     params: dict[str, str]
     route: str
     key: str
+    bds_block_height: int | None = None
 
     @property
     def raw_driver(self):
@@ -77,6 +84,10 @@ class QueryResult:
 
 class UnknownQueryPath(ValueError):
     pass
+
+
+class QueryContractFailure(ValueError):
+    """A bounded query cannot return a complete or valid contract result."""
 
 
 def _query_params(path_parts: list[str]) -> dict[str, str]:
@@ -268,13 +279,8 @@ def _sort_contract_records(
 
 
 def _make_vm_query_environment(ctx: QueryContext) -> dict[str, Any]:
-    block_meta = ctx.app.current_block_meta if isinstance(ctx.app.current_block_meta, dict) else {}
-    block_nanos = block_meta.get("nanos")
-    if block_nanos is None:
-        try:
-            block_nanos = get_latest_block_nanos(ctx.raw_driver.storage_home)
-        except Exception:
-            block_nanos = 0
+    block_meta = ctx.app.committed_block_meta()
+    block_nanos = block_meta["nanos"]
     block_height = block_meta.get("height") or 0
     block_hash = block_meta.get("hash")
     if block_hash is None:
@@ -361,23 +367,12 @@ def _pending_validators_votes(
     offset: int = 0,
 ) -> list[dict]:
     total_votes = raw_driver.get("validators.total_votes") or 0
-    items: list[dict] = []
-    for proposal_id in range(total_votes, 0, -1):
-        record = raw_driver.get(f"validators.votes:{proposal_id}")
-        if not isinstance(record, dict):
-            continue
-        if record.get("finalized") is True:
-            continue
-        if record.get("status") != "pending":
-            continue
-        entry = dict(record)
-        entry["proposal_id"] = proposal_id
-        items.append(entry)
-    if offset > 0:
-        items = items[offset:]
-    if limit >= 0:
-        items = items[:limit]
-    return items
+    if total_votes > MAX_ARCHIVE_SCAN:
+        raise QueryContractFailure(
+            "Proposal archive exceeds one bounded lookup; use /validators_open_votes_page."
+        )
+    items = open_votes_page(raw_driver, limit=MAX_ARCHIVE_SCAN)["items"]
+    return items[offset : offset + limit]
 
 
 def _validators_vote(raw_driver, proposal_id: int) -> dict | None:
@@ -501,18 +496,12 @@ def _resolve_contract_listing(ctx: QueryContext) -> dict[str, Any]:
         sort_key = "submitted_at"
     descending = ctx.params.get("order", "desc").strip().lower() != "asc"
 
-    contract_names = sorted(set(ctx.app.client.get_contracts()))
-    records: list[dict] = []
-    for contract_name in contract_names:
-        submitted_value = ctx.raw_driver.get(f"{contract_name}.__submitted__")
-        records.append(
-            {
-                "name": contract_name,
-                "submitted_at": _submission_iso(submitted_value),
-                "developer": ctx.raw_driver.get(f"{contract_name}.__developer__"),
-                "has_source": ctx.raw_driver.get_contract_source(contract_name) is not None,
-            }
+    names, following = contract_names_page(ctx.raw_driver, limit=MAX_LEGACY_CONTRACTS + 1)
+    if following is not None or len(names) > MAX_LEGACY_CONTRACTS:
+        raise QueryContractFailure(
+            "Contract archive exceeds one bounded lookup; use /contracts_page."
         )
+    records = _contract_listing_records(ctx, names)
 
     sorted_records = _sort_contract_records(
         records,
@@ -529,32 +518,70 @@ def _resolve_contract_listing(ctx: QueryContext) -> dict[str, Any]:
     }
 
 
+def _contract_listing_records(ctx, names):
+    return [
+        {
+            "name": name,
+            "submitted_at": _submission_iso(ctx.raw_driver.get(f"{name}.__submitted__")),
+            "developer": ctx.raw_driver.get(f"{name}.__developer__"),
+            "has_source": has_source,
+        }
+        for name, has_source in names
+    ]
+
+
+def _resolve_contract_page(ctx):
+    try:
+        after = parse_contract_cursor(ctx.params.get("after"))
+    except (ValueError, UnicodeError) as exc:
+        raise QueryContractFailure(str(exc)) from None
+    limit = _bounded_int_param(ctx.params, "limit", default=25, minimum=1, maximum=100)
+    names, following = contract_names_page(ctx.raw_driver, limit=limit, after=after)
+    return {
+        "items": _contract_listing_records(ctx, names),
+        "next_after": following,
+        "limit": limit,
+        "sort": "name",
+        "order": "asc",
+    }
+
+
 def _resolve_perf_status(ctx: QueryContext) -> dict[str, Any]:
     return ctx.app.profiler.snapshot()
 
 
 def _resolve_pending_unbonds(ctx: QueryContext) -> list[dict] | None:
-    pending_ids = _call_contract_view(
+    page = _pending_unbond_page(ctx)
+    if page["next_cursor"] is not None:
+        raise QueryContractFailure(
+            "More than 100 pending unbonds; use /validators_pending_unbonds_page with its cursor."
+        )
+    return page["unbonds"]
+
+
+def _pending_unbond_page(ctx: QueryContext, *, cursor=None, limit=MAX_UNBOND_PAGE_LIMIT) -> dict:
+    page = _call_contract_view(
         ctx,
         "validators",
-        "get_pending_unbond_ids",
-        kwargs={"owner": ctx.key},
+        "get_pending_unbond_page",
+        kwargs={"owner": ctx.key, "cursor": cursor, "limit": limit},
     )
-    if pending_ids is None:
+    if not isinstance(page, dict):
+        raise QueryContractFailure("Unable to read pending unbonds; check the owner and cursor.")
+    return page
+
+
+def _archive_id_cursor(params: dict[str, str], *, kind="Pending-unbond") -> int | None:
+    raw = params.get("cursor")
+    if raw is None:
         return None
-    result: list[dict] = []
-    for unbond_id in pending_ids or []:
-        unbond = _call_contract_view(
-            ctx,
-            "validators",
-            "get_pending_unbond",
-            kwargs={"unbond_id": unbond_id},
-        )
-        if isinstance(unbond, dict):
-            entry = dict(unbond)
-            entry["unbond_id"] = unbond_id
-            result.append(entry)
-    return result
+    try:
+        cursor = int(raw)
+    except ValueError:
+        raise QueryContractFailure(f"{kind} cursor must be a positive integer.") from None
+    if cursor <= 0:
+        raise QueryContractFailure(f"{kind} cursor must be a positive integer.")
+    return cursor
 
 
 def _resolve_keys_query(ctx: QueryContext) -> QueryResult:
@@ -592,7 +619,7 @@ def _current_bds_block_height(ctx: QueryContext) -> int | None:
         height = ctx.app.current_block_meta.get("height")
         if isinstance(height, int):
             return height
-    return get_latest_block_height()
+    return ctx.app.committed_block_meta()["height"]
 
 
 async def _handle_get(ctx: QueryContext) -> QueryResult:
@@ -648,6 +675,10 @@ async def _handle_contracts(ctx: QueryContext) -> QueryResult:
     return QueryResult(result=_resolve_contract_listing(ctx))
 
 
+async def _handle_contracts_page(ctx: QueryContext) -> QueryResult:
+    return QueryResult(result=_resolve_contract_page(ctx))
+
+
 async def _handle_ping(_ctx: QueryContext) -> QueryResult:
     return QueryResult(result={"status": "online"})
 
@@ -656,34 +687,20 @@ async def _handle_perf_status(ctx: QueryContext) -> QueryResult:
     return QueryResult(result=_resolve_perf_status(ctx))
 
 
+def _validator_view(ctx: QueryContext, function: str) -> QueryResult:
+    return QueryResult(result=_call_contract_view(ctx, "validators", function))
+
+
 async def _handle_validators_policy(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=_call_contract_view(
-            ctx,
-            "validators",
-            "get_policy_config",
-        )
-    )
+    return _validator_view(ctx, "get_policy_config")
 
 
 async def _handle_validators_active(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=_call_contract_view(
-            ctx,
-            "validators",
-            "get_active_validators",
-        )
-    )
+    return _validator_view(ctx, "get_active_validators")
 
 
 async def _handle_validators_candidates(ctx: QueryContext) -> QueryResult:
-    return QueryResult(
-        result=_call_contract_view(
-            ctx,
-            "validators",
-            "get_pending_candidates",
-        )
-    )
+    return _validator_view(ctx, "get_pending_candidates")
 
 
 async def _handle_validators_validator(ctx: QueryContext) -> QueryResult:
@@ -703,6 +720,22 @@ async def _handle_validators_pending_unbonds(
     return QueryResult(result=_resolve_pending_unbonds(ctx))
 
 
+async def _handle_validators_pending_unbonds_page(ctx: QueryContext) -> QueryResult:
+    return QueryResult(
+        result=_pending_unbond_page(
+            ctx,
+            cursor=_archive_id_cursor(ctx.params),
+            limit=_bounded_int_param(
+                ctx.params,
+                "limit",
+                default=MAX_UNBOND_PAGE_LIMIT,
+                minimum=1,
+                maximum=MAX_UNBOND_PAGE_LIMIT,
+            ),
+        )
+    )
+
+
 async def _handle_validators_open_votes(ctx: QueryContext) -> QueryResult:
     pagination = _offset_pagination(ctx.params)
     return QueryResult(
@@ -712,6 +745,16 @@ async def _handle_validators_open_votes(ctx: QueryContext) -> QueryResult:
             offset=pagination.offset,
         )
     )
+
+
+async def _handle_validators_open_votes_page(ctx: QueryContext) -> QueryResult:
+    cursor = _archive_id_cursor(ctx.params, kind="Proposal")
+    limit = _bounded_int_param(ctx.params, "limit", default=25, minimum=1, maximum=100)
+    try:
+        page = open_votes_page(ctx.raw_driver, limit=limit, cursor=cursor)
+    except ValueError as exc:
+        raise QueryContractFailure(str(exc)) from None
+    return QueryResult(result=page)
 
 
 async def _handle_validators_vote(ctx: QueryContext) -> QueryResult:
@@ -761,9 +804,7 @@ async def _handle_blocks(ctx: QueryContext) -> QueryResult:
 
 async def _handle_bds_status(ctx: QueryContext) -> QueryResult:
     return QueryResult(
-        result=await _require_bds(ctx).get_status(
-            current_block_height=_current_bds_block_height(ctx)
-        )
+        result=await _require_bds(ctx).get_status(current_block_height=ctx.bds_block_height)
     )
 
 
@@ -1033,6 +1074,7 @@ CORE_QUERY_HANDLERS = {
     "contract_vars": _handle_contract_vars,
     "contract_info": _handle_contract_info,
     "contracts": _handle_contracts,
+    "contracts_page": _handle_contracts_page,
     "ping": _handle_ping,
     "perf_status": _handle_perf_status,
     "simulate_tx": _handle_simulate_tx,
@@ -1044,7 +1086,9 @@ CORE_QUERY_HANDLERS = {
     "validators_candidates": _handle_validators_candidates,
     "validators_validator": _handle_validators_validator,
     "validators_pending_unbonds": _handle_validators_pending_unbonds,
+    "validators_pending_unbonds_page": _handle_validators_pending_unbonds_page,
     "validators_open_votes": _handle_validators_open_votes,
+    "validators_open_votes_page": _handle_validators_open_votes_page,
     "validators_vote": _handle_validators_vote,
     "validators_vote_records": _handle_validators_vote_records,
 }
@@ -1091,7 +1135,13 @@ async def _execute_query(ctx: QueryContext) -> QueryResult:
     if ctx.app.bds_enabled:
         handler = BDS_QUERY_HANDLERS.get(ctx.route)
         if handler is not None:
-            return await handler(ctx)
+            if ctx.route == "bds_status":
+                ctx = replace(ctx, bds_block_height=_current_bds_block_height(ctx))
+
+            async def run_indexer_query():
+                return (await handler(ctx)).result
+
+            return QueryResult(result=None, deferred=run_indexer_query)
 
     raise UnknownQueryPath(f"Unknown query path: {ctx.route}")
 
@@ -1187,6 +1237,8 @@ async def _query_locked_state(self, req) -> ResponseQuery | tuple[int, str, str,
 
     try:
         outcome = await _execute_query(ctx)
+    except QueryContractFailure as err:
+        return ResponseQuery(code=c.ErrorCode, height=height, log=str(err))
     except UnknownQueryPath as err:
         logger.bind(**error_fields(err)).warning("Unknown ABCI query route")
         return ResponseQuery(

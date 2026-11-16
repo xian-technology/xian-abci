@@ -90,6 +90,24 @@ def get_pending_unbond_ids(owner: str):
 @export
 def get_pending_unbond(unbond_id: int):
     return pending_unbonds[unbond_id]
+
+
+@export
+def get_pending_unbond_page(owner: str, cursor: int = None, limit: int = 100):
+    ids = pending_unbond_owner_ids[owner] or []
+    start = 0
+    if cursor is not None:
+        assert cursor in ids, 'invalid cursor'
+        start = ids.index(cursor)
+    page = []
+    for unbond_id in ids[start:start + limit]:
+        item = dict(pending_unbonds[unbond_id])
+        item['unbond_id'] = unbond_id
+        page.append(item)
+    next_cursor = None
+    if start + limit < len(ids):
+        next_cursor = ids[start + limit]
+    return {'unbonds': page, 'next_cursor': next_cursor}
 """.strip()
 
 ANNOTATION_METADATA_CODE = """
@@ -601,6 +619,55 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(second_payload["has_more"])
         self.assertIsNone(second_payload["next_after"])
 
+    async def test_unbond_queries_use_one_bounded_page_and_report_legacy_overflow(self):
+        from xian_vm_core import execute_tx
+
+        driver = self.app.client.raw_driver
+        driver.set("validators.pending_unbond_owner_ids:alice", list(range(1, 102)))
+        for unbond_id in range(1, 102):
+            driver.set(f"validators.pending_unbonds:{unbond_id}", {"owner": "alice", "amount": 1})
+        with patch("xian.methods.query.execute_tx", wraps=execute_tx) as run:
+            legacy = await self.process_request(
+                Request(query=RequestQuery(path="/validators_pending_unbonds/alice"))
+            )
+            self.assertEqual(legacy.query.code, self.constants.ErrorCode)
+            self.assertIn("validators_pending_unbonds_page", legacy.query.log)
+            self.assertEqual(run.call_count, 1)
+
+            first = await self.process_request(
+                Request(query=RequestQuery(path="/validators_pending_unbonds_page/alice/limit=100"))
+            )
+            page = json.loads(first.query.value)
+            self.assertEqual(first.query.code, self.constants.OkCode)
+            self.assertEqual(len(page["unbonds"]), 100)
+            self.assertEqual(page["next_cursor"], 101)
+            self.assertEqual(run.call_count, 2)
+
+            second = await self.process_request(
+                Request(query=RequestQuery(path="/validators_pending_unbonds_page/alice/cursor=101"))
+            )
+            page = json.loads(second.query.value)
+            self.assertEqual([item["unbond_id"] for item in page["unbonds"]], [101])
+            self.assertIsNone(page["next_cursor"])
+            self.assertEqual(run.call_count, 3)
+
+            smallest = await self.process_request(Request(query=RequestQuery(
+                path="/validators_pending_unbonds_page/alice/cursor=1/limit=0"
+            )))
+            self.assertEqual([item["unbond_id"] for item in json.loads(smallest.query.value)["unbonds"]], [1])
+            self.assertEqual(run.call_count, 4)
+
+    async def test_unbond_page_rejects_invalid_cursor_instead_of_silent_empty_result(self):
+        for cursor in (0, -1, "bogus", 999):
+            with self.subTest(cursor=cursor):
+                response = await self.process_request(
+                    Request(query=RequestQuery(path=f"/validators_pending_unbonds_page/alice/cursor={cursor}"))
+                )
+                self.assertEqual(response.query.code, self.constants.ErrorCode)
+                self.assertIn("cursor", response.query.log)
+                if cursor != 999:
+                    self.assertIn("positive integer", response.query.log)
+
     async def test_simulate_tx_query(self):
         payload = {
             "sender": "alice",
@@ -623,12 +690,33 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["result"], {"__fixed__": "123.45"})
         self.assertEqual(
             result["state"],
-            [{"key": "currency.balances:alice", "value": {"__fixed__": "99.4"}}],
+            [{"key": "currency.balances:alice", "value": {"__fixed__": "99.1"}}],
         )
         self.assertEqual(
             self.app.client.raw_driver.get("currency.balances:alice"),
             100,
         )
+
+    async def test_idle_simulation_uses_durable_height_and_time_instead_of_stale_mirror(self):
+        self.app.client.submit(
+            "@export\ndef gated():\n    assert block_num >= 100, 'too early'\n"
+            "    return {'height': block_num, 'year': now.year}\n",
+            name="con_height",
+        )
+        driver = self.app.client.raw_driver
+        stage_latest_block(driver, block_hash=b"1" * 32, height=100, nanos=1_710_000_000_000_000_000)
+        driver.commit()
+        set_latest_block(block_hash=b"0" * 32, height=4, nanos=0, storage_home=driver.storage_home)
+        self.app.current_block_meta = None
+        payload = {"sender": "alice", "contract": "con_height", "function": "gated", "kwargs": {}}
+        encoded = json.dumps(payload).encode().hex()
+
+        response = await self.process_request(Request(query=RequestQuery(path=f"/simulate_tx/{encoded}")))
+        result = json.loads(response.query.value)
+
+        self.assertEqual(response.query.height, 100)
+        self.assertEqual(result["status"], 0, result)
+        self.assertEqual(result["result"], {"height": 100, "year": 2024})
 
     async def test_simulate_tx_query_releases_state_lock_while_worker_runs(self):
         # A simulation may run until simulation_timeout_ms. Untrusted RPC
@@ -666,7 +754,45 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.query.code, self.constants.OkCode)
         self.assertEqual(json.loads(response.query.value), {"status": 0, "result": "done"})
-        self.assertEqual(captured[0].block_meta, self.app.current_block_meta)
+        self.assertEqual(captured[0].block_meta, self.app.committed_block_meta())
+
+    async def test_simulation_keeps_committed_epoch_and_values_when_next_block_commits(self):
+        self.app.client.submit(
+            "value = Variable()\n@export\ndef read():\n"
+            "    return {'epoch': block_num // 100, 'value': value.get(), 'year': now.year}\n",
+            name="con_epoch",
+        )
+        driver = self.app.client.raw_driver
+        driver.set("con_epoch.value", 99)
+        stage_latest_block(driver, block_hash=b"1" * 32, height=99, nanos=1_710_000_000_000_000_000)
+        driver.commit()
+        started, release = threading.Event(), threading.Event()
+        run = PreparedSimulation.run_in_rust
+
+        def delayed(prepared):
+            started.set()
+            release.wait(timeout=5)
+            return run(prepared)
+
+        payload = {"sender": "alice", "contract": "con_epoch", "function": "read", "kwargs": {}}
+        encoded = json.dumps(payload).encode().hex()
+        with patch.object(PreparedSimulation, "run_in_rust", delayed):
+            task = asyncio.create_task(self.process_request(Request(query=RequestQuery(path=f"/simulate_tx/{encoded}"))))
+            await asyncio.wait_for(asyncio.to_thread(started.wait, 5), timeout=5)
+            try:
+                async with self.app._state_transition_lock:
+                    driver.set("con_epoch.value", 100)
+                    stage_latest_block(driver, block_hash=b"2" * 32, height=100, nanos=1_740_000_000_000_000_000)
+                    driver.commit()
+            finally:
+                release.set()
+            response = await task
+
+        result = json.loads(response.query.value)
+        self.assertEqual(response.query.height, 99)
+        self.assertEqual(result["status"], 0, result)
+        self.assertEqual(result["result"], {"epoch": 0, "value": 99, "year": 2024})
+        self.assertEqual(self.app.committed_block_meta()["height"], 100)
 
     async def test_simulate_tx_query_returns_structured_failure_when_disabled(
         self,
@@ -1077,6 +1203,7 @@ def fallback(value: list[int]):
 
         response = await self.process_request(Request(query=RequestQuery(path="/bds_status")))
         self.assertEqual(response.query.code, self.constants.OkCode)
+
         status = json.loads(response.query.value)
         self.assertTrue(status["worker_running"])
         self.assertEqual(status["spool_pending_count"], 2)
@@ -1092,13 +1219,36 @@ def fallback(value: list[int]):
         )
         self.assertEqual(response.query.code, self.constants.OkCode)
 
+    async def test_slow_indexer_query_does_not_block_consensus_check_tx(self):
+        self.app.bds_enabled = True
+        self.app.bds = _FakeBDS()
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def blocked(*args):
+            started.set()
+            await release.wait()
+            return []
+
+        self.app.bds.get_blocks = blocked
+        task = asyncio.create_task(self.process_request(Request(query=RequestQuery(path="/blocks"))))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        try:
+            response = await asyncio.wait_for(self.app.check_tx(b"invalid transaction"), timeout=0.1)
+            self.assertNotEqual(response.code, self.constants.OkCode)
+        finally:
+            release.set()
+            await task
+
     async def test_bds_status_falls_back_to_latest_committed_height(self):
         self.app.bds_enabled = True
         self.app.bds = _FakeBDS()
         self.app.current_block_meta = None
 
-        with patch("xian.methods.query.get_latest_block_height", return_value=14):
-            response = await self.process_request(Request(query=RequestQuery(path="/bds_status")))
+        driver = self.app.client.raw_driver
+        stage_latest_block(driver, block_hash=b"1" * 32, height=14, nanos=1)
+        driver.commit()
+        set_latest_block(block_hash=b"0" * 32, height=4, nanos=0, storage_home=driver.storage_home)
+        response = await self.process_request(Request(query=RequestQuery(path="/bds_status")))
 
         self.assertEqual(response.query.code, self.constants.OkCode)
         status = json.loads(response.query.value)
@@ -1303,12 +1453,81 @@ def fallback(value: list[int]):
         self.assertEqual(payload["items"][0]["tag_kind"], "sync_hint")
         self.assertEqual(payload["items"][0]["note_index"], 5)
 
+    async def test_contract_archive_pages_skip_large_maps_and_reject_unbounded_legacy_sort(self):
+        driver = self.app.client.raw_driver
+        for index in range(101):
+            driver.set_contract_from_source(f"con_archive_{index:03}", "@export\ndef read():\n    return 1\n")
+        for index in range(2000):
+            driver.set(f"con_archive_000.items:{index}", "map payload")
+        driver.commit()
+        original = driver.iter_items
+        map_reads = []
+
+        def counted(*args, **kwargs):
+            for key, value in original(*args, **kwargs):
+                if key.startswith("con_archive_000.items:"):
+                    map_reads.append(key)
+                yield key, value
+
+        with patch.object(driver, "iter_items", counted):
+            legacy = await self.process_request(Request(query=RequestQuery(path="/contracts/limit=1")))
+            self.assertEqual(legacy.query.code, self.constants.ErrorCode)
+            self.assertIn("contracts_page", legacy.query.log)
+            after = None
+            names = []
+            for _ in range(10):
+                path = "/contracts_page/limit=25" + (f"/after={after}" if after else "")
+                response = await self.process_request(Request(query=RequestQuery(path=path)))
+                self.assertEqual(response.query.code, self.constants.OkCode)
+                page = json.loads(response.query.value)
+                self.assertLessEqual(len(page["items"]), 25)
+                names.extend(row["name"] for row in page["items"])
+                after = page["next_after"]
+                if after is None:
+                    break
+            else:
+                self.fail("Contract cursor failed to finish")
+        self.assertEqual(map_reads, [])
+        self.assertEqual(names, sorted(set(names)))
+        self.assertTrue({f"con_archive_{index:03}" for index in range(101)}.issubset(names))
+
+    async def test_open_vote_archive_pages_bound_sparse_history_and_keep_oldest_open_vote(self):
+        driver = self.app.client.raw_driver
+        driver.set("validators.total_votes", 3000)
+        for proposal in range(1, 3001):
+            pending = proposal in (1, 3000)
+            driver.set(f"validators.votes:{proposal}", {"status": "pending" if pending else "approved", "finalized": not pending})
+        driver.commit()
+        legacy = await self.process_request(Request(query=RequestQuery(path="/validators_open_votes/limit=1")))
+        self.assertEqual(legacy.query.code, self.constants.ErrorCode)
+        self.assertIn("validators_open_votes_page", legacy.query.log)
+        cursor = None
+        found = []
+        for _ in range(5):
+            path = "/validators_open_votes_page/limit=1" + (f"/cursor={cursor}" if cursor is not None else "")
+            response = await self.process_request(Request(query=RequestQuery(path=path)))
+            self.assertEqual(response.query.code, self.constants.OkCode)
+            page = json.loads(response.query.value)
+            self.assertLessEqual(len(page["items"]), 1)
+            found.extend(item["proposal_id"] for item in page["items"])
+            following = page["next_cursor"]
+            if following is None:
+                break
+            if cursor is not None:
+                self.assertLess(following, cursor)
+            cursor = following
+        else:
+            self.fail("Proposal cursor failed to finish")
+        self.assertEqual(found, [3000, 1])
+
     async def test_contract_listing_query_is_available_without_bds(self):
         self.app.client.submit(
             CONTRACT_CODE,
             name="con_token_b",
             constructor_args={"vk": "bob"},
         )
+
+        self.app.client.raw_driver.commit()
 
         response = await self.process_request(
             Request(query=RequestQuery(path="/contracts/limit=10/offset=0/sort=name/order=asc"))

@@ -9,6 +9,7 @@ from xian.constants import Constants as c
 from xian.log_safety import error_fields
 from xian.methods._evidence import maybe_apply_evidence_penalties
 from xian.methods._liveness import maybe_record_liveness
+from xian.methods._penalties import maybe_process_pending_slashes
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.utils.block import (
     convert_cometbft_time_to_datetime,
@@ -390,7 +391,7 @@ def _assemble_tx_results(
     return tx_results, bds_transactions
 
 
-def _apply_evidence_and_epoch_rebalance(
+def _apply_evidence_and_liveness(
     self,
     req,
     *,
@@ -405,6 +406,11 @@ def _apply_evidence_and_epoch_rebalance(
 
     with self.profiler.scope("finalize_liveness", block_scoped=True):
         maybe_record_liveness(self, req, height=height)
+
+
+def _continue_penalties_and_rebalance(self, *, height: int):
+    with self.profiler.scope("finalize_penalty_batch", block_scoped=True):
+        maybe_process_pending_slashes(self, height=height)
 
     with self.profiler.scope("finalize_epoch_rebalance", block_scoped=True):
         _maybe_run_validator_epoch_rebalance(
@@ -519,6 +525,10 @@ def _finish_finalize_logging(
 
 async def finalize_block(self, req) -> ResponseFinalizeBlock:
     nanos, block_hash, block_datetime, height = _initialize_block(self, req)
+    # Agreed evidence must freeze affected stake before any paid transaction
+    # can claim it. The bounded penalty work and epoch selection follow the
+    # user transactions, sharing one deterministic work budget per block.
+    _apply_evidence_and_liveness(self, req, height=height)
 
     decoded_entries, decoded_txs = _decode_block_transactions(
         self,
@@ -541,9 +551,8 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
             block_hash=block_hash,
         )
 
-    _apply_evidence_and_epoch_rebalance(
+    _continue_penalties_and_rebalance(
         self,
-        req,
         height=height,
     )
     validator_updates, patch_hash, applied_patches = _prepare_commit_boundary(

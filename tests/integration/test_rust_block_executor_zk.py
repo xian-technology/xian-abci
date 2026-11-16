@@ -381,8 +381,8 @@ def test_contracts_using_zk_fail_while_zk_is_off(tmp_path):
     assert [receipt["status"] for receipt in disabled] == [1, 1, 1, 0, 1]
     message = "uses zk host syscalls, but the chain zk runtime feature is disabled"
     assert all(message in disabled[index]["result"] for index in (0, 1, 2, 4))
-    # The base chi, and the unused-chi charge on the rest of the budget.
-    assert disabled[0]["chi_used"] == charged_chi(200_000, 5)
+    # Module preparation is charged before the disabled-feature refusal.
+    assert disabled[0]["chi_used"] == charged_chi(200_000, 90)
 
 
 def test_a_feature_value_the_check_refuses_fails_every_zk_call(tmp_path):
@@ -430,7 +430,7 @@ def _shielded_run(benchmark, monkeypatch):
 
 def test_shielded_note_transactions_spend_the_benchmark_chi(monkeypatch):
     # Proofs and note ciphertexts are random, so the receipts are not
-    # frozen: every flow succeeds with the chi the Python path spent.
+    # frozen: every flow succeeds at the current execution revision's chi cost.
     pytest.importorskip("xian_zk")
     benchmark = _load_shielded_benchmark()
     chi, records = _shielded_run(benchmark, monkeypatch)

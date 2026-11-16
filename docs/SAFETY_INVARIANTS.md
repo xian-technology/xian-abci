@@ -46,7 +46,7 @@ This file records the runtime properties that must hold before an
   write `__execution_policy` at all.
 - The block cap counts supplied chi, so supplied chi that goes unused must
   cost the sender: in paid mode the Rust executor charges `used + (chi_supplied
-  - used) // 10` (the unused-chi charge, revision 14) and reports it as the
+  - used) // 2` (the unused-chi charge, revision 14) and reports it as the
   receipt's `chi_used`. Fee rewards are computed on `used` alone; the charge is
   burned, so no validator or developer earns from wasted block capacity and no
   token is created. Without it, a few transactions that supply far more than
@@ -78,6 +78,10 @@ This file records the runtime properties that must hold before an
   requests must not fail a block or bypass verification during execution. It
   is skipped while the chain's zk feature is off.
 - Replay after failure must leave the same committed state on every node.
+- A host fault during FinalizeBlock discards every pending block write and
+  staged root before the ABCI server shuts down all connections. A partial
+  block must not become visible to later queries or be committed on retry.
+  Shutdown cancellation must not recursively start another global shutdown.
 - A committed block's height and app hash must become durable in the same LMDB
   transaction as its state writes. `Info` must never advertise metadata for
   state that was not committed, and startup must repair the compatibility JSON
@@ -100,10 +104,9 @@ This file records the runtime properties that must hold before an
 
 ## Validator Selection
 
-- Consensus identities are exactly 32-byte hexadecimal keys. Case variants
-  compare as one key without changing the spelling of contract account keys.
-  Equal-power aliases collapse to one validator; conflicting powers reject the
-  selection independently of list ordering.
+- Consensus identities are exactly 64 lowercase ASCII hexadecimal characters
+  encoding an Ed25519 public key. Other spellings are rejected at registration
+  and excluded from consensus updates, so one signing key has one account name.
 - Malformed identities are excluded. An empty or entirely invalid selection
   retains the last effective nonempty consensus set, including across blocks,
   restart, export, and state sync.
@@ -113,6 +116,48 @@ This file records the runtime properties that must hold before an
 - Existing state without this metadata bootstraps from its committed valid
   active validators. This is an upgrade boundary, not recovery for a chain
   whose previous contract state already disagrees with CometBFT.
+
+## Validator Penalties And Queries
+
+- The agreed block's evidence and liveness are applied before user
+  transactions, so a claim in that block cannot withdraw stake before its
+  penalty freezes it. Fee rewards therefore use the membership after those
+  immediate jails. Pending penalties then share one bounded continuation call
+  after user transactions and before automatic epoch selection.
+- Pending penalty jobs, their FIFO order and every continuation cursor are
+  consensus state. Restart or replay resumes the committed cursor. Processing
+  visits only its bounded batch per block and uses no local work queue.
+- Historical evidence resolves a consensus address through
+  `validators.consensus_keys:<address>`. The resolved public key is checked
+  against the address before a penalty is applied. Liveness only scans the
+  bounded active set, never the lifetime registry.
+- The pending-unbond page route executes one bounded contract call. The
+  legacy list route returns the same complete list only when it fits in one
+  page; larger lists return an explicit pagination error rather than blocking
+  consensus with one unmetered VM call per historical record.
+
+## Readonly Execution And Operator Identity
+
+- Readonly simulation uses the latest committed height H and timestamp,
+  rather than a guessed H+1 or wall-clock time. Its committed LMDB snapshot,
+  pending overlay, nonce, runtime-feature fallback and metadata are captured
+  under the state-transition lock and kept consistent through all estimation
+  rounds. A map resize invalidates the snapshot explicitly and requires a new
+  query; it must not silently mix committed versions.
+- Simulation capacity includes prepared readers and running workers. A
+  timed-out worker keeps its slot until it actually finishes; abandoned
+  preparations release their slots. Native pinned-reader limits retain
+  headroom for ordinary consensus reads.
+- BDS database queries run after releasing the consensus state lock. A slow
+  or unavailable indexer cannot hold CheckTx, FinalizeBlock or Commit while
+  waiting for PostgreSQL. Status queries capture the node height first.
+- Materializing or overwriting an existing node cannot recreate a missing
+  validator signing-state file or silently change its configured location.
+  Initialization refuses before writing configuration or keys and requires
+  restoration of the original signing high-water mark.
+- Private key and configuration writes stage owner-only files and install
+  them atomically. A failed write preserves the original file; an initial
+  write refuses to replace an identity created concurrently.
 
 ## Native Runtime Validation
 

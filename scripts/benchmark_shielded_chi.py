@@ -41,13 +41,13 @@ from xian.utils.tx import transaction_bytes
 # The chain's chi price (chi per XIAN); the chi used does not depend on it.
 CHI_RATE = 20
 
-# Execution revision 14 (`xvm-gas-6`), metered free.
+# Execution revision 15 (`xvm-gas-7`), metered free, including module preparation.
 BASELINE = {
-    "deposit_2_outputs": 10135,
-    "transfer_2in_2out": 10487,
-    "withdraw_1in_1out": 9060,
-    "withdraw_exact": 6079,
-    "relay_transfer": 15890,
+    "deposit_2_outputs": 11044,
+    "transfer_2in_2out": 11396,
+    "withdraw_1in_1out": 9970,
+    "withdraw_exact": 6988,
+    "relay_transfer": 16799,
 }
 
 
