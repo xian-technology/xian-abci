@@ -159,7 +159,10 @@ def _extract_member(archive, member, relative, staged, limits):
     limits.require_disk_space(staged, member.size)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with archive.extractfile(member) as source, destination.open("xb") as target:
-        shutil.copyfileobj(source, target, length=16 * 1024)
+        # extractfile returns a fresh, unread BufferedReader. Its read-ahead
+        # can exceed the strict auxiliary-header cap; bound payload reads on
+        # its public raw stream instead, before the buffer consumes any bytes.
+        shutil.copyfileobj(source.raw, target, length=16 * 1024)
 
 
 def _extract_application_data(
