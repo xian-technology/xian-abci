@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
-import tarfile
 import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -13,10 +11,23 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, urlsplit, urlunsplit
 from urllib.request import urlopen
 
-from xian_accounts import is_valid_ed25519_key, verify_message
+from xian_accounts import is_valid_ed25519_key
 
 from xian.config_paths import resolve_genesis_source
 from xian.constants import Constants as c
+from xian.full_node_store import (
+    NativeStoreInspector,
+    canonical_hex,
+    full_node_store_manifest_payload,
+    verify_full_node_store_manifest,
+)
+from xian.full_node_store import (
+    read_full_node_store_checkpoint as read_full_node_store_checkpoint,
+)
+from xian.full_node_store import (
+    verify_full_node_store_checkpoint as verify_full_node_store_checkpoint,
+)
+from xian.full_node_store_limits import MAX_MANIFEST_BYTES, FullNodeStoreLimits
 from xian.node_setup import (
     NodeConfigOptions,
     build_priv_validator_key,
@@ -62,6 +73,7 @@ class ExistingHomeOptions:
     snapshot_url: str | None = None
     snapshot_signing_public_keys: tuple[str, ...] = ()
     snapshot_expected_chain_id: str | None = None
+    native_store_inspector: NativeStoreInspector | None = None
     genesis_source: str | None = None
     genesis_payload: dict[str, Any] | None = None
     expected_genesis_sha256: str | None = None
@@ -179,32 +191,40 @@ def resolve_p2p_seeds(
     return resolved
 
 
-def _download_snapshot_archive(snapshot_url: str, target_path: Path) -> Path:
-    parsed_url = urlparse(snapshot_url)
-    filename = Path(parsed_url.path).name or "snapshot.tar.gz"
+def _download_snapshot_archive(
+    snapshot_url: str, target_path: Path, *, limits=None, expected_bytes=None, expected_sha256=None
+) -> Path:
+    limits = limits or FullNodeStoreLimits()
+    filename = Path(urlparse(snapshot_url).path).name or "snapshot.tar.gz"
     archive_path = target_path / filename
-    archive_path.write_bytes(_download_binary_url(snapshot_url, timeout=30))
+    maximum = limits.max_archive_bytes
+    if expected_bytes is not None:
+        limits.check_size(expected_bytes, maximum, "archive")
+        limits.require_disk_space(target_path, expected_bytes)
+        maximum = expected_bytes
+    with urlopen(snapshot_url, timeout=30) as response:
+        length = response.headers.get("Content-Length")
+        if length is not None:
+            limits.check_size(int(length), maximum, "advertised archive")
+            if expected_bytes is not None and int(length) != expected_bytes:
+                raise ValueError("full-node-store advertised archive byte count mismatch")
+        _, actual = limits.copy_stream(
+            response, archive_path, maximum=maximum, expected_bytes=expected_bytes, label="archive"
+        )
+    if actual != expected_sha256:
+        raise ValueError(
+            f"snapshot archive sha256 mismatch: expected {expected_sha256}, got {actual}"
+        )
     return archive_path
 
 
 def _fetch_json_url(url: str, *, timeout: float) -> dict[str, Any]:
     with urlopen(url, timeout=timeout) as response:
         charset = response.headers.get_content_charset() or "utf-8"
-        payload = response.read().decode(charset)
-    return json.loads(payload)
-
-
-def _download_binary_url(url: str, *, timeout: float) -> bytes:
-    with urlopen(url, timeout=timeout) as response:
-        return response.read()
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+        payload = response.read(MAX_MANIFEST_BYTES + 1)
+        if len(payload) > MAX_MANIFEST_BYTES:
+            raise ValueError("snapshot manifest/JSON response exceeds 64KiB limit")
+    return json.loads(payload.decode(charset))
 
 
 def _normalize_snapshot_manifest_public_keys(
@@ -224,83 +244,31 @@ def _normalize_snapshot_manifest_public_keys(
     return normalized
 
 
-def _canonical_snapshot_manifest_payload(manifest: dict[str, Any]) -> str:
-    payload = {
-        "manifest_version": manifest["manifest_version"],
-        "chain_id": manifest["chain_id"],
-        "height": manifest["height"],
-        "snapshot_url": manifest["snapshot_url"],
-        "snapshot_sha256": manifest["snapshot_sha256"],
-        "signing_public_key": manifest["signing_public_key"],
-    }
-    return json.dumps(payload, separators=(",", ":"), sort_keys=True)
+# Backwards import aliases now enforce the v2 full-store trust domain.
+_canonical_snapshot_manifest_payload = full_node_store_manifest_payload
+_verify_snapshot_manifest = verify_full_node_store_manifest
 
 
-def _verify_snapshot_manifest(
-    manifest: dict[str, Any],
-    *,
-    trusted_manifest_public_keys: list[str],
-    expected_chain_id: str | None,
-) -> dict[str, Any]:
-    if not isinstance(manifest, dict):
-        raise ValueError("snapshot manifest must be a JSON object")
-
-    manifest_version = manifest.get("manifest_version")
-    if isinstance(manifest_version, bool) or not isinstance(manifest_version, int):
-        raise ValueError("snapshot manifest_version must be an integer")
-    if manifest_version != 1:
-        raise ValueError(f"unsupported snapshot manifest_version: {manifest_version}")
-
-    chain_id = manifest.get("chain_id")
-    if not isinstance(chain_id, str) or chain_id == "":
-        raise ValueError("snapshot manifest chain_id must be a string")
-    if expected_chain_id is not None and chain_id != expected_chain_id:
-        raise ValueError(
-            f"snapshot manifest chain_id mismatch: expected {expected_chain_id}, got {chain_id}"
+def _snapshot_source(snapshot_url, trusted_keys, expected_sha256, expected_chain_id):
+    if trusted_keys:
+        try:
+            fetched = _fetch_json_url(snapshot_url, timeout=30)
+        except (ValueError, UnicodeError):
+            if expected_sha256 is None:
+                raise
+            # Only an independently supplied checksum permits a non-JSON URI.
+            return snapshot_url, expected_sha256, None
+        manifest = verify_full_node_store_manifest(
+            fetched, trusted_manifest_public_keys=trusted_keys, expected_chain_id=expected_chain_id
         )
-
-    height = manifest.get("height")
-    if isinstance(height, bool) or not isinstance(height, int) or height <= 0:
-        raise ValueError("snapshot manifest height must be a positive integer")
-
-    snapshot_url = manifest.get("snapshot_url")
-    if not isinstance(snapshot_url, str) or snapshot_url == "":
-        raise ValueError("snapshot manifest snapshot_url must be a string")
-
-    snapshot_sha256 = manifest.get("snapshot_sha256")
-    if not isinstance(snapshot_sha256, str) or len(snapshot_sha256) != 64:
-        raise ValueError("snapshot manifest snapshot_sha256 must be a 64-character hex string")
-    try:
-        bytes.fromhex(snapshot_sha256)
-    except ValueError as ex:
+        if expected_sha256 is not None and manifest["snapshot_sha256"] != expected_sha256:
+            raise ValueError("snapshot archive sha256 mismatch with trusted manifest")
+        return manifest["snapshot_url"], manifest["snapshot_sha256"], manifest
+    if expected_sha256 is None:
         raise ValueError(
-            "snapshot manifest snapshot_sha256 must be a 64-character hex string"
-        ) from ex
-    snapshot_sha256 = snapshot_sha256.lower()
-
-    signing_public_key = manifest.get("signing_public_key")
-    if not isinstance(signing_public_key, str) or not is_valid_ed25519_key(signing_public_key):
-        raise ValueError("snapshot manifest signing_public_key must be a valid Ed25519 hex key")
-    if signing_public_key not in trusted_manifest_public_keys:
-        raise ValueError("snapshot manifest signer is not trusted")
-
-    signature = manifest.get("signature")
-    if not isinstance(signature, str) or signature == "":
-        raise ValueError("snapshot manifest signature must be a hex string")
-
-    normalized_manifest = {
-        "manifest_version": manifest_version,
-        "chain_id": chain_id,
-        "height": height,
-        "snapshot_url": snapshot_url,
-        "snapshot_sha256": snapshot_sha256,
-        "signing_public_key": signing_public_key,
-        "signature": signature,
-    }
-    payload = _canonical_snapshot_manifest_payload(normalized_manifest)
-    if not verify_message(signing_public_key, payload, signature):
-        raise ValueError("snapshot manifest signature verification failed")
-    return normalized_manifest
+            "remote snapshot restore requires expected_sha256 or trusted snapshot signing keys"
+        )
+    return snapshot_url, expected_sha256, None
 
 
 def apply_snapshot_archive(
@@ -310,41 +278,42 @@ def apply_snapshot_archive(
     expected_sha256: str | None = None,
     trusted_manifest_public_keys: list[str] | None = None,
     expected_chain_id: str | None = None,
+    native_store_inspector: NativeStoreInspector | None = None,
+    limits: FullNodeStoreLimits | None = None,
 ) -> str:
+    home = Path(home)
     home.mkdir(parents=True, exist_ok=True)
+    limits = limits or FullNodeStoreLimits()
+    if expected_sha256 is not None:
+        canonical_hex(expected_sha256, "trusted snapshot SHA256")
     trusted_keys = _normalize_snapshot_manifest_public_keys(trusted_manifest_public_keys)
-    effective_snapshot_url = snapshot_url
-    effective_sha256 = expected_sha256
-    if expected_sha256 is None:
-        if not trusted_keys:
-            raise ValueError(
-                "remote snapshot restore requires expected_sha256 or trusted snapshot signing keys"
-            )
-        manifest = _fetch_json_url(snapshot_url, timeout=30)
-        verified_manifest = _verify_snapshot_manifest(
-            manifest,
-            trusted_manifest_public_keys=trusted_keys,
-            expected_chain_id=expected_chain_id,
+    url, checksum, manifest = _snapshot_source(
+        snapshot_url, trusted_keys, expected_sha256, expected_chain_id
+    )
+    if manifest is not None:
+        limits.check_size(
+            manifest["uncompressed_bytes"], limits.max_uncompressed_bytes, "uncompressed archive"
         )
-        effective_snapshot_url = verified_manifest["snapshot_url"]
-        effective_sha256 = verified_manifest["snapshot_sha256"]
-
+        limits.check_size(manifest["snapshot_bytes"], limits.max_archive_bytes, "archive")
+        limits.require_disk_space(
+            home, manifest["snapshot_bytes"] + 2 * manifest["uncompressed_bytes"]
+        )
     with tempfile.TemporaryDirectory(dir=home) as tmp_dir:
         archive_path = _download_snapshot_archive(
-            effective_snapshot_url,
+            url,
             Path(tmp_dir),
+            limits=limits,
+            expected_bytes=manifest["snapshot_bytes"] if manifest else None,
+            expected_sha256=checksum,
         )
-        if not tarfile.is_tarfile(archive_path):
-            raise ValueError("snapshot archive must be a .tar or .tar.gz file")
-        if effective_sha256 is not None:
-            actual_sha256 = _sha256_file(archive_path)
-            if actual_sha256.lower() != effective_sha256.lower():
-                raise ValueError(
-                    "snapshot archive sha256 mismatch: "
-                    f"expected {effective_sha256}, got {actual_sha256}"
-                )
-
-        restore_application_archive(archive_path, home)
+        restore_application_archive(
+            archive_path,
+            home,
+            manifest=manifest,
+            native_store_inspector=native_store_inspector,
+            expected_chain_id=expected_chain_id,
+            limits=limits,
+        )
         return archive_path.name
 
 
@@ -375,8 +344,9 @@ def configure_existing_home(request: ExistingHomeOptions) -> dict[str, str | lis
     config = preserve_runtime_config(rendered_config, existing_config)
     _verify_genesis_pin(request, config["genesis_file"])
 
-    snapshot_archive_name = _restore_snapshot(request)
-    genesis_target_path = _install_genesis(request, config["genesis_file"])
+    snapshot_archive_name, genesis_target_path = _restore_with_genesis(
+        request, config["genesis_file"]
+    )
     priv_validator_key_path = _install_validator_key(request, config["priv_validator_key_file"])
 
     xian_config_path = request.home / "config" / "xian.toml"
@@ -395,6 +365,21 @@ def configure_existing_home(request: ExistingHomeOptions) -> dict[str, str | lis
     }
 
 
+def _restore_with_genesis(request, genesis_file):
+    target = resolve_home_relative_path(request.home, genesis_file)
+    previous = target.read_bytes() if target.exists() else None
+    installed = _install_genesis(request, genesis_file)
+    try:
+        return _restore_snapshot(request), installed
+    except BaseException:
+        if installed is not None:
+            if previous is None:
+                target.unlink()
+            else:
+                target.write_bytes(previous)
+        raise
+
+
 def _restore_snapshot(request: ExistingHomeOptions) -> str | None:
     if not request.snapshot_url:
         return None
@@ -403,6 +388,7 @@ def _restore_snapshot(request: ExistingHomeOptions) -> str | None:
         request.home,
         trusted_manifest_public_keys=list(request.snapshot_signing_public_keys) or None,
         expected_chain_id=request.snapshot_expected_chain_id,
+        native_store_inspector=request.native_store_inspector,
     )
 
 

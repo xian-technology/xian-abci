@@ -21,7 +21,7 @@ Main areas:
   (`build_vm_runtime`) and the VM context of an external call
   (`vm_call_context`). The chain chi rate rule (`validated_chi_rate`) and the
   stored bytes a state root hashes (`stored_value_bytes`) come from vm-core.
-- `src/xian/services/`: BDS and snapshot/state-sync services
+- `src/xian/services/`: BDS and offline application snapshot services
 - `src/xian/dashboard/`, `metrics.py` and `simulator.py`: optional
   node-adjacent surfaces
 - `src/xian/utils/state_patches.py` and `src/xian/tools/state_patches/`:

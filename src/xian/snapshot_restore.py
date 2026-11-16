@@ -16,6 +16,10 @@ import unicodedata
 from pathlib import Path, PurePosixPath
 
 from xian.execution_policy import validate_persisted_execution_policy
+from xian.full_node_store import read_full_node_store_checkpoint, verify_full_node_store_checkpoint
+from xian.full_node_store_limits import FullNodeStoreLimits
+from xian.services.snapshot_limits import SnapshotArchiveReader, SnapshotLimits
+from xian.snapshot_restore_status import validate_snapshot_restore_complete
 from xian.toml_utils import load as load_toml
 
 _ROOTS = ("data", "xian")
@@ -147,36 +151,53 @@ def _new_member(path: PurePosixPath, member: tarfile.TarInfo, seen: dict) -> boo
     return True
 
 
-def _application_members(archive: tarfile.TarFile, protected: set[Path]):
+def _extract_member(archive, member, relative, staged, limits):
+    destination = staged / relative
+    if member.isdir():
+        destination.mkdir(parents=True, exist_ok=True)
+        return
+    limits.require_disk_space(staged, member.size)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with archive.extractfile(member) as source, destination.open("xb") as target:
+        shutil.copyfileobj(source, target, length=16 * 1024)
+
+
+def _extract_application_data(
+    archive_path, staged, protected, *, limits, workspace, expected_bytes
+):
+    unpacked = workspace / "archive.tar"
+    limits.unpack_archive(archive_path, unpacked, expected_bytes=expected_bytes)
     protected_names = {_path_key(path) for path in protected}
-    seen: dict[str, tarfile.TarInfo] = {}
-    selected = []
-    for member in archive.getmembers():
-        path = _member_path(member)
-        if not path.parts or path.parts[0] not in _ROOTS:
-            continue
-        if len(path.parts) == 1 and not member.isdir():
-            raise ValueError(f"snapshot application root must be a directory: {path}")
-        if _is_protected_member(path, member, protected_names):
-            continue
-        if _new_member(path, member, seen):
-            selected.append((member, path))
-    if not any(member.isfile() for member, _ in selected):
+    seen, count, declared, files = {}, 0, 0, 0
+    with unpacked.open("rb") as file:
+        # Bound PAX/GNU auxiliary header reads before tarfile allocates them.
+        reader = SnapshotArchiveReader(file, SnapshotLimits())
+        reader.allow_payload_reads()
+        with tarfile.open(fileobj=reader, mode="r:") as archive:
+            for member in archive:
+                count += 1
+                limits.check_size(count, limits.max_members, "member count")
+                if member.size < 0:
+                    raise ValueError("snapshot member size must be nonnegative")
+                declared += member.size
+                limits.check_size(declared, limits.max_uncompressed_bytes, "declared file payloads")
+                path = _selected_member(member, protected_names, seen)
+                if path is not None:
+                    _extract_member(archive, member, path, staged, limits)
+                    files += member.isfile()
+    if not files:
         raise ValueError("snapshot archive contains no application data")
-    return selected
 
 
-def _extract_application_data(archive_path: Path, staged: Path, protected: set[Path]) -> None:
-    with tarfile.open(archive_path) as archive:
-        members = _application_members(archive, protected)
-        for member, relative in members:
-            destination = staged / relative
-            if member.isdir():
-                destination.mkdir(parents=True, exist_ok=True)
-                continue
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            with archive.extractfile(member) as source, destination.open("xb") as target:
-                shutil.copyfileobj(source, target)
+def _selected_member(member, protected_names, seen):
+    path = _member_path(member)
+    if not path.parts or path.parts[0] not in _ROOTS:
+        return None
+    if len(path.parts) == 1 and not member.isdir():
+        raise ValueError(f"snapshot application root must be a directory: {path}")
+    if _is_protected_member(path, member, protected_names):
+        return None
+    return path if _new_member(path, member, seen) else None
 
 
 def _preserve_identity(home: Path, staged: Path, protected: set[Path]) -> None:
@@ -196,6 +217,17 @@ def _rollback(home: Path, backup: Path, published: list[str]) -> None:
             shutil.rmtree(destination)
         if original.exists():
             original.rename(destination)
+
+
+def _begin_publication(workspace):
+    with (workspace / "publication-started").open("xb") as marker:
+        marker.flush()
+        os.fsync(marker.fileno())
+    descriptor = os.open(workspace, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _publish(home: Path, staged: Path, backup: Path) -> None:
@@ -218,10 +250,7 @@ def _publish(home: Path, staged: Path, backup: Path) -> None:
 
 
 def _check_home(home: Path) -> None:
-    for previous in home.glob(_WORK_PREFIX + "*"):
-        backup = previous / "backup"
-        if backup.exists() and any(backup.iterdir()):
-            raise ValueError(f"incomplete snapshot restore requires recovery from {backup}")
+    validate_snapshot_restore_complete(home)
     for name in _ROOTS:
         path = home / name
         _check_plain_path(path, home)
@@ -229,8 +258,11 @@ def _check_home(home: Path) -> None:
             raise ValueError(f"snapshot application root must be a directory: {path}")
 
 
-def _restore_application_archive(archive_path: Path, home: Path) -> None:
+def _restore_application_archive(
+    archive_path, home, *, manifest, native_store_inspector, limits, expected_chain_id
+):
     _check_home(home)
+    limits.check_size(archive_path.stat().st_size, limits.max_archive_bytes, "archive")
     validate_persisted_execution_policy(home / "xian")
     protected = _protected_paths(home)
     workspace = Path(tempfile.mkdtemp(prefix=_WORK_PREFIX, dir=home))
@@ -239,10 +271,21 @@ def _restore_application_archive(archive_path: Path, home: Path) -> None:
     for name in _ROOTS:
         (staged / name).mkdir(parents=True)
     try:
-        _extract_application_data(archive_path, staged, protected)
+        _extract_application_data(
+            archive_path,
+            staged,
+            protected,
+            limits=limits,
+            workspace=workspace,
+            expected_bytes=manifest["uncompressed_bytes"] if manifest else None,
+        )
         if not validate_persisted_execution_policy(staged / "xian"):
             raise ValueError("snapshot is missing its execution policy")
+        point = _verify_staged_checkpoint(staged, home, manifest, native_store_inspector)
+        if expected_chain_id is not None and point["chain_id"] != expected_chain_id:
+            raise ValueError("full-node-store checkpoint chain_id mismatch")
         _preserve_identity(home, staged, protected)
+        _begin_publication(workspace)
         _publish(home, staged, backup)
     except BaseException:
         # A failed rollback must never erase the remaining recovery copy.
@@ -253,11 +296,33 @@ def _restore_application_archive(archive_path: Path, home: Path) -> None:
         shutil.rmtree(workspace)
 
 
-def restore_application_archive(archive_path: Path, home: Path) -> None:
+def _verify_staged_checkpoint(staged, home, manifest, native_store_inspector):
+    kwargs = {"reference_home": home, "native_store_inspector": native_store_inspector}
+    if manifest is not None:
+        return verify_full_node_store_checkpoint(staged, manifest, **kwargs)
+    return read_full_node_store_checkpoint(staged, **kwargs)
+
+
+def restore_application_archive(
+    archive_path: Path,
+    home: Path,
+    *,
+    manifest: dict | None = None,
+    native_store_inspector=None,
+    limits: FullNodeStoreLimits | None = None,
+    expected_chain_id: str | None = None,
+) -> None:
     home = home.resolve()
     with (home / ".snapshot-restore.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
             raise ValueError("another snapshot restore is already running") from error
-        _restore_application_archive(archive_path, home)
+        _restore_application_archive(
+            archive_path,
+            home,
+            manifest=manifest,
+            native_store_inspector=native_store_inspector,
+            limits=limits or FullNodeStoreLimits(),
+            expected_chain_id=expected_chain_id,
+        )

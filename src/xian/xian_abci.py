@@ -46,13 +46,18 @@ from loguru import logger
 from abci import __version__ as software_version
 from abci.server import ABCIServer
 from abci.utils import get_logger
+from cometbft.abci.v1beta1.types_pb2 import (
+    ResponseApplySnapshotChunk,
+    ResponseListSnapshots,
+    ResponseLoadSnapshotChunk,
+    ResponseOfferSnapshot,
+)
 from xian.app_logging import (
     build_log_fields,
     configure_logging,
     log_level_includes,
 )
 from xian.constants import Constants
-from xian.evidence_history import EvidenceHistoryPairing
 from xian.evidence_policy import (
     validate_committed_evidence_policy,
     validate_genesis_evidence_policy,
@@ -80,7 +85,6 @@ from xian.methods import (
     finalize_block,
     info,
     init_chain,
-    offer_snapshot,
     prepare_proposal,
     process_proposal,
     query,
@@ -98,7 +102,9 @@ from xian.services.bds.bds import BDS
 from xian.services.bds.config import BdsConfig
 from xian.services.state_sync import StateSnapshotManager
 from xian.simulator import QuerySimulationService
+from xian.snapshot_restore_status import validate_snapshot_restore_complete
 from xian.state_root import StateRootCache
+from xian.state_sync_policy import validate_comet_state_sync_disabled
 from xian.utils.block import (
     get_committed_latest_block,
     reconcile_latest_block,
@@ -148,6 +154,7 @@ def load_module(module_path, original_module_path):
 class Xian:
     def __init__(self, constants=Constants()):
         self.constants = constants
+        validate_snapshot_restore_complete(constants.COMETBFT_HOME)
         try:
             self.cometbft_config = load_tendermint_config(constants)
             self.xian_config = load_xian_config(constants)
@@ -157,6 +164,7 @@ class Xian:
             raise SystemExit()
 
         xian_config = self.xian_config
+        validate_comet_state_sync_disabled(self.cometbft_config)
         validate_vm_execution_config(xian_config)
         validate_genesis_execution_policy(self.genesis)
         self.genesis_evidence_policy = validate_genesis_evidence_policy(self.genesis)
@@ -243,7 +251,6 @@ class Xian:
         # Stage those writes outside the live driver so CheckTx can drain
         # against committed state without deadlocking the commit boundary.
         self._state_transition_lock = asyncio.Lock()
-        self._evidence_history_pairing = EvidenceHistoryPairing()
         self._pending_commit_driver_state = None
 
         self.bds_enabled = xian_config.get("bds_enabled", False)
@@ -515,35 +522,21 @@ class Xian:
 
     async def list_snapshots(self, req):
         del req
-        return self.state_snapshot_manager.list_snapshots_response()
+        return ResponseListSnapshots()
 
     async def offer_snapshot(self, req):
+        del req
         async with self._state_transition_lock:
-            return await offer_snapshot.offer_snapshot(self, req)
+            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.ABORT)
 
     async def load_snapshot_chunk(self, req):
-        return self.state_snapshot_manager.load_snapshot_chunk_response(
-            height=req.height,
-            format_version=req.format,
-            chunk_index=req.chunk,
-        )
+        del req
+        return ResponseLoadSnapshotChunk()
 
     async def apply_snapshot_chunk(self, req):
+        del req
         async with self._state_transition_lock:
-            response = self.state_snapshot_manager.apply_snapshot_chunk_response(
-                index=req.index,
-                chunk=req.chunk,
-                sender=req.sender,
-            )
-            if response.result == response.ACCEPT:
-                # Import uses a separate driver over the same LMDB environment.
-                # Drop cached pre-import reads before serving Info/queries/execution.
-                self.client.raw_driver.flush_cache()
-                self.nonce_storage.flush_pending()
-                self.state_root_cache.rebuild_from_driver(self.client.raw_driver)
-                self.refresh_tx_fee_policy()
-                self.refresh_runtime_features()
-            return response
+            return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.ABORT)
 
     async def query(self, req):
         """

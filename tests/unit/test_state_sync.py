@@ -188,7 +188,9 @@ class StateSyncTests(unittest.TestCase):
                     previous_archive = previous_snapshot.read_bytes()
                     previous_manifest = target._manifest_path(previous_snapshot).read_bytes()
                     offered = target.offer_snapshot_response(
-                        record.to_proto(), app_hash=bytes.fromhex(record.app_hash_hex), current_height=3
+                        record.to_proto(),
+                        app_hash=bytes.fromhex(record.app_hash_hex),
+                        current_height=3,
                     )
                     self.assertEqual(offered.result, offered.ACCEPT)
                     with patch(
@@ -288,15 +290,7 @@ class StateSyncTests(unittest.TestCase):
                 self.assertIsNone(driver.get("demo.count"))
                 self.assertEqual(get_committed_latest_block(driver)["height"], 0)
 
-    def test_post_import_cleanup_failure_still_accepts_and_reconciles_live_state(self):
-        import asyncio
-        from types import SimpleNamespace
-        from unittest.mock import Mock
-
-        from xian.methods.info import info
-        from xian.state_root import StateRootCache
-        from xian.xian_abci import Xian
-
+    def test_offline_import_cleanup_failure_keeps_committed_state(self):
         for failure in ("retention", "session_cleanup"):
             with (
                 self.subTest(failure=failure),
@@ -313,38 +307,28 @@ class StateSyncTests(unittest.TestCase):
                     driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
                     driver.set("local.value", "replace me")
                     driver.commit()
-                    self.assertIsNone(driver.get("demo.count"))
-                    app = SimpleNamespace(
-                        client=SimpleNamespace(raw_driver=driver),
-                        state_snapshot_manager=target,
-                        nonce_storage=Mock(),
-                        state_root_cache=StateRootCache.from_driver(driver),
-                        app_version=1,
-                        _state_transition_lock=asyncio.Lock(),
-                        refresh_tx_fee_policy=Mock(),
-                        refresh_runtime_features=Mock(),
+                offered = target.offer_snapshot_response(
+                    record.to_proto(), app_hash=bytes.fromhex(record.app_hash_hex), current_height=0
+                )
+                self.assertEqual(offered.result, offered.ACCEPT)
+                session = target._incoming_session
+                failed_object, failed_method = (
+                    (target, "_cleanup_existing_height")
+                    if failure == "retention"
+                    else (session.temp_dir, "cleanup")
+                )
+                with patch.object(
+                    failed_object, failed_method, side_effect=OSError("injected cleanup failure")
+                ):
+                    response = target.apply_snapshot_chunk_response(
+                        index=0, chunk=record.path.read_bytes(), sender="offline"
                     )
-                    offered = target.offer_snapshot_response(
-                        record.to_proto(), app_hash=bytes.fromhex(record.app_hash_hex), current_height=0
-                    )
-                    self.assertEqual(offered.result, offered.ACCEPT)
-                    session = target._incoming_session
-                    failed_object, failed_method = (
-                        (target, "_cleanup_existing_height")
-                        if failure == "retention" else (session.temp_dir, "cleanup")
-                    )
-                    with patch.object(
-                        failed_object, failed_method, side_effect=OSError("injected cleanup failure")
-                    ):
-                        response = asyncio.run(Xian.apply_snapshot_chunk(app, SimpleNamespace(
-                            index=0, chunk=record.path.read_bytes(), sender="peer"
-                        )))
-                    self.assertEqual(response.result, response.ACCEPT)
-                    self.assertIsNone(driver.get("local.value"))
-                    self.assertEqual(driver.get("demo.count"), 7)
-                    self.assertEqual(app.state_root_cache.root_hash.hex(), record.app_hash_hex)
-                    self.assertEqual(asyncio.run(info(app, None)).last_block_height, 42)
-                    session.close()
+                self.assertEqual(response.result, response.ACCEPT)
+                with Driver(vm_profile="xian_vm_v2", storage_home=target_home) as restarted:
+                    self.assertIsNone(restarted.get("local.value"))
+                    self.assertEqual(restarted.get("demo.count"), 7)
+                    self.assertEqual(get_latest_block_height(target_home), 42)
+                session.close()
 
     def test_snapshot_export_and_import_round_trip(self):
         with (
@@ -510,14 +494,11 @@ class StateSyncTests(unittest.TestCase):
                 self.assertEqual(get_latest_block_height(target_home), 0)
                 driver.close()
 
-    def test_import_reports_committed_height_to_an_already_running_application(self):
+    def test_offline_chunk_import_reports_committed_height_after_restart(self):
         import asyncio
         from types import SimpleNamespace
-        from unittest.mock import Mock
 
         from xian.methods.info import info
-        from xian.state_root import StateRootCache
-        from xian.xian_abci import Xian
 
         with (
             tempfile.TemporaryDirectory() as source_dir,
@@ -530,20 +511,7 @@ class StateSyncTests(unittest.TestCase):
             )
             source.export_snapshot()
             record = source.list_snapshot_records()[0]
-            live_driver = Driver(vm_profile="xian_vm_v2", storage_home=target_home)
-            self.addCleanup(live_driver.close)
-            self.assertIsNone(live_driver.get("demo.count"))
             target = StateSnapshotManager(storage_home=target_home, chain_id="xian-test-1")
-            app = SimpleNamespace(
-                client=SimpleNamespace(raw_driver=live_driver),
-                state_snapshot_manager=target,
-                nonce_storage=Mock(),
-                state_root_cache=StateRootCache(),
-                app_version=1,
-                _state_transition_lock=asyncio.Lock(),
-                refresh_tx_fee_policy=Mock(),
-                refresh_runtime_features=Mock(),
-            )
             target.offer_snapshot_response(
                 record.to_proto(), app_hash=bytes.fromhex(record.app_hash_hex), current_height=0
             )
@@ -551,25 +519,17 @@ class StateSyncTests(unittest.TestCase):
                 chunk = source.load_snapshot_chunk_response(
                     height=record.height, format_version=record.format, chunk_index=index
                 )
-                response = asyncio.run(
-                    Xian.apply_snapshot_chunk(
-                        app, SimpleNamespace(index=index, chunk=chunk.chunk, sender="source")
-                    )
+                response = target.apply_snapshot_chunk_response(
+                    index=index, chunk=chunk.chunk, sender="offline"
                 )
                 self.assertEqual(response.result, response.ACCEPT)
-            response = asyncio.run(info(app, None))
-            self.assertEqual(response.last_block_height, 42)
-            self.assertEqual(response.last_block_app_hash, bytes.fromhex(record.app_hash_hex))
-            self.assertEqual(live_driver.get("demo.count"), 7)
-            self.assertEqual(live_driver.get("__n.alice:"), 5)
-            # Imported state may carry a different chain fee policy and runtime features.
-            app.refresh_tx_fee_policy.assert_called()
-            app.refresh_runtime_features.assert_called()
-            # Another startup must retain the imported marker rather than reset to zero.
-            app.client.raw_driver = Driver(vm_profile="xian_vm_v2", storage_home=target_home)
-            self.addCleanup(app.client.raw_driver.close)
-            restarted = asyncio.run(info(app, None))
-            self.assertEqual(restarted.last_block_height, 42)
+            with Driver(vm_profile="xian_vm_v2", storage_home=target_home) as restarted:
+                app = SimpleNamespace(client=SimpleNamespace(raw_driver=restarted), app_version=1)
+                response = asyncio.run(info(app, None))
+                self.assertEqual(response.last_block_height, 42)
+                self.assertEqual(response.last_block_app_hash, bytes.fromhex(record.app_hash_hex))
+                self.assertEqual(restarted.get("demo.count"), 7)
+                self.assertEqual(restarted.get("__n.alice:"), 5)
 
     def test_offer_snapshot_rejects_malformed_metadata_without_raising(self):
         with tempfile.TemporaryDirectory() as target_dir:
@@ -678,7 +638,9 @@ class StateSyncTests(unittest.TestCase):
                     archive.extractall(extract_root, filter="data")
                 exported_state_path = extract_root / "exported_state.json"
                 exported_state = load_exported_state(exported_state_path)
-                entry = next(item for item in exported_state["genesis"] if item["key"] == "demo.count")
+                entry = next(
+                    item for item in exported_state["genesis"] if item["key"] == "demo.count"
+                )
                 entry["value"] = "tampered"
                 exported_state_path.write_text(
                     encode(exported_state),
@@ -715,9 +677,7 @@ class StateSyncTests(unittest.TestCase):
             f"__n{contracting_constants.INDEX_SEPARATOR}alice{contracting_constants.DELIMITER}",
             5,
         )
-        stage_latest_block(
-            driver, block_hash=compute_driver_state_root(driver), height=42, nanos=0
-        )
+        stage_latest_block(driver, block_hash=compute_driver_state_root(driver), height=42, nanos=0)
         driver.commit()
         set_latest_block_hash(compute_driver_state_root(driver), storage_home)
         set_latest_block_height(42, storage_home)

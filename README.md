@@ -53,6 +53,10 @@ PrepareProposal, ProcessProposal and FinalizeBlock). Optional extra:
 - `zk` — enables the native zk verifier required by nodes on chains with the
   `zk` runtime feature.
 
+Fresh chains use unmodified upstream CometBFT. Bootstrap uses ordinary replay
+or a [verified full-node-store backup](docs/SNAPSHOTS_AND_PRUNING.md); P2P
+application state sync is disabled. Offline application exports remain available.
+
 For a ready-made local network instead of wiring the node yourself, use
 [`xian-stack`](../xian-stack). This repo focuses on the runtime and backend
 tooling, not the full localnet UX.

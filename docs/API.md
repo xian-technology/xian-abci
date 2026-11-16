@@ -37,7 +37,7 @@ queries for deployed contract source, Xian VM IR, and metadata.
 ### Committed Evidence Policy
 
 `/evidence_policy` returns only committed disk state, under the same lock as
-Commit and snapshot replacement. Its schema is:
+Commit. Its schema is:
 
 ```json
 {
@@ -60,10 +60,11 @@ Before the first committed block, or with a missing/corrupt record or marker,
 the query returns a nonzero code. Pending FinalizeBlock writes are excluded.
 An explicit query height must match the current committed height.
 
-The history-aware local Comet client checks this response and ABCI Info against
-its light-client-verified checkpoint height and application root. The root for
-state at height H is in header H+1. The exact timestamp must match trusted
-header H. A response from an untrusted remote RPC server is not a Merkle proof.
+This is committed operator metadata, not a Merkle proof from an untrusted
+remote RPC server. Application state at height H is committed by header H+1.
+Verified full-store restoration separately recomputes the local root and checks
+native checkpoint/history consistency against its trusted backup manifest or
+independently pinned archive SHA. P2P application state sync is disabled.
 
 
 ## Validator And Governance Queries

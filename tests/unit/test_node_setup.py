@@ -49,7 +49,7 @@ class NodeSetupTests(unittest.TestCase):
                 block_policy_mode="on_demand",
                 block_policy_interval="0s",
                 statesync=StateSyncOptions(
-                    enable=True,
+                    enable=False,
                     rpc_servers=(
                         "http://rpc-1.internal:26657",
                         "http://rpc-2.internal:26657",
@@ -302,30 +302,18 @@ class NodeSetupTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             render_node_configs(moniker="validator-1")
 
-    def test_render_config_supports_state_sync(self):
-        config = render_cometbft_config(
-            options=_node_options(
-                statesync=StateSyncOptions(
-                    enable=True,
-                    rpc_servers=(
-                        "http://rpc-1.internal:26657",
-                        "http://rpc-2.internal:26657",
-                    ),
-                    trust_height=120,
-                    trust_hash="ab" * 32,
-                    trust_period="336h0m0s",
+    def test_render_config_rejects_p2p_application_state_sync(self):
+        with self.assertRaisesRegex(ValueError, "ordinary replay.*full-node-store"):
+            render_cometbft_config(
+                options=_node_options(
+                    statesync=StateSyncOptions(
+                        enable=True,
+                        rpc_servers=("http://rpc1:26657", "http://rpc2:26657"),
+                        trust_height=120,
+                        trust_hash="ab" * 32,
+                    )
                 )
             )
-        )
-
-        self.assertTrue(config["statesync"]["enable"])
-        self.assertEqual(
-            config["statesync"]["rpc_servers"],
-            "http://rpc-1.internal:26657,http://rpc-2.internal:26657",
-        )
-        self.assertEqual(config["statesync"]["trust_height"], 120)
-        self.assertEqual(config["statesync"]["trust_hash"], "ab" * 32)
-        self.assertEqual(config["statesync"]["trust_period"], "336h0m0s")
 
     def test_default_xian_config_leaves_the_simulation_cap_to_the_chain(self):
         # Unset, a readonly simulation may spend the chain's max_tx_chi; the
@@ -366,7 +354,7 @@ class NodeSetupTests(unittest.TestCase):
             resolve_app_logging_settings(retention_days=0)
 
     def test_resolve_statesync_settings_rejects_incomplete_config(self):
-        with self.assertRaisesRegex(ValueError, "at least two RPC servers"):
+        with self.assertRaisesRegex(ValueError, "ordinary replay"):
             resolve_statesync_settings(
                 enable=True,
                 rpc_servers=["http://rpc-1.internal:26657"],
@@ -374,7 +362,7 @@ class NodeSetupTests(unittest.TestCase):
                 trust_hash="ab" * 32,
             )
 
-        with self.assertRaisesRegex(ValueError, "greater than zero"):
+        with self.assertRaisesRegex(ValueError, "full-node-store"):
             resolve_statesync_settings(
                 enable=True,
                 rpc_servers=[

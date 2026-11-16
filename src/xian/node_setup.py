@@ -17,6 +17,7 @@ from xian_runtime_types.encoding import encode_wire, loads_wire_json
 from xian import toml_utils
 from xian.execution_policy import VM_EXECUTION_MODE
 from xian.services.bds.config import validate_dsn
+from xian.state_sync_policy import require_p2p_state_sync_disabled
 from xian.utils.cometbft import split_host_port
 
 DEFAULT_COMETBFT_CONFIG_TOML = """
@@ -420,30 +421,13 @@ def resolve_statesync_settings(
     trust_hash: str = "",
     trust_period: str = "168h0m0s",
 ) -> dict[str, Any]:
-    if not enable:
-        return {
-            "enable": False,
-            "rpc_servers": "",
-            "trust_height": 0,
-            "trust_hash": "",
-            "trust_period": trust_period,
-        }
-
-    normalized_servers = [server.strip() for server in (rpc_servers or []) if server.strip()]
-    if len(normalized_servers) < 2:
-        raise ValueError(
-            "statesync requires at least two RPC servers for light-client verification"
-        )
-    if trust_height <= 0:
-        raise ValueError("statesync_trust_height must be greater than zero")
-    if not isinstance(trust_hash, str) or not trust_hash:
-        raise ValueError("statesync_trust_hash must be provided when statesync is enabled")
-
+    require_p2p_state_sync_disabled(enable)
+    del rpc_servers, trust_height, trust_hash
     return {
-        "enable": True,
-        "rpc_servers": ",".join(normalized_servers),
-        "trust_height": trust_height,
-        "trust_hash": trust_hash,
+        "enable": False,
+        "rpc_servers": "",
+        "trust_height": 0,
+        "trust_hash": "",
         "trust_period": trust_period,
     }
 

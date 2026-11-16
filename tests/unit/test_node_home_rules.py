@@ -12,6 +12,7 @@ from test_node_admin import (
 )
 from xian_accounts import Ed25519Account
 
+from tests.unit.full_node_store_fixtures import Response, fixture_inspector, reference_config
 from xian.execution_policy import EXECUTION_POLICY_KEY, current_execution_policy
 from xian.node_admin import ExistingHomeOptions, configure_existing_home
 from xian.node_setup import write_toml
@@ -91,6 +92,7 @@ class ConfigureExistingHomeRules(unittest.TestCase):
             self.assertEqual(written, {"chain_id": "from-payload"})
 
     def _configure_from_snapshot(self, home: Path, *, trusted_key: str, chain_id: str):
+        reference_config(home)
         archive_bytes = _current_application_archive()
         manifest, _ = _signed_snapshot_manifest(
             archive_url="https://example.invalid/snapshot.tar.gz",
@@ -99,7 +101,7 @@ class ConfigureExistingHomeRules(unittest.TestCase):
         )
         with (
             patch("xian.node_admin._fetch_json_url", return_value=manifest),
-            patch("xian.node_admin._download_binary_url", return_value=archive_bytes),
+            patch("xian.node_admin.urlopen", return_value=Response(archive_bytes)),
         ):
             return configure_existing_home(
                 ExistingHomeOptions(
@@ -108,6 +110,7 @@ class ConfigureExistingHomeRules(unittest.TestCase):
                     snapshot_url="https://example.invalid/snapshot-manifest.json",
                     snapshot_signing_public_keys=(trusted_key,),
                     snapshot_expected_chain_id=chain_id,
+                    native_store_inspector=fixture_inspector,
                 )
             )
 

@@ -3,6 +3,7 @@
 import fcntl
 import hashlib
 import io
+import json
 import tarfile
 import tempfile
 from pathlib import Path
@@ -11,7 +12,12 @@ from unittest.mock import patch
 import pytest
 from contracting.storage.lmdb_environment import standalone_environment
 
-from xian.execution_policy import initialize_execution_policy
+from tests.unit.full_node_store_fixtures import (
+    Response,
+    fixture_inspector,
+    reference_config,
+    seed_application,
+)
 from xian.node_admin import apply_snapshot_archive
 
 
@@ -33,16 +39,19 @@ def archive_bytes(entries):
 def restore(home, entries, *, include_policy=True):
     if include_policy:
         with tempfile.TemporaryDirectory() as source:
-            initialize_execution_policy(Path(source))
+            point = seed_application(Path(source))
+            entries = list(entries) + [("data/native-checkpoint.json", json.dumps(point))]
             entries = list(entries) + [
                 ("xian/lmdb/data.mdb", (Path(source) / "lmdb/data.mdb").read_bytes())
             ]
     payload = archive_bytes(entries)
-    with patch("xian.node_admin._download_binary_url", return_value=payload):
+    reference_config(home)
+    with patch("xian.node_admin.urlopen", return_value=Response(payload)):
         return apply_snapshot_archive(
             "https://example.invalid/state.tar.gz",
             home,
             expected_sha256=hashlib.sha256(payload).hexdigest(),
+            native_store_inspector=fixture_inspector,
         )
 
 

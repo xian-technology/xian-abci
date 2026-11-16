@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import io
 import json
@@ -11,7 +12,14 @@ from unittest.mock import patch
 
 from xian_accounts import Ed25519Account
 
-from xian.execution_policy import initialize_execution_policy, validate_persisted_execution_policy
+from tests.unit.full_node_store_fixtures import (
+    Response,
+    fixture_inspector,
+    reference_config,
+    seed_application,
+)
+from xian.execution_policy import validate_persisted_execution_policy
+from xian.full_node_store import full_node_store_manifest_payload
 from xian.node_admin import (
     ExistingHomeOptions,
     apply_snapshot_archive,
@@ -39,10 +47,14 @@ from xian.toml_utils import loads as load_toml_string
 def _current_application_archive() -> bytes:
     stream = io.BytesIO()
     with tempfile.TemporaryDirectory() as storage_home:
-        initialize_execution_policy(Path(storage_home))
+        point = seed_application(Path(storage_home))
         with tarfile.open(fileobj=stream, mode="w:gz") as archive:
             payload = b"new state"
             info = tarfile.TarInfo("data/new.txt")
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+            payload = json.dumps(point).encode()
+            info = tarfile.TarInfo("data/native-checkpoint.json")
             info.size = len(payload)
             archive.addfile(info, io.BytesIO(payload))
             archive.add(Path(storage_home) / "lmdb/data.mdb", arcname="xian/lmdb/data.mdb")
@@ -59,14 +71,29 @@ def _signed_snapshot_manifest(
 ) -> tuple[dict[str, object], Ed25519Account]:
     account = signing_account or Ed25519Account.generate()
     manifest = {
-        "manifest_version": 1,
+        "manifest_version": 2,
+        "snapshot_kind": "full_node_store",
+        "genesis_sha256": genesis_sha256({"chain_id": chain_id, "initial_height": "1"}),
+        "app_hash": "a" * 64,
+        "block_hash": "b" * 64,
+        "snapshot_bytes": len(archive_bytes),
+        "uncompressed_bytes": len(gzip.decompress(archive_bytes))
+        if archive_bytes[:2] == b"\x1f\x8b"
+        else len(archive_bytes),
         "chain_id": chain_id,
         "height": height,
         "snapshot_url": archive_url,
         "snapshot_sha256": hashlib.sha256(archive_bytes).hexdigest(),
         "signing_public_key": account.public_key,
     }
-    payload = json.dumps(manifest, separators=(",", ":"), sort_keys=True)
+    if archive_bytes[:2] == b"\x1f\x8b":
+        with tarfile.open(fileobj=io.BytesIO(archive_bytes)) as archive:
+            try:
+                point = json.load(archive.extractfile("data/native-checkpoint.json"))
+                manifest["app_hash"] = point["app_hash"]
+            except KeyError:
+                pass
+    payload = full_node_store_manifest_payload(manifest)
     manifest["signature"] = account.sign_message(payload)
     return manifest, account
 
@@ -144,6 +171,7 @@ class NodeAdminTests(unittest.TestCase):
             (home / "xian").mkdir()
             (home / "xian" / "old.txt").write_text("old", encoding="utf-8")
 
+            reference_config(home)
             archive_bytes = _current_application_archive()
             manifest, account = _signed_snapshot_manifest(
                 archive_url="https://example.invalid/snapshot.tar.gz",
@@ -156,8 +184,8 @@ class NodeAdminTests(unittest.TestCase):
                     return_value=manifest,
                 ),
                 patch(
-                    "xian.node_admin._download_binary_url",
-                    return_value=archive_bytes,
+                    "xian.node_admin.urlopen",
+                    return_value=Response(archive_bytes),
                 ),
             ):
                 archive_path = apply_snapshot_archive(
@@ -165,6 +193,7 @@ class NodeAdminTests(unittest.TestCase):
                     home,
                     trusted_manifest_public_keys=[account.public_key],
                     expected_chain_id="xian-test-1",
+                    native_store_inspector=fixture_inspector,
                 )
 
             self.assertTrue((home / "data" / "new.txt").exists())
@@ -200,7 +229,7 @@ class NodeAdminTests(unittest.TestCase):
             )
         uppercase_signer = {**manifest, "signing_public_key": account.public_key.upper()}
         with patch("xian.node_admin._fetch_json_url", return_value=uppercase_signer):
-            with self.assertRaisesRegex(ValueError, "valid Ed25519 hex key"):
+            with self.assertRaisesRegex(ValueError, "lowercase 64-hex"):
                 apply_snapshot_archive(
                     "https://example.invalid/snapshot-manifest.json",
                     Path(tempfile.gettempdir()),
@@ -239,17 +268,19 @@ class NodeAdminTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             home = Path(tmp_dir)
 
+            reference_config(home)
             archive_bytes = _current_application_archive()
             expected_sha256 = hashlib.sha256(archive_bytes).hexdigest()
 
             with patch(
-                "xian.node_admin._download_binary_url",
-                return_value=archive_bytes,
+                "xian.node_admin.urlopen",
+                return_value=Response(archive_bytes),
             ):
                 archive_path = apply_snapshot_archive(
                     "https://example.invalid/snapshot.tar.gz",
                     home,
                     expected_sha256=expected_sha256,
+                    native_store_inspector=fixture_inspector,
                 )
 
             self.assertEqual(archive_path, "snapshot.tar.gz")
@@ -268,8 +299,8 @@ class NodeAdminTests(unittest.TestCase):
                 archive.addfile(info, io.BytesIO(payload))
 
             with patch(
-                "xian.node_admin._download_binary_url",
-                return_value=archive_stream.getvalue(),
+                "xian.node_admin.urlopen",
+                return_value=Response(archive_stream.getvalue()),
             ):
                 with self.assertRaises(ValueError):
                     apply_snapshot_archive(
@@ -349,7 +380,7 @@ prometheus = false
                             blocks_to_keep=5000,
                             allow_cors=False,
                             statesync=StateSyncOptions(
-                                enable=True,
+                                enable=False,
                                 rpc_servers=(
                                     "http://rpc-1.internal:26657",
                                     "http://rpc-2.internal:26657",
@@ -426,13 +457,13 @@ prometheus = false
             self.assertEqual(rendered_config["db_backend"], "rocksdb")
             self.assertEqual(rendered_config["db_dir"], "custom-data")
             self.assertEqual(rendered_config["rpc"]["cors_allowed_origins"], [])
-            self.assertTrue(rendered_config["statesync"]["enable"])
+            self.assertFalse(rendered_config["statesync"]["enable"])
             self.assertEqual(
                 rendered_config["statesync"]["rpc_servers"],
-                "http://rpc-1.internal:26657,http://rpc-2.internal:26657",
+                "",
             )
-            self.assertEqual(rendered_config["statesync"]["trust_height"], 120)
-            self.assertEqual(rendered_config["statesync"]["trust_hash"], "ab" * 32)
+            self.assertEqual(rendered_config["statesync"]["trust_height"], 0)
+            self.assertEqual(rendered_config["statesync"]["trust_hash"], "")
             self.assertEqual(rendered_config["statesync"]["trust_period"], "336h0m0s")
             self.assertNotIn("xian", rendered_config)
             self.assertTrue(rendered_xian_config["pruning_enabled"])
