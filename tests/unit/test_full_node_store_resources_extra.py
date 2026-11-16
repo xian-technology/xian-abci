@@ -7,9 +7,9 @@ import tarfile
 from unittest.mock import patch
 
 import pytest
+from full_node_store_fixtures import Response, fixture_inspector
+from test_full_node_store import stores as stores
 
-from tests.unit.full_node_store_fixtures import Response, fixture_inspector
-from tests.unit.test_full_node_store import stores as stores
 from xian.node_admin import apply_snapshot_archive
 
 

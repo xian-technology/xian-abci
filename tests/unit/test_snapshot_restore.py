@@ -11,13 +11,13 @@ from unittest.mock import patch
 
 import pytest
 from contracting.storage.lmdb_environment import standalone_environment
-
-from tests.unit.full_node_store_fixtures import (
+from full_node_store_fixtures import (
     Response,
     fixture_inspector,
     reference_config,
     seed_application,
 )
+
 from xian.node_admin import apply_snapshot_archive
 
 

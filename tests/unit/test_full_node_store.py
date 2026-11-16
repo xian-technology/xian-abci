@@ -5,20 +5,21 @@ import gzip
 import hashlib
 import json
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from contracting.storage.driver import Driver
-from xian_accounts import Ed25519Account
-
-from tests.unit.full_node_store_fixtures import (
+from full_node_store_fixtures import (
     Response,
     fixture_inspector,
     reference_config,
     seed_application,
 )
-from tests.unit.test_node_admin import _current_application_archive, _signed_snapshot_manifest
-from tests.unit.test_snapshot_restore import archive_bytes
+from test_node_admin import _current_application_archive, _signed_snapshot_manifest
+from test_snapshot_restore import archive_bytes
+from xian_accounts import Ed25519Account
+
 from xian.full_node_store import (
     FullNodeStoreLimits,
     NativeStoreInspectionLimits,
@@ -322,7 +323,8 @@ def test_inspector_budget_is_operator_configurable(monkeypatch):
 
 
 def test_configure_home_verifies_the_intended_genesis_before_restoring(stores):
-    from tests.unit.test_node_home_rules import _initialized_home
+    from test_node_home_rules import _initialized_home
+
     from xian.node_admin import ExistingHomeOptions, configure_existing_home
 
     _, target, _, payload, manifest, signer = stores
@@ -360,7 +362,8 @@ def test_raw_trusted_sha_remains_usable_with_a_configured_manifest_signer(stores
 
 
 def test_failed_restore_rolls_back_the_newly_selected_genesis(stores):
-    from tests.unit.test_node_home_rules import _initialized_home
+    from test_node_home_rules import _initialized_home
+
     from xian.node_admin import ExistingHomeOptions, configure_existing_home
 
     source, target, _, _, manifest, signer = stores
@@ -398,7 +401,8 @@ def test_marker_blocks_a_crashed_publication_even_without_old_roots(stores):
     program = """
 import os,sys
 from pathlib import Path
-from tests.unit.full_node_store_fixtures import fixture_inspector
+sys.path.insert(0,sys.argv[3])
+from full_node_store_fixtures import fixture_inspector
 from xian.snapshot_restore import restore_application_archive
 original=Path.rename
 def crash_after_first_publish(path,destination):
@@ -409,7 +413,9 @@ Path.rename=crash_after_first_publish
 restore_application_archive(Path(sys.argv[1]),Path(sys.argv[2]),native_store_inspector=fixture_inspector)
 """
     child = subprocess.run(
-        [sys.executable, "-c", program, str(archive), str(target)], capture_output=True, timeout=15
+        [sys.executable, "-c", program, str(archive), str(target), str(Path(__file__).parent)],
+        capture_output=True,
+        timeout=15,
     )
     assert child.returncode == 77, child.stderr.decode()
     assert (target / "data/native-checkpoint.json").exists()
