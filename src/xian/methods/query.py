@@ -17,6 +17,7 @@ from xian_vm_core import execute_tx
 
 from cometbft.abci.v1beta1.types_pb2 import ResponseQuery
 from xian.constants import Constants as c
+from xian.evidence_policy import committed_evidence_policy_response
 from xian.execution_engine import (
     ContractPreparationError,
     vm_call_context,
@@ -630,6 +631,16 @@ async def _handle_health(_ctx: QueryContext) -> QueryResult:
     return QueryResult(result="OK")
 
 
+async def _handle_evidence_policy(ctx: QueryContext) -> QueryResult:
+    if len(ctx.path_parts) != 1:
+        raise QueryContractFailure("evidence_policy does not accept path arguments")
+    try:
+        result = committed_evidence_policy_response(ctx.raw_driver)
+    except ValueError as exc:
+        raise QueryContractFailure(str(exc)) from exc
+    return QueryResult(result=result, key="evidence_policy")
+
+
 async def _handle_get_next_nonce(ctx: QueryContext) -> QueryResult:
     return QueryResult(result=ctx.app.nonce_storage.get_next_nonce(ctx.key))
 
@@ -1066,6 +1077,7 @@ async def _handle_contract_summary(ctx: QueryContext) -> QueryResult:
 
 CORE_QUERY_HANDLERS = {
     "get": _handle_get,
+    "evidence_policy": _handle_evidence_policy,
     "health": _handle_health,
     "get_next_nonce": _handle_get_next_nonce,
     "contract_source": _handle_contract_source,
@@ -1180,7 +1192,11 @@ async def query(self, req) -> ResponseQuery:
     """
 
     async with self._state_transition_lock:
-        prepared = await _query_locked_state(self, req)
+        try:
+            prepared = await _query_locked_state(self, req)
+        except (ValueError, TypeError) as err:
+            logger.bind(**error_fields(err)).error("Invalid committed block metadata")
+            return ResponseQuery(code=c.ErrorCode, log="Invalid committed block metadata")
     if isinstance(prepared, ResponseQuery):
         return prepared
 

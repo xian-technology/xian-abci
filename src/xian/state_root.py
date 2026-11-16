@@ -8,12 +8,13 @@ from contracting.runtime_features import RUNTIME_FEATURE_STATE_PREFIX
 from contracting.storage.lmdb_environment import validate_storage_key
 from xian_vm_core import StateRootTree, state_root_leaf_hash, stored_value_bytes
 
+from xian.evidence_policy import EVIDENCE_POLICY_KEY
 from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.fee_policy import FEE_POLICY_KEY
 
 # The fee policy and runtime features change execution results, so they are
 # hashed like contract state; other double-underscore keys are node-local.
-HASHED_NODE_KEYS = (EXECUTION_POLICY_KEY, FEE_POLICY_KEY)
+HASHED_NODE_KEYS = (EXECUTION_POLICY_KEY, FEE_POLICY_KEY, EVIDENCE_POLICY_KEY)
 HASHED_NODE_PREFIXES = (
     f"__n{contracting_constants.INDEX_SEPARATOR}",
     RUNTIME_FEATURE_STATE_PREFIX,

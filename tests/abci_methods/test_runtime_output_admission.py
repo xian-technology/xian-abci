@@ -16,6 +16,7 @@ from cometbft.abci.v1beta3.types_pb2 import (
     RequestProcessProposal,
 )
 from xian.constants import Constants
+from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
 from xian.fee_policy import TxFeePolicy
 from xian.state_root import StateRootCache
 from xian.utils.encoding import canonical_json_text, encode_transaction_bytes
@@ -43,6 +44,7 @@ async def isolated_app(tmp_path, source):
         app.client.submit(source, name="con_boundary", owner=None)
         app.client.raw_driver.set(f"currency.balances:{SENDER}", 100_000)
         app.client.raw_driver.set("chi_cost.S:value", 20)
+        app.client.raw_driver.set(EVIDENCE_POLICY_KEY, EvidencePolicy.seed(7, nanos=0).to_state())
         app.client.raw_driver.commit()
         app.state_root_cache = StateRootCache.from_driver(app.client.raw_driver)
         yield app

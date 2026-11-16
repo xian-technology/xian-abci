@@ -17,6 +17,7 @@ from contracting.runtime_features import (
     runtime_feature_without_state,
 )
 from contracting.storage.driver import Driver
+from google.protobuf.timestamp_pb2 import Timestamp
 from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import decode_wire_numbers, encode, encode_wire, loads_wire_json
 from xian_runtime_types.time import Datetime
@@ -24,6 +25,16 @@ from xian_vm_core import execute_tx
 
 from xian.config_paths import (
     resolve_contracts_dir as resolve_configs_contracts_dir,
+)
+from xian.evidence_policy import (
+    DEFAULT_EVIDENCE_PARAMS,
+    EVIDENCE_POLICY_KEY,
+    UNBONDING_PERIOD_KEY,
+    EvidencePolicy,
+    comet_time_nanos,
+    genesis_evidence_policy,
+    required_evidence_duration,
+    validate_genesis_evidence_policy,
 )
 from xian.execution_engine import (
     build_vm_runtime,
@@ -50,11 +61,7 @@ DEFAULT_CONSENSUS_PARAMS = {
         "max_gas": "-1",
         "time_iota_ms": "1000",
     },
-    "evidence": {
-        "max_age_num_blocks": "100000",
-        "max_age_duration": "172800000000000",
-        "max_bytes": "1048576",
-    },
+    "evidence": {key: str(value) for key, value in DEFAULT_EVIDENCE_PARAMS.items()},
     "validator": {
         "pub_key_types": ["ed25519"],
     },
@@ -94,9 +101,13 @@ def normalize_genesis_time(value: str | None = None) -> str:
     instant = datetime.now(timezone.utc) if value is None else datetime.fromisoformat(value)
     if instant.tzinfo is None:
         raise ValueError("genesis_time must include a timezone")
-    return (
-        instant.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
-    )
+    utc = instant.astimezone(timezone.utc)
+    normalized = utc.isoformat(timespec="microseconds").replace("+00:00", "Z")
+    if value is not None:
+        nanos = comet_time_nanos(value) % 1_000_000_000
+        if nanos % 1000:
+            return utc.isoformat(timespec="seconds").removesuffix("+00:00") + f".{nanos:09d}Z"
+    return normalized
 
 
 def parse_genesis_time(value: str | None = None) -> Datetime:
@@ -284,13 +295,40 @@ def _require_chi_rate(driver: Driver) -> None:
         raise ValueError(f"genesis: {exc}") from exc
 
 
+def _stage_genesis_evidence_policy(driver: Driver, *, nanos: int | None) -> None:
+    explicit_nanos = nanos
+    if nanos is None:
+        submitted = driver.get("submission.__submitted__")
+        nanos = (
+            comet_time_nanos(submitted._datetime.isoformat() + "Z") if submitted is not None else 0
+        )
+    configured_days = driver.get(UNBONDING_PERIOD_KEY)
+    days = 0 if configured_days is None else configured_days
+    policy = EvidencePolicy.seed(days, nanos=nanos)
+    previous_evidence = driver.get(EVIDENCE_POLICY_KEY)
+    if previous_evidence is not None:
+        policy = EvidencePolicy.from_state(previous_evidence)
+        if explicit_nanos is not None and explicit_nanos != policy.last_block_nanos:
+            raise ValueError("explicit genesis time disagrees with existing evidence policy anchor")
+        if required_evidence_duration(days) > policy.target_max_age_duration:
+            raise ValueError("existing evidence policy does not cover staged unbonding_period_days")
+    driver.set(EVIDENCE_POLICY_KEY, policy.to_state())
+
+
 def finalize_genesis_block(
     driver: Driver,
     *,
     founder_private_key: str | None,
     number: int | str = "0",
+    nanos: int | None = None,
 ) -> dict[str, Any]:
-    """Commit the driver's pending writes and render them as a signed genesis block."""
+    """Commit pending writes as a signed genesis block.
+
+    An existing evidence record owns its original time; an explicit ``nanos``
+    must agree. Without a record, infer omitted time from staged submission
+    metadata, or use literal epoch zero for a minimal manually staged state.
+    """
+    _stage_genesis_evidence_policy(driver, nanos=nanos)
     previous_policy = driver.get(EXECUTION_POLICY_KEY)
     if previous_policy is not None:
         validate_execution_policy(previous_policy)
@@ -333,7 +371,8 @@ def _build_genesis_block(
     fee_policy: dict[str, Any] | None = None,
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
-    submission_time = parse_genesis_time(genesis_time)
+    resolved_genesis_time = normalize_genesis_time(genesis_time)
+    submission_time = parse_genesis_time(resolved_genesis_time)
     with Driver(vm_profile=VM_EXECUTION_MODE, storage_home=storage_home) as driver:
         deploy_bundle_contracts(
             driver,
@@ -345,7 +384,8 @@ def _build_genesis_block(
             fee_policy=fee_policy,
             submission_time=submission_time,
         )
-        return finalize_genesis_block(driver, founder_private_key=founder_private_key)
+        nanos = comet_time_nanos(resolved_genesis_time)
+        return finalize_genesis_block(driver, founder_private_key=founder_private_key, nanos=nanos)
 
 
 def build_genesis_block(
@@ -458,17 +498,26 @@ def build_cometbft_genesis(
     validators: list[dict[str, Any]] | None = None,
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
+    evidence_policy = genesis_evidence_policy(abci_genesis)
+    if genesis_time is None:
+        timestamp = Timestamp()
+        timestamp.FromNanoseconds(evidence_policy.last_block_nanos)
+        genesis_time = timestamp.ToJsonString()
     resolved_genesis_time = normalize_genesis_time(genesis_time)
+    consensus_params = deepcopy(DEFAULT_CONSENSUS_PARAMS)
+    consensus_params["evidence"] = evidence_policy.comet_json()
 
-    return {
+    genesis = {
         "genesis_time": resolved_genesis_time,
         "chain_id": chain_id,
         "initial_height": str(abci_genesis.get("number", "0")),
-        "consensus_params": deepcopy(DEFAULT_CONSENSUS_PARAMS),
+        "consensus_params": consensus_params,
         "validators": validators or [],
         "app_hash": str(abci_genesis.get("hash", "")),
         "abci_genesis": abci_genesis,
     }
+    validate_genesis_evidence_policy(genesis)
+    return genesis
 
 
 def build_single_validator_genesis(
@@ -626,6 +675,10 @@ def update_cometbft_genesis(genesis_path: Path, *, abci_genesis: dict[str, Any])
     cometbft_genesis["abci_genesis"] = abci_genesis
     cometbft_genesis["initial_height"] = str(abci_genesis["number"])
     cometbft_genesis["app_hash"] = str(abci_genesis.get("hash", ""))
+    cometbft_genesis.setdefault("consensus_params", deepcopy(DEFAULT_CONSENSUS_PARAMS))[
+        "evidence"
+    ] = genesis_evidence_policy(abci_genesis).comet_json()
 
+    validate_genesis_evidence_policy(cometbft_genesis)
     with open(genesis_path, "w", encoding="utf-8") as handle:
         handle.write(encode_wire(cometbft_genesis, vm_profile=VM_EXECUTION_MODE))

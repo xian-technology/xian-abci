@@ -6,6 +6,7 @@ from cometbft.abci.v1beta2.types_pb2 import Event, EventAttribute
 from cometbft.abci.v1beta3.types_pb2 import ExecTxResult, ResponseFinalizeBlock
 from xian.app_logging import build_log_fields
 from xian.constants import Constants as c
+from xian.evidence_policy import stage_evidence_policy
 from xian.log_safety import error_fields
 from xian.methods._evidence import maybe_apply_evidence_penalties
 from xian.methods._liveness import maybe_record_liveness
@@ -425,6 +426,7 @@ def _prepare_commit_boundary(
     height: int,
     nanos: int,
     block_hash: str,
+    processed_entries: list,
 ):
     with self.profiler.scope("finalize_state_root", block_scoped=True):
         with self.profiler.scope("finalize_commit_prepare", block_scoped=True):
@@ -449,12 +451,19 @@ def _prepare_commit_boundary(
                         )
                     ).info("Applied state patch before state-root calculation")
 
+            consensus_updates = stage_evidence_policy(
+                self.client.raw_driver,
+                nanos=nanos,
+                processed_entries=processed_entries,
+                applied_patches=applied_patches,
+            )
+
             # Commit boundary: pending writes are now represented by app_hash,
             # but only the commit step may persist and clear them.
             self.merkle_root_hash = self.state_root_cache.prepare(
                 self.client.raw_driver.pending_stored_items()
             )
-    return validator_updates, patch_hash, applied_patches
+    return validator_updates, patch_hash, applied_patches, consensus_updates
 
 
 async def _enqueue_bds_block(
@@ -555,11 +564,12 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
         self,
         height=height,
     )
-    validator_updates, patch_hash, applied_patches = _prepare_commit_boundary(
+    validator_updates, patch_hash, applied_patches, consensus_updates = _prepare_commit_boundary(
         self,
         height=height,
         nanos=nanos,
         block_hash=block_hash,
+        processed_entries=processed_entries,
     )
     await _enqueue_bds_block(
         self,
@@ -584,6 +594,7 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
 
     return ResponseFinalizeBlock(
         validator_updates=validator_updates,
+        consensus_param_updates=consensus_updates,
         tx_results=tx_results,
         app_hash=self.merkle_root_hash,
     )

@@ -20,7 +20,7 @@ from xian.services.bds.config import validate_dsn
 from xian.utils.cometbft import split_host_port
 
 DEFAULT_COMETBFT_CONFIG_TOML = """
-version = "0.39.3"
+version = "0.40.0"
 proxy_app = "unix:///tmp/abci.sock"
 moniker = "xian-node"
 db_backend = "goleveldb"

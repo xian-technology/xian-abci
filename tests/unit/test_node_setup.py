@@ -103,7 +103,7 @@ class NodeSetupTests(unittest.TestCase):
             config["p2p"]["seeds"],
             "seed-1@127.0.0.1:26656",
         )
-        self.assertEqual(config["version"], "0.39.3")
+        self.assertEqual(config["version"], "0.40.0")
         self.assertFalse(config["p2p"]["libp2p"]["enabled"])
         self.assertEqual(config["p2p"]["libp2p"]["bootstrap_peers"], [])
         self.assertEqual(config["blocksync"]["version"], "v0")
@@ -490,7 +490,7 @@ class NodeSetupTests(unittest.TestCase):
             rendered_config = load_toml(config_path)
             rendered_xian_config = load_toml(xian_config_path)
             self.assertEqual(rendered_config["moniker"], "validator-1")
-            self.assertEqual(rendered_config["version"], "0.39.3")
+            self.assertEqual(rendered_config["version"], "0.40.0")
             self.assertFalse(rendered_config["p2p"]["libp2p"]["enabled"])
             self.assertFalse(rendered_config["blocksync"]["adaptive_sync"])
             self.assertNotIn("xian", rendered_config)

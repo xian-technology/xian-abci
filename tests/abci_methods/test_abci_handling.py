@@ -73,7 +73,10 @@ class TestXianHandler(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(resp.info, ResponseInfo)
 
     async def test_init_chain(self):
-        req = Request(init_chain=RequestInitChain())
+        from google.protobuf.timestamp_pb2 import Timestamp
+        timestamp = Timestamp()
+        timestamp.FromJsonString(self.app.genesis["genesis_time"])
+        req = Request(init_chain=RequestInitChain(time=timestamp))
         resp = await self.process_request("init_chain", req)
         self.assertIsInstance(resp.init_chain, ResponseInitChain)
         self.assertEqual(

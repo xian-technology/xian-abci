@@ -16,6 +16,7 @@ from contracting import constants as contracting_constants
 from contracting.runtime_features import RUNTIME_FEATURE_STATE_PREFIX
 from xian_runtime_types.encoding import encode
 
+from xian.evidence_policy import EVIDENCE_POLICY_KEY
 from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.fee_policy import FEE_POLICY_KEY
 
@@ -29,7 +30,8 @@ ABSENT = (None, b"null")
 
 def is_hashed(key: str) -> bool:
     return (
-        key == EXECUTION_POLICY_KEY
+        key == EVIDENCE_POLICY_KEY
+        or key == EXECUTION_POLICY_KEY
         or not key.startswith("__")
         or key.startswith(f"__n{contracting_constants.INDEX_SEPARATOR}")
         or key == FEE_POLICY_KEY

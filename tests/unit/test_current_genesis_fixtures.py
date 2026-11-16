@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from xian_runtime_types.encoding import convert_dict
 
+from xian.evidence_policy import validate_genesis_evidence_policy
 from xian.execution_policy import validate_genesis_execution_policy
 from xian.state_root import StateRootCache
 
@@ -26,6 +27,7 @@ def test_current_genesis_fixture_discovery_includes_hidden_cometbft_homes():
 def test_current_genesis_fixture_policy_and_canonical_hash(path):
     genesis = json.loads(path.read_text())
     validate_genesis_execution_policy(genesis)
+    validate_genesis_evidence_policy(genesis)
     state = genesis["abci_genesis"]
     root = StateRootCache(
         (entry["key"], convert_dict(entry["value"])) for entry in state["genesis"]

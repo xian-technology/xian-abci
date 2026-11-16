@@ -1,4 +1,5 @@
 from cometbft.abci.v1beta3.types_pb2 import ResponseInitChain
+from xian.evidence_policy import validate_genesis_evidence_policy, validate_init_evidence_request
 from xian.execution_policy import validate_genesis_execution_policy
 from xian.utils.block import set_latest_block, store_genesis_block
 
@@ -6,6 +7,8 @@ from xian.utils.block import set_latest_block, store_genesis_block
 async def init_chain(self, req) -> ResponseInitChain:
     abci_genesis_state = self.genesis["abci_genesis"]
     validate_genesis_execution_policy(abci_genesis_state)
+    evidence_policy = validate_genesis_evidence_policy(self.genesis)
+    validate_init_evidence_request(req, evidence_policy)
     # ContractingClient may initialize local helper state before genesis. The
     # consensus state root must be derived only from the declared genesis state.
     self.client.raw_driver.flush_full()
@@ -22,9 +25,12 @@ async def init_chain(self, req) -> ResponseInitChain:
     set_latest_block(
         block_hash=state_root,
         height=int(abci_genesis_state.get("number", 0) or 0),
+        nanos=evidence_policy.last_block_nanos,
+        storage_home=self.client.raw_driver.storage_home,
     )
 
     return ResponseInitChain(
+        consensus_params=evidence_policy.consensus_params(),
         app_hash=state_root,
         validators=self.validator_handler.genesis_validators(),
     )

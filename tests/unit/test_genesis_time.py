@@ -11,6 +11,7 @@ from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import encode
 from xian_runtime_types.time import Datetime
 
+from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy, comet_time_nanos
 from xian.genesis_builder import (
     build_bundle_network_genesis,
     build_cometbft_genesis,
@@ -149,6 +150,55 @@ def test_genesis_rejects_timestamps_without_an_explicit_timezone(value, contract
 
 def test_standalone_comet_genesis_normalizes_timezone():
     genesis = build_cometbft_genesis(
-        chain_id="xian-local-1", abci_genesis={}, genesis_time="2026-01-02T05:04:05.123456+02:00"
+        chain_id="xian-local-1",
+        abci_genesis={
+            "genesis": [
+                {
+                    "key": EVIDENCE_POLICY_KEY,
+                    "value": EvidencePolicy.seed(0, nanos=comet_time_nanos(INSTANT)).to_state(),
+                }
+            ]
+        },
+        genesis_time="2026-01-02T05:04:05.123456+02:00",
     )
     assert genesis["genesis_time"] == INSTANT
+
+
+def test_two_stage_default_genesis_uses_the_instant_already_committed_by_the_builder(contracts_dir):
+    """Public composition has one clock decision even with the real clock."""
+    from xian.evidence_policy import comet_time_nanos, genesis_evidence_policy
+
+    block = build_genesis_block(
+        founder_private_key=SEED, network="local", contracts_dir=contracts_dir
+    )
+    prepared = genesis_evidence_policy(block)
+    genesis = build_cometbft_genesis(chain_id="xian-local-1", abci_genesis=block)
+    assert comet_time_nanos(genesis["genesis_time"]) == prepared.last_block_nanos
+    assert genesis["abci_genesis"] is block
+    from google.protobuf.timestamp_pb2 import Timestamp
+
+    later = Timestamp()
+    later.FromNanoseconds(prepared.last_block_nanos + 1)
+    with pytest.raises(ValueError, match="time anchor"):
+        build_cometbft_genesis(
+            chain_id="xian-local-1", abci_genesis=block, genesis_time=later.ToJsonString()
+        )
+
+
+def test_empty_validator_seed_list_is_refused_by_the_public_bundle_reader(contracts_dir):
+    from xian.genesis_builder import derive_genesis_validators_from_bundle
+
+    path = contracts_dir / "contracts_local.json"
+    config = json.loads(path.read_text())
+    config["contracts"][0]["constructor_args"]["genesis_nodes"] = []
+    path.write_text(json.dumps(config))
+    with pytest.raises(ValueError, match="must define genesis_nodes"):
+        derive_genesis_validators_from_bundle(network="local", contracts_dir=contracts_dir)
+
+
+def test_genesis_writer_creates_nested_missing_output_parents(tmp_path):
+    from xian.genesis_builder import write_genesis_block
+
+    path = tmp_path / "new" / "nested" / "genesis.json"
+    write_genesis_block(path, {"number": "0", "genesis": []})
+    assert json.loads(path.read_text()) == {"number": "0", "genesis": []}

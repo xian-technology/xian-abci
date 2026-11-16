@@ -1361,6 +1361,11 @@ async def _run_system_blocks(constants) -> dict:
     try:
         handler = ProtocolHandler(app)
         _deploy_system_contracts(app.client)
+        from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
+        # This synthetic system corpus installs contracts without InitChain.
+        app.client.raw_driver.set(EVIDENCE_POLICY_KEY, EvidencePolicy.seed(7, nanos=0).to_state())
+        app.client.raw_driver.commit()
+        app.state_root_cache.rebuild_from_driver(app.client.raw_driver)
         receipts: list[str] = []
         process_system_tx = app.tx_processor.process_system_tx
 

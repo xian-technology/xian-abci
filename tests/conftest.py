@@ -63,6 +63,20 @@ def node_constants(node_home):
 def node_fixture(node_home, node_constants, request):
     source = request.path.parent / "fixtures/.cometbft-fixture"
     shutil.copytree(source, node_home, dirs_exist_ok=True)
+    # Handler unit tests install synthetic contract state rather than running
+    # InitChain. Give that explicit partial fixture its protected policies and
+    # synthetic epoch-zero block clock; production never reseeds a missing key.
+    from dataclasses import replace
+    import json
+    from contracting.storage.driver import Driver
+    from xian.execution_policy import initialize_execution_policy
+    from xian.evidence_policy import EVIDENCE_POLICY_KEY, genesis_evidence_policy
+    initialize_execution_policy(node_constants.STORAGE_HOME)
+    genesis = json.loads(node_constants.COMETBFT_GENESIS.read_text())
+    policy = replace(genesis_evidence_policy(genesis), last_block_nanos=0)
+    with Driver(vm_profile="xian_vm_v2", storage_home=node_constants.STORAGE_HOME) as driver:
+        driver.set(EVIDENCE_POLICY_KEY, policy.to_state())
+        driver.commit()
     if request.instance is not None:
         request.instance.constants = node_constants
     return node_home

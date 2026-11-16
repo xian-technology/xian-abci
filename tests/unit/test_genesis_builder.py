@@ -16,6 +16,7 @@ from xian_runtime_types.encoding import encode
 from xian_runtime_types.time import Datetime
 from xian_vm_core import TxRun, execute_tx
 
+from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy, comet_time_nanos
 from xian.execution_engine import vm_call_context
 from xian.genesis_builder import (
     build_bundle_network_genesis,
@@ -274,7 +275,8 @@ class GenesisBuilderTests(unittest.TestCase):
         abci_genesis = {
             "hash": "abc",
             "number": "7",
-            "genesis": [{"key": "con_seed.owner_value", "value": "vk"}],
+            "genesis": [{"key": EVIDENCE_POLICY_KEY, "value": EvidencePolicy.seed(0).to_state()},
+                        {"key": "con_seed.owner_value", "value": "vk"}],
             "origin": {"sender": "vk", "signature": "sig"},
         }
 
@@ -288,7 +290,8 @@ class GenesisBuilderTests(unittest.TestCase):
 
             cometbft_genesis_path = Path(tmp_dir) / "genesis.json"
             cometbft_genesis_path.write_text(
-                json.dumps({"chain_id": "xian-local-1", "initial_height": "0"}),
+                json.dumps({"chain_id": "xian-local-1", "initial_height": "0",
+                            "genesis_time": "1970-01-01T00:00:00Z"}),
                 encoding="utf-8",
             )
 
@@ -319,11 +322,13 @@ class GenesisBuilderTests(unittest.TestCase):
             "chain_id": "xian-local-1",
             "initial_height": "0",
             "app_state": {"balance": {"__fixed__": "2"}},
+            "genesis_time": "1970-01-01T00:00:00Z",
         }
         replacement = {
             "hash": "abc",
             "number": "7",
-            "genesis": [{"key": "currency.balances:alice", "value": {"__fixed__": "1.23"}}],
+            "genesis": [{"key": EVIDENCE_POLICY_KEY, "value": EvidencePolicy.seed(0).to_state()},
+                        {"key": "currency.balances:alice", "value": {"__fixed__": "1.23"}}],
         }
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "genesis.json"
@@ -413,7 +418,8 @@ class GenesisBuilderTests(unittest.TestCase):
         abci_genesis = {
             "hash": "abc",
             "number": "3",
-            "genesis": [],
+            "genesis": [{"key": EVIDENCE_POLICY_KEY, "value": EvidencePolicy.seed(0, nanos=
+                comet_time_nanos("2026-03-13T12:00:00.000000Z")).to_state()}],
             "origin": {"sender": "vk", "signature": "sig"},
         }
         validator = build_validator_genesis_entry(

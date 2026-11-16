@@ -278,3 +278,16 @@ fixtures were regenerated with them and the diff reviewed case by case:
     patch bundles are refused with the same check
     (`xian.fee_policy.validated_chi_rate`), and the `chi_cost` contract takes
     only positive rates.
+
+Fresh-chain evidence retention is also committed as `__evidence_policy`.
+Genesis covers its seeded unbonding period plus one day. Later increases keep
+an irrevocable target and grow the effective duration by at most elapsed
+committed time, preserving the historical expiry cutoff; the time anchor
+advances in every block. The synthetic system corpus explicitly installs its
+policy at epoch zero, matching its block clock. Two fresh-process captures
+with different hash seeds produced identical results: only
+`system_blocks.json` changes, through the current bounded validator source,
+this additional state record and its per-block anchor. Every system receipt
+is byte-identical. App hashes and the response bytes carrying them change,
+including empty blocks whose anchor advances. The other eleven parity files
+are unchanged; VM execution and gas revisions remain 15 and 7.

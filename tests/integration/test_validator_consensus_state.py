@@ -4,6 +4,7 @@ import pytest
 from contracting.storage.driver import Driver
 from xian_compiler_core import CompilerError
 
+from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
 from xian.execution_policy import EXECUTION_POLICY_KEY, current_execution_policy
 from xian.state_export import build_exported_state, import_state
 from xian.state_root import StateRootCache, compute_exported_state_root
@@ -21,6 +22,7 @@ def test_effective_set_survives_commit_restart_and_state_export_import(tmp_path)
     original = tmp_path / "original"
     with Driver(vm_profile="xian_vm_v2", storage_home=original) as driver:
         driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
+        driver.set(EVIDENCE_POLICY_KEY, EvidencePolicy.seed(7, nanos=1).to_state())
         driver.set("validators.active_validators", [INCUMBENT])
         driver.commit()
         state_root = StateRootCache.from_driver(driver)

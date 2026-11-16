@@ -31,9 +31,9 @@ async def _init_chain(root, genesis):
             )
             for entry in genesis["validators"]
         ]
-        request = Request(
-            init_chain=RequestInitChain(chain_id=CHAIN_ID, validators=cometbft_validators)
-        )
+        init_request = node.init_request()
+        init_request.validators.extend(cometbft_validators)
+        request = Request(init_chain=init_request)
         return (await node._call("init_chain", request)).init_chain
     finally:
         await node.stop()

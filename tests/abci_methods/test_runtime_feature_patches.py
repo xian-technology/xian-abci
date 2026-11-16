@@ -19,6 +19,7 @@ from xian_runtime_types.time import Datetime
 from cometbft.abci.v1beta3.types_pb2 import RequestFinalizeBlock
 from contracting.runtime_features import get_driver_runtime_features, runtime_feature_state_key
 from xian.constants import Constants
+from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
 from xian.state_root import StateRootCache
 from xian.utils.encoding import canonical_json_text, encode_transaction_bytes
 from xian.utils.state_patches import resolve_state_patch_dir
@@ -117,6 +118,7 @@ class Node:
         client.submit(PLAIN_CONTRACT, name="con_plain", owner=None)
         client.raw_driver.set(f"currency.balances:{SENDER}", 10_000_000)
         client.raw_driver.set("chi_cost.S:value", 20)
+        client.raw_driver.set(EVIDENCE_POLICY_KEY, EvidencePolicy.seed(7, nanos=0).to_state())
         # Local submission stamps the wall clock; both nodes need the same state.
         client.raw_driver.set("submission.__submitted__", Datetime(2026, 1, 1))
         client.raw_driver.commit()

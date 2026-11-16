@@ -10,6 +10,7 @@ from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import decode, encode
 
 from xian.constants import Constants
+from xian.evidence_policy import validate_genesis_evidence_policy
 from xian.execution_policy import (
     EXECUTION_POLICY_KEY,
     VM_EXECUTION_MODE,
@@ -178,6 +179,7 @@ class PreparedStateImport:
 def prepare_state_import(exported_state: dict[str, Any]) -> PreparedStateImport:
     """Validate source state without opening or modifying destination storage."""
     validate_genesis_execution_policy(exported_state)
+    evidence_policy = validate_genesis_evidence_policy(exported_state)
     state_root = compute_exported_state_root(exported_state)
     advertised_hash = bytes.fromhex(exported_state.get("hash", ""))
     if advertised_hash != state_root:
@@ -186,7 +188,7 @@ def prepare_state_import(exported_state: dict[str, Any]) -> PreparedStateImport:
         state_root=state_root,
         writes=_import_state_writes(exported_state),
         height=int(exported_state.get("number", 0)),
-        nanos=int(exported_state.get("nanos", 0)),
+        nanos=int(exported_state.get("nanos", evidence_policy.last_block_nanos)),
     )
 
 

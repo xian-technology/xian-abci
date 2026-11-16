@@ -134,8 +134,14 @@ class AbciNode:
         raw = await self._handler.process(kind, request)
         return next(read_messages(BytesIO(raw), Response))
 
+    def init_request(self):
+        timestamp = Timestamp()
+        timestamp.FromJsonString(self.app.genesis["genesis_time"])
+        return RequestInitChain(chain_id=CHAIN_ID, time=timestamp,
+                                consensus_params=self.app.genesis_evidence_policy.consensus_params())
+
     async def init_chain(self) -> bytes:
-        request = Request(init_chain=RequestInitChain(chain_id=CHAIN_ID))
+        request = Request(init_chain=self.init_request())
         return (await self._call("init_chain", request)).init_chain.app_hash
 
     async def info(self):
@@ -145,7 +151,7 @@ class AbciNode:
         request = RequestFinalizeBlock(
             txs=txs,
             height=height,
-            time=Timestamp(seconds=1_790_000_000 + height),
+            time=Timestamp(seconds=1_794_700_800 + height),
             hash=hashlib.sha256(f"block-{height}".encode()).digest(),
         )
         return (await self._call("finalize_block", Request(finalize_block=request))).finalize_block

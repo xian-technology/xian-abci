@@ -99,6 +99,8 @@ class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
             nanos=1300,
             storage_home=storage_home,
         )
+        from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
+        self.app.client.raw_driver.set(EVIDENCE_POLICY_KEY, EvidencePolicy.seed(7, nanos=1400).to_state())
         stage_latest_block(
             self.app.client.raw_driver,
             block_hash=bytes.fromhex("aa" * 32),

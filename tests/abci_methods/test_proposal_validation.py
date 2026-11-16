@@ -574,7 +574,10 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.app._state_transition_lock.locked())
 
     async def test_paid_rejected_deployments_have_deterministic_error_receipts(self):
-        await self.app.init_chain(RequestInitChain())
+        from google.protobuf.timestamp_pb2 import Timestamp
+        timestamp = Timestamp()
+        timestamp.FromJsonString(self.app.genesis["genesis_time"])
+        await self.app.init_chain(RequestInitChain(time=timestamp))
         sender = nacl.signing.SigningKey(SEED).verify_key.encode().hex()
         driver = self.app.client.raw_driver
         driver.set(f"currency.balances:{sender}", 1_000_000)
@@ -592,7 +595,8 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                 kwargs={"name": "con_attack", "code": source},
             )
             response = await self.app.finalize_block(
-                RequestFinalizeBlock(txs=[tx], height=nonce + 1)
+                RequestFinalizeBlock(txs=[tx], height=nonce + 1, time=Timestamp(
+                    seconds=timestamp.seconds + nonce + 1, nanos=timestamp.nanos))
             )
             receipt = json.loads(response.tx_results[0].data)
             self.assertEqual(receipt["status"], 1)

@@ -3,6 +3,7 @@
 import pytest
 from xian_runtime_types.time import Datetime
 
+from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
 from xian.execution_policy import EXECUTION_POLICY_KEY, current_execution_policy
 from xian.recovery_genesis import build_recovery_genesis
 from xian.state_root import compute_exported_state_root
@@ -20,6 +21,7 @@ def _exported(height=461):
         "validators.__consensus__": {key: 10 for key in active},
         "validators.config:selection_mode": "auto_top_n",
         EXECUTION_POLICY_KEY: current_execution_policy(),
+        EVIDENCE_POLICY_KEY: EvidencePolicy.seed(7, nanos=1_700_000_000_000_000_000).to_state(),
     }
     for key in active:
         entries[f"validators.powers:{key}"] = 10

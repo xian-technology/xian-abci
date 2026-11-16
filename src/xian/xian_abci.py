@@ -52,6 +52,11 @@ from xian.app_logging import (
     log_level_includes,
 )
 from xian.constants import Constants
+from xian.evidence_history import EvidenceHistoryPairing
+from xian.evidence_policy import (
+    validate_committed_evidence_policy,
+    validate_genesis_evidence_policy,
+)
 from xian.execution_engine import build_vm_runtime
 from xian.execution_policy import (
     VM_EXECUTION_MODE,
@@ -75,6 +80,7 @@ from xian.methods import (
     finalize_block,
     info,
     init_chain,
+    offer_snapshot,
     prepare_proposal,
     process_proposal,
     query,
@@ -95,7 +101,6 @@ from xian.simulator import QuerySimulationService
 from xian.state_root import StateRootCache
 from xian.utils.block import (
     get_committed_latest_block,
-    get_latest_block_height,
     reconcile_latest_block,
 )
 from xian.utils.cometbft import (
@@ -154,6 +159,7 @@ class Xian:
         xian_config = self.xian_config
         validate_vm_execution_config(xian_config)
         validate_genesis_execution_policy(self.genesis)
+        self.genesis_evidence_policy = validate_genesis_evidence_policy(self.genesis)
         validate_persisted_execution_policy(constants.STORAGE_HOME)
         self.execution_runtime = build_vm_runtime()
         self.execution_mode = self.execution_runtime.mode
@@ -162,6 +168,7 @@ class Xian:
             vm_profile=VM_EXECUTION_MODE,
             storage_home=constants.STORAGE_HOME,
         )
+        self._validate_client_evidence_policy()
         reconcile_latest_block(
             self.client.raw_driver,
             constants.STORAGE_HOME,
@@ -236,6 +243,7 @@ class Xian:
         # Stage those writes outside the live driver so CheckTx can drain
         # against committed state without deadlocking the commit boundary.
         self._state_transition_lock = asyncio.Lock()
+        self._evidence_history_pairing = EvidenceHistoryPairing()
         self._pending_commit_driver_state = None
 
         self.bds_enabled = xian_config.get("bds_enabled", False)
@@ -309,6 +317,13 @@ class Xian:
                 )
             ).warning("No local state patch bundle directory found")
             self.state_patch_manager.loaded = True
+
+    def _validate_client_evidence_policy(self):
+        try:
+            validate_committed_evidence_policy(self.client.raw_driver)
+        except ValueError:
+            self.client.close()
+            raise
 
     def _configure_transaction_processing(self, xian_config):
         try:
@@ -422,8 +437,8 @@ class Xian:
         """
         Echo a string to test an ABCI client/server implementation
         """
-        res = echo.echo(self, req)
-        return res
+        async with self._state_transition_lock:
+            return await echo.echo(self, req)
 
     async def info(self, req):
         """
@@ -503,12 +518,8 @@ class Xian:
         return self.state_snapshot_manager.list_snapshots_response()
 
     async def offer_snapshot(self, req):
-        current_height = get_latest_block_height(self.client.raw_driver.storage_home)
-        return self.state_snapshot_manager.offer_snapshot_response(
-            req.snapshot,
-            app_hash=req.app_hash,
-            current_height=current_height,
-        )
+        async with self._state_transition_lock:
+            return await offer_snapshot.offer_snapshot(self, req)
 
     async def load_snapshot_chunk(self, req):
         return self.state_snapshot_manager.load_snapshot_chunk_response(
@@ -518,20 +529,21 @@ class Xian:
         )
 
     async def apply_snapshot_chunk(self, req):
-        response = self.state_snapshot_manager.apply_snapshot_chunk_response(
-            index=req.index,
-            chunk=req.chunk,
-            sender=req.sender,
-        )
-        if response.result == response.ACCEPT:
-            # Import uses a separate driver over the same LMDB environment.
-            # Drop cached pre-import reads before serving Info/queries/execution.
-            self.client.raw_driver.flush_cache()
-            self.nonce_storage.flush_pending()
-            self.state_root_cache.rebuild_from_driver(self.client.raw_driver)
-            self.refresh_tx_fee_policy()
-            self.refresh_runtime_features()
-        return response
+        async with self._state_transition_lock:
+            response = self.state_snapshot_manager.apply_snapshot_chunk_response(
+                index=req.index,
+                chunk=req.chunk,
+                sender=req.sender,
+            )
+            if response.result == response.ACCEPT:
+                # Import uses a separate driver over the same LMDB environment.
+                # Drop cached pre-import reads before serving Info/queries/execution.
+                self.client.raw_driver.flush_cache()
+                self.nonce_storage.flush_pending()
+                self.state_root_cache.rebuild_from_driver(self.client.raw_driver)
+                self.refresh_tx_fee_policy()
+                self.refresh_runtime_features()
+            return response
 
     async def query(self, req):
         """

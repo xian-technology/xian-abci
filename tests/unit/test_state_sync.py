@@ -15,6 +15,7 @@ from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import encode
 
 from cometbft.abci.v1beta1.types_pb2 import Snapshot
+from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
 from xian.execution_policy import EXECUTION_POLICY_KEY, current_execution_policy
 from xian.services.state_sync import (
     SNAPSHOT_FORMAT_VERSION,
@@ -319,6 +320,7 @@ class StateSyncTests(unittest.TestCase):
                         nonce_storage=Mock(),
                         state_root_cache=StateRootCache.from_driver(driver),
                         app_version=1,
+                        _state_transition_lock=asyncio.Lock(),
                         refresh_tx_fee_policy=Mock(),
                         refresh_runtime_features=Mock(),
                     )
@@ -538,6 +540,7 @@ class StateSyncTests(unittest.TestCase):
                 nonce_storage=Mock(),
                 state_root_cache=StateRootCache(),
                 app_version=1,
+                _state_transition_lock=asyncio.Lock(),
                 refresh_tx_fee_policy=Mock(),
                 refresh_runtime_features=Mock(),
             )
@@ -703,6 +706,7 @@ class StateSyncTests(unittest.TestCase):
     def _seed_state(storage_home: Path) -> None:
         driver = Driver(vm_profile="xian_vm_v2", storage_home=storage_home)
         driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
+        driver.set(EVIDENCE_POLICY_KEY, EvidencePolicy.seed(7, nanos=0).to_state())
         driver.set_contract_from_source("demo", CONTRACT_SOURCE, owner="alice")
         driver.set("demo.set", ContractingSet([(1, "a"), ContractingFrozenSet([b"x"])]))
         driver.set("demo.count", 7)

@@ -190,6 +190,7 @@ def test_invalid_operator_limits_fail_before_creating_snapshot_directories(tmp_p
 def test_raised_operator_cap_imports_a_valid_snapshot_without_changing_chain_rules(tmp_path):
     from contracting.storage.driver import Driver
 
+    from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
     from xian.execution_policy import EXECUTION_POLICY_KEY
     from xian.state_root import compute_driver_state_root
     from xian.utils.block import stage_latest_block
@@ -197,6 +198,7 @@ def test_raised_operator_cap_imports_a_valid_snapshot_without_changing_chain_rul
     source_home = tmp_path / "source"
     with Driver(vm_profile="xian_vm_v2", storage_home=source_home) as driver:
         driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
+        driver.set(EVIDENCE_POLICY_KEY, EvidencePolicy.seed(7, nanos=0).to_state())
         driver.set("con_snapshot.value", "x" * 16_384)
         stage_latest_block(driver, block_hash=compute_driver_state_root(driver), height=42, nanos=0)
         driver.commit()

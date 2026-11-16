@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
 from xian.execution_policy import EXECUTION_POLICY_KEY, current_execution_policy
 from xian.state_export import (
     build_exported_state,
@@ -128,6 +129,7 @@ def test_export_import_preserves_canonical_set_storage_bytes(tmp_path):
         ]
     )
     try:
+        driver.set(EVIDENCE_POLICY_KEY, EvidencePolicy.seed(7, nanos=0).to_state())
         driver.set("con_demo.stored", value)
         driver.commit()
         from contracting.storage.lmdb_environment import DEFAULT_ENVIRONMENT_POOL
@@ -157,6 +159,7 @@ def _valid_import_payload():
         "nanos": 123,
         "genesis": [
             {"key": EXECUTION_POLICY_KEY, "value": current_execution_policy()},
+            {"key": EVIDENCE_POLICY_KEY, "value": EvidencePolicy.seed(7, nanos=123).to_state()},
             {"key": "con_import.value", "value": 7},
         ],
     }
@@ -281,7 +284,7 @@ def test_export_uses_durable_block_marker_when_json_mirror_is_stale(tmp_path):
     assert exported["nanos"] == 123
 
 
-def test_import_defaults_missing_block_metadata_to_initial_height_and_time(tmp_path):
+def test_import_uses_known_policy_time_when_optional_metadata_is_absent(tmp_path):
     from contracting.storage.driver import Driver
     from xian.state_export import import_state
     from xian.utils.block import get_committed_latest_block
@@ -291,10 +294,10 @@ def test_import_defaults_missing_block_metadata_to_initial_height_and_time(tmp_p
     del exported["nanos"]
     result = import_state(exported_state=exported, storage_home=tmp_path)
     assert result["height"] == 0
-    assert result["nanos"] == 0
+    assert result["nanos"] == 123
     with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
         assert get_committed_latest_block(driver) == {
-            "hash": exported["hash"], "height": 0, "nanos": 0,
+            "hash": exported["hash"], "height": 0, "nanos": 123,
         }
 
 
@@ -332,6 +335,7 @@ def test_runtime_features_are_hashed_exported_and_imported(tmp_path):
     source = tmp_path / "source"
     with Driver(vm_profile="xian_vm_v2", storage_home=source) as driver:
         driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
+        driver.set(EVIDENCE_POLICY_KEY, EvidencePolicy.seed(7, nanos=9).to_state())
         driver.set("con_import.value", 7)
         driver.set(zk_key, False)
         driver.commit()

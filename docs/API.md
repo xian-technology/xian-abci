@@ -21,6 +21,7 @@ These paths do not require BDS:
 - `/ping`
 - `/perf_status`
 - `/get/<state-key>`
+- `/evidence_policy`
 - `/get_next_nonce/<address>`
 - `/contract_source/<name>`
 - `/contract_ir/<name>`
@@ -32,6 +33,38 @@ These paths do not require BDS:
 
 Use `/get` and `/keys` for current raw application state. Use the contract
 queries for deployed contract source, Xian VM IR, and metadata.
+
+### Committed Evidence Policy
+
+`/evidence_policy` returns only committed disk state, under the same lock as
+Commit and snapshot replacement. Its schema is:
+
+```json
+{
+  "schema_version": 1,
+  "height": "123",
+  "app_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "last_block_nanos": "1794787200123456789",
+  "evidence": {
+    "max_age_num_blocks": "100000",
+    "max_age_duration": "1296000000000000",
+    "max_bytes": "1048576"
+  }
+}
+```
+
+The schema version is an integer; height, timestamp and evidence limits are
+canonical decimal strings, preserving large values without V2 numeric tags.
+The response height equals the body height, and the hash is lowercase hex.
+Before the first committed block, or with a missing/corrupt record or marker,
+the query returns a nonzero code. Pending FinalizeBlock writes are excluded.
+An explicit query height must match the current committed height.
+
+The history-aware local Comet client checks this response and ABCI Info against
+its light-client-verified checkpoint height and application root. The root for
+state at height H is in header H+1. The exact timestamp must match trusted
+header H. A response from an untrusted remote RPC server is not a Merkle proof.
+
 
 ## Validator And Governance Queries
 

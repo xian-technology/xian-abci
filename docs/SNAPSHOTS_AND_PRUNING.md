@@ -102,6 +102,38 @@ rejects the snapshot if it does not match the advertised application hash.
 Imported or exported application snapshots can then be served back to peers
 through the CometBFT snapshot lifecycle.
 
+### Verified Comet History And Local Pairing
+
+Fresh-chain setup targets the history-aware CometBFT 0.40 backend. Application
+state alone does not restore the historical headers and validator sets needed
+to validate still-eligible evidence from before a checkpoint. The compatible
+client must authenticate and restore that history before bootstrapping Comet
+state or starting consensus. It authenticates evidence limits through the
+local committed `/evidence_policy` query and trusted checkpoint application
+root; Comet's consensus-parameter hash does not cover evidence limits.
+
+The ABCI facade accepts snapshot offers only from the matching local client.
+A private Echo registration creates one ephemeral, one-use capability; the
+client wraps the offer metadata locally, and the app unwraps it before normal
+snapshot validation. Stock clients and unregistered, stale or replayed wrappers
+are rejected. Public Info/query calls and peer-supplied flags cannot register
+this capability. The nonce never enters chain state, logs or served metadata.
+Peer snapshot metadata and archives retain their original format.
+
+This gate does not replace history verification. The paired client must reject
+unverifiable history and must not fall back to unsafe bootstrap. Trusted offline
+manager/CLI APIs remain available; an application-only restore still needs the
+matching Comet history. Snapshot replacement and committed-policy queries use
+the same state-transition lock.
+
+The hashed `__evidence_policy` record preserves the complete evidence triple,
+a monotonic target and the exact committed time anchor. Genesis covers its
+seeded unbonding period plus one day. Later increases grow effective duration
+by at most elapsed committed time, so the old expiry cutoff never moves
+backward. Reductions never shrink protection for existing claims. Recovery
+reanchors to its new genesis time without credit for the halted interval.
+
+
 ### Local Resource Limits
 
 Application snapshot handling defaults to a 256 MiB compressed archive and a

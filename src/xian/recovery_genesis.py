@@ -18,11 +18,12 @@ so they return through the usual unjail path once their nodes run again.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
+from dataclasses import replace
 from typing import Any
 
 from xian_runtime_types.time import Datetime
 
+from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy, comet_time_nanos
 from xian.genesis_builder import (
     build_cometbft_genesis,
     build_validator_genesis_entry_from_public_key,
@@ -80,7 +81,7 @@ def _recovered_entries(
 
 def _require_later_than_export(exported_state: dict[str, Any], genesis_time: str) -> None:
     last_block_time = nanoseconds_to_utc_datetime(int(exported_state["nanos"]))
-    if datetime.fromisoformat(normalize_genesis_time(genesis_time)) <= last_block_time:
+    if comet_time_nanos(normalize_genesis_time(genesis_time)) <= int(exported_state["nanos"]):
         raise ValueError(
             f"the recovery genesis time must be after the last block ({last_block_time})"
         )
@@ -99,7 +100,14 @@ def build_recovery_genesis(
     _require_later_than_export(exported_state, genesis_time)
     abci_genesis = deepcopy(exported_state)
     state = {entry["key"]: entry["value"] for entry in abci_genesis["genesis"]}
-    state.update(_recovered_entries(state, keep, parse_genesis_time(genesis_time)))
+    recovery_time = parse_genesis_time(genesis_time)
+    state.update(_recovered_entries(state, keep, recovery_time))
+    # Comet starts this explicit recovery at its new genesis time. Banking
+    # the halted interval would reopen already-expired/pruned history.
+    recovery_nanos = comet_time_nanos(normalize_genesis_time(genesis_time))
+    policy = EvidencePolicy.from_state(state[EVIDENCE_POLICY_KEY])
+    state[EVIDENCE_POLICY_KEY] = replace(policy, last_block_nanos=recovery_nanos).to_state()
+    abci_genesis["nanos"] = recovery_nanos
     abci_genesis["genesis"] = [{"key": key, "value": value} for key, value in sorted(state.items())]
     abci_genesis["origin"] = {"signature": "", "sender": ""}
     abci_genesis["hash"] = compute_exported_state_root(abci_genesis).hex()

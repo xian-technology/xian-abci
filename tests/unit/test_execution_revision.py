@@ -131,6 +131,8 @@ def test_current_import_rejects_legacy_destination_before_flush(tmp_path):
     from xian.state_root import compute_exported_state_root
 
     exported = policy_state()
+    from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
+    exported["genesis"].append({"key": EVIDENCE_POLICY_KEY, "value": EvidencePolicy.seed(7).to_state()})
     exported["hash"] = compute_exported_state_root(exported).hex()
     driver = Driver(vm_profile="xian_vm_v2", storage_home=tmp_path)
     try:
