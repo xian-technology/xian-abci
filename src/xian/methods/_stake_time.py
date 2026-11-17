@@ -2,9 +2,7 @@
 
 from collections.abc import Mapping
 
-from loguru import logger
-
-from xian.app_logging import build_log_fields
+from xian.methods._time_batch import process_time_batch
 
 TIME_ANCHOR_HEAD = "validator_penalties.time_anchor_head"
 TIME_ANCHOR_JOBS = "validator_penalties.time_anchor_jobs:"
@@ -31,24 +29,12 @@ def maybe_process_time_anchors(self, *, height: int) -> None:
     """
     if not _has_older_time_job(self.client.raw_driver, height):
         return
-    tx = {
-        "payload": {
-            "sender": SYSTEM_STAKE_TIME_SENDER,
-            "contract": "validator_penalties",
-            "function": "process_time_anchors",
-            "kwargs": {"max_work": 32},
-            "chi_supplied": 0,
-        },
-        "metadata": {"signature": f"stake-time-anchor-batch:{height}"},
-        "b_meta": self.current_block_meta,
-    }
-    result = self.tx_processor.process_system_tx(tx).get("tx_result") or {}
-    applied = result.get("status") == 0
-    logger.bind(
-        **build_log_fields(
-            stage="finalize_stake_time_anchor",
-            block_height=height,
-            block_hash=self.current_block_meta["hash"],
-            status=result.get("status"),
-        )
-    ).log("INFO" if applied else "WARNING", "Processed staking time-anchor batch")
+    process_time_batch(
+        self,
+        height=height,
+        contract="validator_penalties",
+        sender=SYSTEM_STAKE_TIME_SENDER,
+        signature="stake-time-anchor-batch",
+        stage="finalize_stake_time_anchor",
+        message="Processed staking time-anchor batch",
+    )

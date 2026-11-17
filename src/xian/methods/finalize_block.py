@@ -11,6 +11,7 @@ from xian.methods._evidence import maybe_apply_evidence_penalties
 from xian.methods._liveness import maybe_record_liveness
 from xian.methods._penalties import maybe_process_pending_slashes
 from xian.methods._stake_time import maybe_process_time_anchors
+from xian.methods._time_checkpoints import maybe_process_time_checkpoints
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.utils.block import (
     convert_cometbft_time_to_datetime,
@@ -541,6 +542,8 @@ async def finalize_block(self, req) -> ResponseFinalizeBlock:
     # can claim it. The bounded penalty work and epoch selection follow the
     # user transactions, sharing one deterministic work budget per block.
     _apply_evidence_and_liveness(self, req, height=height)
+    with self.profiler.scope("finalize_time_checkpoints", block_scoped=True):
+        maybe_process_time_checkpoints(self, height=height)
     with self.profiler.scope("finalize_stake_time_anchor", block_scoped=True):
         maybe_process_time_anchors(self, height=height)
 

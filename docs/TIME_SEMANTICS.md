@@ -175,3 +175,11 @@ Verified full-store restore instead preserves both rooted epochs and native
 history exactly. Two checkpoints bound record size, not physical retention to
 two wall-clock periods across arbitrarily long idle gaps. Upstream Comet
 controls native proof-metadata pruning using the effective full limits triple.
+
+The immutable `time_checkpoints` service provides shared successor anchors for
+other timed positions. Its reserved keeper initializes readiness once before
+paid calls, then processes at most 32 older requested heights per block before
+the staking queue. Requests deduplicate by positive creation height; anchors
+are immutable and remain unavailable until a later agreed VM timestamp is
+recorded. Consumers refuse custody before the keeper is ready. A ready empty
+service does no further writes; neither service executes user callbacks.

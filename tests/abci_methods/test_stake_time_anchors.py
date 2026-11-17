@@ -25,6 +25,13 @@ def _finalize(app, *, height, seconds, paid=None):
         txs=[b"paid"] if paid else [],
         hash=f"block{height}".encode(),
     )
+    native_process = app.tx_processor.process_block
+
+    def process(*args, **kwargs):
+        if kwargs["fee_policy"].mode == "system_unmetered":
+            return native_process(*args, **kwargs)
+        return paid(*args, **kwargs) if paid is not None else []
+
     with (
         patch(
             "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
@@ -32,7 +39,7 @@ def _finalize(app, *, height, seconds, paid=None):
         ),
         patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
         patch.object(app.nonce_storage, "set_nonce_by_tx"),
-        patch.object(app.tx_processor, "process_block", side_effect=paid),
+        patch.object(app.tx_processor, "process_block", side_effect=process),
     ):
         return asyncio.run(finalize_block(app, request))
 
@@ -200,7 +207,7 @@ def test_success_and_missing_or_failed_receipts_report_the_observable_outcome(ap
             patch.object(
                 app.tx_processor, "process_system_tx", return_value={"tx_result": receipt}
             ) as execute,
-            patch("xian.methods._stake_time.logger") as log,
+            patch("xian.methods._time_batch.logger") as log,
         ):
             maybe_process_time_anchors(app, height=1)
         execute.assert_called_once()
