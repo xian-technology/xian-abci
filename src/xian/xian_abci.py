@@ -78,6 +78,7 @@ from xian.fee_policy import (
     resolve_chain_fee_policy,
 )
 from xian.log_safety import error_fields
+from xian.mempool_policy import validate_comet_mempool_mode
 from xian.methods import (
     check_tx,
     commit,
@@ -165,6 +166,7 @@ class Xian:
 
         xian_config = self.xian_config
         validate_comet_state_sync_disabled(self.cometbft_config)
+        validate_comet_mempool_mode(self.cometbft_config)
         validate_vm_execution_config(xian_config)
         validate_genesis_execution_policy(self.genesis)
         self.genesis_evidence_policy = validate_genesis_evidence_policy(self.genesis)

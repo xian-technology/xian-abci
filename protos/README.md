@@ -1,52 +1,44 @@
 # Vendored Protobuf Schemas
 
-This folder contains the vendored `.proto` files that `xian-abci` uses to
-generate the checked-in Python protobuf modules under `src/`.
+This folder owns the exact CometBFT 0.40.0 schemas used to generate the
+checked-in Python protobuf modules under `src/`.
 
 ## Contents
 
-- `cometbft/`: vendored CometBFT protobuf namespaces. This tree is an exact
-  copy of `proto/cometbft/` from `cometbft/cometbft` tag `v1.0.0-alpha.2`.
-- `gogoproto/gogo.proto`: upstream gogoproto dependency required by the vendored
-  schemas
-- `buf.yaml` and `buf.lock`: pinned upstream module metadata
+- `tendermint/`: the 25 `.proto` files from `proto/tendermint/` at official
+  CometBFT tag `v0.40.0`, commit
+  `0880b4d378f347ab16e54ec677ff50d803f37d62`, plus its Apache-2.0 license.
+- `gogoproto/gogo.proto`: the pinned upstream gogoproto dependency.
+- `buf.yaml` and `buf.lock`: the same release's upstream module metadata.
+
+The historical `tendermint.*` namespace is the actual wire schema used by
+CometBFT 0.40.0. The separate versioned `cometbft.*` 1.x schemas are not its
+protocol: field 6 of `ConsensusParams` means `AuthorityParams` in 0.40,
+whereas the 1.x schema assigns it to PBTS synchrony parameters.
 
 ## Licenses
 
-The vendored files keep their upstream licenses: CometBFT's schemas are
-Apache-2.0 (`cometbft/LICENSE`), `gogo.proto` is BSD-3-Clause (license in its
-header). See `THIRD_PARTY_NOTICES.md` in the repo root.
+CometBFT's schemas and generated modules retain Apache-2.0; see
+`tendermint/LICENSE`. The gogoproto dependency and its generated module retain
+the BSD-3-Clause license in `gogoproto/gogo.proto`.
 
 ## Workflow
 
-When the vendored schemas change:
+When the selected upstream schemas change:
 
-1. update the files under `protos/`
+1. copy the exact `.proto` files and record the upstream release and commit
 2. run `python build_proto.py` from the repo root
-3. commit both the schema changes and the regenerated `src/cometbft/` and
-   `src/gogoproto/` output
+3. commit schemas and regenerated `src/tendermint/` and `src/gogoproto/` together
+4. run `./scripts/validate-repo.sh`, including its generated-stub stale check
 
-```mermaid
-flowchart LR
-  Upstream["CometBFT or gogoproto schema update"] --> Protos["Update protos"]
-  Protos --> Build["python build_proto.py"]
-  Build --> Generated["Regenerated Python stubs"]
-  Generated --> Validate["validate-repo stale check"]
-  Validate --> Commit["Commit schemas and stubs together"]
-```
+`build_proto.py` uses `grpcio-tools` directly when installed, or the pinned
+`uvx`/`uv` tool runner. Generated `*_pb2.py` files are not hand-edited.
 
-## Notes
+The wire regression corpus in `tests/unit/test_cometbft_wire_protocol.py`
+contains bytes produced from the official release, including a non-empty
+InitChain authority and application-mempool request variants. Binding support
+does not enable optional mempool modes, validator key types or vote extensions;
+the tested runtime uses the flood mempool and Ed25519 validators.
 
-- The vendored `cometbft/` tree intentionally uses the versioned
-  `cometbft.*` protobuf packages rather than the `proto/tendermint/` layout
-  used by the `v0.39.x` source branch.
-- `build_proto.py` uses `grpcio-tools` directly when it is installed, or falls
-  back to `uvx`/`uv` tool execution
-- `./scripts/validate-repo.sh` regenerates the stubs and fails if the checked-in
-  generated output is stale
-- treat `*_pb2.py` files as generated artifacts, not hand-edited source
-
-Canonical upstream sources live in the CometBFT repo and Buf registry:
-
-- https://github.com/cometbft/cometbft
-- https://github.com/cometbft/cometbft/tree/v1.0.0-alpha.2/proto/cometbft
+Canonical source:
+https://github.com/cometbft/cometbft/tree/v0.40.0/proto/tendermint

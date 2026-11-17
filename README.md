@@ -53,7 +53,9 @@ PrepareProposal, ProcessProposal and FinalizeBlock). Optional extra:
 - `zk` — enables the native zk verifier required by nodes on chains with the
   `zk` runtime feature.
 
-Fresh chains use unmodified upstream CometBFT. Bootstrap uses ordinary replay
+Fresh chains use unmodified upstream CometBFT 0.40.0 with the flood mempool
+and Ed25519 validators. Other mempool modes are rejected at startup. Bootstrap
+uses ordinary replay
 or a [verified full-node-store backup](docs/SNAPSHOTS_AND_PRUNING.md); P2P
 application state sync is disabled. Offline application exports remain available.
 
@@ -94,7 +96,7 @@ Local `uv` development requires a sibling checkout of
     `src/xian/`.
   - `dashboard/` — the optional operator dashboard.
 - `src/abci/` — lower-level ABCI server and protocol glue.
-- `protos/` — vendored CometBFT schemas plus supporting protobuf dependencies.
+- `protos/` — exact CometBFT 0.40.0 `tendermint.*` schemas and their protobuf dependencies.
 - `build_proto.py` — regenerates checked-in protobuf Python stubs under `src/`.
 - `scripts/` — repo-level validation and manual benchmark entrypoints.
 - `tests/` — unit, ABCI-method, integration, governance, tools, and system

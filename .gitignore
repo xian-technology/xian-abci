@@ -165,7 +165,7 @@ dist
 .ruff_cache/
 .tmp-home/
 
-tendermint
+/tendermint
 contracting
 lamden
 /xian_venv

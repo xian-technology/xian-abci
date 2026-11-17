@@ -20,7 +20,7 @@ cd "${repo_root}"
 
 UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" sync --python "${python_version}" --group dev --extra zk
 UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run --python "${python_version}" python build_proto.py
-git diff --exit-code -- src/cometbft src/gogoproto
+git diff --exit-code -- src/tendermint src/gogoproto
 UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run --python "${python_version}" ruff check .
 UV_CACHE_DIR="${uv_cache_dir}" "${uv_bin}" run --python "${python_version}" ruff format --check .
 

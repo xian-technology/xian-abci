@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Python-based ABCI server for CometBFT"
 readme = "README.md"
 license = "MIT AND Apache-2.0 AND BSD-3-Clause"
-license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "protos/cometbft/LICENSE", "protos/gogoproto/gogo.proto"]
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "protos/tendermint/LICENSE", "protos/gogoproto/gogo.proto"]
 authors = [{ name = "Xian Core Team" }]
 requires-python = ">=3.14,<3.15"
 dependencies = [
@@ -83,7 +83,7 @@ line-length = 100
 target-version = "py313"
 exclude = [
     "build_proto.py",
-    "src/cometbft",
+    "src/tendermint",
     "src/gogoproto",
     "src/xian/tools",
     "tests",
