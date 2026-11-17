@@ -19,8 +19,8 @@ subsystems around it.
 - `services/`: BDS and state-sync-related services
 - `cli/`: backend entrypoints owned by this repo
 - `dashboard/`: optional HTTP dashboard surface
-- `node_defaults.py`: shared application defaults for runtime loading, setup
-  options and the backend CLI; BDS defaults live in `services/bds/config.py`
+- `node_defaults.py`: shared application defaults and the CometBFT template
+  for runtime loading, setup options and the CLI; BDS defaults live in `services/bds/config.py`
 - `node_setup.py` and `node_admin.py`: node-home creation and configuration
   helpers
 - `genesis_builder.py` and `state_export.py`: genesis, export, and restore
