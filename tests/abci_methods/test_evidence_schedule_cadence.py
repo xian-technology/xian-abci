@@ -20,7 +20,7 @@ def test_idle_empty_blocks_keep_the_same_app_hash_and_checkpoint_time_still_adva
     baseline = _paid_policy_block(app, [], height=1, seconds=10 * 86400 + 1)
     asyncio.run(app.commit())
     before = baseline.app_hash
-    for height, seconds in enumerate((10 * 86400 + 5, 100 * 86400), start=2):
+    for height, seconds in enumerate((10 * 86400 + 5, 11 * 86400), start=2):
         result = _paid_policy_block(app, [], height=height, seconds=seconds)
         assert result.app_hash == before
         asyncio.run(app.commit())
@@ -35,7 +35,7 @@ def test_pending_and_saturated_ramps_emit_full_derived_limits_without_proof_hash
     asyncio.run(app.commit())
     raw = app.client.raw_driver.value_from_disk(EVIDENCE_POLICY_KEY)
     assert raw["version"] == 2
-    for height, elapsed in enumerate((1, 86400, 10 * 86400, 40 * 86400), start=2):
+    for height, elapsed in enumerate((1, 86400, 10 * 86400, 14 * 86400), start=2):
         seconds = 10 * 86400 + 5 + elapsed
         block = _paid_policy_block(app, [], height=height, seconds=seconds)
         assert block.app_hash == adopted.app_hash
@@ -72,3 +72,18 @@ def test_invalid_finalization_clock_is_rejected_before_execution(app, invalid):
         with pytest.raises(ValueError):
             asyncio.run(finalize_block(app, RequestFinalizeBlock(height=2, time=timestamp)))
     assert app.client.raw_driver.value_from_disk("__latest_block") == before
+
+
+def test_long_idle_jump_rotates_once_then_proof_successor_quiesces(app):
+    baseline = _paid_policy_block(app, [], height=1, seconds=10 * 86400 + 1)
+    asyncio.run(app.commit())
+    jumped = _paid_policy_block(app, [], height=2, seconds=100 * 86400)
+    assert jumped.app_hash != baseline.app_hash
+    asyncio.run(app.commit())
+    record = app.client.raw_driver.value_from_disk(EVIDENCE_POLICY_KEY)
+    assert record["security_checkpoint_height"] == 2
+    assert record["previous_security_checkpoint_height"] == 0
+    successor = _paid_policy_block(app, [], height=3, seconds=100 * 86400 + 1)
+    assert successor.app_hash == jumped.app_hash
+    asyncio.run(app.commit())
+    assert app.client.raw_driver.value_from_disk(EVIDENCE_POLICY_KEY) == record

@@ -137,8 +137,13 @@ class AbciNode:
     def init_request(self):
         timestamp = Timestamp()
         timestamp.FromJsonString(self.app.genesis["genesis_time"])
-        return RequestInitChain(chain_id=CHAIN_ID, time=timestamp,
-                                consensus_params=self.app.genesis_evidence_policy.consensus_params())
+        return RequestInitChain(
+            chain_id=CHAIN_ID,
+            time=timestamp,
+            consensus_params=self.app.genesis_evidence_policy.consensus_params(
+                nanos=self.app.genesis_evidence_policy.growth_start_nanos, height=0
+            ),
+        )
 
     async def init_chain(self) -> bytes:
         request = Request(init_chain=self.init_request())

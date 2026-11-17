@@ -44,7 +44,7 @@ periodic empty blocks unless operators choose that policy explicitly.
 
 The authenticated `__evidence_policy` schema2 stores a retention schedule:
 `base_max_age_duration`, `growth_start_nanos`, monotonic
-`target_max_age_duration`, and the unchanged block-age/byte limits. At finalized
+`target_max_age_duration`, and configured base block-age/byte limits. At finalized
 consensus time `t`, effective duration is
 `min(target, base + t - growth_start)`. The timestamp and schedule use exact
 nanoseconds; the anchor remains part of the consensus application root.
@@ -56,11 +56,22 @@ Stable or previously saturated periods cannot bank time toward a future
 increase. Reducing the unbonding setting does not reduce the target or abandon
 outstanding claims.
 
-Empty blocks leave the rooted schedule unchanged even during pending growth.
-They can therefore settle under all configured idle policies. Comet still
+The rooted record also stores `security_checkpoint_height`,
+`security_checkpoint_nanos` and nullable `previous_security_checkpoint_height`.
+Let the current checkpoint be `(Hc,Tc)` and the previous floor be `Hp`.
+After target increases, rotate once when `t - Tc >= target`: retain old `Hc`
+as `Hp`, and set the current checkpoint to actual `(H,t)`. Zero is a valid
+previous floor. At height H the effective block limit is
+`max(configured_base, H - (Hp if present else Hc))`. The retained floor only
+moves forward; a long idle jump cannot retire multiple synthetic epochs or
+revive already expired history. This protects fresh faults whose BFT header
+time is stale, even when the unbond request arrives at a later height.
+
+Empty blocks leave the rooted record unchanged within a security epoch, even
+during pending duration growth. One sparse epoch transition earns a proof
+block; its successor can settle under all configured idle policies. Comet still
 creates initial proof blocks and proof blocks following actual state changes;
-this is not a guarantee of an exact block interval. Once a schedule has a
-base below its target, the node returns a full idempotent evidence-only consensus
+this is not a guarantee of an exact block interval. The node returns a full idempotent evidence-only consensus
 parameter update on each finalized block, including after effective saturation.
 This adds fixed per-block parameter metadata/store work, without app-hash clock
 churn. No previous local marker decides whether an update is emitted.
@@ -73,7 +84,7 @@ execution. Comet also validates header time upstream.
 
 Comet's consensus-parameter hash covers block limits, not the evidence group.
 Evidence-limit authenticity comes from the rooted schedule evaluated at the
-verified finalized checkpoint timestamp, with native state/header consistency
+verified finalized checkpoint height and timestamp, with native state/header consistency
 checked during full-store restoration. `/evidence_policy` reports the actual
 committed marker height/time and derived effective limits, not the older
 schedule anchor. Schema1 records are rejected; these transition rules are for
@@ -154,3 +165,13 @@ state; the empty path stops invoking the driver after the queue drains.
 The hook is only one part of challenge safety: evidence retention must also
 protect fresh faults whose first post-idle header timestamp is old. An anchor
 alone is not proof that the corresponding evidence will remain valid.
+
+Manual recovery creates a NEW genesis/history boundary: it materializes the
+verified export duration, resets the security checkpoint to export height/new
+genesis time with no previous floor, and retains the configured base block
+limit. An application export cannot restore old native evidence headers or
+validator history; manual recovery does not promise historical slashability.
+Verified full-store restore instead preserves both rooted epochs and native
+history exactly. Two checkpoints bound record size, not physical retention to
+two wall-clock periods across arbitrarily long idle gaps. Upstream Comet
+controls native proof-metadata pruning using the effective full limits triple.

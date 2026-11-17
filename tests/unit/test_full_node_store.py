@@ -20,6 +20,7 @@ from test_node_admin import _current_application_archive, _signed_snapshot_manif
 from test_snapshot_restore import archive_bytes
 from xian_accounts import Ed25519Account
 
+from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
 from xian.full_node_store import (
     FullNodeStoreLimits,
     NativeStoreInspectionLimits,
@@ -225,7 +226,15 @@ def test_history_requires_both_age_limits_and_accepts_pruned_bodies(stores):
     native.update(height="100003", block_store_height="100003", block_store_base="100003")
     with Driver(storage_home=source / "xian", vm_profile="xian_vm_v2") as driver:
         marker = driver.get("__latest_block")
-        driver.set("__latest_block", {**marker, "height": 100003})
+        policy = EvidencePolicy.from_state(driver.get(EVIDENCE_POLICY_KEY))
+        driver.set(EVIDENCE_POLICY_KEY, {**policy.to_state(), "security_checkpoint_height": 3})
+        from xian.state_root import compute_driver_state_root
+
+        driver.set(
+            "__latest_block",
+            {**marker, "height": 100003, "hash": compute_driver_state_root(driver).hex()},
+        )
+        native["app_hash"] = driver.get("__latest_block")["hash"]
         driver.commit()
     assert (
         read_full_node_store_checkpoint(source, native_store_inspector=inspect)["height"] == 100003
@@ -552,7 +561,18 @@ def test_exact_evidence_expiry_boundary_remains_live(stores, block_age, time_ext
     )
     with Driver(storage_home=source / "xian", vm_profile="xian_vm_v2") as driver:
         marker = driver.get("__latest_block")
-        driver.set("__latest_block", {**marker, "height": height})
+        policy = EvidencePolicy.from_state(driver.get(EVIDENCE_POLICY_KEY))
+        driver.set(
+            EVIDENCE_POLICY_KEY,
+            {**policy.to_state(), "security_checkpoint_height": height - 100000},
+        )
+        from xian.state_root import compute_driver_state_root
+
+        driver.set(
+            "__latest_block",
+            {**marker, "height": height, "hash": compute_driver_state_root(driver).hex()},
+        )
+        native["app_hash"] = driver.get("__latest_block")["hash"]
         driver.commit()
     with pytest.raises(ValueError, match="complete live window"):
         read_full_node_store_checkpoint(source, native_store_inspector=lambda *_: native)
@@ -608,16 +628,22 @@ def test_full_store_checkpoint_compares_derived_mid_ramp_limits_not_stored_base(
 
     source, _, native, *_ = stores
     point = int(native["last_block_nanos"])
-    schedule = EvidencePolicy.seed(7, nanos=point - DAY_NS).advance(
-        nanos=point - DAY_NS, observed_days=[14]
-    )
+    schedule = EvidencePolicy.seed(
+        7,
+        nanos=point - DAY_NS,
+        params={"max_age_num_blocks": 1, "max_age_duration": DAY_NS, "max_bytes": 1048576},
+    ).advance(nanos=point - DAY_NS, observed_days=[14], height=1)
     with Driver(storage_home=source / "xian", vm_profile="xian_vm_v2") as driver:
         driver.set(EVIDENCE_POLICY_KEY, schedule.to_state())
         root = compute_driver_state_root(driver).hex()
         driver.set("__latest_block", {"height": 123, "hash": root, "nanos": point})
         driver.commit()
-    native.update(app_hash=root, evidence=schedule.comet_json(nanos=point))
+    native.update(
+        app_hash=root,
+        evidence=schedule.comet_json(nanos=point, height=123),
+    )
     assert native["evidence"]["max_age_duration"] == str(9 * DAY_NS)
+    assert native["evidence"]["max_age_num_blocks"] == "123"
     (source / "data/native-checkpoint.json").write_text(json.dumps(native))
     assert (
         read_full_node_store_checkpoint(source, native_store_inspector=fixture_inspector)[
@@ -625,6 +651,11 @@ def test_full_store_checkpoint_compares_derived_mid_ramp_limits_not_stored_base(
         ]
         == root
     )
+    native["evidence"]["max_age_num_blocks"] = "1"
+    (source / "data/native-checkpoint.json").write_text(json.dumps(native))
+    with pytest.raises(ValueError, match="evidence limits mismatch"):
+        read_full_node_store_checkpoint(source, native_store_inspector=fixture_inspector)
+    native["evidence"]["max_age_num_blocks"] = "123"
     native["evidence"]["max_age_duration"] = str(8 * DAY_NS)
     (source / "data/native-checkpoint.json").write_text(json.dumps(native))
     with pytest.raises(ValueError, match="evidence limits mismatch"):

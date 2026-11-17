@@ -25,7 +25,7 @@ from typing import Any
 from xian_runtime_types.time import Datetime
 
 from xian.checkpoint_validation import trusted_checkpoint_point
-from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy, comet_time_nanos
+from xian.evidence_policy import EVIDENCE_POLICY_KEY, INT64_MAX, EvidencePolicy, comet_time_nanos
 from xian.genesis_builder import (
     build_cometbft_genesis,
     build_validator_genesis_entry_from_public_key,
@@ -103,6 +103,8 @@ def build_recovery_genesis(
     expected = trusted_checkpoint_point(trusted_checkpoint)
     if (prepared.height, prepared.state_root.hex(), prepared.nanos) != expected:
         raise ValueError("export does not match the independently trusted checkpoint")
+    if prepared.height > INT64_MAX - 2:
+        raise ValueError("recovery checkpoint height leaves no supported initial_height +2")
     _require_later_than_export(prepared.nanos, genesis_time)
     abci_genesis = deepcopy(exported_state)
     state = {entry["key"]: entry["value"] for entry in abci_genesis["genesis"]}
@@ -116,6 +118,9 @@ def build_recovery_genesis(
         policy,
         base_max_age_duration=policy.effective_duration(prepared.nanos),
         growth_start_nanos=recovery_nanos,
+        security_checkpoint_height=prepared.height,
+        security_checkpoint_nanos=recovery_nanos,
+        previous_security_checkpoint_height=None,
     ).to_state()
     abci_genesis["nanos"] = recovery_nanos
     abci_genesis["genesis"] = [{"key": key, "value": value} for key, value in sorted(state.items())]

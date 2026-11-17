@@ -47,7 +47,13 @@ class TestMembersContract(unittest.TestCase):
             "validator_penalties": None,
         }
 
-        for contract in ["currency.s.py", "dao.s.py", "rewards.s.py", "chi_cost.s.py", "validator_penalties.s.py"]:
+        for contract in [
+            "currency.s.py",
+            "dao.s.py",
+            "rewards.s.py",
+            "chi_cost.s.py",
+            "validator_penalties.s.py",
+        ]:
             path = os.path.join(self.contracts_dir, contract)
             with open(path) as f:
                 code = f.read()
@@ -76,6 +82,14 @@ class TestMembersContract(unittest.TestCase):
 
         # Add initial balance to deployer directly
         self.currency.balances[self.deployer_vk] = 100000
+
+    def anchor_times(self, height, now=None):
+        environment = {"block_num": height}
+        if now is not None:
+            environment["now"] = now
+        return self.client.get_contract_proxy("validator_penalties").process_time_anchors(
+            signer="__stake_time_driver__", environment=environment
+        )
 
     def approve_policy_update(self, environment=None, **updates):
         if environment is None:
@@ -1105,6 +1119,7 @@ class TestMembersContract(unittest.TestCase):
             environment={"now": leave_time, "block_num": 8},
         )
 
+        self.anchor_times(9, leave_time)
         self.assertEqual(self.members.statuses[NEW_MEMBER], "left")
         self.assertEqual(self.members.self_bond[NEW_MEMBER], 0)
         # Delegations stay in the exited validator's pool until each
@@ -1284,6 +1299,8 @@ class TestMembersContract(unittest.TestCase):
             environment={"now": base_time, "block_num": 1},
         )
 
+        self.assertIsNone(unbond["unlock_at"])
+        self.anchor_times(2, base_time)
         self.assertEqual(unbond["amount"], 50)
         self.assertEqual(unbond["owner"], "delegator1")
         self.assertEqual(self._delegated("delegator1", NODE1), 150)
@@ -1333,6 +1350,7 @@ class TestMembersContract(unittest.TestCase):
             environment={"now": base_time, "block_num": 10},
         )
         self.assertIsNone(progress["head"])
+        self.anchor_times(10, base_time)
         completed = penalties.jobs[queued["job_id"]]
         unbond_after = self.members.get_pending_unbond(
             unbond_id=unbond["id"],
@@ -1460,6 +1478,7 @@ class TestMembersContract(unittest.TestCase):
             "delegation",
         )
 
+        self.anchor_times(3)
         validators = self.members.get_validators(signer=NODE1)
         withdrawn = next(
             validator for validator in validators if validator["account"] == NEW_MEMBER

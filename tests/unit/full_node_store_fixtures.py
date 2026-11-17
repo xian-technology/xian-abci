@@ -49,7 +49,7 @@ def seed_application(storage_home):
         "app_hash": root,
         "block_hash": "b" * 64,
         "last_block_nanos": str(policy.growth_start_nanos),
-        "evidence": policy.comet_json(),
+        "evidence": policy.comet_json(nanos=(policy).growth_start_nanos, height=123),
         "block_store_base": "1",
         "block_store_height": "123",
         "history_first_verified": "1",

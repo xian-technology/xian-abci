@@ -20,7 +20,11 @@ def _init_request(app):
     timestamp = Timestamp()
     timestamp.FromNanoseconds(app.genesis_evidence_policy.growth_start_nanos)
     return RequestInitChain(
-        time=timestamp, consensus_params=app.genesis_evidence_policy.consensus_params()
+        time=timestamp,
+        consensus_params=app.genesis_evidence_policy.consensus_params(
+            nanos=(app.genesis_evidence_policy).growth_start_nanos,
+            height=(app.genesis_evidence_policy).security_checkpoint_height,
+        ),
     )
 
 
@@ -38,7 +42,10 @@ def app(node_fixture, node_constants):
     genesis["abci_genesis"]["hash"] = compute_exported_state_root(genesis["abci_genesis"]).hex()
     genesis["app_hash"] = genesis["abci_genesis"]["hash"]
     genesis["genesis_time"] = "1970-01-11T00:00:00Z"
-    genesis["consensus_params"]["evidence"] = policy.comet_json()
+    genesis["abci_genesis"]["nanos"] = 10 * DAY_NS
+    genesis["consensus_params"]["evidence"] = policy.comet_json(
+        nanos=(policy).growth_start_nanos, height=(policy).security_checkpoint_height
+    )
     path.write_text(encode_wire(genesis, vm_profile="xian_vm_v2"))
     app = Xian(constants=node_constants)
     asyncio.run(init_chain(app, _init_request(app)))
@@ -168,7 +175,7 @@ def test_uncommitted_growth_replays_exactly_and_committed_growth_resumes_after_r
 
 def test_failed_receipts_and_stable_time_cannot_bank_growth_toward_a_later_target(app):
     response = _paid_policy_block(app, [14], failed=True, seconds=20 * 86400)
-    assert not response.HasField("consensus_param_updates")
+    assert response.consensus_param_updates.evidence.max_age_duration.seconds == 8 * 86400
     asyncio.run(commit(app))
     response = _paid_policy_block(app, [14], height=2, seconds=20 * 86400 + 3)
     assert response.consensus_param_updates.evidence.max_age_duration.seconds == 8 * 86400
@@ -470,3 +477,55 @@ def test_evidence_query_preserves_negative_subsecond_timestamp_and_refuses_path_
     unexpected = _evidence_query(app, path="/evidence_policy/unused")
     assert unexpected.code == 1
     assert "does not accept" in unexpected.log
+
+
+def test_committed_query_and_native_update_use_derived_height_floor_not_base(app):
+    from dataclasses import replace
+
+    policy = replace(app.genesis_evidence_policy, max_age_num_blocks=1)
+    app.client.raw_driver.set(EVIDENCE_POLICY_KEY, policy.to_state())
+    app.client.raw_driver.commit()
+    app.state_root_cache.rebuild_from_driver(app.client.raw_driver)
+    jumped = _paid_policy_block(app, [], height=2, seconds=100 * 86400)
+    asyncio.run(commit(app))
+    assert jumped.consensus_param_updates.evidence.max_age_num_blocks == 2
+    body = _evidence_query(app)
+    assert body.height == 2
+    assert loads_wire_json(body.value)["evidence"]["max_age_num_blocks"] == "2"
+    # H1's time can be old, but its block age stays inside the protected floor.
+    later = _paid_policy_block(app, [], height=100002, seconds=101 * 86400)
+    asyncio.run(commit(app))
+    assert later.consensus_param_updates.evidence.max_age_num_blocks == 100002
+    assert loads_wire_json(_evidence_query(app).value)["evidence"]["max_age_num_blocks"] == "100002"
+    assert later.app_hash == jumped.app_hash
+
+
+def test_positive_height_init_chain_uses_export_height_for_effective_block_limit(app):
+    from dataclasses import replace
+
+    policy = replace(app.genesis_evidence_policy, max_age_num_blocks=1)
+    state = app.genesis["abci_genesis"]
+    for entry in state["genesis"]:
+        if entry["key"] == EVIDENCE_POLICY_KEY:
+            entry["value"] = policy.to_state()
+    state["number"] = "100002"
+    from xian_runtime_types.encoding import convert_dict
+
+    from xian.state_root import StateRootCache
+
+    state["hash"] = StateRootCache(
+        (entry["key"], convert_dict(entry["value"])) for entry in state["genesis"]
+    ).root_hash.hex()
+    app.genesis["app_hash"] = state["hash"]
+    app.genesis["consensus_params"]["evidence"] = policy.comet_json(
+        nanos=10 * DAY_NS, height=100002
+    )
+    request = RequestInitChain(
+        time=Timestamp(seconds=10 * 86400),
+        consensus_params=policy.consensus_params(nanos=10 * DAY_NS, height=100002),
+    )
+    response = asyncio.run(init_chain(app, request))
+    assert response.consensus_params.evidence.max_age_num_blocks == 100002
+    from xian.utils.block import get_latest_block_height
+
+    assert get_latest_block_height(app.constants.STORAGE_HOME) == 100002

@@ -456,6 +456,7 @@ def _prepare_commit_boundary(
             consensus_updates = stage_evidence_policy(
                 self.client.raw_driver,
                 nanos=nanos,
+                height=height,
                 processed_entries=processed_entries,
                 applied_patches=applied_patches,
             )

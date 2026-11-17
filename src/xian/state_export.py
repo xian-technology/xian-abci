@@ -10,7 +10,11 @@ from xian_accounts import Ed25519Account
 from xian_runtime_types.encoding import decode, encode
 
 from xian.constants import Constants
-from xian.evidence_policy import evidence_checkpoint_nanos, validate_genesis_evidence_policy
+from xian.evidence_policy import (
+    evidence_checkpoint_height,
+    evidence_checkpoint_nanos,
+    validate_genesis_evidence_policy,
+)
 from xian.execution_policy import (
     EXECUTION_POLICY_KEY,
     VM_EXECUTION_MODE,
@@ -187,7 +191,7 @@ def prepare_state_import(exported_state: dict[str, Any]) -> PreparedStateImport:
     return PreparedStateImport(
         state_root=state_root,
         writes=_import_state_writes(exported_state),
-        height=int(exported_state.get("number", 0)),
+        height=evidence_checkpoint_height(exported_state),
         nanos=evidence_checkpoint_nanos(exported_state, evidence_policy),
     )
 

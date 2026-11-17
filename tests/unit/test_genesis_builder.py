@@ -36,14 +36,8 @@ from xian.utils.block import store_genesis_block
 
 class GenesisBuilderTests(unittest.TestCase):
     def test_local_contract_bundle_seeds_governed_zk_registry(self):
-        founder_private_key = (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
-        contracts_dir = (
-            Path(__file__).resolve().parents[3]
-            / "xian-configs"
-            / "contracts"
-        )
+        founder_private_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
 
         genesis_block = build_genesis_block(
             founder_private_key=founder_private_key,
@@ -51,23 +45,15 @@ class GenesisBuilderTests(unittest.TestCase):
             contracts_dir=contracts_dir,
         )
 
-        state_by_key = {
-            entry["key"]: entry["value"] for entry in genesis_block["genesis"]
-        }
+        state_by_key = {entry["key"]: entry["value"] for entry in genesis_block["genesis"]}
         self.assertIn("zk_registry.__source__", state_by_key)
         self.assertIn("zk_registry.__xian_ir_v1__", state_by_key)
         self.assertEqual(state_by_key["zk_registry.registry_owner"], "governance")
         self.assertEqual(state_by_key[runtime_feature_state_key("zk")], False)
 
     def test_genesis_hash_matches_serialized_import_state_root(self):
-        founder_private_key = (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
-        contracts_dir = (
-            Path(__file__).resolve().parents[3]
-            / "xian-configs"
-            / "contracts"
-        )
+        founder_private_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
 
         async def build_imported_root(genesis_block):
             loaded_genesis = json.loads(encode(genesis_block))
@@ -79,9 +65,7 @@ class GenesisBuilderTests(unittest.TestCase):
                     client,
                     loaded_genesis,
                 )
-                return StateRootCache.from_driver(
-                    client.raw_driver
-                ).root_hash.hex()
+                return StateRootCache.from_driver(client.raw_driver).root_hash.hex()
 
         genesis_block = build_genesis_block(
             founder_private_key=founder_private_key,
@@ -95,9 +79,7 @@ class GenesisBuilderTests(unittest.TestCase):
         )
 
     def test_build_genesis_block_uses_importable_contract_bundle(self):
-        founder_private_key = (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
+        founder_private_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             contracts_dir = Path(tmp_dir) / "contracts"
@@ -121,9 +103,7 @@ class GenesisBuilderTests(unittest.TestCase):
                                 "name": "seed_contract",
                                 "submit_as": "con_seed",
                                 "owner": None,
-                                "constructor_args": {
-                                    "founder": "%%founder_public_key%%"
-                                },
+                                "constructor_args": {"founder": "%%founder_public_key%%"},
                             }
                         ],
                     }
@@ -139,9 +119,7 @@ class GenesisBuilderTests(unittest.TestCase):
             )
 
         wallet = Ed25519Account(founder_private_key)
-        state_by_key = {
-            entry["key"]: entry["value"] for entry in genesis_block["genesis"]
-        }
+        state_by_key = {entry["key"]: entry["value"] for entry in genesis_block["genesis"]}
 
         self.assertEqual(genesis_block["number"], "0")
         self.assertEqual(genesis_block["origin"]["sender"], wallet.public_key)
@@ -150,14 +128,10 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertIn("submission.__xian_ir_v1__", state_by_key)
         self.assertIn("con_seed.__source__", state_by_key)
         self.assertIn("con_seed.__xian_ir_v1__", state_by_key)
-        self.assertEqual(
-            state_by_key["con_seed.owner_value"], wallet.public_key
-        )
+        self.assertEqual(state_by_key["con_seed.owner_value"], wallet.public_key)
 
     def test_genesis_contract_deploy_matches_native_submission_path(self):
-        founder_private_key = (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
+        founder_private_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         fixed_now = Datetime(2026, 4, 12, 12, 0)
         source = (
             "owner_value = Variable()\n"
@@ -202,14 +176,18 @@ class GenesisBuilderTests(unittest.TestCase):
             )
 
             runs = []
-            with mock.patch(
-                "xian.genesis_builder.parse_genesis_time",
-                return_value=fixed_now,
-            ), mock.patch(
-                "xian.genesis_builder.execute_tx",
-                side_effect=lambda *args, **kwargs: runs.append(execute_tx(*args, **kwargs))
-                or runs[-1],
-            ) as native_execute:
+            with (
+                mock.patch(
+                    "xian.genesis_builder.parse_genesis_time",
+                    return_value=fixed_now,
+                ),
+                mock.patch(
+                    "xian.genesis_builder.execute_tx",
+                    side_effect=lambda *args, **kwargs: (
+                        runs.append(execute_tx(*args, **kwargs)) or runs[-1]
+                    ),
+                ) as native_execute,
+            ):
                 seed_chi_rate(contracts_dir)
                 genesis_block = build_genesis_block(
                     founder_private_key=founder_private_key,
@@ -275,8 +253,11 @@ class GenesisBuilderTests(unittest.TestCase):
         abci_genesis = {
             "hash": "abc",
             "number": "7",
-            "genesis": [{"key": EVIDENCE_POLICY_KEY, "value": EvidencePolicy.seed(0).to_state()},
-                        {"key": "con_seed.owner_value", "value": "vk"}],
+            "nanos": 0,
+            "genesis": [
+                {"key": EVIDENCE_POLICY_KEY, "value": EvidencePolicy.seed(0).to_state()},
+                {"key": "con_seed.owner_value", "value": "vk"},
+            ],
             "origin": {"sender": "vk", "signature": "sig"},
         }
 
@@ -290,8 +271,13 @@ class GenesisBuilderTests(unittest.TestCase):
 
             cometbft_genesis_path = Path(tmp_dir) / "genesis.json"
             cometbft_genesis_path.write_text(
-                json.dumps({"chain_id": "xian-local-1", "initial_height": "0",
-                            "genesis_time": "1970-01-01T00:00:00Z"}),
+                json.dumps(
+                    {
+                        "chain_id": "xian-local-1",
+                        "initial_height": "0",
+                        "genesis_time": "1970-01-01T00:00:00Z",
+                    }
+                ),
                 encoding="utf-8",
             )
 
@@ -300,18 +286,14 @@ class GenesisBuilderTests(unittest.TestCase):
                 abci_genesis=abci_genesis,
             )
 
-            updated = json.loads(
-                cometbft_genesis_path.read_text(encoding="utf-8")
-            )
+            updated = json.loads(cometbft_genesis_path.read_text(encoding="utf-8"))
 
         self.assertEqual(updated["abci_genesis"], abci_genesis)
         self.assertEqual(updated["initial_height"], "7")
         self.assertEqual(updated["app_hash"], "abc")
 
     def test_write_genesis_block_preserves_existing_wire_tags(self):
-        genesis = {
-            "genesis": [{"key": "currency.balances:alice", "value": {"__fixed__": "1.23"}}]
-        }
+        genesis = {"genesis": [{"key": "currency.balances:alice", "value": {"__fixed__": "1.23"}}]}
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "genesis_block.json"
             write_genesis_block(path, genesis)
@@ -327,8 +309,11 @@ class GenesisBuilderTests(unittest.TestCase):
         replacement = {
             "hash": "abc",
             "number": "7",
-            "genesis": [{"key": EVIDENCE_POLICY_KEY, "value": EvidencePolicy.seed(0).to_state()},
-                        {"key": "currency.balances:alice", "value": {"__fixed__": "1.23"}}],
+            "nanos": 0,
+            "genesis": [
+                {"key": EVIDENCE_POLICY_KEY, "value": EvidencePolicy.seed(0).to_state()},
+                {"key": "currency.balances:alice", "value": {"__fixed__": "1.23"}},
+            ],
         }
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "genesis.json"
@@ -341,9 +326,7 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertEqual(saved["app_hash"], "abc")
 
     def test_build_genesis_block_applies_constructor_overrides(self):
-        founder_private_key = (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
+        founder_private_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             contracts_dir = Path(tmp_dir) / "contracts"
@@ -407,9 +390,7 @@ class GenesisBuilderTests(unittest.TestCase):
                 },
             )
 
-        state_by_key = {
-            entry["key"]: entry["value"] for entry in genesis_block["genesis"]
-        }
+        state_by_key = {entry["key"]: entry["value"] for entry in genesis_block["genesis"]}
         self.assertEqual(state_by_key["foundation.foundation_vk"], "new-vk")
         self.assertEqual(state_by_key["validators.active_validators"], ["node-a"])
         self.assertEqual(state_by_key["validators.fee"], 123)
@@ -418,8 +399,15 @@ class GenesisBuilderTests(unittest.TestCase):
         abci_genesis = {
             "hash": "abc",
             "number": "3",
-            "genesis": [{"key": EVIDENCE_POLICY_KEY, "value": EvidencePolicy.seed(0, nanos=
-                comet_time_nanos("2026-03-13T12:00:00.000000Z")).to_state()}],
+            "nanos": comet_time_nanos("2026-03-13T12:00:00.000000Z"),
+            "genesis": [
+                {
+                    "key": EVIDENCE_POLICY_KEY,
+                    "value": EvidencePolicy.seed(
+                        0, nanos=comet_time_nanos("2026-03-13T12:00:00.000000Z")
+                    ).to_state(),
+                }
+            ],
             "origin": {"sender": "vk", "signature": "sig"},
         }
         validator = build_validator_genesis_entry(
@@ -449,16 +437,11 @@ class GenesisBuilderTests(unittest.TestCase):
 
     def test_build_validator_genesis_entry_from_public_key(self):
         validator = build_validator_genesis_entry_from_public_key(
-            public_key_hex=(
-                "ee06a34cf08bf72ce592d26d36b90c79"
-                "daba2829ba9634992d034318160d49f9"
-            ),
+            public_key_hex=("ee06a34cf08bf72ce592d26d36b90c79daba2829ba9634992d034318160d49f9"),
             power=15,
         )
 
-        self.assertEqual(
-            validator["address"], "8ABB2DE01AE15C5F4EBD0D4455C6BCD9047B7CBB"
-        )
+        self.assertEqual(validator["address"], "8ABB2DE01AE15C5F4EBD0D4455C6BCD9047B7CBB")
         self.assertEqual(validator["power"], "15")
         self.assertEqual(
             validator["pub_key"]["value"],
@@ -466,11 +449,7 @@ class GenesisBuilderTests(unittest.TestCase):
         )
 
     def test_derive_genesis_validators_from_bundle(self):
-        contracts_dir = (
-            Path(__file__).resolve().parents[3]
-            / "xian-configs"
-            / "contracts"
-        )
+        contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
 
         validators = derive_genesis_validators_from_bundle(
             network="devnet",
@@ -478,12 +457,8 @@ class GenesisBuilderTests(unittest.TestCase):
         )
 
         self.assertEqual(len(validators), 2)
-        self.assertEqual(
-            validators[0]["address"], "614EBE42CBE8354F733851F4316D0DE316B1AEF0"
-        )
-        self.assertEqual(
-            validators[1]["address"], "5C7B6531A88A6C6941A7AA495AF041394F8345F0"
-        )
+        self.assertEqual(validators[0]["address"], "614EBE42CBE8354F733851F4316D0DE316B1AEF0")
+        self.assertEqual(validators[1]["address"], "5C7B6531A88A6C6941A7AA495AF041394F8345F0")
 
     def test_derive_genesis_validators_from_bundle_uses_declared_powers(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -526,11 +501,7 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertEqual(validators[1]["power"], "23")
 
     def test_build_bundle_network_genesis_uses_bundle_seed_validators(self):
-        contracts_dir = (
-            Path(__file__).resolve().parents[3]
-            / "xian-configs"
-            / "contracts"
-        )
+        contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
 
         genesis = build_bundle_network_genesis(
             chain_id="xian-devnet-1",
@@ -540,9 +511,7 @@ class GenesisBuilderTests(unittest.TestCase):
         )
 
         self.assertEqual(genesis["chain_id"], "xian-devnet-1")
-        self.assertEqual(
-            genesis["genesis_time"], "2026-03-30T00:00:00.000000Z"
-        )
+        self.assertEqual(genesis["genesis_time"], "2026-03-30T00:00:00.000000Z")
         self.assertEqual(
             genesis["abci_genesis"]["origin"],
             {"sender": "", "signature": ""},
@@ -554,14 +523,8 @@ class GenesisBuilderTests(unittest.TestCase):
         )
 
     def test_local_bundle_pins_validators_policy_in_genesis(self):
-        founder_private_key = (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
-        contracts_dir = (
-            Path(__file__).resolve().parents[3]
-            / "xian-configs"
-            / "contracts"
-        )
+        founder_private_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
 
         genesis_block = build_genesis_block(
             founder_private_key=founder_private_key,
@@ -569,31 +532,23 @@ class GenesisBuilderTests(unittest.TestCase):
             contracts_dir=contracts_dir,
         )
 
-        state_by_key = {
-            entry["key"]: entry["value"] for entry in genesis_block["genesis"]
-        }
+        state_by_key = {entry["key"]: entry["value"] for entry in genesis_block["genesis"]}
 
-        self.assertEqual(
-            state_by_key["validators.config:selection_mode"], "manual"
-        )
+        self.assertEqual(state_by_key["validators.config:selection_mode"], "manual")
         self.assertEqual(state_by_key["validators.config:max_validators"], 5)
+        self.assertEqual(state_by_key["validators.config:max_commission_bps"], 10000)
+        self.assertEqual(state_by_key["validators.config:slash_destination"], "dao")
         self.assertEqual(
-            state_by_key["validators.config:max_commission_bps"], 10000
-        )
-        self.assertEqual(
-            state_by_key["validators.config:slash_destination"], "dao"
-        )
-        self.assertEqual(
-            state_by_key["validators.powers:ee06a34cf08bf72ce592d26d36b90c79daba2829ba9634992d034318160d49f9"],
+            state_by_key[
+                "validators.powers:ee06a34cf08bf72ce592d26d36b90c79daba2829ba9634992d034318160d49f9"
+            ],
             10,
         )
 
     def test_build_single_validator_genesis_uses_founder_and_validator_inputs(
         self,
     ):
-        founder_private_key = (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
+        founder_private_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         wallet = Ed25519Account(founder_private_key)
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -682,24 +637,17 @@ class GenesisBuilderTests(unittest.TestCase):
             )
 
         state_by_key = {
-            entry["key"]: entry["value"]
-            for entry in genesis["abci_genesis"]["genesis"]
+            entry["key"]: entry["value"] for entry in genesis["abci_genesis"]["genesis"]
         }
-        self.assertEqual(
-            state_by_key["currency.currency_vk"], wallet.public_key
-        )
-        self.assertEqual(
-            state_by_key["foundation.foundation_vk"], wallet.public_key
-        )
+        self.assertEqual(state_by_key["currency.currency_vk"], wallet.public_key)
+        self.assertEqual(state_by_key["foundation.foundation_vk"], wallet.public_key)
         self.assertEqual(state_by_key["validators.active_validators"], [wallet.public_key])
         self.assertEqual(state_by_key["validators.fee"], 321)
         self.assertEqual(genesis["validators"][0]["power"], "25")
         self.assertEqual(genesis["validators"][0]["name"], "validator-1")
 
     def test_build_local_network_genesis_supports_multiple_validators(self):
-        founder_private_key = (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
+        founder_private_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         validator_two_private_key = (
             "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
         )
@@ -813,13 +761,10 @@ class GenesisBuilderTests(unittest.TestCase):
             )
 
         state_by_key = {
-            entry["key"]: entry["value"]
-            for entry in genesis["abci_genesis"]["genesis"]
+            entry["key"]: entry["value"] for entry in genesis["abci_genesis"]["genesis"]
         }
         self.assertEqual(state_by_key["currency.currency_vk"], founder_wallet.public_key)
-        self.assertEqual(
-            state_by_key["foundation.foundation_vk"], founder_wallet.public_key
-        )
+        self.assertEqual(state_by_key["foundation.foundation_vk"], founder_wallet.public_key)
         self.assertEqual(
             state_by_key["validators.active_validators"],
             [founder_wallet.public_key, validator_two_wallet.public_key],
@@ -830,9 +775,7 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertEqual(genesis["validators"][1]["power"], "25")
 
     def test_build_local_network_genesis_applies_validator_constructor_overrides(self):
-        founder_private_key = (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
+        founder_private_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         founder_wallet = Ed25519Account(founder_private_key)
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -941,8 +884,7 @@ class GenesisBuilderTests(unittest.TestCase):
             )
 
         state_by_key = {
-            entry["key"]: entry["value"]
-            for entry in genesis["abci_genesis"]["genesis"]
+            entry["key"]: entry["value"] for entry in genesis["abci_genesis"]["genesis"]
         }
         self.assertEqual(
             state_by_key["validators.active_validators"],
@@ -953,9 +895,7 @@ class GenesisBuilderTests(unittest.TestCase):
         self.assertEqual(state_by_key["validators.config:max_validators"], 7)
 
     def test_build_local_network_genesis_overrides_bundle_validator_metadata(self):
-        founder_private_key = (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
+        founder_private_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         validator_two_private_key = (
             "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
         )
@@ -1028,9 +968,7 @@ class GenesisBuilderTests(unittest.TestCase):
                                 "constructor_args": {
                                     "genesis_nodes": ["old-node"],
                                     "genesis_powers": {"old-node": 99},
-                                    "genesis_reward_keys": {
-                                        "old-node": "old-reward-key"
-                                    },
+                                    "genesis_reward_keys": {"old-node": "old-reward-key"},
                                     "genesis_registration_fee": 1,
                                 },
                             },
@@ -1085,8 +1023,7 @@ class GenesisBuilderTests(unittest.TestCase):
             )
 
         state_by_key = {
-            entry["key"]: entry["value"]
-            for entry in genesis["abci_genesis"]["genesis"]
+            entry["key"]: entry["value"] for entry in genesis["abci_genesis"]["genesis"]
         }
         self.assertEqual(
             state_by_key["validators.active_validators"],
@@ -1105,9 +1042,7 @@ class GenesisBuilderTests(unittest.TestCase):
             "reward-key-1",
         )
         self.assertEqual(
-            state_by_key[
-                f"validators.reward_keys:{validator_two_wallet.public_key}"
-            ],
+            state_by_key[f"validators.reward_keys:{validator_two_wallet.public_key}"],
             validator_two_wallet.public_key,
         )
         self.assertEqual(genesis["validators"][0]["power"], "12")

@@ -12,13 +12,13 @@ from xian.state_root import compute_driver_state_root
 def test_empty_blocks_do_not_rewrite_authenticated_schedule_or_app_root(tmp_path, pending):
     policy = EvidencePolicy.seed(7, nanos=10 * DAY_NS)
     if pending:
-        policy = policy.advance(nanos=10 * DAY_NS, observed_days=[14])
+        policy = policy.advance(nanos=10 * DAY_NS, observed_days=[14], height=1)
     with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
         driver.set(EVIDENCE_POLICY_KEY, policy.to_state())
         driver.commit()
         before = compute_driver_state_root(driver)
         params = stage_evidence_policy(
-            driver, nanos=11 * DAY_NS, processed_entries=[], applied_patches=[]
+            driver, nanos=11 * DAY_NS, processed_entries=[], applied_patches=[], height=2
         )
         assert compute_driver_state_root(driver) == before
         assert driver.get(EVIDENCE_POLICY_KEY) == policy.to_state()
@@ -28,10 +28,14 @@ def test_empty_blocks_do_not_rewrite_authenticated_schedule_or_app_root(tmp_path
 
 def test_new_target_materializes_only_the_old_authorized_ramp_after_long_gap():
     old = EvidencePolicy.seed(7, nanos=0)
-    started = old.advance(nanos=100 * DAY_NS, observed_days=[14])
-    assert started.comet_json()["max_age_duration"] == str(8 * DAY_NS)
-    extended = started.advance(nanos=200 * DAY_NS, observed_days=[30])
-    assert extended.comet_json()["max_age_duration"] == str(15 * DAY_NS)
+    started = old.advance(nanos=100 * DAY_NS, observed_days=[14], height=1)
+    assert started.comet_json(
+        nanos=(started).growth_start_nanos, height=(started).security_checkpoint_height
+    )["max_age_duration"] == str(8 * DAY_NS)
+    extended = started.advance(nanos=200 * DAY_NS, observed_days=[30], height=1)
+    assert extended.comet_json(
+        nanos=(extended).growth_start_nanos, height=(extended).security_checkpoint_height
+    )["max_age_duration"] == str(15 * DAY_NS)
 
 
 def test_recovery_cannot_credit_a_forged_export_checkpoint_time():
@@ -39,7 +43,7 @@ def test_recovery_cannot_credit_a_forged_export_checkpoint_time():
     from xian.state_root import compute_exported_state_root
 
     validator = "11" * 32
-    policy = EvidencePolicy.seed(7, nanos=0).advance(nanos=0, observed_days=[14])
+    policy = EvidencePolicy.seed(7, nanos=0).advance(nanos=0, observed_days=[14], height=1)
     export = {
         "hash": "",
         "number": 100,
@@ -72,28 +76,30 @@ def test_recovery_cannot_credit_a_forged_export_checkpoint_time():
 @pytest.mark.parametrize("raise_elapsed", [7, DAY_NS])
 def test_nanosecond_cutoff_is_preserved_when_an_unfinished_target_rises(raise_elapsed):
     start = 100 * DAY_NS + 123456789
-    first = EvidencePolicy.seed(7, nanos=start).advance(nanos=start, observed_days=[14])
-    raised = first.advance(nanos=start + raise_elapsed, observed_days=[30])
+    first = EvidencePolicy.seed(7, nanos=start).advance(nanos=start, observed_days=[14], height=1)
+    raised = first.advance(nanos=start + raise_elapsed, observed_days=[30], height=1)
     before_duration = first.effective_duration(start + raise_elapsed)
     assert raised.base_max_age_duration == before_duration
     assert raised.growth_start_nanos == start + raise_elapsed
     for elapsed in (0, 1, 999, DAY_NS):
         point = start + raise_elapsed + elapsed
         assert point - raised.effective_duration(point) == start - 8 * DAY_NS
-    assert raised.advance(nanos=start + raise_elapsed + 1, observed_days=[0]) == raised
+    assert raised.advance(nanos=start + raise_elapsed + 1, observed_days=[0], height=1) == raised
 
 
 @pytest.mark.parametrize("point", [0, 1, 86400000000000])
 def test_different_local_markers_cannot_suppress_the_same_consensus_update(tmp_path, point):
-    policy = EvidencePolicy.seed(7, nanos=0).advance(nanos=0, observed_days=[14])
+    policy = EvidencePolicy.seed(7, nanos=0).advance(nanos=0, observed_days=[14], height=1)
     with Driver(vm_profile="xian_vm_v2", storage_home=tmp_path) as driver:
         driver.set(EVIDENCE_POLICY_KEY, policy.to_state())
         driver.set("__latest_block", {"height": 1, "hash": "a" * 64, "nanos": point})
         driver.commit()
         response = stage_evidence_policy(
-            driver, nanos=2 * DAY_NS, processed_entries=[], applied_patches=[]
+            driver, nanos=2 * DAY_NS, processed_entries=[], applied_patches=[], height=2
         )
-        assert response == policy.consensus_params(nanos=2 * DAY_NS)
+        assert response == policy.consensus_params(
+            nanos=2 * DAY_NS, height=(policy).security_checkpoint_height
+        )
 
 
 def test_schema1_is_not_silently_interpreted_as_a_schedule():
@@ -123,10 +129,15 @@ def test_effective_schedule_respects_duration_int64_and_full_timestamp_domain():
         0,
         nanos=point,
         params={"max_age_num_blocks": 1, "max_age_duration": INT64_MAX - 1, "max_bytes": 0},
-    ).advance(nanos=point, observed_days=[106750])
+    ).advance(nanos=point, observed_days=[106750], height=1)
     # A preconfigured duration larger than the required target is already final.
     assert policy.effective_duration(TIMESTAMP_MAX_NS) == INT64_MAX - 1
-    assert policy.consensus_params(nanos=point).evidence.max_bytes == 0
+    assert (
+        policy.consensus_params(
+            nanos=point, height=(policy).security_checkpoint_height
+        ).evidence.max_bytes
+        == 0
+    )
     with pytest.raises(ValueError):
         policy.effective_duration(TIMESTAMP_MAX_NS + 1)
 
@@ -136,7 +147,7 @@ def _pending_export_fixture():
 
     validator = "11" * 32
     policy = EvidencePolicy.seed(7, nanos=10 * DAY_NS + 123456789).advance(
-        nanos=10 * DAY_NS + 123456789, observed_days=[14]
+        nanos=10 * DAY_NS + 123456789, observed_days=[14], height=1
     )
     point = 11 * DAY_NS + 123456790
     export = {
@@ -269,4 +280,53 @@ def test_epoch_genesis_without_checkpoint_metadata_uses_authenticated_anchor(num
     state["hash"] = compute_exported_state_root(state).hex()
     genesis = build_cometbft_genesis(chain_id="c", abci_genesis=state)
     assert genesis["genesis_time"] == "1970-01-01T00:00:00.000000123Z"
-    assert genesis["consensus_params"]["evidence"] == policy.comet_json()
+    assert genesis["consensus_params"]["evidence"] == policy.comet_json(
+        nanos=(policy).growth_start_nanos, height=(policy).security_checkpoint_height
+    )
+
+
+def test_recovery_explicit_new_history_resets_floors_but_not_configured_base():
+    from xian.recovery_genesis import build_recovery_genesis
+    from xian.state_root import compute_exported_state_root
+
+    export, checkpoint, _, validator = _pending_export_fixture()
+    record = next(e for e in export["genesis"] if e["key"] == EVIDENCE_POLICY_KEY)
+    record["value"]["max_age_num_blocks"] = 1
+    export["number"] = 200000
+    export["hash"] = compute_exported_state_root(export).hex()
+    checkpoint.update(height="200000", app_hash=export["hash"])
+    result = build_recovery_genesis(
+        export,
+        [validator],
+        chain_id="new-history",
+        genesis_time="1971-01-01T00:00:00.123456791Z",
+        trusted_checkpoint=checkpoint,
+    )
+    recovered = next(
+        e["value"] for e in result["abci_genesis"]["genesis"] if e["key"] == EVIDENCE_POLICY_KEY
+    )
+    assert recovered["max_age_num_blocks"] == 1
+    assert recovered["security_checkpoint_height"] == 200000
+    assert recovered["previous_security_checkpoint_height"] is None
+    assert recovered["security_checkpoint_nanos"] == recovered["growth_start_nanos"]
+    assert result["consensus_params"]["evidence"]["max_age_num_blocks"] == "1"
+
+
+@pytest.mark.parametrize("remaining", [0, 1, 2])
+def test_recovery_initial_height_cannot_overflow_upstream_int64(remaining):
+    from xian.evidence_policy import INT64_MAX
+    from xian.recovery_genesis import build_recovery_genesis
+
+    export, checkpoint, _, validator = _pending_export_fixture()
+    export["number"] = INT64_MAX - remaining
+    checkpoint["height"] = str(export["number"])
+    options = dict(
+        chain_id="new-history", genesis_time="1971-01-01T00:00:00Z", trusted_checkpoint=checkpoint
+    )
+    if remaining < 2:
+        with pytest.raises(ValueError, match="initial_height"):
+            build_recovery_genesis(export, [validator], **options)
+    else:
+        assert build_recovery_genesis(export, [validator], **options)["initial_height"] == str(
+            INT64_MAX
+        )

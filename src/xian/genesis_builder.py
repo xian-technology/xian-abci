@@ -32,6 +32,7 @@ from xian.evidence_policy import (
     UNBONDING_PERIOD_KEY,
     EvidencePolicy,
     comet_time_nanos,
+    evidence_checkpoint_height,
     evidence_checkpoint_nanos,
     genesis_evidence_policy,
     required_evidence_duration,
@@ -296,7 +297,7 @@ def _require_chi_rate(driver: Driver) -> None:
         raise ValueError(f"genesis: {exc}") from exc
 
 
-def _stage_genesis_evidence_policy(driver: Driver, *, nanos: int | None) -> None:
+def _stage_genesis_evidence_policy(driver: Driver, *, nanos: int | None, height: int) -> None:
     explicit_nanos = nanos
     if nanos is None:
         submitted = driver.get("submission.__submitted__")
@@ -305,7 +306,7 @@ def _stage_genesis_evidence_policy(driver: Driver, *, nanos: int | None) -> None
         )
     configured_days = driver.get(UNBONDING_PERIOD_KEY)
     days = 0 if configured_days is None else configured_days
-    policy = EvidencePolicy.seed(days, nanos=nanos)
+    policy = EvidencePolicy.seed(days, nanos=nanos, height=height)
     previous_evidence = driver.get(EVIDENCE_POLICY_KEY)
     if previous_evidence is not None:
         policy = EvidencePolicy.from_state(previous_evidence)
@@ -329,7 +330,9 @@ def finalize_genesis_block(
     must agree. Without a record, infer omitted time from staged submission
     metadata, or use literal epoch zero for a minimal manually staged state.
     """
-    _stage_genesis_evidence_policy(driver, nanos=nanos)
+    _stage_genesis_evidence_policy(
+        driver, nanos=nanos, height=evidence_checkpoint_height({"number": number})
+    )
     checkpoint_nanos = EvidencePolicy.from_state(driver.get(EVIDENCE_POLICY_KEY)).growth_start_nanos
     previous_policy = driver.get(EXECUTION_POLICY_KEY)
     if previous_policy is not None:
@@ -509,13 +512,14 @@ def build_cometbft_genesis(
     resolved_genesis_time = normalize_genesis_time(genesis_time)
     consensus_params = deepcopy(DEFAULT_CONSENSUS_PARAMS)
     consensus_params["evidence"] = evidence_policy.comet_json(
-        nanos=comet_time_nanos(resolved_genesis_time)
+        nanos=comet_time_nanos(resolved_genesis_time),
+        height=evidence_checkpoint_height(abci_genesis),
     )
 
     genesis = {
         "genesis_time": resolved_genesis_time,
         "chain_id": chain_id,
-        "initial_height": str(abci_genesis.get("number", "0")),
+        "initial_height": str(evidence_checkpoint_height(abci_genesis)),
         "consensus_params": consensus_params,
         "validators": validators or [],
         "app_hash": str(abci_genesis.get("hash", "")),
@@ -678,12 +682,13 @@ def update_cometbft_genesis(genesis_path: Path, *, abci_genesis: dict[str, Any])
         cometbft_genesis = loads_wire_json(handle.read())
 
     cometbft_genesis["abci_genesis"] = abci_genesis
-    cometbft_genesis["initial_height"] = str(abci_genesis["number"])
+    cometbft_genesis["initial_height"] = str(evidence_checkpoint_height(abci_genesis))
     cometbft_genesis["app_hash"] = str(abci_genesis.get("hash", ""))
     cometbft_genesis.setdefault("consensus_params", deepcopy(DEFAULT_CONSENSUS_PARAMS))[
         "evidence"
     ] = genesis_evidence_policy(abci_genesis).comet_json(
-        nanos=comet_time_nanos(cometbft_genesis["genesis_time"])
+        nanos=comet_time_nanos(cometbft_genesis["genesis_time"]),
+        height=evidence_checkpoint_height(abci_genesis),
     )
 
     validate_genesis_evidence_policy(cometbft_genesis)

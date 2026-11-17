@@ -1,6 +1,7 @@
 from tendermint.abci.types_pb2 import ResponseInitChain
 from xian.evidence_policy import (
     comet_time_nanos,
+    evidence_checkpoint_height,
     validate_genesis_evidence_policy,
     validate_init_evidence_request,
 )
@@ -13,7 +14,8 @@ async def init_chain(self, req) -> ResponseInitChain:
     validate_genesis_execution_policy(abci_genesis_state)
     evidence_policy = validate_genesis_evidence_policy(self.genesis)
     genesis_nanos = comet_time_nanos(self.genesis["genesis_time"])
-    validate_init_evidence_request(req, evidence_policy, nanos=genesis_nanos)
+    genesis_height = evidence_checkpoint_height(abci_genesis_state)
+    validate_init_evidence_request(req, evidence_policy, nanos=genesis_nanos, height=genesis_height)
     # ContractingClient may initialize local helper state before genesis. The
     # consensus state root must be derived only from the declared genesis state.
     self.client.raw_driver.flush_full()
@@ -29,13 +31,15 @@ async def init_chain(self, req) -> ResponseInitChain:
 
     set_latest_block(
         block_hash=state_root,
-        height=int(abci_genesis_state.get("number", 0) or 0),
+        height=genesis_height,
         nanos=genesis_nanos,
         storage_home=self.client.raw_driver.storage_home,
     )
 
     return ResponseInitChain(
-        consensus_params=evidence_policy.consensus_params(nanos=genesis_nanos),
+        consensus_params=evidence_policy.consensus_params(
+            nanos=genesis_nanos, height=genesis_height
+        ),
         app_hash=state_root,
         validators=self.validator_handler.genesis_validators(),
     )

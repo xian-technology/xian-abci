@@ -76,7 +76,9 @@ def node_fixture(node_home, node_constants, request):
 
     initialize_execution_policy(node_constants.STORAGE_HOME)
     genesis = json.loads(node_constants.COMETBFT_GENESIS.read_text())
-    policy = replace(genesis_evidence_policy(genesis), growth_start_nanos=0)
+    policy = replace(
+        genesis_evidence_policy(genesis), growth_start_nanos=0, security_checkpoint_nanos=0
+    )
     with Driver(vm_profile="xian_vm_v2", storage_home=node_constants.STORAGE_HOME) as driver:
         driver.set(EVIDENCE_POLICY_KEY, policy.to_state())
         driver.commit()

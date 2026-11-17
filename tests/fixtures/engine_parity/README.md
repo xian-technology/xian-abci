@@ -291,3 +291,10 @@ this additional state record and its per-block anchor. Every system receipt
 is byte-identical. App hashes and the response bytes carrying them change,
 including empty blocks whose anchor advances. The other eleven parity files
 are unchanged; VM execution and gas revisions remain 15 and 7.
+
+The fresh-chain schema2 retention schedule and sparse security epochs change
+`system_blocks.json` only in app hashes and the full evidence-only consensus
+parameter update returned on every block. The nine system receipts remain
+byte-identical. Two fresh captures with distinct Python hash seeds matched;
+after clearing app_hash and consensus_param_updates, every serialized response
+matched the previous fixture. Transaction/fee/VM goldens are unchanged.

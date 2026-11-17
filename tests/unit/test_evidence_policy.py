@@ -61,9 +61,10 @@ def test_duration_growth_never_reopens_the_expired_history_cutoff():
     from xian.evidence_policy import EvidencePolicy
 
     old = EvidencePolicy.seed(1, nanos=100 * DAY_NS)
-    stable = old.advance(nanos=130 * DAY_NS, observed_days=[1])
-    assert stable == old
-    grown = stable.advance(nanos=130 * DAY_NS + 7, observed_days=[14])
+    stable = old.advance(nanos=130 * DAY_NS, observed_days=[1], height=1)
+    assert stable.base_max_age_duration == old.base_max_age_duration
+    assert stable.previous_security_checkpoint_height == 0
+    grown = stable.advance(nanos=130 * DAY_NS + 7, observed_days=[14], height=1)
     assert grown.base_max_age_duration == old.base_max_age_duration
     assert grown.target_max_age_duration == 15 * DAY_NS
     assert grown.effective_duration(131 * DAY_NS + 7) == 3 * DAY_NS
@@ -71,7 +72,7 @@ def test_duration_growth_never_reopens_the_expired_history_cutoff():
         131 * DAY_NS + 7 - grown.effective_duration(131 * DAY_NS + 7)
         == 130 * DAY_NS + 7 - grown.base_max_age_duration
     )
-    assert grown.advance(nanos=131 * DAY_NS + 7, observed_days=[0]) == grown
+    assert grown.advance(nanos=131 * DAY_NS + 7, observed_days=[0], height=1) == grown
     assert grown.effective_duration(160 * DAY_NS) == 15 * DAY_NS
 
 
@@ -82,7 +83,9 @@ def test_full_evidence_update_preserves_custom_limits_and_omits_other_groups():
         14,
         params={"max_age_num_blocks": 12345, "max_age_duration": 15 * DAY_NS + 7, "max_bytes": 42},
     )
-    update = policy.consensus_params()
+    update = policy.consensus_params(
+        nanos=(policy).growth_start_nanos, height=(policy).security_checkpoint_height
+    )
     assert [field.name for field, _ in update.ListFields()] == ["evidence"]
     assert update.evidence.max_age_num_blocks == 12345
     assert update.evidence.max_bytes == 42
@@ -196,15 +199,15 @@ def test_epoch_zero_and_post2262_timestamp_anchors_are_valid():
     from xian.evidence_policy import EvidencePolicy, comet_time_nanos
 
     epoch = EvidencePolicy.seed(7, nanos=0)
-    grown = epoch.advance(nanos=DAY_NS, observed_days=[14])
+    grown = epoch.advance(nanos=DAY_NS, observed_days=[14], height=1)
     assert grown.base_max_age_duration == 8 * DAY_NS
     assert grown.effective_duration(2 * DAY_NS) == 9 * DAY_NS
     future = comet_time_nanos("2500-01-01T00:00:00.123456789Z")
     assert future > 2**63
     policy = EvidencePolicy.seed(106750, nanos=future)
-    assert policy.advance(nanos=future + 1, observed_days=[]) == policy
-    with pytest.raises(ValueError, match="block nanos"):
-        policy.advance(nanos=future - 1, observed_days=[])
+    assert policy.advance(nanos=future + 1, observed_days=[], height=1) == policy
+    with pytest.raises(ValueError, match="evaluation time"):
+        policy.advance(nanos=future - 1, observed_days=[], height=1)
 
 
 def test_nine_digit_genesis_timestamp_and_recovery_anchor_do_not_round_down(tmp_path):
@@ -249,7 +252,12 @@ def test_full_parameter_domain_and_canonical_target_relationship():
     )
     assert policy.base_max_age_duration == INT64_MAX
     assert policy.max_age_num_blocks == INT64_MAX
-    assert policy.consensus_params().evidence.max_bytes == 0
+    assert (
+        policy.consensus_params(
+            nanos=(policy).growth_start_nanos, height=(policy).security_checkpoint_height
+        ).evidence.max_bytes
+        == 0
+    )
     state = EvidencePolicy.seed(14).to_state()
     state["target_max_age_duration"] -= 1
     with pytest.raises(ValueError, match="target"):
@@ -274,7 +282,11 @@ def test_external_genesis_and_export_must_agree_with_the_protected_record(mutati
     entries = [{"key": POLICY_KEY, "value": policy.to_state()}, {"key": UNBONDING_KEY, "value": 7}]
     genesis = {
         "genesis_time": "1970-01-01T00:00:00Z",
-        "consensus_params": {"evidence": policy.comet_json()},
+        "consensus_params": {
+            "evidence": policy.comet_json(
+                nanos=(policy).growth_start_nanos, height=(policy).security_checkpoint_height
+            )
+        },
         "abci_genesis": {"genesis": entries},
     }
     if mutation == "missing":
@@ -314,12 +326,19 @@ def test_init_time_is_explicit_even_at_epoch_zero_and_unrelated_groups_are_optio
     policy = EvidencePolicy.seed(7, nanos=0)
     for missing in [None, RequestInitChain()]:
         with pytest.raises(ValueError, match="InitChain time"):
-            validate_init_evidence_request(missing, policy)
+            validate_init_evidence_request(
+                missing,
+                policy,
+                nanos=policy.growth_start_nanos,
+                height=policy.security_checkpoint_height,
+            )
     request = RequestInitChain(
         time=Timestamp(seconds=0),
         consensus_params=ConsensusParams(block=BlockParams(max_bytes=1000000)),
     )
-    validate_init_evidence_request(request, policy)
+    validate_init_evidence_request(
+        request, policy, nanos=policy.growth_start_nanos, height=policy.security_checkpoint_height
+    )
 
 
 def test_updating_an_existing_genesis_refuses_wrong_anchor_without_touching_the_file(tmp_path):

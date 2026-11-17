@@ -1,8 +1,8 @@
 """Committed evidence retention and its withdrawal-policy bounds.
 
 CometBFT expires proof only after BOTH its block and time age exceed the
-limits. Keeping the configured block limit and covering the withdrawal time
-therefore needs no guessed block rate. Duration growth must preserve the old
+limits. A sparse pair of rooted security checkpoints protects fresh faults with stale
+header time, without assuming a block rate or rewriting state every block. Duration growth must preserve the old
 expiry cutoff so that previously pruned evidence never becomes valid again.
 """
 
@@ -52,7 +52,7 @@ def _integer(value: object, name: str, *, minimum: int = 1, maximum: int = INT64
 
 @dataclass(frozen=True)
 class EvidencePolicy:
-    """A rooted retention schedule, changed only when the target increases.
+    """A rooted duration schedule and two sparse security checkpoints.
 
     The finalized consensus timestamp supplies evaluation time. Keeping the
     schedule immutable between policy changes avoids Comet proof-block loops;
@@ -64,6 +64,9 @@ class EvidencePolicy:
     max_bytes: int
     target_max_age_duration: int
     growth_start_nanos: int
+    security_checkpoint_height: int
+    security_checkpoint_nanos: int
+    previous_security_checkpoint_height: int | None
 
     def __post_init__(self):
         _integer(self.max_age_num_blocks, "max_age_num_blocks")
@@ -76,6 +79,20 @@ class EvidencePolicy:
             minimum=TIMESTAMP_MIN_NS,
             maximum=TIMESTAMP_MAX_NS,
         )
+        _integer(self.security_checkpoint_height, "security_checkpoint_height", minimum=0)
+        _integer(
+            self.security_checkpoint_nanos,
+            "security_checkpoint_nanos",
+            minimum=TIMESTAMP_MIN_NS,
+            maximum=TIMESTAMP_MAX_NS,
+        )
+        if self.previous_security_checkpoint_height is not None:
+            _integer(
+                self.previous_security_checkpoint_height,
+                "previous_security_checkpoint_height",
+                minimum=0,
+                maximum=self.security_checkpoint_height,
+            )
         if self.target_max_age_duration < self.base_max_age_duration:
             raise ValueError("evidence policy target must cover its base duration")
 
@@ -89,7 +106,7 @@ class EvidencePolicy:
         return cls(**{key: value[key] for key in cls.__dataclass_fields__})
 
     @classmethod
-    def seed(cls, days: object, *, nanos: int = 0, params: Mapping | None = None):
+    def seed(cls, days: object, *, nanos: int = 0, height: int = 0, params: Mapping | None = None):
         evidence = dict(DEFAULT_EVIDENCE_PARAMS if params is None else params)
         if set(evidence) != set(DEFAULT_EVIDENCE_PARAMS):
             raise ValueError("evidence parameters must contain the full limits triple")
@@ -102,6 +119,9 @@ class EvidencePolicy:
             max_bytes=evidence["max_bytes"],
             target_max_age_duration=duration,
             growth_start_nanos=nanos,
+            security_checkpoint_height=height,
+            security_checkpoint_nanos=nanos,
+            previous_security_checkpoint_height=None,
         )
 
     def to_state(self) -> dict:
@@ -114,41 +134,69 @@ class EvidencePolicy:
             self.base_max_age_duration + nanos - self.growth_start_nanos,
         )
 
-    def comet_json(self, *, nanos: int | None = None) -> dict[str, str]:
-        point = self.growth_start_nanos if nanos is None else nanos
+    def effective_block_age(self, height: int) -> int:
+        _integer(height, "block height", minimum=self.security_checkpoint_height)
+        floor = (
+            self.previous_security_checkpoint_height
+            if self.previous_security_checkpoint_height is not None
+            else self.security_checkpoint_height
+        )
+        return max(self.max_age_num_blocks, height - floor)
+
+    def effective_limits(self, *, nanos: int, height: int) -> dict[str, int]:
+        _integer(
+            nanos,
+            "security checkpoint evaluation time",
+            minimum=self.security_checkpoint_nanos,
+            maximum=TIMESTAMP_MAX_NS,
+        )
         return {
-            "max_age_num_blocks": str(self.max_age_num_blocks),
-            "max_age_duration": str(self.effective_duration(point)),
-            "max_bytes": str(self.max_bytes),
+            "max_age_num_blocks": self.effective_block_age(height),
+            "max_age_duration": self.effective_duration(nanos),
+            "max_bytes": self.max_bytes,
         }
 
-    def consensus_params(self, *, nanos: int | None = None) -> ConsensusParams:
-        point = self.growth_start_nanos if nanos is None else nanos
-        seconds, remainder = divmod(self.effective_duration(point), 1_000_000_000)
-        # Comet replaces the whole evidence group; other groups stay absent.
+    def comet_json(self, *, nanos: int, height: int) -> dict[str, str]:
+        return {
+            key: str(value)
+            for key, value in self.effective_limits(nanos=nanos, height=height).items()
+        }
+
+    def consensus_params(self, *, nanos: int, height: int) -> ConsensusParams:
+        limits = self.effective_limits(nanos=nanos, height=height)
+        seconds, remainder = divmod(limits["max_age_duration"], 1_000_000_000)
         return ConsensusParams(
             evidence=EvidenceParams(
-                max_age_num_blocks=self.max_age_num_blocks,
+                max_age_num_blocks=limits["max_age_num_blocks"],
                 max_age_duration=Duration(seconds=seconds, nanos=remainder),
-                max_bytes=self.max_bytes,
+                max_bytes=limits["max_bytes"],
             )
         )
 
-    def advance(self, *, nanos: int, observed_days: list[int]):
-        duration = self.effective_duration(nanos)
+    def advance(self, *, nanos: int, height: int, observed_days: list[int]):
+        limits = self.effective_limits(nanos=nanos, height=height)
         target = max(
             [self.target_max_age_duration, *(required_evidence_duration(d) for d in observed_days)]
         )
-        if target == self.target_max_age_duration:
-            return self
-        # Credit only the OLD authorized schedule, not idle time toward the new
-        # target. A stable old schedule cannot bank time for later growth.
-        return replace(
-            self,
-            base_max_age_duration=duration,
-            target_max_age_duration=target,
-            growth_start_nanos=nanos,
-        )
+        advanced = self
+        if target != self.target_max_age_duration:
+            advanced = replace(
+                self,
+                base_max_age_duration=limits["max_age_duration"],
+                target_max_age_duration=target,
+                growth_start_nanos=nanos,
+            )
+        # Target changes extend the still-live epoch BEFORE any rotation.
+        # A long idle jump rotates once at actual time, never through synthetic
+        # missed epochs that would discard the just-fresh stale parent.
+        if nanos - advanced.security_checkpoint_nanos >= target:
+            advanced = replace(
+                advanced,
+                previous_security_checkpoint_height=advanced.security_checkpoint_height,
+                security_checkpoint_height=height,
+                security_checkpoint_nanos=nanos,
+            )
+        return advanced
 
 
 def genesis_evidence_policy(genesis: Mapping) -> EvidencePolicy:
@@ -166,8 +214,17 @@ def genesis_evidence_policy(genesis: Mapping) -> EvidencePolicy:
     return policy
 
 
+def evidence_checkpoint_height(state: Mapping) -> int:
+    from xian.checkpoint_validation import canonical_integer
+
+    value = _genesis_number(state.get("number", 0))
+    if type(value) is str:
+        return canonical_integer(value, "checkpoint height", minimum=0)
+    return _integer(value, "checkpoint height", minimum=0)
+
+
 def evidence_checkpoint_nanos(state: Mapping, policy: EvidencePolicy) -> int:
-    if "nanos" not in state and state.get("number", 0) not in (0, "0"):
+    if "nanos" not in state and evidence_checkpoint_height(state) > 0:
         raise ValueError("positive-height evidence export requires explicit checkpoint nanos")
     point = _genesis_number(state["nanos"]) if "nanos" in state else policy.growth_start_nanos
     return _integer(
@@ -179,10 +236,14 @@ def validate_genesis_evidence_policy(genesis: Mapping) -> EvidencePolicy:
     policy = genesis_evidence_policy(genesis)
     state = genesis.get("abci_genesis", genesis)
     point = evidence_checkpoint_nanos(state, policy)
+    height = evidence_checkpoint_height(state)
+    policy.effective_limits(nanos=point, height=height)
     if "consensus_params" in genesis:
         if point != comet_time_nanos(genesis["genesis_time"]):
             raise ValueError("genesis evidence policy checkpoint disagrees with genesis_time")
-        if genesis["consensus_params"].get("evidence") != policy.comet_json(nanos=point):
+        if genesis["consensus_params"].get("evidence") != policy.comet_json(
+            nanos=point, height=height
+        ):
             raise ValueError(
                 "genesis consensus evidence parameters disagree with __evidence_policy"
             )
@@ -195,7 +256,9 @@ def _unbonding_writes(changes):
             yield validated_unbonding_days(decode_wire_numbers(change["value"]))
 
 
-def stage_evidence_policy(driver, *, nanos: int, processed_entries: list, applied_patches: list):
+def stage_evidence_policy(
+    driver, *, nanos: int, height: int, processed_entries: list, applied_patches: list
+):
     """Observe every successful intermediate policy, then stage one record.
 
     A policy can increase, create a longer unbond, and decrease in one block.
@@ -213,15 +276,12 @@ def stage_evidence_policy(driver, *, nanos: int, processed_entries: list, applie
             days.extend(_unbonding_writes(result["state"]))
     for patch in applied_patches:
         days.extend(_unbonding_writes(patch["changes"]))
-    advanced = policy.advance(nanos=nanos, observed_days=days)
+    advanced = policy.advance(nanos=nanos, height=height, observed_days=days)
     if advanced != policy:
         driver.set(EVIDENCE_POLICY_KEY, advanced.to_state())
-    if advanced.base_max_age_duration < advanced.target_max_age_duration:
-        # Idempotent full updates avoid letting an unrooted previous marker
-        # decide whether consensus receives the effective limits. Even after
-        # saturation this is fixed metadata; the rooted schedule stays still.
-        return advanced.consensus_params(nanos=nanos)
-    return None
+    # Heights and timestamps are consensus inputs. Always send the full derived
+    # triple; neither rooted clocks nor previous local markers churn per block.
+    return advanced.consensus_params(nanos=nanos, height=height)
 
 
 def comet_time_nanos(value: str) -> int:
@@ -231,17 +291,18 @@ def comet_time_nanos(value: str) -> int:
     return timestamp.ToNanoseconds()
 
 
-def validate_init_evidence_request(
-    req, policy: EvidencePolicy, *, nanos: int | None = None
-) -> None:
-    point = policy.growth_start_nanos if nanos is None else nanos
+def validate_init_evidence_request(req, policy: EvidencePolicy, *, nanos: int, height: int) -> None:
+    point = nanos
     if req is None or not req.HasField("time"):
         raise ValueError("InitChain time is required for the evidence retention anchor")
     req.time.ToJsonString()  # Validate the protobuf Timestamp domain as well.
     if req.time.ToNanoseconds() != point:
         raise ValueError("InitChain time disagrees with the evidence retention anchor")
     if req.HasField("consensus_params") and req.consensus_params.HasField("evidence"):
-        if req.consensus_params.evidence != policy.consensus_params(nanos=point).evidence:
+        if (
+            req.consensus_params.evidence
+            != policy.consensus_params(nanos=point, height=height).evidence
+        ):
             raise ValueError("InitChain evidence parameters disagree with __evidence_policy")
 
 
@@ -259,7 +320,7 @@ def validate_committed_evidence_policy(driver) -> None:
         return
     policy = EvidencePolicy.from_state(value)
     if marker is not None:
-        policy.effective_duration(marker["nanos"])
+        policy.effective_limits(nanos=marker["nanos"], height=marker["height"])
     days = driver.value_from_disk(UNBONDING_PERIOD_KEY)
     if days is not None and required_evidence_duration(days) > policy.target_max_age_duration:
         raise ValueError("committed evidence policy target does not cover unbonding_period_days")
@@ -300,13 +361,13 @@ def committed_evidence_policy_response(driver) -> dict:
     if type(app_hash) is not str or re.fullmatch(r"[0-9a-f]{64}", app_hash) is None:
         raise ValueError("evidence policy committed app hash must be lowercase 64-hex")
     policy = EvidencePolicy.from_state(driver.value_from_disk(EVIDENCE_POLICY_KEY))
-    policy.effective_duration(nanos)
+    policy.effective_limits(nanos=nanos, height=height)
     return {
         "schema_version": 1,
         "height": str(height),
         "app_hash": app_hash,
         "last_block_nanos": str(nanos),
-        "evidence": policy.comet_json(nanos=nanos),
+        "evidence": policy.comet_json(nanos=nanos, height=height),
     }
 
 
