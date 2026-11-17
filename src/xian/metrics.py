@@ -12,15 +12,16 @@ from prometheus_client.core import GaugeMetricFamily, InfoMetricFamily
 
 from xian.config_values import finite_float
 from xian.log_safety import error_fields
+from xian.node_defaults import RUNTIME_DEFAULTS
 from xian.utils.block import get_latest_block_height
 
 
 @dataclass(frozen=True)
 class MetricsConfig:
-    enabled: bool = True
-    host: str = "127.0.0.1"
-    port: int = 9108
-    bds_refresh_seconds: float = 5.0
+    enabled: bool = RUNTIME_DEFAULTS.metrics_enabled
+    host: str = RUNTIME_DEFAULTS.metrics_host
+    port: int = RUNTIME_DEFAULTS.metrics_port
+    bds_refresh_seconds: float = RUNTIME_DEFAULTS.metrics_bds_refresh_seconds
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -32,11 +33,14 @@ class MetricsConfig:
     @classmethod
     def from_runtime_settings(cls, xian_config: dict[str, Any] | None) -> MetricsConfig:
         settings = xian_config or {}
+        defaults = cls()
         return cls(
-            enabled=bool(settings.get("metrics_enabled", True)),
-            host=str(settings.get("metrics_host", "127.0.0.1")),
-            port=int(settings.get("metrics_port", 9108)),
-            bds_refresh_seconds=settings.get("metrics_bds_refresh_seconds", 5.0),
+            enabled=bool(settings.get("metrics_enabled", defaults.enabled)),
+            host=str(settings.get("metrics_host", defaults.host)),
+            port=int(settings.get("metrics_port", defaults.port)),
+            bds_refresh_seconds=settings.get(
+                "metrics_bds_refresh_seconds", defaults.bds_refresh_seconds
+            ),
         )
 
 

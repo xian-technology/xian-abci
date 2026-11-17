@@ -31,6 +31,7 @@ def _sha256_hex(value: str) -> str:
 
 
 def build_parser() -> ArgumentParser:
+    defaults = NodeConfigOptions(moniker="")
     # No prefix matching: a removed flag such as --bds-password must fail, not
     # silently become --bds-password-file.
     parser = ArgumentParser(
@@ -60,7 +61,7 @@ def build_parser() -> ArgumentParser:
     parser.add_argument(
         "--p2p-external-address",
         type=str,
-        default="",
+        default=defaults.p2p_external_address,
         help=(
             "host:port other nodes dial to reach this node (CometBFT "
             "p2p.external_address); empty leaves it unset"
@@ -77,7 +78,7 @@ def build_parser() -> ArgumentParser:
         action=BooleanOptionalAction,
         help="allow CORS on the RPC endpoint",
         required=False,
-        default=True,
+        default=defaults.allow_cors,
     )
     parser.add_argument(
         "--snapshot-url",
@@ -158,54 +159,54 @@ def build_parser() -> ArgumentParser:
         action=BooleanOptionalAction,
         help="enable Prometheus metrics",
         required=False,
-        default=True,
+        default=defaults.prometheus,
     )
     parser.add_argument(
         "--bds-enabled",
         action=BooleanOptionalAction,
         help="enable the node's Blockchain Data Service runtime",
         required=False,
-        default=False,
+        default=defaults.bds_enabled,
     )
     parser.add_argument(
         "--enable-pruning",
         action=BooleanOptionalAction,
         help='prune blocks according to "blocks-to-keep"',
         required=False,
-        default=False,
+        default=defaults.enable_pruning,
     )
     parser.add_argument(
         "--blocks-to-keep",
         type=int,
         help='number of blocks to keep when "enable-pruning" is enabled',
         required=False,
-        default=100000,
+        default=defaults.blocks_to_keep,
     )
     parser.add_argument(
         "--block-policy-mode",
         choices=sorted(SUPPORTED_BLOCK_POLICY_MODES),
         help="block production policy for contract time progression",
         required=False,
-        default="on_demand",
+        default=defaults.block_policy_mode,
     )
     parser.add_argument(
         "--block-policy-interval",
         type=str,
         help="interval used by idle_interval or periodic block policies",
         required=False,
-        default="0s",
+        default=defaults.block_policy_interval,
     )
     parser.add_argument(
         "--statesync-enable",
         action=BooleanOptionalAction,
         help="enable CometBFT state sync using trusted application snapshots",
         required=False,
-        default=False,
+        default=defaults.statesync.enable,
     )
     parser.add_argument(
         "--statesync-rpc-server",
         action="append",
-        default=[],
+        default=list(defaults.statesync.rpc_servers),
         help="trusted CometBFT RPC server for state sync; specify at least twice",
         required=False,
     )
@@ -214,56 +215,56 @@ def build_parser() -> ArgumentParser:
         type=int,
         help="trusted height for CometBFT state sync",
         required=False,
-        default=0,
+        default=defaults.statesync.trust_height,
     )
     parser.add_argument(
         "--statesync-trust-hash",
         type=str,
         help="trusted block hash for CometBFT state sync",
         required=False,
-        default="",
+        default=defaults.statesync.trust_hash,
     )
     parser.add_argument(
         "--statesync-trust-period",
         type=str,
         help="light-client trust period for CometBFT state sync",
         required=False,
-        default="168h0m0s",
+        default=defaults.statesync.trust_period,
     )
     parser.add_argument(
         "--metrics-enabled",
         action=BooleanOptionalAction,
         help="enable the Xian Prometheus metrics endpoint",
         required=False,
-        default=True,
+        default=defaults.metrics.enabled,
     )
     parser.add_argument(
         "--metrics-host",
         type=str,
         help="listen host for the Xian Prometheus metrics endpoint",
         required=False,
-        default="127.0.0.1",
+        default=defaults.metrics.host,
     )
     parser.add_argument(
         "--metrics-port",
         type=int,
         help="listen port for the Xian Prometheus metrics endpoint",
         required=False,
-        default=9108,
+        default=defaults.metrics.port,
     )
     parser.add_argument(
         "--metrics-bds-refresh-seconds",
         type=float,
         help="refresh interval for BDS-derived Prometheus gauges",
         required=False,
-        default=5.0,
+        default=defaults.metrics.bds_refresh_seconds,
     )
     parser.add_argument(
         "--transaction-trace-logging",
         action=BooleanOptionalAction,
         help="emit per-transaction debug summaries during block execution",
         required=False,
-        default=False,
+        default=defaults.transaction_trace_logging,
     )
     parser.add_argument(
         "--app-log-level",
@@ -271,39 +272,39 @@ def build_parser() -> ArgumentParser:
         type=str,
         help="application log level for stderr and rotated file logs",
         required=False,
-        default="INFO",
+        default=defaults.app_logging.level,
     )
     parser.add_argument(
         "--app-log-json",
         action=BooleanOptionalAction,
         help="emit application logs as structured JSON instead of plain text",
         required=False,
-        default=False,
+        default=defaults.app_logging.json_logging,
     )
     parser.add_argument(
         "--app-log-rotation-hours",
         type=int,
         help="rotate application log files after this many hours",
         required=False,
-        default=1,
+        default=defaults.app_logging.rotation_hours,
     )
     parser.add_argument(
         "--app-log-retention-days",
         type=int,
         help="retain rotated application logs for this many days",
         required=False,
-        default=7,
+        default=defaults.app_logging.retention_days,
     )
     parser.add_argument(
         "--app-log-max-file-mb",
         type=int,
-        default=50,
+        default=defaults.app_logging.max_file_mb,
         help="maximum application log segment size in MiB",
     )
     parser.add_argument(
         "--app-log-max-total-mb",
         type=int,
-        default=250,
+        default=defaults.app_logging.max_total_mb,
         help="maximum total application log size in MiB",
     )
     parser.add_argument(
@@ -311,21 +312,21 @@ def build_parser() -> ArgumentParser:
         action=BooleanOptionalAction,
         help="enable readonly transaction simulation on this node",
         required=False,
-        default=True,
+        default=defaults.simulation.enabled,
     )
     parser.add_argument(
         "--simulation-max-concurrency",
         type=int,
         help="maximum concurrent simulation requests accepted by this node",
         required=False,
-        default=2,
+        default=defaults.simulation.max_concurrency,
     )
     parser.add_argument(
         "--simulation-timeout-ms",
         type=int,
         help="timeout in milliseconds for a single simulation request",
         required=False,
-        default=3000,
+        default=defaults.simulation.timeout_ms,
     )
     parser.add_argument(
         "--simulation-max-chi",
@@ -335,7 +336,7 @@ def build_parser() -> ArgumentParser:
             "unset, the chain's max_tx_chi applies, and a cap only lowers it"
         ),
         required=False,
-        default=None,
+        default=defaults.simulation.max_chi,
     )
     parser.add_argument(
         "--tx-fee-mode",
@@ -372,7 +373,7 @@ def build_parser() -> ArgumentParser:
             "pending transactions stop blocking retries"
         ),
         required=False,
-        default=60.0,
+        default=defaults.pending_nonce_reservation_ttl_seconds,
     )
     parser.add_argument(
         "--max-pending-nonces-per-sender",
@@ -382,7 +383,7 @@ def build_parser() -> ArgumentParser:
             "per sender in the local mempool"
         ),
         required=False,
-        default=128,
+        default=defaults.max_pending_nonces_per_sender,
     )
     parser.add_argument(
         "--bds-dsn",

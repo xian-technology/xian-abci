@@ -7,9 +7,12 @@ from contracting import constants as config
 from xian.config_values import finite_float
 from xian.constants import Constants as c
 from xian.exceptions import TransactionException
+from xian.node_defaults import RUNTIME_DEFAULTS
 
-DEFAULT_PENDING_NONCE_RESERVATION_TTL_SECONDS = 60.0
-DEFAULT_MAX_PENDING_NONCES_PER_SENDER = 128
+DEFAULT_PENDING_NONCE_RESERVATION_TTL_SECONDS = (
+    RUNTIME_DEFAULTS.pending_nonce_reservation_ttl_seconds
+)
+DEFAULT_MAX_PENDING_NONCES_PER_SENDER = RUNTIME_DEFAULTS.max_pending_nonces_per_sender
 
 
 @dataclass

@@ -24,6 +24,7 @@ from xian.execution_engine import (
     vm_call_context,
 )
 from xian.execution_policy import EXECUTION_POLICY_KEY
+from xian.node_defaults import RUNTIME_DEFAULTS
 from xian.utils.block import (
     get_latest_block_nanos,
     nanoseconds_to_utc_datetime,
@@ -442,9 +443,9 @@ class QuerySimulationService:
         execution_runtime: VmRuntime | None = None,
         get_block_meta=None,
         chain_id: str | None = None,
-        enabled: bool = True,
-        max_concurrency: int = 2,
-        timeout_ms: int = 3000,
+        enabled: bool = RUNTIME_DEFAULTS.simulation_enabled,
+        max_concurrency: int = RUNTIME_DEFAULTS.simulation_max_concurrency,
+        timeout_ms: int = RUNTIME_DEFAULTS.simulation_timeout_ms,
         max_chi: int = DEFAULT_SIMULATION_CHI,
         charge_fees: bool = True,
     ) -> None:

@@ -3,10 +3,67 @@ from dataclasses import asdict, replace
 from unittest.mock import patch
 
 from xian.cli.configure_node import build_parser
-from xian.node_setup import BdsOptions
+from xian.node_setup import (
+    AppLoggingOptions,
+    BdsOptions,
+    MetricsOptions,
+    NodeConfigOptions,
+    SimulationOptions,
+    StateSyncOptions,
+)
 
 
 class ConfigureNodeCliTests(unittest.TestCase):
+    def test_parser_follows_node_options_defaults(self):
+        defaults = NodeConfigOptions(
+            moniker="unused",
+            p2p_external_address="127.0.0.1:27656",
+            allow_cors=False,
+            prometheus=False,
+            bds_enabled=True,
+            enable_pruning=True,
+            blocks_to_keep=1234,
+            block_policy_mode="periodic",
+            block_policy_interval="5s",
+            transaction_trace_logging=True,
+            pending_nonce_reservation_ttl_seconds=120.0,
+            max_pending_nonces_per_sender=32,
+            metrics=MetricsOptions(False, "localhost", 9208, 7.0),
+            app_logging=AppLoggingOptions("DEBUG", True, 2, 14, 100, 500),
+            simulation=SimulationOptions(False, 4, 6000, 1000),
+            statesync=StateSyncOptions(False, ("http://127.0.0.1:27657",), 12, "ab", "24h"),
+        )
+        with patch("xian.cli.configure_node.NodeConfigOptions", return_value=defaults):
+            args = build_parser().parse_args(["--moniker", "validator-1"])
+        for name in (
+            "p2p_external_address",
+            "allow_cors",
+            "prometheus",
+            "bds_enabled",
+            "blocks_to_keep",
+            "block_policy_mode",
+            "block_policy_interval",
+            "transaction_trace_logging",
+            "pending_nonce_reservation_ttl_seconds",
+            "max_pending_nonces_per_sender",
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(getattr(args, name), getattr(defaults, name))
+        self.assertEqual(args.enable_pruning, defaults.enable_pruning)
+        for prefix, options in (
+            ("metrics", defaults.metrics),
+            ("simulation", defaults.simulation),
+            ("app_log", defaults.app_logging),
+            ("statesync", defaults.statesync),
+        ):
+            for name, value in asdict(options).items():
+                suffix = {"json_logging": "json", "rpc_servers": "rpc_server"}.get(name, name)
+                with self.subTest(prefix=prefix, name=name):
+                    self.assertEqual(
+                        getattr(args, f"{prefix}_{suffix}"),
+                        list(value) if name == "rpc_servers" else value,
+                    )
+
     def test_parser_uses_node_setup_defaults_for_every_bds_option(self):
         defaults = replace(
             BdsOptions(),

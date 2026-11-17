@@ -10,6 +10,7 @@ from loguru import logger
 from xian.constants import Constants
 from xian.log_retention import BoundedLogSink
 from xian.log_safety import context_text, sanitize_record
+from xian.node_defaults import RUNTIME_DEFAULTS
 from xian.node_setup import resolve_app_logging_settings
 from xian.utils.cometbft import load_xian_config
 from xian.utils.tx import tx_hash_from_tx
@@ -124,12 +125,16 @@ def configure_logging(
     else:
         xian_config = config.get("xian", config) if isinstance(config, dict) else {}
     settings = resolve_app_logging_settings(
-        level=xian_config.get("app_log_level", "INFO"),
-        json_logging=xian_config.get("app_log_json", False),
-        rotation_hours=xian_config.get("app_log_rotation_hours", 1),
-        retention_days=xian_config.get("app_log_retention_days", 7),
-        max_file_mb=xian_config.get("app_log_max_file_mb", 50),
-        max_total_mb=xian_config.get("app_log_max_total_mb", 250),
+        level=xian_config.get("app_log_level", RUNTIME_DEFAULTS.app_log_level),
+        json_logging=xian_config.get("app_log_json", RUNTIME_DEFAULTS.app_log_json),
+        rotation_hours=xian_config.get(
+            "app_log_rotation_hours", RUNTIME_DEFAULTS.app_log_rotation_hours
+        ),
+        retention_days=xian_config.get(
+            "app_log_retention_days", RUNTIME_DEFAULTS.app_log_retention_days
+        ),
+        max_file_mb=xian_config.get("app_log_max_file_mb", RUNTIME_DEFAULTS.app_log_max_file_mb),
+        max_total_mb=xian_config.get("app_log_max_total_mb", RUNTIME_DEFAULTS.app_log_max_total_mb),
     )
     logs_dir = default_logs_directory(constants)
     logs_dir.mkdir(parents=True, exist_ok=True)

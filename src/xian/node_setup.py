@@ -5,7 +5,7 @@ import hashlib
 import os
 import secrets
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Any, Sequence
@@ -16,13 +16,19 @@ from xian_runtime_types.encoding import encode_wire, loads_wire_json
 
 from xian import toml_utils
 from xian.execution_policy import VM_EXECUTION_MODE
+from xian.node_defaults import (
+    DEFAULT_ABCI_PROXY_APP,
+    DEFAULT_MAX_TX_BYTES,
+    DEFAULT_RPC_LADDR,
+    RUNTIME_DEFAULTS,
+)
 from xian.services.bds.config import BdsConfig, validate_dsn
 from xian.state_sync_policy import require_p2p_state_sync_disabled
 from xian.utils.cometbft import split_host_port
 
-DEFAULT_COMETBFT_CONFIG_TOML = """
+DEFAULT_COMETBFT_CONFIG_TOML = f"""
 version = "0.40.0"
-proxy_app = "unix:///tmp/abci.sock"
+proxy_app = "{DEFAULT_ABCI_PROXY_APP}"
 moniker = "xian-node"
 db_backend = "goleveldb"
 db_dir = "data"
@@ -37,7 +43,7 @@ abci = "socket"
 filter_peers = false
 
 [rpc]
-laddr = "tcp://127.0.0.1:26657"
+laddr = "{DEFAULT_RPC_LADDR}"
 cors_allowed_origins = [ "*",]
 cors_allowed_methods = [ "HEAD", "GET", "POST",]
 cors_allowed_headers = [ "Origin", "Accept", "Content-Type", "X-Requested-With", "X-Server-Time",]
@@ -92,7 +98,7 @@ size = 5000
 max_txs_bytes = 1073741824
 cache_size = 10000
 keep-invalid-txs-in-cache = false
-max_tx_bytes = 4194304
+max_tx_bytes = {DEFAULT_MAX_TX_BYTES}
 max_batch_bytes = 0
 experimental_max_gossip_connections_to_persistent_peers = 0
 experimental_max_gossip_connections_to_non_persistent_peers = 0
@@ -142,28 +148,10 @@ max_open_connections = 3
 namespace = "cometbft"
 """.strip()
 
-DEFAULT_XIAN_CONFIG_TOML = """
-bds_enabled = false
-pruning_enabled = false
-blocks_to_keep = 100000
-metrics_enabled = true
-metrics_host = "127.0.0.1"
-metrics_port = 9108
-metrics_bds_refresh_seconds = 5.0
-transaction_trace_logging = false
-app_log_level = "INFO"
-app_log_json = false
-app_log_rotation_hours = 1
-app_log_retention_days = 7
-app_log_max_file_mb = 50
-app_log_max_total_mb = 250
-simulation_enabled = true
-simulation_max_concurrency = 2
-simulation_timeout_ms = 3000
-pending_nonce_reservation_ttl_seconds = 60.0
-max_pending_nonces_per_sender = 128
-
-""".strip()
+DEFAULT_XIAN_CONFIG_TOML = toml_utils.dumps(
+    {name: value for name, value in asdict(RUNTIME_DEFAULTS).items() if value is not None}
+).strip()
+_COMETBFT_DEFAULTS = toml_utils.loads(DEFAULT_COMETBFT_CONFIG_TOML)
 
 SUPPORTED_BLOCK_POLICY_MODES = {"on_demand", "idle_interval", "periodic"}
 SUPPORTED_APP_LOG_LEVELS = {
@@ -179,39 +167,39 @@ SUPPORTED_APP_LOG_LEVELS = {
 
 @dataclass(frozen=True, slots=True)
 class StateSyncOptions:
-    enable: bool = False
+    enable: bool = _COMETBFT_DEFAULTS["statesync"]["enable"]
     rpc_servers: tuple[str, ...] = ()
-    trust_height: int = 0
-    trust_hash: str = ""
-    trust_period: str = "168h0m0s"
+    trust_height: int = _COMETBFT_DEFAULTS["statesync"]["trust_height"]
+    trust_hash: str = _COMETBFT_DEFAULTS["statesync"]["trust_hash"]
+    trust_period: str = _COMETBFT_DEFAULTS["statesync"]["trust_period"]
 
 
 @dataclass(frozen=True, slots=True)
 class MetricsOptions:
-    enabled: bool = True
-    host: str = "127.0.0.1"
-    port: int = 9108
-    bds_refresh_seconds: float = 5.0
+    enabled: bool = RUNTIME_DEFAULTS.metrics_enabled
+    host: str = RUNTIME_DEFAULTS.metrics_host
+    port: int = RUNTIME_DEFAULTS.metrics_port
+    bds_refresh_seconds: float = RUNTIME_DEFAULTS.metrics_bds_refresh_seconds
 
 
 @dataclass(frozen=True, slots=True)
 class AppLoggingOptions:
-    level: str = "INFO"
-    json_logging: bool = False
-    rotation_hours: int = 1
-    retention_days: int = 7
-    max_file_mb: int = 50
-    max_total_mb: int = 250
+    level: str = RUNTIME_DEFAULTS.app_log_level
+    json_logging: bool = RUNTIME_DEFAULTS.app_log_json
+    rotation_hours: int = RUNTIME_DEFAULTS.app_log_rotation_hours
+    retention_days: int = RUNTIME_DEFAULTS.app_log_retention_days
+    max_file_mb: int = RUNTIME_DEFAULTS.app_log_max_file_mb
+    max_total_mb: int = RUNTIME_DEFAULTS.app_log_max_total_mb
 
 
 @dataclass(frozen=True, slots=True)
 class SimulationOptions:
-    enabled: bool = True
-    max_concurrency: int = 2
-    timeout_ms: int = 3000
+    enabled: bool = RUNTIME_DEFAULTS.simulation_enabled
+    max_concurrency: int = RUNTIME_DEFAULTS.simulation_max_concurrency
+    timeout_ms: int = RUNTIME_DEFAULTS.simulation_timeout_ms
     # Operator cap on one readonly simulation. None leaves the chain's
     # max_tx_chi in charge; a value only ever lowers it.
-    max_chi: int | None = None
+    max_chi: int | None = RUNTIME_DEFAULTS.simulation_max_chi
 
 
 # Where the containerized node reads the BDS password: the Docker secret that
@@ -259,29 +247,34 @@ class NodeConfigOptions:
     p2p_persistent_peers: tuple[str, ...] = ()
     # host:port other nodes dial; without it CometBFT advertises its listen
     # address (0.0.0.0), which no peer's address book accepts.
-    p2p_external_address: str = ""
-    allow_cors: bool = True
-    bds_enabled: bool = False
-    enable_pruning: bool = False
-    blocks_to_keep: int = 100000
-    transaction_trace_logging: bool = False
+    p2p_external_address: str = _COMETBFT_DEFAULTS["p2p"]["external_address"]
+    allow_cors: bool = bool(_COMETBFT_DEFAULTS["rpc"]["cors_allowed_origins"])
+    bds_enabled: bool = RUNTIME_DEFAULTS.bds_enabled
+    enable_pruning: bool = RUNTIME_DEFAULTS.pruning_enabled
+    blocks_to_keep: int = RUNTIME_DEFAULTS.blocks_to_keep
+    transaction_trace_logging: bool = RUNTIME_DEFAULTS.transaction_trace_logging
     block_policy_mode: str = "on_demand"
     block_policy_interval: str = "0s"
     statesync: StateSyncOptions = field(default_factory=StateSyncOptions)
     metrics: MetricsOptions = field(default_factory=MetricsOptions)
     app_logging: AppLoggingOptions = field(default_factory=AppLoggingOptions)
     simulation: SimulationOptions = field(default_factory=SimulationOptions)
-    pending_nonce_reservation_ttl_seconds: float = 60.0
-    max_pending_nonces_per_sender: int = 128
+    pending_nonce_reservation_ttl_seconds: float = (
+        RUNTIME_DEFAULTS.pending_nonce_reservation_ttl_seconds
+    )
+    max_pending_nonces_per_sender: int = RUNTIME_DEFAULTS.max_pending_nonces_per_sender
     bds: BdsOptions = field(default_factory=BdsOptions)
-    proxy_app: str = "unix:///tmp/abci.sock"
-    prometheus: bool = True
+    proxy_app: str = DEFAULT_ABCI_PROXY_APP
+    prometheus: bool = _COMETBFT_DEFAULTS["instrumentation"]["prometheus"]
+
+
+_NODE_DEFAULTS = NodeConfigOptions(moniker="")
 
 
 def resolve_block_policy(
     *,
-    mode: str = "on_demand",
-    interval: str = "0s",
+    mode: str = _NODE_DEFAULTS.block_policy_mode,
+    interval: str = _NODE_DEFAULTS.block_policy_interval,
 ) -> tuple[bool, str]:
     if mode not in SUPPORTED_BLOCK_POLICY_MODES:
         raise ValueError(f"block_policy_mode must be one of {sorted(SUPPORTED_BLOCK_POLICY_MODES)}")
@@ -323,10 +316,10 @@ def _is_unspecified_ip(host: str) -> bool:
 
 def resolve_simulation_settings(
     *,
-    enabled: bool = True,
-    max_concurrency: int = 2,
-    timeout_ms: int = 3000,
-    max_chi: int | None = None,
+    enabled: bool = _NODE_DEFAULTS.simulation.enabled,
+    max_concurrency: int = _NODE_DEFAULTS.simulation.max_concurrency,
+    timeout_ms: int = _NODE_DEFAULTS.simulation.timeout_ms,
+    max_chi: int | None = _NODE_DEFAULTS.simulation.max_chi,
 ) -> dict[str, Any]:
     if max_concurrency <= 0:
         raise ValueError("simulation_max_concurrency must be greater than zero")
@@ -385,12 +378,12 @@ def validate_bds_options(bds: BdsOptions) -> None:
 
 def resolve_app_logging_settings(
     *,
-    level: str = "INFO",
-    json_logging: bool = False,
-    rotation_hours: int = 1,
-    retention_days: int = 7,
-    max_file_mb: int = 50,
-    max_total_mb: int = 250,
+    level: str = _NODE_DEFAULTS.app_logging.level,
+    json_logging: bool = _NODE_DEFAULTS.app_logging.json_logging,
+    rotation_hours: int = _NODE_DEFAULTS.app_logging.rotation_hours,
+    retention_days: int = _NODE_DEFAULTS.app_logging.retention_days,
+    max_file_mb: int = _NODE_DEFAULTS.app_logging.max_file_mb,
+    max_total_mb: int = _NODE_DEFAULTS.app_logging.max_total_mb,
 ) -> dict[str, Any]:
     if not isinstance(level, str):
         raise ValueError("app_log_level must be a string")
@@ -420,11 +413,11 @@ def resolve_app_logging_settings(
 
 def resolve_statesync_settings(
     *,
-    enable: bool = False,
+    enable: bool = _NODE_DEFAULTS.statesync.enable,
     rpc_servers: Sequence[str] | None = None,
-    trust_height: int = 0,
-    trust_hash: str = "",
-    trust_period: str = "168h0m0s",
+    trust_height: int = _NODE_DEFAULTS.statesync.trust_height,
+    trust_hash: str = _NODE_DEFAULTS.statesync.trust_hash,
+    trust_period: str = _NODE_DEFAULTS.statesync.trust_period,
 ) -> dict[str, Any]:
     require_p2p_state_sync_disabled(enable)
     del rpc_servers, trust_height, trust_hash

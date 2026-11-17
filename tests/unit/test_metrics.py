@@ -1,10 +1,21 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import dataclass
 from types import SimpleNamespace
 
-from xian.metrics import XianMetricsCollector
+from xian.metrics import MetricsConfig, XianMetricsCollector
 
+
+def test_metrics_parser_uses_its_config_defaults():
+    @dataclass(frozen=True)
+    class CustomMetricsConfig(MetricsConfig):
+        enabled: bool = False
+        host: str = "localhost"
+        port: int = 9208
+        bds_refresh_seconds: float = 7.0
+
+    assert CustomMetricsConfig.from_runtime_settings({}) == CustomMetricsConfig()
 
 class BdsMetricsCollectorTests(unittest.TestCase):
     def test_metrics_collector_exports_latest_block_metadata(

@@ -91,6 +91,12 @@ from xian.methods import (
     query,
 )
 from xian.metrics import MetricsService
+from xian.node_defaults import (
+    DEFAULT_ABCI_PROXY_APP,
+    DEFAULT_MAX_TX_BYTES,
+    DEFAULT_RPC_LADDR,
+    RUNTIME_DEFAULTS,
+)
 from xian.nonce import NonceStorage
 from xian.perf import PerfTracker
 from xian.processor import TxProcessor
@@ -234,15 +240,21 @@ class Xian:
             logger.bind(**error_fields(exc)).error("Fee policy resolution failed")
             raise SystemExit() from exc
         self.enable_tx_fee = self.tx_fee_policy.charge_fees
-        self.simulation_max_chi = xian_config.get("simulation_max_chi")
+        self.simulation_max_chi = xian_config.get(
+            "simulation_max_chi", RUNTIME_DEFAULTS.simulation_max_chi
+        )
         self.simulator = QuerySimulationService(
             client=self.client,
             execution_runtime=self.execution_runtime,
             get_block_meta=self.committed_block_meta,
             chain_id=self.chain_id,
-            enabled=xian_config.get("simulation_enabled", True),
-            max_concurrency=xian_config.get("simulation_max_concurrency", 2),
-            timeout_ms=xian_config.get("simulation_timeout_ms", 3000),
+            enabled=xian_config.get("simulation_enabled", RUNTIME_DEFAULTS.simulation_enabled),
+            max_concurrency=xian_config.get(
+                "simulation_max_concurrency", RUNTIME_DEFAULTS.simulation_max_concurrency
+            ),
+            timeout_ms=xian_config.get(
+                "simulation_timeout_ms", RUNTIME_DEFAULTS.simulation_timeout_ms
+            ),
             max_chi=self.simulation_chi_budget(),
             charge_fees=self.tx_fee_policy.charge_fees,
         )
@@ -255,7 +267,7 @@ class Xian:
         self._state_transition_lock = asyncio.Lock()
         self._pending_commit_driver_state = None
 
-        self.bds_enabled = xian_config.get("bds_enabled", False)
+        self.bds_enabled = xian_config.get("bds_enabled", RUNTIME_DEFAULTS.bds_enabled)
         self.bds_config = BdsConfig.from_runtime_settings(xian_config)
         if self.bds_config.spool_dir is None:
             self.bds_config = replace(
@@ -266,13 +278,13 @@ class Xian:
             self.bds_config = replace(
                 self.bds_config,
                 rpc_url=resolve_local_rpc_url(
-                    str(self.cometbft_config.get("rpc", {}).get("laddr", "tcp://127.0.0.1:26657"))
+                    str(self.cometbft_config.get("rpc", {}).get("laddr", DEFAULT_RPC_LADDR))
                 ),
             )
 
-        self.pruning_enabled = xian_config.get("pruning_enabled", False)
+        self.pruning_enabled = xian_config.get("pruning_enabled", RUNTIME_DEFAULTS.pruning_enabled)
         # If pruning is enabled, this is the number of blocks to keep history for
-        self.blocks_to_keep = xian_config.get("blocks_to_keep", 100000)
+        self.blocks_to_keep = xian_config.get("blocks_to_keep", RUNTIME_DEFAULTS.blocks_to_keep)
         self.app_version = 1
         self.metrics_service = MetricsService.from_runtime_settings(self, xian_config)
 
@@ -339,14 +351,18 @@ class Xian:
             configured_max_tx_bytes = int(
                 self.cometbft_config.get("mempool", {}).get(
                     "max_tx_bytes",
-                    4 * 1024 * 1024,
+                    DEFAULT_MAX_TX_BYTES,
                 )
             )
         except (TypeError, ValueError):
-            configured_max_tx_bytes = 4 * 1024 * 1024
+            configured_max_tx_bytes = DEFAULT_MAX_TX_BYTES
         self.max_tx_bytes = max(configured_max_tx_bytes, 1)
-        self.app_log_level = str(xian_config.get("app_log_level", "INFO")).upper()
-        self.transaction_trace_logging = xian_config.get("transaction_trace_logging", False)
+        self.app_log_level = str(
+            xian_config.get("app_log_level", RUNTIME_DEFAULTS.app_log_level)
+        ).upper()
+        self.transaction_trace_logging = xian_config.get(
+            "transaction_trace_logging", RUNTIME_DEFAULTS.transaction_trace_logging
+        )
         self.transaction_trace_debug_logging = (
             self.transaction_trace_logging and log_level_includes(self.app_log_level, "DEBUG")
         )
@@ -570,7 +586,7 @@ def main():
     ABCIServer(
         app=app,
         socket_path=resolve_abci_socket_path(
-            str(app.cometbft_config.get("proxy_app", "unix:///tmp/abci.sock"))
+            str(app.cometbft_config.get("proxy_app", DEFAULT_ABCI_PROXY_APP))
         ),
     ).run()
 
