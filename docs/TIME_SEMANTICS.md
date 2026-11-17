@@ -140,3 +140,17 @@ Recovery materializes the old schedule at that independently verified export
 checkpoint, then reanchors the remaining schedule to the agreed new genesis
 time. The halted interval earns no growth. Normal full-store restore and replay
 preserve the original schedule/anchor and use the real committed native time.
+
+## Successor Staking Clocks
+
+A positive-period staking challenge clock is anchored in a strictly later block
+than the request or exit. The node invokes the coordinator's reserved
+`process_time_anchors(max_work=32)` once before paid execution, after evidence
+and liveness. Same-height jobs are skipped; pending slash jobs do not block this
+timing-only work. Persistent FIFO state resumes across restart. A large queue
+may cause a finite proof-block burst while batches of 32 jobs change actual stake
+state; the empty path stops invoking the driver after the queue drains.
+
+The hook is only one part of challenge safety: evidence retention must also
+protect fresh faults whose first post-idle header timestamp is old. An anchor
+alone is not proof that the corresponding evidence will remain valid.
