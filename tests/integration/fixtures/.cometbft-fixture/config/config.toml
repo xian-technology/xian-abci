@@ -1,4 +1,4 @@
-version = "0.39.3"
+version = "0.40.0"
 proxy_app = "unix:///tmp/abci.sock"
 moniker = "test-node"
 db_backend = "goleveldb"

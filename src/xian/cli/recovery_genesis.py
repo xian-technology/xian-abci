@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from argparse import ArgumentParser
 from pathlib import Path
 
@@ -16,6 +17,11 @@ def build_parser() -> ArgumentParser:
         )
     )
     parser.add_argument("--exported-state", required=True, help="xian-export-state output")
+    parser.add_argument(
+        "--trusted-checkpoint",
+        required=True,
+        help="independently trusted /evidence_policy or native-inspector JSON (height/app_hash/last_block_nanos)",
+    )
     parser.add_argument("--keep", action="append", required=True, help="validator key to keep")
     parser.add_argument("--chain-id", required=True)
     parser.add_argument("--genesis-time", required=True, help="agreed by all operators")
@@ -30,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
         args.keep,
         chain_id=args.chain_id,
         genesis_time=args.genesis_time,
+        trusted_checkpoint=json.loads(Path(args.trusted_checkpoint).read_text()),
     )
     write_genesis_block(Path(args.output), genesis)
     print(

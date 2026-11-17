@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import selectors
 import subprocess
 import time
@@ -22,8 +21,16 @@ from xian_accounts import verify_message
 from xian_runtime_types.encoding import decode
 from xian_vm_core import StateRootTree
 
+from xian.checkpoint_validation import (
+    canonical_hex as canonical_hex,
+)
+from xian.checkpoint_validation import (
+    canonical_integer as canonical_integer,
+)
+from xian.checkpoint_validation import (
+    positive_integer as positive_integer,
+)
 from xian.evidence_policy import (
-    INT64_MAX,
     TIMESTAMP_MAX_NS,
     TIMESTAMP_MIN_NS,
     committed_evidence_policy_response,
@@ -71,30 +78,6 @@ INSPECTOR_FIELDS = frozenset(
         "initial_height",
     }
 )
-
-
-def canonical_hex(value: object, label: str, *, length: int = 64) -> str:
-    if type(value) is not str or re.fullmatch(r"[0-9a-f]{%d}" % length, value) is None:
-        raise ValueError(f"{label} must be lowercase {length}-hex")
-    return value
-
-
-def positive_integer(value: object, label: str) -> int:
-    if type(value) is not int or not 1 <= value <= INT64_MAX:
-        raise ValueError(f"{label} must be a positive int64 integer")
-    return value
-
-
-def canonical_integer(value: object, label: str, *, minimum=1, maximum=INT64_MAX) -> int:
-    if type(value) is not str or re.fullmatch(r"0|-?[1-9][0-9]*", value) is None:
-        raise ValueError(f"{label} must be a canonical decimal string")
-    # Reject excessive input before Python's arbitrary precision conversion.
-    if len(value) > 32:
-        raise ValueError(f"{label} is outside its supported range")
-    number = int(value)
-    if not minimum <= number <= maximum:
-        raise ValueError(f"{label} is outside its supported range")
-    return number
 
 
 def validate_full_node_store_manifest(manifest: dict) -> dict:

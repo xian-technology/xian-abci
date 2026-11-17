@@ -39,7 +39,7 @@ def seed_application(storage_home):
         root = compute_driver_state_root(driver).hex()
         driver.set(
             Constants.LATEST_BLOCK_KEY,
-            {"height": 123, "hash": root, "nanos": policy.last_block_nanos},
+            {"height": 123, "hash": root, "nanos": policy.growth_start_nanos},
         )
         driver.commit()
     return {
@@ -48,7 +48,7 @@ def seed_application(storage_home):
         "height": "123",
         "app_hash": root,
         "block_hash": "b" * 64,
-        "last_block_nanos": str(policy.last_block_nanos),
+        "last_block_nanos": str(policy.growth_start_nanos),
         "evidence": policy.comet_json(),
         "block_store_base": "1",
         "block_store_height": "123",

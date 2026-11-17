@@ -6,7 +6,7 @@ from cometbft.abci.v1beta2.types_pb2 import Event, EventAttribute
 from cometbft.abci.v1beta3.types_pb2 import ExecTxResult, ResponseFinalizeBlock
 from xian.app_logging import build_log_fields
 from xian.constants import Constants as c
-from xian.evidence_policy import stage_evidence_policy
+from xian.evidence_policy import stage_evidence_policy, validate_finalized_time
 from xian.log_safety import error_fields
 from xian.methods._evidence import maybe_apply_evidence_penalties
 from xian.methods._liveness import maybe_record_liveness
@@ -173,7 +173,9 @@ def _build_tx_events(tx_result):
 
 
 def _initialize_block(self, req):
+    req.time.ToJsonString()  # Reject noncanonical protobuf seconds/nanos before execution.
     nanos = get_nanotime_from_block_time(req.time)
+    validate_finalized_time(self.client.raw_driver, nanos)
     block_hash = convert_binary_to_hex(req.hash)
     block_datetime = convert_cometbft_time_to_datetime(nanos)
     height = req.height

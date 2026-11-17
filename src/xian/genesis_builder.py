@@ -32,6 +32,7 @@ from xian.evidence_policy import (
     UNBONDING_PERIOD_KEY,
     EvidencePolicy,
     comet_time_nanos,
+    evidence_checkpoint_nanos,
     genesis_evidence_policy,
     required_evidence_duration,
     validate_genesis_evidence_policy,
@@ -308,7 +309,7 @@ def _stage_genesis_evidence_policy(driver: Driver, *, nanos: int | None) -> None
     previous_evidence = driver.get(EVIDENCE_POLICY_KEY)
     if previous_evidence is not None:
         policy = EvidencePolicy.from_state(previous_evidence)
-        if explicit_nanos is not None and explicit_nanos != policy.last_block_nanos:
+        if explicit_nanos is not None and explicit_nanos != policy.growth_start_nanos:
             raise ValueError("explicit genesis time disagrees with existing evidence policy anchor")
         if required_evidence_duration(days) > policy.target_max_age_duration:
             raise ValueError("existing evidence policy does not cover staged unbonding_period_days")
@@ -329,6 +330,7 @@ def finalize_genesis_block(
     metadata, or use literal epoch zero for a minimal manually staged state.
     """
     _stage_genesis_evidence_policy(driver, nanos=nanos)
+    checkpoint_nanos = EvidencePolicy.from_state(driver.get(EVIDENCE_POLICY_KEY)).growth_start_nanos
     previous_policy = driver.get(EXECUTION_POLICY_KEY)
     if previous_policy is not None:
         validate_execution_policy(previous_policy)
@@ -336,6 +338,7 @@ def finalize_genesis_block(
     genesis_block = {
         "hash": "",
         "number": str(number),
+        "nanos": checkpoint_nanos,
         "genesis": [],
         "origin": {
             "signature": "",
@@ -501,11 +504,13 @@ def build_cometbft_genesis(
     evidence_policy = genesis_evidence_policy(abci_genesis)
     if genesis_time is None:
         timestamp = Timestamp()
-        timestamp.FromNanoseconds(evidence_policy.last_block_nanos)
+        timestamp.FromNanoseconds(evidence_checkpoint_nanos(abci_genesis, evidence_policy))
         genesis_time = timestamp.ToJsonString()
     resolved_genesis_time = normalize_genesis_time(genesis_time)
     consensus_params = deepcopy(DEFAULT_CONSENSUS_PARAMS)
-    consensus_params["evidence"] = evidence_policy.comet_json()
+    consensus_params["evidence"] = evidence_policy.comet_json(
+        nanos=comet_time_nanos(resolved_genesis_time)
+    )
 
     genesis = {
         "genesis_time": resolved_genesis_time,
@@ -677,7 +682,9 @@ def update_cometbft_genesis(genesis_path: Path, *, abci_genesis: dict[str, Any])
     cometbft_genesis["app_hash"] = str(abci_genesis.get("hash", ""))
     cometbft_genesis.setdefault("consensus_params", deepcopy(DEFAULT_CONSENSUS_PARAMS))[
         "evidence"
-    ] = genesis_evidence_policy(abci_genesis).comet_json()
+    ] = genesis_evidence_policy(abci_genesis).comet_json(
+        nanos=comet_time_nanos(cometbft_genesis["genesis_time"])
+    )
 
     validate_genesis_evidence_policy(cometbft_genesis)
     with open(genesis_path, "w", encoding="utf-8") as handle:

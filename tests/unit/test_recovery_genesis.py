@@ -1,5 +1,7 @@
 """A recovery genesis restarts a chain halted by offline voting power."""
 
+import json
+
 import pytest
 from xian_runtime_types.time import Datetime
 
@@ -39,13 +41,28 @@ def _exported(height=461):
     return state
 
 
+def _trusted_checkpoint(height=461):
+    # Independent fixture checkpoint, captured from the original untampered state.
+    original = _exported(height)
+    return {
+        "schema_version": 1,
+        "height": str(height),
+        "app_hash": original["hash"],
+        "last_block_nanos": "1700000000000000000",
+    }
+
+
 def _state(genesis):
     return {entry["key"]: entry["value"] for entry in genesis["abci_genesis"]["genesis"]}
 
 
 def test_the_online_validators_continue_the_chain_alone():
     genesis = build_recovery_genesis(
-        _exported(), ONLINE, chain_id="xian-test-1", genesis_time=GENESIS_TIME
+        _exported(),
+        ONLINE,
+        trusted_checkpoint=_trusted_checkpoint(),
+        chain_id="xian-test-1",
+        genesis_time=GENESIS_TIME,
     )
 
     state = _state(genesis)
@@ -64,7 +81,11 @@ def test_the_online_validators_continue_the_chain_alone():
 
 def test_the_recovery_genesis_skips_the_halted_height_with_a_valid_root():
     genesis = build_recovery_genesis(
-        _exported(461), ONLINE, chain_id="xian-test-1", genesis_time=GENESIS_TIME
+        _exported(461),
+        ONLINE,
+        trusted_checkpoint=_trusted_checkpoint(),
+        chain_id="xian-test-1",
+        genesis_time=GENESIS_TIME,
     )
 
     abci_genesis = genesis["abci_genesis"]
@@ -88,14 +109,24 @@ def test_the_recovery_genesis_skips_the_halted_height_with_a_valid_root():
 )
 def test_the_validators_kept_must_be_distinct_active_validators(keep, message):
     with pytest.raises(ValueError, match=message):
-        build_recovery_genesis(_exported(), keep, chain_id="c", genesis_time=GENESIS_TIME)
+        build_recovery_genesis(
+            _exported(),
+            keep,
+            trusted_checkpoint=_trusted_checkpoint(),
+            chain_id="c",
+            genesis_time=GENESIS_TIME,
+        )
 
 
 def test_a_genesis_time_before_the_last_block_is_refused():
     # 1_700_000_000 s is 2023-11-14T22:13:20Z: contract time must not go back.
     with pytest.raises(ValueError, match="after the last block"):
         build_recovery_genesis(
-            _exported(), ONLINE, chain_id="c", genesis_time="2023-11-14T22:13:20.000000Z"
+            _exported(),
+            ONLINE,
+            trusted_checkpoint=_trusted_checkpoint(),
+            chain_id="c",
+            genesis_time="2023-11-14T22:13:20.000000Z",
         )
 
 
@@ -105,7 +136,13 @@ def test_a_tampered_export_is_refused():
     balance["value"] = 6
 
     with pytest.raises(ValueError, match="state root"):
-        build_recovery_genesis(exported, ONLINE, chain_id="c", genesis_time=GENESIS_TIME)
+        build_recovery_genesis(
+            exported,
+            ONLINE,
+            trusted_checkpoint=_trusted_checkpoint(),
+            chain_id="c",
+            genesis_time=GENESIS_TIME,
+        )
 
 
 def test_the_cli_writes_the_same_genesis_for_every_operator(tmp_path):
@@ -115,10 +152,19 @@ def test_the_cli_writes_the_same_genesis_for_every_operator(tmp_path):
 
     exported = tmp_path / "exported_state.json"
     exported.write_text(encode(_exported(), vm_profile="xian_vm_v2"))
+    checkpoint = tmp_path / "trusted-checkpoint.json"
+    checkpoint.write_text(json.dumps(_trusted_checkpoint()))
     outputs = []
     for operator in ("a", "b"):
         output = tmp_path / operator / "genesis.json"
-        args = ["--exported-state", str(exported), "--chain-id", "xian-test-1"]
+        args = [
+            "--exported-state",
+            str(exported),
+            "--trusted-checkpoint",
+            str(checkpoint),
+            "--chain-id",
+            "xian-test-1",
+        ]
         args += ["--genesis-time", GENESIS_TIME, "--output", str(output)]
         for key in ONLINE:
             args += ["--keep", key]
@@ -145,7 +191,13 @@ def test_a_node_starting_from_the_written_genesis_reaches_its_app_hash(tmp_path)
     path = tmp_path / "genesis.json"
     write_genesis_block(
         path,
-        build_recovery_genesis(_exported(), ONLINE, chain_id="c", genesis_time=GENESIS_TIME),
+        build_recovery_genesis(
+            _exported(),
+            ONLINE,
+            trusted_checkpoint=_trusted_checkpoint(),
+            chain_id="c",
+            genesis_time=GENESIS_TIME,
+        ),
     )
     genesis = loads_wire_json(path.read_bytes())
     client = ContractingClient(vm_profile="xian_vm_v2", storage_home=tmp_path / "home")
@@ -157,3 +209,25 @@ def test_a_node_starting_from_the_written_genesis_reaches_its_app_hash(tmp_path)
         assert NonceStorage(client).get_nonce("alice") == 3
     finally:
         client.close()
+
+
+def test_recovery_cli_requires_the_independent_checkpoint_before_writing(tmp_path):
+    from xian.cli.recovery_genesis import main
+
+    output = tmp_path / "genesis.json"
+    args = [
+        "--exported-state",
+        str(tmp_path / "untrusted.json"),
+        "--keep",
+        ONLINE[0],
+        "--chain-id",
+        "c",
+        "--genesis-time",
+        GENESIS_TIME,
+        "--output",
+        str(output),
+    ]
+    with pytest.raises(SystemExit) as error:
+        main(args)
+    assert error.value.code == 2
+    assert not output.exists()

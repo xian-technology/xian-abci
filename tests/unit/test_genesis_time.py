@@ -173,13 +173,13 @@ def test_two_stage_default_genesis_uses_the_instant_already_committed_by_the_bui
     )
     prepared = genesis_evidence_policy(block)
     genesis = build_cometbft_genesis(chain_id="xian-local-1", abci_genesis=block)
-    assert comet_time_nanos(genesis["genesis_time"]) == prepared.last_block_nanos
+    assert comet_time_nanos(genesis["genesis_time"]) == prepared.growth_start_nanos
     assert genesis["abci_genesis"] is block
     from google.protobuf.timestamp_pb2 import Timestamp
 
     later = Timestamp()
-    later.FromNanoseconds(prepared.last_block_nanos + 1)
-    with pytest.raises(ValueError, match="time anchor"):
+    later.FromNanoseconds(prepared.growth_start_nanos + 1)
+    with pytest.raises(ValueError, match="time anchor|checkpoint"):
         build_cometbft_genesis(
             chain_id="xian-local-1", abci_genesis=block, genesis_time=later.ToJsonString()
         )

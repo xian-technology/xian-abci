@@ -18,7 +18,7 @@ from xian.xian_abci import Xian
 
 def _init_request(app):
     timestamp = Timestamp()
-    timestamp.FromNanoseconds(app.genesis_evidence_policy.last_block_nanos)
+    timestamp.FromNanoseconds(app.genesis_evidence_policy.growth_start_nanos)
     return RequestInitChain(
         time=timestamp, consensus_params=app.genesis_evidence_policy.consensus_params()
     )
@@ -89,15 +89,16 @@ def test_same_block_increase_and_reduction_preserve_the_longer_claim_window(app)
         patch.object(app.tx_processor, "process_block", side_effect=process),
     ):
         response = asyncio.run(finalize_block(app, request))
-    assert response.consensus_param_updates.evidence.max_age_duration.seconds == 8 * 86400 + 5
+    assert response.consensus_param_updates.evidence.max_age_duration.seconds == 8 * 86400
     assert (
-        app.client.raw_driver.value_from_disk(EVIDENCE_POLICY_KEY)["max_age_duration"] == 8 * DAY_NS
+        app.client.raw_driver.value_from_disk(EVIDENCE_POLICY_KEY)["base_max_age_duration"]
+        == 8 * DAY_NS
     )
     asyncio.run(commit(app))
     persisted = app.client.raw_driver.value_from_disk(EVIDENCE_POLICY_KEY)
     assert persisted["target_max_age_duration"] == 15 * DAY_NS
-    assert persisted["max_age_duration"] == 8 * DAY_NS + 5_000_000_000
-    assert persisted["last_block_nanos"] == (10 * 86400 + 5) * 1_000_000_000
+    assert persisted["base_max_age_duration"] == 8 * DAY_NS
+    assert persisted["growth_start_nanos"] == (10 * 86400 + 5) * 1_000_000_000
     assert app.client.raw_driver.get(UNBONDING_PERIOD_KEY) == 7
     # The app root commits the same record Comet receives.
     assert response.app_hash == app.state_root_cache.root_hash
@@ -155,7 +156,7 @@ def test_uncommitted_growth_replays_exactly_and_committed_growth_resumes_after_r
     try:
         response = _paid_policy_block(resumed, [], height=2, seconds=11 * 86400)
         asyncio.run(commit(resumed))
-        assert response.consensus_param_updates.evidence.max_age_duration.seconds == 9 * 86400
+        assert response.consensus_param_updates.evidence.max_age_duration.seconds == 9 * 86400 - 5
         assert (
             resumed.client.raw_driver.get(EVIDENCE_POLICY_KEY)["target_max_age_duration"]
             == 15 * DAY_NS
@@ -165,12 +166,12 @@ def test_uncommitted_growth_replays_exactly_and_committed_growth_resumes_after_r
         resumed.client.close()
 
 
-def test_failed_policy_receipt_does_not_raise_target_but_stable_blocks_refresh_anchor(app):
+def test_failed_receipts_and_stable_time_cannot_bank_growth_toward_a_later_target(app):
     response = _paid_policy_block(app, [14], failed=True, seconds=20 * 86400)
     assert not response.HasField("consensus_param_updates")
     asyncio.run(commit(app))
     response = _paid_policy_block(app, [14], height=2, seconds=20 * 86400 + 3)
-    assert response.consensus_param_updates.evidence.max_age_duration.seconds == 8 * 86400 + 3
+    assert response.consensus_param_updates.evidence.max_age_duration.seconds == 8 * 86400
 
 
 def test_sequential_patch_growth_is_included_before_state_root(app):
@@ -242,7 +243,9 @@ def test_restart_checks_the_committed_anchor_and_withdrawal_target(app, corrupti
     asyncio.run(commit(app))
     if corruption == "anchor":
         state = app.client.raw_driver.get(EVIDENCE_POLICY_KEY)
-        state["last_block_nanos"] += 1
+        state["growth_start_nanos"] = (
+            app.client.raw_driver.value_from_disk("__latest_block")["nanos"] + 1
+        )
         app.client.raw_driver.set(EVIDENCE_POLICY_KEY, state)
     else:
         app.client.raw_driver.set(UNBONDING_PERIOD_KEY, 30)
@@ -263,13 +266,13 @@ def test_serialized_modern_genesis_wire_integer_anchor_starts_and_initializes(
 ):
     node = Xian(constants=node_constants)
     try:
-        assert node.genesis_evidence_policy.last_block_nanos == 1_707_351_443_342_520_258
+        assert node.genesis_evidence_policy.growth_start_nanos == 1_707_351_443_342_520_258
         assert isinstance(node.genesis["abci_genesis"]["genesis"][0]["value"], dict)
         request = _init_request(node)
         response = asyncio.run(init_chain(node, request))
         assert response.app_hash.hex() == node.genesis["app_hash"]
         assert (
-            node.client.raw_driver.get(EVIDENCE_POLICY_KEY)["last_block_nanos"]
+            node.client.raw_driver.get(EVIDENCE_POLICY_KEY)["growth_start_nanos"]
             == request.time.ToNanoseconds()
         )
     finally:
@@ -323,7 +326,7 @@ def test_evidence_query_binds_full_triple_to_the_actual_commit_point(app):
     assert body["height"] == "2"
     assert body["app_hash"] == second.app_hash.hex()
     assert body["last_block_nanos"] == str((10 * 86400 + 9) * 1_000_000_000)
-    assert body["evidence"]["max_age_duration"] == str(8 * DAY_NS + 4_000_000_000)
+    assert body["evidence"]["max_age_duration"] == str(8 * DAY_NS)
     assert _evidence_query(app, height=1).code == 1
 
 
@@ -401,7 +404,9 @@ def test_evidence_query_rejects_missing_and_corrupt_committed_data(app, corrupti
         driver.set(EVIDENCE_POLICY_KEY, None)
     elif corruption in ["record", "anchor"]:
         policy = driver.value_from_disk(EVIDENCE_POLICY_KEY)
-        policy["version" if corruption == "record" else "last_block_nanos"] += 1
+        policy["version"] += 1 if corruption == "record" else 0
+        if corruption == "anchor":
+            policy["growth_start_nanos"] = driver.value_from_disk("__latest_block")["nanos"] + 1
         driver.set(EVIDENCE_POLICY_KEY, policy)
     else:
         marker = driver.value_from_disk("__latest_block")

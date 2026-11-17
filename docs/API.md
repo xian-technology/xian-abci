@@ -57,7 +57,9 @@ The schema version is an integer; height, timestamp and evidence limits are
 canonical decimal strings, preserving large values without V2 numeric tags.
 The response height equals the body height, and the hash is lowercase hex.
 Before the first committed block, or with a missing/corrupt record or marker,
-the query returns a nonzero code. Pending FinalizeBlock writes are excluded.
+the query returns a nonzero code. Pending FinalizeBlock writes are excluded. The timestamp is the committed
+checkpoint time; evidence limits are evaluated from the authenticated schema2
+schedule at that time. The raw growth anchor may be older.
 An explicit query height must match the current committed height.
 
 This is committed operator metadata, not a Merkle proof from an untrusted

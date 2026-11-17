@@ -32,13 +32,52 @@ at roughly a two-second cadence rather than exactly once per second.
 
 Implications:
 
-- if the chain is idle, contract time does not advance
+- under `on_demand`, contract time does not advance while no blocks commit
 - time-based state changes do not happen "in the background"
 - deadlines and expirations are enforced when a transaction is executed in a
   later block
 
 This is the correct tradeoff for a deterministic chain that does not want
 periodic empty blocks unless operators choose that policy explicitly.
+
+## Evidence Retention And Empty Blocks
+
+The authenticated `__evidence_policy` schema2 stores a retention schedule:
+`base_max_age_duration`, `growth_start_nanos`, monotonic
+`target_max_age_duration`, and the unchanged block-age/byte limits. At finalized
+consensus time `t`, effective duration is
+`min(target, base + t - growth_start)`. The timestamp and schedule use exact
+nanoseconds; the anchor remains part of the consensus application root.
+
+Only raising the target rewrites this schedule. The old authorized duration is
+first evaluated at the current consensus timestamp, capped by its OLD target;
+that value becomes the new base and the current timestamp the new anchor.
+Stable or previously saturated periods cannot bank time toward a future
+increase. Reducing the unbonding setting does not reduce the target or abandon
+outstanding claims.
+
+Empty blocks leave the rooted schedule unchanged even during pending growth.
+They can therefore settle under all configured idle policies. Comet still
+creates initial proof blocks and proof blocks following actual state changes;
+this is not a guarantee of an exact block interval. Once a schedule has a
+base below its target, the node returns a full idempotent evidence-only consensus
+parameter update on each finalized block, including after effective saturation.
+This adds fixed per-block parameter metadata/store work, without app-hash clock
+churn. No previous local marker decides whether an update is emitted.
+
+The derived time is consensus time, never local wall time. Under Comet0.40 BFT
+Time the first block after a long quiet period may use the previous commit's
+time; neither the configured interval nor this schedule guarantees wall-clock
+freshness. Backwards/noncanonical finalized timestamps are rejected before
+execution. Comet also validates header time upstream.
+
+Comet's consensus-parameter hash covers block limits, not the evidence group.
+Evidence-limit authenticity comes from the rooted schedule evaluated at the
+verified finalized checkpoint timestamp, with native state/header consistency
+checked during full-store restoration. `/evidence_policy` reports the actual
+committed marker height/time and derived effective limits, not the older
+schedule anchor. Schema1 records are rejected; these transition rules are for
+the fresh chain, not replay of an older chain with changed node code.
 
 ## Contract Design Guidance
 
@@ -59,7 +98,8 @@ Bad assumptions:
 ## Precision
 
 Xian preserves CometBFT block timestamp precision up to Python `datetime`
-microseconds. Sub-microsecond nanoseconds are truncated because Python's
+microseconds. Consensus/evidence bookkeeping separately preserves exact
+nanoseconds. Sub-microsecond contract nanoseconds are truncated because Python's
 `datetime` does not support nanosecond storage.
 
 ## Genesis
@@ -67,7 +107,8 @@ microseconds. Sub-microsecond nanoseconds are truncated because Python's
 Genesis builders accept an optional timezone-aware ISO `genesis_time`. The
 combined bundle, local-network and single-validator builders normalize it to
 UTC and use that same instant for the CometBFT header, submission metadata and
-every contract constructor's `now`. Seconds and microseconds are preserved.
+every contract constructor's `now`. Consensus genesis nanoseconds are preserved;
+constructor `Datetime` observes that instant at microsecond precision.
 
 When no time is supplied, the builder samples the current UTC time once for
 the entire genesis. For reproducible genesis bytes and application hashes,
@@ -83,3 +124,19 @@ Unix epoch.
 This keeps simulation behavior aligned with real execution as closely as
 possible while still giving uninitialized local environments a deterministic
 starting point.
+
+## Recovery Checkpoint Trust
+
+Positive-height application exports must include explicit exact checkpoint
+`nanos`. Offline import treats its metadata as trusted input; the state root
+alone does not authenticate the export's height/time. A recovery genesis now
+requires `trusted_checkpoint=` independently obtained from an existing
+schema1 `/evidence_policy` response or native-inspector output. Its canonical
+`height`, `app_hash` and `last_block_nanos` must exactly match the export before
+any growth is materialized. The backend command requires
+`--trusted-checkpoint <file>`; do not synthesize it from the export itself.
+
+Recovery materializes the old schedule at that independently verified export
+checkpoint, then reanchors the remaining schedule to the agreed new genesis
+time. The halted interval earns no growth. Normal full-store restore and replay
+preserve the original schedule/anchor and use the real committed native time.

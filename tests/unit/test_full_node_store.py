@@ -600,3 +600,32 @@ def test_zero_size_and_cumulative_stream_limit_do_not_overread(tmp_path):
     with pytest.raises(ValueError, match="configured limit"):
         limits.copy_stream(stream, tmp_path / "capped", maximum=maximum, label="archive")
     assert stream.tell() == maximum + 1
+
+
+def test_full_store_checkpoint_compares_derived_mid_ramp_limits_not_stored_base(stores):
+    from xian.evidence_policy import DAY_NS, EVIDENCE_POLICY_KEY, EvidencePolicy
+    from xian.state_root import compute_driver_state_root
+
+    source, _, native, *_ = stores
+    point = int(native["last_block_nanos"])
+    schedule = EvidencePolicy.seed(7, nanos=point - DAY_NS).advance(
+        nanos=point - DAY_NS, observed_days=[14]
+    )
+    with Driver(storage_home=source / "xian", vm_profile="xian_vm_v2") as driver:
+        driver.set(EVIDENCE_POLICY_KEY, schedule.to_state())
+        root = compute_driver_state_root(driver).hex()
+        driver.set("__latest_block", {"height": 123, "hash": root, "nanos": point})
+        driver.commit()
+    native.update(app_hash=root, evidence=schedule.comet_json(nanos=point))
+    assert native["evidence"]["max_age_duration"] == str(9 * DAY_NS)
+    (source / "data/native-checkpoint.json").write_text(json.dumps(native))
+    assert (
+        read_full_node_store_checkpoint(source, native_store_inspector=fixture_inspector)[
+            "app_hash"
+        ]
+        == root
+    )
+    native["evidence"]["max_age_duration"] = str(8 * DAY_NS)
+    (source / "data/native-checkpoint.json").write_text(json.dumps(native))
+    with pytest.raises(ValueError, match="evidence limits mismatch"):
+        read_full_node_store_checkpoint(source, native_store_inspector=fixture_inspector)

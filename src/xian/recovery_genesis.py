@@ -17,12 +17,14 @@ so they return through the usual unjail path once their nodes run again.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import replace
 from typing import Any
 
 from xian_runtime_types.time import Datetime
 
+from xian.checkpoint_validation import trusted_checkpoint_point
 from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy, comet_time_nanos
 from xian.genesis_builder import (
     build_cometbft_genesis,
@@ -79,9 +81,9 @@ def _recovered_entries(
     return entries
 
 
-def _require_later_than_export(exported_state: dict[str, Any], genesis_time: str) -> None:
-    last_block_time = nanoseconds_to_utc_datetime(int(exported_state["nanos"]))
-    if comet_time_nanos(normalize_genesis_time(genesis_time)) <= int(exported_state["nanos"]):
+def _require_later_than_export(checkpoint_nanos: int, genesis_time: str) -> None:
+    last_block_time = nanoseconds_to_utc_datetime(checkpoint_nanos)
+    if comet_time_nanos(normalize_genesis_time(genesis_time)) <= checkpoint_nanos:
         raise ValueError(
             f"the recovery genesis time must be after the last block ({last_block_time})"
         )
@@ -93,11 +95,15 @@ def build_recovery_genesis(
     *,
     chain_id: str,
     genesis_time: str,
+    trusted_checkpoint: Mapping,
 ) -> dict[str, Any]:
     """The CometBFT genesis that restarts the chain from ``exported_state``
     (its last committed state) with only the active validators in ``keep``."""
-    prepare_state_import(exported_state)  # refuses a tampered export
-    _require_later_than_export(exported_state, genesis_time)
+    prepared = prepare_state_import(exported_state)
+    expected = trusted_checkpoint_point(trusted_checkpoint)
+    if (prepared.height, prepared.state_root.hex(), prepared.nanos) != expected:
+        raise ValueError("export does not match the independently trusted checkpoint")
+    _require_later_than_export(prepared.nanos, genesis_time)
     abci_genesis = deepcopy(exported_state)
     state = {entry["key"]: entry["value"] for entry in abci_genesis["genesis"]}
     recovery_time = parse_genesis_time(genesis_time)
@@ -106,7 +112,11 @@ def build_recovery_genesis(
     # the halted interval would reopen already-expired/pruned history.
     recovery_nanos = comet_time_nanos(normalize_genesis_time(genesis_time))
     policy = EvidencePolicy.from_state(state[EVIDENCE_POLICY_KEY])
-    state[EVIDENCE_POLICY_KEY] = replace(policy, last_block_nanos=recovery_nanos).to_state()
+    state[EVIDENCE_POLICY_KEY] = replace(
+        policy,
+        base_max_age_duration=policy.effective_duration(prepared.nanos),
+        growth_start_nanos=recovery_nanos,
+    ).to_state()
     abci_genesis["nanos"] = recovery_nanos
     abci_genesis["genesis"] = [{"key": key, "value": value} for key, value in sorted(state.items())]
     abci_genesis["origin"] = {"signature": "", "sender": ""}

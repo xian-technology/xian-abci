@@ -150,13 +150,14 @@ The top-level `snapshot_max_state_bytes`, `snapshot_max_archive_bytes`,
 memory, so choose memory and byte limits together. No automatic periodic
 application export is currently scheduled.
 
-The hashed `__evidence_policy` record preserves the full evidence triple,
-monotonic target and exact committed time anchor. Genesis covers its seeded
-unbonding period plus one day. Increases grow effective duration by at most
-elapsed committed time, preserving the old expiry cutoff; reductions never
-shrink protection for existing claims. Recovery reanchors without credit for
-the halted interval. Full-store verification checks the active committed
-policy, not a guessed duration derived from the latest governance setting.
+The hashed `__evidence_policy` schema2 record stores a base duration, exact
+`growth_start_nanos`, monotonic target and full block-age/byte limits. Active
+duration is derived at the committed checkpoint timestamp, so empty blocks do
+not rewrite the app hash even during growth. Full-store verification compares
+the derived active triple with native state, not the stored base or the latest
+unbonding setting. See [time semantics](TIME_SEMANTICS.md) for safe target
+adoption, idle behavior and recovery's required independent checkpoint.
+
 
 ## BDS Snapshots
 
