@@ -65,7 +65,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-stack
-          ref: 97af81ecdd16510bbb1a1848f3c15c5fe5a193c3
+          ref: c9fdb65eb7ec4a6725778f54a76b3386fd27ead5
           path: xian-stack
 
       - name: Check out xian-py
