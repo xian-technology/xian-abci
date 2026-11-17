@@ -19,8 +19,10 @@ def test_native_registry_requires_keeper_deduplicates_and_preserves_anchor_after
     app, request
 ):
     source = Path(resolve_contracts_dir()) / "time_checkpoints.s.py"
-    app.client.submit(source.read_text(), name="time_checkpoints")
+    if not app.client.raw_driver.has_contract("time_checkpoints"):
+        app.client.submit(source.read_text(), name="time_checkpoints")
     registry = app.client.get_contract_proxy("time_checkpoints")
+    assert registry.get_protocol_version() == 1
     with pytest.raises(AssertionError, match="keeper"):
         registry.request_anchor(signer="timer", environment={"block_num": 1})
 

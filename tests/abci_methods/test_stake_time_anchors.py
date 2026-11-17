@@ -3,6 +3,7 @@
 import asyncio
 from unittest.mock import patch
 
+import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
 from test_evidence_retention import app as app
 
@@ -11,6 +12,23 @@ from xian.methods.finalize_block import finalize_block
 
 HEAD = "validator_penalties.time_anchor_head"
 JOBS = "validator_penalties.time_anchor_jobs:"
+
+
+@pytest.fixture(autouse=True)
+def activate_shared_keeper(app):
+    # These tests isolate the staking queue. Activate the independent registry
+    # with its real native keeper before replacing staking system dispatch.
+    from xian.methods._time_checkpoints import maybe_process_time_checkpoints
+
+    app.current_block_meta = {
+        "height": 1,
+        "hash": "00" * 32,
+        "nanos": 10 * 86400 * 1_000_000_000,
+        "chain_id": app.chain_id,
+    }
+    maybe_process_time_checkpoints(app, height=1)
+    app.client.raw_driver.commit()
+    app.state_root_cache.rebuild_from_driver(app.client.raw_driver)
 
 
 def _receipt():

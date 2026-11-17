@@ -91,6 +91,9 @@ def test_missing_universal_service_is_skipped_but_partial_or_malformed_abi_refus
     from xian.methods._time_checkpoints import maybe_process_time_checkpoints
 
     driver = app.client.raw_driver
+    # This case intentionally models a universal genesis without the service.
+    for key in driver.items(prefix=PREFIX):
+        driver.set(key, None)
     with patch.object(
         app.tx_processor, "process_system_tx", side_effect=AssertionError("invalid ABI ran")
     ):
