@@ -16,7 +16,7 @@ from xian_runtime_types.encoding import encode_wire, loads_wire_json
 
 from xian import toml_utils
 from xian.execution_policy import VM_EXECUTION_MODE
-from xian.services.bds.config import validate_dsn
+from xian.services.bds.config import BdsConfig, validate_dsn
 from xian.state_sync_policy import require_p2p_state_sync_disabled
 from xian.utils.cometbft import split_host_port
 
@@ -220,6 +220,11 @@ class SimulationOptions:
 BDS_PASSWORD_SECRET_PATH = "/run/secrets/xian_bds_password"
 
 
+# Shared values come from the runtime config. BdsOptions keeps the container
+# overrides and uses empty strings for optional TOML settings.
+_BDS_RUNTIME_DEFAULTS = BdsConfig()
+
+
 @dataclass(frozen=True, slots=True)
 class BdsOptions:
     """[bds] in xian.toml; the defaults name the Postgres service of the
@@ -227,24 +232,24 @@ class BdsOptions:
 
     dsn: str = ""
     host: str = "postgres"
-    port: int = 5432
-    database: str = "xian"
-    user: str = "xian"
+    port: int = _BDS_RUNTIME_DEFAULTS.port
+    database: str = _BDS_RUNTIME_DEFAULTS.database
+    user: str = _BDS_RUNTIME_DEFAULTS.user
     password_file: str = BDS_PASSWORD_SECRET_PATH
-    pool_min_size: int = 1
-    pool_max_size: int = 10
-    statement_timeout_ms: int = 0
-    acquire_timeout_ms: int = 10_000
-    application_name: str = "xian-bds"
-    queue_max_size: int = 128
-    catchup_enabled: bool = True
-    catchup_poll_seconds: float = 1.0
+    pool_min_size: int = _BDS_RUNTIME_DEFAULTS.pool_min_size
+    pool_max_size: int = _BDS_RUNTIME_DEFAULTS.pool_max_size
+    statement_timeout_ms: int = _BDS_RUNTIME_DEFAULTS.statement_timeout_ms
+    acquire_timeout_ms: int = _BDS_RUNTIME_DEFAULTS.acquire_timeout_ms
+    application_name: str = _BDS_RUNTIME_DEFAULTS.application_name
+    queue_max_size: int = _BDS_RUNTIME_DEFAULTS.queue_max_size
+    catchup_enabled: bool = _BDS_RUNTIME_DEFAULTS.catchup_enabled
+    catchup_poll_seconds: float = _BDS_RUNTIME_DEFAULTS.catchup_poll_seconds
     # Catch-up reads blocks from the node's own CometBFT RPC (integrated image).
     rpc_url: str = "http://127.0.0.1:26657"
     spool_dir: str = ""
-    spool_warn_entries: int = 256
-    spool_warn_bytes: int = 536_870_912
-    disk_free_warn_bytes: int = 2_147_483_648
+    spool_warn_entries: int = _BDS_RUNTIME_DEFAULTS.spool_warn_entries
+    spool_warn_bytes: int = _BDS_RUNTIME_DEFAULTS.spool_warn_bytes
+    disk_free_warn_bytes: int = _BDS_RUNTIME_DEFAULTS.disk_free_warn_bytes
 
 
 @dataclass(frozen=True, slots=True)

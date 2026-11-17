@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,6 +9,22 @@ from xian.services.bds.config import REMOVED_SETTING_VARIABLES, BdsConfig
 
 
 class BdsConfigTests(unittest.TestCase):
+    def test_missing_and_invalid_settings_follow_config_defaults(self):
+        @dataclass(frozen=True)
+        class CustomDefaults(BdsConfig):
+            host: str = "local-db"
+            port: int = 5544
+            application_name: str = "custom-indexer"
+            catchup_enabled: bool = False
+            catchup_poll_seconds: float = 2.5
+
+        for settings in ({}, {"host": "", "port": "invalid", "catchup_poll_seconds": "nan"}):
+            with self.subTest(settings=settings):
+                self.assertEqual(
+                    CustomDefaults.from_runtime_settings({"bds": settings}, environ={}),
+                    CustomDefaults(),
+                )
+
     def test_node_environment_bds_settings_are_rejected_by_name(self):
         # The [bds] table in xian.toml is the only source; an old deployment's
         # environment fails instead of being silently ignored or merged.

@@ -145,30 +145,51 @@ class BdsConfig:
             )
         dsn = _optional_str(settings.get("dsn"))
         validate_dsn(dsn)
-        catchup_enabled = _first_non_empty(settings.get("catchup_enabled"), default=True)
+        defaults = cls()
+        catchup_enabled = _first_non_empty(
+            settings.get("catchup_enabled"), default=defaults.catchup_enabled
+        )
 
         return cls(
             dsn=dsn,
-            host=str(_first_non_empty(settings.get("host"), default="127.0.0.1")),
-            port=_coerce_int(settings.get("port"), default=5432),
-            database=str(_first_non_empty(settings.get("database"), default="xian")),
-            user=str(_first_non_empty(settings.get("user"), default="xian")),
+            host=str(_first_non_empty(settings.get("host"), default=defaults.host)),
+            port=_coerce_int(settings.get("port"), default=defaults.port),
+            database=str(_first_non_empty(settings.get("database"), default=defaults.database)),
+            user=str(_first_non_empty(settings.get("user"), default=defaults.user)),
             password_file=_optional_str(settings.get("password_file")),
-            pool_min_size=_coerce_int(settings.get("pool_min_size"), default=1),
-            pool_max_size=_coerce_int(settings.get("pool_max_size"), default=10),
-            statement_timeout_ms=_coerce_int(settings.get("statement_timeout_ms"), default=0),
-            acquire_timeout_ms=_coerce_int(settings.get("acquire_timeout_ms"), default=10_000),
-            application_name=str(
-                _first_non_empty(settings.get("application_name"), default="xian-bds")
+            pool_min_size=_coerce_int(
+                settings.get("pool_min_size"), default=defaults.pool_min_size
             ),
-            queue_max_size=_coerce_int(settings.get("queue_max_size"), default=128),
+            pool_max_size=_coerce_int(
+                settings.get("pool_max_size"), default=defaults.pool_max_size
+            ),
+            statement_timeout_ms=_coerce_int(
+                settings.get("statement_timeout_ms"), default=defaults.statement_timeout_ms
+            ),
+            acquire_timeout_ms=_coerce_int(
+                settings.get("acquire_timeout_ms"), default=defaults.acquire_timeout_ms
+            ),
+            application_name=str(
+                _first_non_empty(
+                    settings.get("application_name"), default=defaults.application_name
+                )
+            ),
+            queue_max_size=_coerce_int(
+                settings.get("queue_max_size"), default=defaults.queue_max_size
+            ),
             catchup_enabled=str(catchup_enabled).lower() not in {"0", "false", "no", "off"},
-            catchup_poll_seconds=_coerce_float(settings.get("catchup_poll_seconds"), default=1.0),
+            catchup_poll_seconds=_coerce_float(
+                settings.get("catchup_poll_seconds"), default=defaults.catchup_poll_seconds
+            ),
             rpc_url=_optional_str(settings.get("rpc_url")),
             spool_dir=_optional_str(settings.get("spool_dir")),
-            spool_warn_entries=_coerce_int(settings.get("spool_warn_entries"), default=256),
-            spool_warn_bytes=_coerce_int(settings.get("spool_warn_bytes"), default=536_870_912),
+            spool_warn_entries=_coerce_int(
+                settings.get("spool_warn_entries"), default=defaults.spool_warn_entries
+            ),
+            spool_warn_bytes=_coerce_int(
+                settings.get("spool_warn_bytes"), default=defaults.spool_warn_bytes
+            ),
             disk_free_warn_bytes=_coerce_int(
-                settings.get("disk_free_warn_bytes"), default=2_147_483_648
+                settings.get("disk_free_warn_bytes"), default=defaults.disk_free_warn_bytes
             ),
         )

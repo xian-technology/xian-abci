@@ -389,7 +389,7 @@ def build_parser() -> ArgumentParser:
         type=str,
         help="PostgreSQL DSN for the optional Blockchain Data Service",
         required=False,
-        default="",
+        default=BDS_DEFAULTS.dsn,
     )
     parser.add_argument(
         "--bds-host",
@@ -403,7 +403,7 @@ def build_parser() -> ArgumentParser:
         type=int,
         help="PostgreSQL port for the optional Blockchain Data Service",
         required=False,
-        default=5432,
+        default=BDS_DEFAULTS.port,
     )
     parser.add_argument(
         "--bds-database",
@@ -434,56 +434,56 @@ def build_parser() -> ArgumentParser:
         type=int,
         help="minimum asyncpg pool size for the optional Blockchain Data Service",
         required=False,
-        default=1,
+        default=BDS_DEFAULTS.pool_min_size,
     )
     parser.add_argument(
         "--bds-pool-max-size",
         type=int,
         help="maximum asyncpg pool size for the optional Blockchain Data Service",
         required=False,
-        default=10,
+        default=BDS_DEFAULTS.pool_max_size,
     )
     parser.add_argument(
         "--bds-statement-timeout-ms",
         type=int,
         help="statement timeout for BDS database sessions in milliseconds",
         required=False,
-        default=0,
+        default=BDS_DEFAULTS.statement_timeout_ms,
     )
     parser.add_argument(
         "--bds-acquire-timeout-ms",
         type=int,
         help="timeout when borrowing a BDS database connection in milliseconds",
         required=False,
-        default=10_000,
+        default=BDS_DEFAULTS.acquire_timeout_ms,
     )
     parser.add_argument(
         "--bds-application-name",
         type=str,
         help="application_name reported by BDS database sessions",
         required=False,
-        default="xian-bds",
+        default=BDS_DEFAULTS.application_name,
     )
     parser.add_argument(
         "--bds-queue-max-size",
         type=int,
         help="maximum in-memory BDS payload queue size",
         required=False,
-        default=128,
+        default=BDS_DEFAULTS.queue_max_size,
     )
     parser.add_argument(
         "--bds-catchup-enabled",
         action=BooleanOptionalAction,
         help="enable BDS catchup from CometBFT RPC",
         required=False,
-        default=True,
+        default=BDS_DEFAULTS.catchup_enabled,
     )
     parser.add_argument(
         "--bds-catchup-poll-seconds",
         type=float,
         help="BDS catchup poll interval in seconds",
         required=False,
-        default=1.0,
+        default=BDS_DEFAULTS.catchup_poll_seconds,
     )
     parser.add_argument(
         "--bds-rpc-url",
@@ -497,28 +497,28 @@ def build_parser() -> ArgumentParser:
         type=str,
         help="explicit spool directory for durable BDS block payloads",
         required=False,
-        default="",
+        default=BDS_DEFAULTS.spool_dir,
     )
     parser.add_argument(
         "--bds-spool-warn-entries",
         type=int,
         help="warning threshold for queued BDS spool entries",
         required=False,
-        default=256,
+        default=BDS_DEFAULTS.spool_warn_entries,
     )
     parser.add_argument(
         "--bds-spool-warn-bytes",
         type=int,
         help="warning threshold for total BDS spool size in bytes",
         required=False,
-        default=536_870_912,
+        default=BDS_DEFAULTS.spool_warn_bytes,
     )
     parser.add_argument(
         "--bds-disk-free-warn-bytes",
         type=int,
         help="warning threshold for free bytes on the BDS spool filesystem",
         required=False,
-        default=2_147_483_648,
+        default=BDS_DEFAULTS.disk_free_warn_bytes,
     )
     return parser
 

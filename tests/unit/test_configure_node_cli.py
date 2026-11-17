@@ -1,9 +1,43 @@
 import unittest
+from dataclasses import asdict, replace
+from unittest.mock import patch
 
 from xian.cli.configure_node import build_parser
+from xian.node_setup import BdsOptions
 
 
 class ConfigureNodeCliTests(unittest.TestCase):
+    def test_parser_uses_node_setup_defaults_for_every_bds_option(self):
+        defaults = replace(
+            BdsOptions(),
+            dsn="postgresql://indexer@custom-db/custom-index",
+            host="custom-db",
+            port=5544,
+            database="custom-index",
+            user="indexer",
+            password_file="/run/secrets/custom",
+            pool_min_size=2,
+            pool_max_size=20,
+            statement_timeout_ms=1000,
+            acquire_timeout_ms=2000,
+            application_name="custom-indexer",
+            queue_max_size=64,
+            catchup_enabled=False,
+            catchup_poll_seconds=2.5,
+            rpc_url="http://127.0.0.1:27657",
+            spool_dir="/tmp/custom-spool",
+            spool_warn_entries=512,
+            spool_warn_bytes=1024,
+            disk_free_warn_bytes=4096,
+        )
+        with patch("xian.cli.configure_node.BDS_DEFAULTS", defaults):
+            args = build_parser().parse_args(["--moniker", "validator-1"])
+
+        self.assertEqual(
+            {name: getattr(args, f"bds_{name}") for name in asdict(defaults)},
+            asdict(defaults),
+        )
+
     def test_parser_does_not_expose_execution_policy_flags(self):
         args = build_parser().parse_args(
             [
