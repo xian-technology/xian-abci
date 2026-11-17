@@ -46,7 +46,7 @@ from loguru import logger
 from abci import __version__ as software_version
 from abci.server import ABCIServer
 from abci.utils import get_logger
-from cometbft.abci.v1beta1.types_pb2 import (
+from tendermint.abci.types_pb2 import (
     ResponseApplySnapshotChunk,
     ResponseListSnapshots,
     ResponseLoadSnapshotChunk,

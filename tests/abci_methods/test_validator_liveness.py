@@ -11,15 +11,16 @@ from google.protobuf.timestamp_pb2 import Timestamp
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
-from cometbft.abci.v1beta1.types_pb2 import RequestCommit, Validator
-from cometbft.abci.v1beta3.types_pb2 import (
+from tendermint.abci.types_pb2 import (
     CommitInfo,
     Request,
+    RequestCommit,
     RequestFinalizeBlock,
     Response,
+    Validator,
     VoteInfo,
 )
-from cometbft.types.v1beta1.validator_pb2 import BlockIDFlag
+from tendermint.types.validator_pb2 import BlockIDFlag
 from xian.config_paths import resolve_contracts_dir
 from xian.xian_abci import Xian
 

@@ -10,12 +10,14 @@ from xian_runtime_types.time import Datetime
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
-from cometbft.abci.v1beta1.types_pb2 import RequestCommit, Validator
-from cometbft.abci.v1beta2.types_pb2 import Misbehavior, MisbehaviorType
-from cometbft.abci.v1beta3.types_pb2 import (
+from tendermint.abci.types_pb2 import (
+    Misbehavior,
+    MisbehaviorType,
     Request,
+    RequestCommit,
     RequestFinalizeBlock,
     Response,
+    Validator,
 )
 from xian.config_paths import resolve_contracts_dir
 from xian.utils.encoding import canonical_json_text, encode_transaction_bytes

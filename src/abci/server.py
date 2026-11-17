@@ -12,13 +12,11 @@ from io import BytesIO
 
 from loguru import logger
 
-from cometbft.abci.v1beta1.types_pb2 import (
-    ResponseException,
-    ResponseFlush,
-)
-from cometbft.abci.v1beta3.types_pb2 import (
+from tendermint.abci.types_pb2 import (
     Request,
     Response,
+    ResponseException,
+    ResponseFlush,
 )
 
 from .utils import read_messages, write_message

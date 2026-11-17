@@ -2,7 +2,7 @@ from collections import Counter
 
 from loguru import logger
 
-from cometbft.abci.v1beta2.types_pb2 import ResponsePrepareProposal
+from tendermint.abci.types_pb2 import ResponsePrepareProposal
 from xian.app_logging import build_log_fields
 from xian.exceptions import TransactionException
 from xian.utils.tx import (

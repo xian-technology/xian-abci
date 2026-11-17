@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from cometbft.abci.v1beta1.types_pb2 import Snapshot
+from tendermint.abci.types_pb2 import Snapshot
 from xian.execution_policy import current_execution_policy
 from xian.services.snapshot_limits import SnapshotArchiveReader, SnapshotLimits
 from xian.services.state_sync import (

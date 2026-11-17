@@ -14,7 +14,7 @@ from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import encode
 
-from cometbft.abci.v1beta1.types_pb2 import Snapshot
+from tendermint.abci.types_pb2 import Snapshot
 from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
 from xian.execution_policy import EXECUTION_POLICY_KEY, current_execution_policy
 from xian.services.state_sync import (

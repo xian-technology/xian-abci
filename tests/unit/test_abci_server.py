@@ -7,17 +7,17 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from cometbft.abci.v1beta1.types_pb2 import (
+from abci.server import ABCIServer, ProtocolHandler, _stop
+from abci.utils import read_messages, write_message
+from tendermint.abci.types_pb2 import (
+    Request,
+    Response,
     ResponseApplySnapshotChunk,
     ResponseEcho,
     ResponseListSnapshots,
     ResponseLoadSnapshotChunk,
     ResponseOfferSnapshot,
 )
-from cometbft.abci.v1beta3.types_pb2 import Request, Response
-
-from abci.server import ABCIServer, ProtocolHandler, _stop
-from abci.utils import read_messages, write_message
 
 
 def _parse_single_response(payload: bytes) -> Response:

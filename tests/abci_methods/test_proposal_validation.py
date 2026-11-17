@@ -12,17 +12,15 @@ from xian_runtime_types.encoding import decode, encode
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
-from cometbft.abci.v1beta2.types_pb2 import (
-    ResponsePrepareProposal,
-    ResponseProcessProposal,
-)
-from cometbft.abci.v1beta3.types_pb2 import (
+from tendermint.abci.types_pb2 import (
     Request,
     RequestFinalizeBlock,
     RequestInitChain,
     RequestPrepareProposal,
     RequestProcessProposal,
     Response,
+    ResponsePrepareProposal,
+    ResponseProcessProposal,
 )
 from xian.fee_policy import DEFAULT_MAX_BLOCK_CHI, DEFAULT_MAX_TX_CHI, TxFeePolicy
 from xian.utils.encoding import encode_transaction_bytes

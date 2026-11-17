@@ -307,8 +307,8 @@ def test_default_anchor_is_literal_epoch_zero_and_zero_duration_is_invalid_input
 def test_init_time_is_explicit_even_at_epoch_zero_and_unrelated_groups_are_optional():
     from google.protobuf.timestamp_pb2 import Timestamp
 
-    from cometbft.abci.v1beta3.types_pb2 import RequestInitChain
-    from cometbft.types.v1.params_pb2 import BlockParams, ConsensusParams
+    from tendermint.abci.types_pb2 import RequestInitChain
+    from tendermint.types.params_pb2 import BlockParams, ConsensusParams
     from xian.evidence_policy import EvidencePolicy, validate_init_evidence_request
 
     policy = EvidencePolicy.seed(7, nanos=0)

@@ -7,8 +7,7 @@ import pytest
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
-from cometbft.abci.v1beta1.types_pb2 import RequestCommit
-from cometbft.abci.v1beta3.types_pb2 import Request, Response
+from tendermint.abci.types_pb2 import Request, RequestCommit, Response
 from xian.utils.block import (
     get_latest_block_height,
     set_latest_block,

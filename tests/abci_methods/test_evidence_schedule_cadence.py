@@ -9,7 +9,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from test_evidence_retention import _evidence_query, _paid_policy_block
 from test_evidence_retention import app as app
 
-from cometbft.abci.v1beta3.types_pb2 import RequestFinalizeBlock
+from tendermint.abci.types_pb2 import RequestFinalizeBlock
 from xian.evidence_policy import DAY_NS, EVIDENCE_POLICY_KEY
 from xian.methods.finalize_block import finalize_block
 

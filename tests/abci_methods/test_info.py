@@ -8,12 +8,10 @@ import pytest
 from abci import __version__
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
-from cometbft.abci.v1beta1.types_pb2 import RequestCommit
-from cometbft.abci.v1beta2.types_pb2 import (
-    RequestInfo,
-)
-from cometbft.abci.v1beta3.types_pb2 import (
+from tendermint.abci.types_pb2 import (
     Request,
+    RequestCommit,
+    RequestInfo,
     Response,
 )
 from xian.utils.block import (

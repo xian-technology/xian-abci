@@ -14,8 +14,7 @@ from xian_runtime_types.decimal import ContractingDecimal
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
-from cometbft.abci.v1beta1.types_pb2 import RequestQuery
-from cometbft.abci.v1beta3.types_pb2 import Request, Response
+from tendermint.abci.types_pb2 import Request, RequestQuery, Response
 from xian.simulator import PreparedSimulation
 from xian.utils.block import set_latest_block, stage_latest_block
 from xian.xian_abci import Xian

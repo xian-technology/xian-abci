@@ -13,11 +13,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from contracting.runtime_features import get_driver_runtime_features, runtime_feature_state_key
 from nacl.signing import SigningKey
 from xian_runtime_types.time import Datetime
 
-from cometbft.abci.v1beta3.types_pb2 import RequestFinalizeBlock
-from contracting.runtime_features import get_driver_runtime_features, runtime_feature_state_key
+from tendermint.abci.types_pb2 import RequestFinalizeBlock
 from xian.constants import Constants
 from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
 from xian.state_root import StateRootCache

@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import shutil
 import logging
+import shutil
 from io import BytesIO
 from pathlib import Path
 
@@ -19,11 +19,11 @@ from xian_accounts import Ed25519Account
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
-from cometbft.abci.v1beta1.types_pb2 import RequestCommit
-from cometbft.abci.v1beta2.types_pb2 import RequestInfo
-from cometbft.abci.v1beta3.types_pb2 import (
+from tendermint.abci.types_pb2 import (
     Request,
+    RequestCommit,
     RequestFinalizeBlock,
+    RequestInfo,
     RequestInitChain,
     Response,
 )

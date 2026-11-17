@@ -2,8 +2,7 @@ import json
 
 from loguru import logger
 
-from cometbft.abci.v1beta2.types_pb2 import Event, EventAttribute
-from cometbft.abci.v1beta3.types_pb2 import ExecTxResult, ResponseFinalizeBlock
+from tendermint.abci.types_pb2 import Event, EventAttribute, ExecTxResult, ResponseFinalizeBlock
 from xian.app_logging import build_log_fields
 from xian.constants import Constants as c
 from xian.evidence_policy import stage_evidence_policy, validate_finalized_time

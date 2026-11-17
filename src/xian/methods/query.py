@@ -15,7 +15,7 @@ from xian_runtime_types.encoding import is_wrapper_set
 from xian_runtime_types.time import Datetime
 from xian_vm_core import execute_tx
 
-from cometbft.abci.v1beta1.types_pb2 import ResponseQuery
+from tendermint.abci.types_pb2 import ResponseQuery
 from xian.constants import Constants as c
 from xian.evidence_policy import committed_evidence_policy_response
 from xian.execution_engine import (

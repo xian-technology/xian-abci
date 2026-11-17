@@ -1,5 +1,5 @@
 from abci import __version__
-from cometbft.abci.v1beta1.types_pb2 import ResponseInfo
+from tendermint.abci.types_pb2 import ResponseInfo
 from xian.utils.block import reconcile_latest_block
 
 

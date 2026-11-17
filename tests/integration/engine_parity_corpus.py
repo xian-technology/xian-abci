@@ -39,9 +39,9 @@ from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
-from xian.utils.tx import transaction_bytes
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
+from xian.utils.tx import transaction_bytes
 
 if __package__:
     from . import engine_parity_contracts as sources
@@ -1271,8 +1271,7 @@ def _node_home() -> Iterator[type]:
 def _misbehavior(kind: int, validator_key: str, height: int):
     from google.protobuf.timestamp_pb2 import Timestamp
 
-    from cometbft.abci.v1beta1.types_pb2 import Validator
-    from cometbft.abci.v1beta2.types_pb2 import Misbehavior
+    from tendermint.abci.types_pb2 import Misbehavior, Validator
 
     evidence_time = Timestamp()
     evidence_time.seconds = height
@@ -1324,8 +1323,7 @@ async def _finalize(handler, block: SystemBlock):
     from google.protobuf.timestamp_pb2 import Timestamp
 
     from abci.utils import read_messages
-    from cometbft.abci.v1beta1.types_pb2 import RequestCommit
-    from cometbft.abci.v1beta3.types_pb2 import Request, RequestFinalizeBlock, Response
+    from tendermint.abci.types_pb2 import Request, RequestCommit, RequestFinalizeBlock, Response
 
     timestamp = Timestamp()
     timestamp.seconds = block.height

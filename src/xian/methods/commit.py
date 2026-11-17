@@ -1,4 +1,4 @@
-from cometbft.abci.v1beta3.types_pb2 import ResponseCommit
+from tendermint.abci.types_pb2 import ResponseCommit
 from xian.methods.check_tx import report_check_tx_rejections
 from xian.utils.block import stage_latest_block, try_write_latest_block
 

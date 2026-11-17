@@ -6,31 +6,27 @@ import pytest
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
-from cometbft.abci.v1beta1.types_pb2 import (
+from tendermint.abci.types_pb2 import (
+    Request,
     RequestCheckTx,
     RequestCommit,
-    RequestFlush,
-    RequestQuery,
-    ResponseFlush,
-    ResponseInfo,
-    ResponseQuery,
-)
-from cometbft.abci.v1beta2.types_pb2 import (
-    RequestInfo,
-    ResponsePrepareProposal,
-    ResponseProcessProposal,
-)
-from cometbft.abci.v1beta3.types_pb2 import (
-    Request,
     RequestFinalizeBlock,
+    RequestFlush,
+    RequestInfo,
     RequestInitChain,
     RequestPrepareProposal,
     RequestProcessProposal,
+    RequestQuery,
     Response,
     ResponseCheckTx,
     ResponseCommit,
     ResponseFinalizeBlock,
+    ResponseFlush,
+    ResponseInfo,
     ResponseInitChain,
+    ResponsePrepareProposal,
+    ResponseProcessProposal,
+    ResponseQuery,
 )
 from xian.xian_abci import Xian
 

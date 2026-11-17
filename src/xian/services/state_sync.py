@@ -12,7 +12,7 @@ from typing import Any
 
 from loguru import logger
 
-from cometbft.abci.v1beta1.types_pb2 import (
+from tendermint.abci.types_pb2 import (
     ResponseApplySnapshotChunk,
     ResponseListSnapshots,
     ResponseLoadSnapshotChunk,

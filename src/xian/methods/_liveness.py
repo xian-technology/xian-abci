@@ -11,7 +11,7 @@ block. A signature (or a nil vote) resets the count.
 
 from loguru import logger
 
-from cometbft.types.v1beta1.validator_pb2 import BlockIDFlag
+from tendermint.types.validator_pb2 import BlockIDFlag
 from xian.app_logging import build_log_fields
 from xian.methods._evidence import active_validator_keys_by_address
 

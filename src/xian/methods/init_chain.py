@@ -1,4 +1,4 @@
-from cometbft.abci.v1beta3.types_pb2 import ResponseInitChain
+from tendermint.abci.types_pb2 import ResponseInitChain
 from xian.evidence_policy import (
     comet_time_nanos,
     validate_genesis_evidence_policy,

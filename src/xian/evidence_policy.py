@@ -13,7 +13,7 @@ from google.protobuf.duration_pb2 import Duration
 from google.protobuf.timestamp_pb2 import Timestamp
 from xian_runtime_types.encoding import decode_wire_numbers
 
-from cometbft.types.v1.params_pb2 import ConsensusParams, EvidenceParams
+from tendermint.types.params_pb2 import ConsensusParams, EvidenceParams
 
 EVIDENCE_POLICY_KEY = "__evidence_policy"
 UNBONDING_PERIOD_KEY = "validators.config:unbonding_period_days"

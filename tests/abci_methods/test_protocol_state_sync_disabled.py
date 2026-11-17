@@ -10,16 +10,17 @@ from test_evidence_retention import app as app
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
-from cometbft.abci.v1beta1.types_pb2 import (
+from tendermint.abci.types_pb2 import (
+    Request,
     RequestApplySnapshotChunk,
     RequestEcho,
     RequestListSnapshots,
     RequestLoadSnapshotChunk,
     RequestOfferSnapshot,
+    Response,
     ResponseApplySnapshotChunk,
     ResponseOfferSnapshot,
 )
-from cometbft.abci.v1beta3.types_pb2 import Request, Response
 from xian.node_setup import resolve_statesync_settings
 from xian.xian_abci import Xian
 

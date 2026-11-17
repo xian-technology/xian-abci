@@ -7,7 +7,7 @@ import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
 from xian_runtime_types.encoding import decode_wire_numbers, encode_wire, loads_wire_json
 
-from cometbft.abci.v1beta3.types_pb2 import RequestFinalizeBlock, RequestInitChain
+from tendermint.abci.types_pb2 import RequestFinalizeBlock, RequestInitChain
 from xian.evidence_policy import DAY_NS, EVIDENCE_POLICY_KEY, UNBONDING_PERIOD_KEY, EvidencePolicy
 from xian.methods.commit import commit
 from xian.methods.finalize_block import finalize_block
@@ -285,8 +285,7 @@ def _evidence_query(app, *, height=0, path="/evidence_policy"):
 
     from abci.server import ProtocolHandler
     from abci.utils import read_messages
-    from cometbft.abci.v1beta1.types_pb2 import RequestQuery
-    from cometbft.abci.v1beta3.types_pb2 import Request, Response
+    from tendermint.abci.types_pb2 import Request, RequestQuery, Response
 
     raw = asyncio.run(
         ProtocolHandler(app).process("query", Request(query=RequestQuery(path=path, height=height)))

@@ -1,8 +1,8 @@
 from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal
 
-from cometbft.abci.v1beta1.types_pb2 import ValidatorUpdate
-from cometbft.crypto.v1.keys_pb2 import PublicKey
+from tendermint.abci.types_pb2 import ValidatorUpdate
+from tendermint.crypto.keys_pb2 import PublicKey
 from xian.formatting import vk_is_formatted
 
 # Node-managed metadata: contract identifiers cannot start/end with underscores.

@@ -12,11 +12,10 @@ from __future__ import annotations
 import asyncio
 import base64
 
-from cometbft.abci.v1beta3.types_pb2 import Request, RequestInitChain
-
 from abci_node import CHAIN_ID, AbciNode, local_genesis, node_constants, validator_key
-from cometbft.abci.v1beta1.types_pb2 import ValidatorUpdate
-from cometbft.crypto.v1.keys_pb2 import PublicKey
+
+from tendermint.abci.types_pb2 import Request, RequestInitChain, ValidatorUpdate
+from tendermint.crypto.keys_pb2 import PublicKey
 
 OTHER_SEED = bytes([9]) * 32
 
