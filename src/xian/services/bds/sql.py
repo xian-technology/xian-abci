@@ -202,6 +202,7 @@ def create_events():
     CREATE INDEX IF NOT EXISTS idx_events_created_id ON events(created_at DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_events_tx_hash ON events(tx_hash);
     CREATE INDEX IF NOT EXISTS idx_events_data_indexed ON events USING GIN (data_indexed);
+    COMMENT ON COLUMN events.data_indexed IS '@behavior +attribute:filterBy';
     """
 
 
@@ -302,6 +303,7 @@ def create_contracts():
         xsc001 BOOLEAN NOT NULL DEFAULT FALSE
     );
     CREATE INDEX IF NOT EXISTS idx_contracts_submitted_at_block ON contracts(submitted_at_block DESC);
+    CREATE INDEX IF NOT EXISTS idx_contracts_xsc001 ON contracts(xsc001);
     CREATE INDEX IF NOT EXISTS idx_contracts_xsc001_submitted_at_block
         ON contracts(submitted_at_block DESC, name ASC)
         WHERE xsc001 = TRUE;
