@@ -9,7 +9,7 @@ checked-in generated protobuf stubs that the runtime imports.
 
 - `xian/`: the main node package and almost all repo-owned logic
 - `abci/`: lower-level ABCI server and protocol wiring
-- `cometbft/` and `gogoproto/`: generated protobuf Python modules built from
+- `tendermint/` and `gogoproto/`: generated protobuf Python modules built from
   `../protos/`
 
 ## Notes

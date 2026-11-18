@@ -17,8 +17,8 @@ wire-protocol plumbing that connects CometBFT to the Xian application in
 
 - This layer is protocol glue. Application behavior (transaction execution,
   queries, consensus state) belongs in `../xian/`, not here.
-- The protobuf types come from the generated `cometbft.*` stubs under
-  `../cometbft/`; regenerate them through the repo-root `build_proto.py`
+- The protobuf types come from the generated `tendermint.*` stubs under
+  `../tendermint/`; regenerate them through the repo-root `build_proto.py`
   instead of editing imports here ad hoc.
 
 ## Next

@@ -16,12 +16,12 @@ operator-facing `xian-cli`.
 flowchart LR
   CometBFT["CometBFT"] --> ABCI["ABCI handlers"]
   ABCI --> Executor["Transaction processor"]
-  Executor --> Contracting["xian-contracting runtime"]
+  Executor --> VM["Rust xian-vm-core: execution, fees and rewards"]
   Executor --> State["Chain state"]
-  State --> BDS["BDS indexer"]
+  ABCI -->|receipts and state patches| BDS["Asynchronous BDS indexer"]
   State --> Snapshots["Export and snapshot tools"]
   ABCI --> Metrics["Metrics"]
-  ABCI --> Dashboard["Optional dashboard"]
+  Dashboard["Optional dashboard"] --> RPC["CometBFT RPC and application queries"]
   CLI["xian-cli and xian-stack"] --> Entrypoints["xian-abci entrypoints"]
 ```
 
@@ -50,8 +50,9 @@ The native VM (`xian-tech-vm-core`) is a required dependency: it executes
 blocks and is the one transaction admission implementation (CheckTx,
 PrepareProposal, ProcessProposal and FinalizeBlock). Optional extra:
 
-- `zk` — enables the native zk verifier required by nodes on chains with the
-  `zk` runtime feature.
+- `zk` — installs the off-chain Python proving toolkit. The VM already links
+  the native verifier; enabling the chain's `zk` feature is a genesis or
+  governed state decision, not a package-extra switch.
 
 Fresh chains use unmodified upstream CometBFT 0.40.0 with the flood mempool
 and Ed25519 validators. Other mempool modes are rejected at startup. Bootstrap
@@ -87,7 +88,8 @@ Local `uv` development requires a sibling checkout of
 
 - `src/xian/` — repo-owned node runtime: ABCI handlers, services, utilities,
   and CLI entrypoints.
-  - `methods/` — ABCI request handlers (CheckTx, DeliverTx, Commit, …).
+  - `methods/` — ABCI request handlers (CheckTx, proposal checks, FinalizeBlock,
+    Commit, Query).
   - `services/` — background services such as the simulator and BDS support.
   - `cli/` — backend and developer entrypoints (configure-node, export-state,
     BDS helpers, …) wrapping importable helpers.

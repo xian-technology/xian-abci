@@ -32,11 +32,11 @@ subsystems around it.
 flowchart LR
   ABCI["xian_abci.py"] --> Methods["methods"]
   Methods --> Processor["processor and execution engine"]
-  Processor --> Policy["execution policy and planner"]
-  Processor --> Contracting["contracting runtime"]
+  Processor --> Policy["fixed execution policy"]
+  Processor --> VM["Rust BlockExecutor"]
   Methods --> Services["services"]
-  Services --> BDS["BDS and state sync"]
-  ABCI --> Dashboard["dashboard"]
+  Services --> BDS["BDS and offline snapshot helpers"]
+  Dashboard["dashboard"] --> RPC["CometBFT RPC"]
   CLI["cli entrypoints"] --> ABCI
 ```
 

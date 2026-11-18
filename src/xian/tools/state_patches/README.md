@@ -92,10 +92,14 @@ additional artifacts automatically:
 
 ## Node-Read Consensus Keys
 
-Four kinds of hashed keys hold chain settings the node validates when it
+Protected consensus keys hold chain settings the node validates when it
 reads them, so bundles may not write them freely:
 
 - `__execution_policy` is protected: no bundle may write it.
+- `__evidence_policy` is maintained by the node and cannot be patched or deleted.
+  A patch to `validators.config:unbonding_period_days` must be an integer from
+  0 through 106750 and participates in automatic evidence-retention growth;
+  reducing it cannot shorten the committed retention target.
 - `__runtime_features.<feature>` may switch a supported feature (today `zk`)
   on or off, but only to a JSON `true` or `false`, the value genesis writes.
   Unknown features, other values and deletions are refused when the bundle is
