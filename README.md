@@ -130,7 +130,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest
 UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/unit/test_node_setup.py
 ```
 
-CI provisions Postgres for the BDS-backed paths. To mirror that locally, expose
+CI provisions PostgreSQL 18.7 for the BDS-backed paths. To mirror that locally, expose
 Postgres at `postgres://postgres:1234@localhost:5432/xian`.
 
 ## Related Docs
