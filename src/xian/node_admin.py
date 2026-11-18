@@ -18,14 +18,7 @@ from xian.constants import Constants as c
 from xian.full_node_store import (
     NativeStoreInspector,
     canonical_hex,
-    full_node_store_manifest_payload,
     verify_full_node_store_manifest,
-)
-from xian.full_node_store import (
-    read_full_node_store_checkpoint as read_full_node_store_checkpoint,
-)
-from xian.full_node_store import (
-    verify_full_node_store_checkpoint as verify_full_node_store_checkpoint,
 )
 from xian.full_node_store_limits import MAX_MANIFEST_BYTES, FullNodeStoreLimits
 from xian.node_setup import (
@@ -242,11 +235,6 @@ def _normalize_snapshot_manifest_public_keys(
             raise ValueError(f"invalid snapshot signing key: {value!r}")
         normalized.append(key)
     return normalized
-
-
-# Backwards import aliases now enforce the v2 full-store trust domain.
-_canonical_snapshot_manifest_payload = full_node_store_manifest_payload
-_verify_snapshot_manifest = verify_full_node_store_manifest
 
 
 def _snapshot_source(snapshot_url, trusted_keys, expected_sha256, expected_chain_id):

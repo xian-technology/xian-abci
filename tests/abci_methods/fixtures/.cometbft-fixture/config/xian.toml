@@ -1,4 +1,3 @@
-block_service_mode = false
 pruning_enabled = false
 blocks_to_keep = 100000
 metrics_enabled = true

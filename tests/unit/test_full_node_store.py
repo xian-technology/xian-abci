@@ -30,7 +30,7 @@ from xian.full_node_store import (
     verify_full_node_store_checkpoint,
     verify_full_node_store_manifest,
 )
-from xian.node_admin import _verify_snapshot_manifest, apply_snapshot_archive
+from xian.node_admin import apply_snapshot_archive
 from xian.node_setup import genesis_sha256
 
 
@@ -40,7 +40,7 @@ def test_old_signed_manifest_cannot_authorize_full_store_bootstrap():
     )
     manifest["manifest_version"] = 1
     with pytest.raises(ValueError, match="manifest_version"):
-        _verify_snapshot_manifest(
+        verify_full_node_store_manifest(
             manifest, trusted_manifest_public_keys=[account.public_key], expected_chain_id=None
         )
 

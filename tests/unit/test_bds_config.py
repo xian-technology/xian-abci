@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import patch
 
-from xian.services.bds.config import REMOVED_SETTING_VARIABLES, BdsConfig
+from xian.services.bds.config import BdsConfig
 
 
 class BdsConfigTests(unittest.TestCase):
@@ -21,37 +21,19 @@ class BdsConfigTests(unittest.TestCase):
         for settings in ({}, {"host": "", "port": "invalid", "catchup_poll_seconds": "nan"}):
             with self.subTest(settings=settings):
                 self.assertEqual(
-                    CustomDefaults.from_runtime_settings({"bds": settings}, environ={}),
+                    CustomDefaults.from_runtime_settings({"bds": settings}),
                     CustomDefaults(),
                 )
 
-    def test_node_environment_bds_settings_are_rejected_by_name(self):
-        # The [bds] table in xian.toml is the only source; an old deployment's
-        # environment fails instead of being silently ignored or merged.
-        with patch.dict(
-            os.environ,
-            {"XIAN_BDS_HOST": "inherited-db", "XIAN_BDS_PASSWORD": "secret", "PATH": "/bin"},
-            clear=True,
-        ):
-            with self.assertRaisesRegex(
-                ValueError, "must not set XIAN_BDS_HOST, XIAN_BDS_PASSWORD: BDS settings"
-            ):
-                BdsConfig.from_runtime_settings({"bds": {"host": "postgres"}})
+    def test_runtime_settings_are_independent_of_the_environment(self):
+        with patch.dict(os.environ, {"XIAN_BDS_HOST": "ambient-db"}, clear=True):
+            config = BdsConfig.from_runtime_settings({"bds": {"host": "configured-db"}})
+        self.assertEqual(config.host, "configured-db")
 
-    def test_every_removed_environment_setting_is_named(self):
-        for name in REMOVED_SETTING_VARIABLES:
-            with self.subTest(name=name):
-                with self.assertRaisesRegex(ValueError, f"must not set {name}:"):
-                    BdsConfig.from_runtime_settings({}, {name: ""})
-
-    def test_unrelated_environment_is_accepted(self):
-        config = BdsConfig.from_runtime_settings({}, {"XIAN_BDS_ENABLED": "1", "HOME": "/root"})
-
-        self.assertEqual(config, BdsConfig())
-
-    def test_xian_toml_password_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "must not set bds.password: .*bds.password_file"):
-            BdsConfig.from_runtime_settings({"bds": {"password": ""}}, environ={})
+    def test_unknown_bds_settings_are_rejected_without_echoing_values(self):
+        with self.assertRaises(ValueError) as raised:
+            BdsConfig.from_runtime_settings({"bds": {"typo": "secret", "another": "private"}})
+        self.assertEqual(str(raised.exception), "unknown bds key(s): another, typo")
 
     def test_dsn_carrying_a_password_is_rejected(self):
         for dsn in (
@@ -61,11 +43,11 @@ class BdsConfigTests(unittest.TestCase):
         ):
             with self.subTest(dsn=dsn):
                 with self.assertRaisesRegex(ValueError, "bds.dsn must not contain a password"):
-                    BdsConfig.from_runtime_settings({"bds": {"dsn": dsn}}, environ={})
+                    BdsConfig.from_runtime_settings({"bds": {"dsn": dsn}})
 
     def test_dsn_without_password_is_kept(self):
         config = BdsConfig.from_runtime_settings(
-            {"bds": {"dsn": "postgresql://indexer@db:5432/xian?sslmode=require"}}, environ={}
+            {"bds": {"dsn": "postgresql://indexer@db:5432/xian?sslmode=require"}}
         )
 
         self.assertEqual(config.dsn, "postgresql://indexer@db:5432/xian?sslmode=require")
@@ -74,15 +56,13 @@ class BdsConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "bds-password"
             path.write_text("s3cr=t value\n", encoding="utf-8")
-            config = BdsConfig.from_runtime_settings(
-                {"bds": {"password_file": str(path)}}, environ={}
-            )
+            config = BdsConfig.from_runtime_settings({"bds": {"password_file": str(path)}})
 
             self.assertEqual(config.password_file, str(path))
             self.assertEqual(config.read_password(), "s3cr=t value")
 
     def test_without_password_file_the_password_is_empty(self):
-        config = BdsConfig.from_runtime_settings({"bds": {"password_file": ""}}, environ={})
+        config = BdsConfig.from_runtime_settings({"bds": {"password_file": ""}})
 
         self.assertIsNone(config.password_file)
         self.assertEqual(config.read_password(), "")
@@ -100,21 +80,16 @@ class BdsConfigTests(unittest.TestCase):
             with self.subTest(value=value):
                 config = BdsConfig.from_runtime_settings(
                     {"bds": {"port": value, "catchup_poll_seconds": value}},
-                    environ={},
                 )
                 self.assertEqual(config.port, 5432)
                 self.assertEqual(config.catchup_poll_seconds, 1.0)
 
     def test_overflowing_poll_interval_uses_existing_default(self):
-        config = BdsConfig.from_runtime_settings(
-            {"bds": {"catchup_poll_seconds": 10**1000}}, environ={}
-        )
+        config = BdsConfig.from_runtime_settings({"bds": {"catchup_poll_seconds": 10**1000}})
         self.assertEqual(config.catchup_poll_seconds, 1.0)
 
     def test_non_mapping_bds_settings_use_defaults(self):
-        self.assertEqual(
-            BdsConfig.from_runtime_settings({"bds": "invalid"}, environ={}), BdsConfig()
-        )
+        self.assertEqual(BdsConfig.from_runtime_settings({"bds": "invalid"}), BdsConfig())
 
     def test_from_runtime_settings_prefers_nested_config(self):
         config = BdsConfig.from_runtime_settings(
@@ -140,7 +115,6 @@ class BdsConfigTests(unittest.TestCase):
                     "disk_free_warn_bytes": 4294967296,
                 }
             },
-            environ={},
         )
 
         self.assertEqual(config.host, "db.internal")
@@ -162,9 +136,7 @@ class BdsConfigTests(unittest.TestCase):
         self.assertEqual(config.disk_free_warn_bytes, 4_294_967_296)
 
     def test_from_runtime_settings_handles_invalid_catchup_poll_seconds(self):
-        config = BdsConfig.from_runtime_settings(
-            {"bds": {"catchup_poll_seconds": "not-a-float"}}, environ={}
-        )
+        config = BdsConfig.from_runtime_settings({"bds": {"catchup_poll_seconds": "not-a-float"}})
 
         self.assertEqual(config.catchup_poll_seconds, 1.0)
 

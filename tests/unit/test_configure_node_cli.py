@@ -118,14 +118,14 @@ class ConfigureNodeCliTests(unittest.TestCase):
                 ]
             )
 
-    def test_parser_rejects_removed_parallel_execution_flags(self):
-        for flag in ("--parallel-execution-enabled", "--parallel-execution-workers=4"):
-            with self.subTest(flag=flag), self.assertRaises(SystemExit):
-                build_parser().parse_args(["--moniker", "validator-1", flag])
-
-    def test_parser_rejects_the_removed_bds_password_flag(self):
+    def test_parser_rejects_unknown_flags(self):
+        parser = build_parser()
         with self.assertRaises(SystemExit):
-            build_parser().parse_args(["--moniker", "validator-1", "--bds-password", "secret"])
+            parser.parse_args(["--moniker", "validator-1", "--unknown-option"])
+
+    def test_parser_requires_complete_option_names(self):
+        with self.assertRaises(SystemExit):
+            build_parser().parse_args(["--moniker", "validator-1", "--bds-pass", "secret"])
 
     def test_bds_defaults_target_the_containerized_postgres_service(self):
         args = build_parser().parse_args(["--moniker", "validator-1"])

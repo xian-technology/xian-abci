@@ -69,12 +69,10 @@ from xian.execution_policy import (
     initialize_execution_policy,
     validate_genesis_execution_policy,
     validate_persisted_execution_policy,
-    validate_vm_execution_config,
 )
 from xian.fee_policy import (
     FEE_POLICY_KEY,
     TxFeePolicy,
-    reject_node_local_fee_settings,
     resolve_chain_fee_policy,
 )
 from xian.log_safety import error_fields
@@ -91,6 +89,7 @@ from xian.methods import (
     query,
 )
 from xian.metrics import MetricsService
+from xian.node_config import validate_node_config
 from xian.node_defaults import (
     DEFAULT_ABCI_PROXY_APP,
     DEFAULT_MAX_TX_BYTES,
@@ -106,7 +105,6 @@ from xian.runtime_features import (
     resolve_runtime_features,
 )
 from xian.services.bds.bds import BDS
-from xian.services.bds.config import BdsConfig
 from xian.services.state_sync import StateSnapshotManager
 from xian.simulator import QuerySimulationService
 from xian.snapshot_restore_status import validate_snapshot_restore_complete
@@ -173,7 +171,7 @@ class Xian:
         xian_config = self.xian_config
         validate_comet_state_sync_disabled(self.cometbft_config)
         validate_comet_mempool_mode(self.cometbft_config)
-        validate_vm_execution_config(xian_config)
+        self.bds_config = validate_node_config(xian_config)
         validate_genesis_execution_policy(self.genesis)
         self.genesis_evidence_policy = validate_genesis_evidence_policy(self.genesis)
         validate_persisted_execution_policy(constants.STORAGE_HOME)
@@ -231,7 +229,6 @@ class Xian:
         )
         self._configure_transaction_processing(xian_config)
         try:
-            reject_node_local_fee_settings(xian_config)
             self.tx_fee_policy = resolve_chain_fee_policy(
                 committed_value=self.client.raw_driver.value_from_disk(FEE_POLICY_KEY),
                 genesis=self.genesis,
@@ -268,7 +265,6 @@ class Xian:
         self._pending_commit_driver_state = None
 
         self.bds_enabled = xian_config.get("bds_enabled", RUNTIME_DEFAULTS.bds_enabled)
-        self.bds_config = BdsConfig.from_runtime_settings(xian_config)
         if self.bds_config.spool_dir is None:
             self.bds_config = replace(
                 self.bds_config,

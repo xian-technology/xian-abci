@@ -1,38 +1,9 @@
 from __future__ import annotations
 
 import math
-import os
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any, Mapping
 from urllib.parse import parse_qs, urlsplit
-
-# The [bds] table in xian.toml is the only source of BDS settings. These
-# environment variables were a second, silently merged source; a node
-# environment that still sets one fails at startup instead.
-REMOVED_SETTING_VARIABLES = tuple(
-    f"XIAN_BDS_{name}"
-    for name in (
-        "DSN",
-        "HOST",
-        "PORT",
-        "DATABASE",
-        "USER",
-        "PASSWORD",
-        "POOL_MIN_SIZE",
-        "POOL_MAX_SIZE",
-        "STATEMENT_TIMEOUT_MS",
-        "ACQUIRE_TIMEOUT_MS",
-        "APPLICATION_NAME",
-        "QUEUE_MAX_SIZE",
-        "CATCHUP_ENABLED",
-        "CATCHUP_POLL_SECONDS",
-        "RPC_URL",
-        "SPOOL_DIR",
-        "SPOOL_WARN_ENTRIES",
-        "SPOOL_WARN_BYTES",
-        "DISK_FREE_WARN_BYTES",
-    )
-)
 
 
 def _first_non_empty(*values: object, default: object | None = None) -> object:
@@ -64,16 +35,6 @@ def _coerce_float(value: object, *, default: float) -> float:
 
 def _optional_str(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
-
-
-def reject_removed_environment(environ: Mapping[str, str]) -> None:
-    removed = [name for name in REMOVED_SETTING_VARIABLES if name in environ]
-    if removed:
-        raise ValueError(
-            f"the node environment must not set {', '.join(removed)}: BDS settings "
-            "come only from the [bds] table in xian.toml and the password from the "
-            "file named by bds.password_file; remove these variables"
-        )
 
 
 def validate_dsn(dsn: str | None) -> None:
@@ -131,18 +92,14 @@ class BdsConfig:
     def from_runtime_settings(
         cls,
         xian_config: Mapping[str, Any] | None = None,
-        environ: Mapping[str, str] | None = None,
     ) -> BdsConfig:
-        reject_removed_environment(os.environ if environ is None else environ)
         runtime = xian_config or {}
         settings = runtime.get("bds", {})
         if not isinstance(settings, Mapping):
             settings = {}
-        if "password" in settings:
-            raise ValueError(
-                "xian.toml must not set bds.password: the BDS password is read from "
-                "the file named by bds.password_file; remove the key"
-            )
+        unknown = sorted(set(settings) - {field.name for field in fields(cls)})
+        if unknown:
+            raise ValueError(f"unknown bds key(s): {', '.join(unknown)}")
         dsn = _optional_str(settings.get("dsn"))
         validate_dsn(dsn)
         defaults = cls()

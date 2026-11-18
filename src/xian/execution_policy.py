@@ -19,19 +19,6 @@ SET_CODEC = "xian-set-1"
 COMPILER_ADMISSION_REVISION = "xian-admission-3"
 TX_ADMISSION_REVISION = "xian-fastpath-admission-3"
 EXECUTION_POLICY_KEY = "__execution_policy"
-# xian.toml keys of the removed speculative parallel executor.
-REMOVED_PARALLEL_EXECUTION_KEYS = frozenset(
-    {
-        "parallel_execution_enabled",
-        "parallel_execution_workers",
-        "parallel_execution_min_transactions",
-        "parallel_execution_max_speculative_waves",
-        "parallel_execution_min_wave_acceptance_ratio",
-        "parallel_execution_low_acceptance_min_wave_size",
-        "parallel_execution_warm_workers",
-        "parallel_execution_access_estimates_enabled",
-    }
-)
 
 
 def current_execution_policy() -> dict[str, str]:
@@ -96,26 +83,3 @@ def initialize_execution_policy(storage_home: Path) -> None:
     with standalone_environment(path) as env:
         if not env.write_if_empty([(EXECUTION_POLICY_KEY.encode(), encoded)]):
             raise ValueError("state changed during execution policy initialization")
-
-
-def validate_vm_execution_mode(*, mode: str | None = None) -> None:
-    selected = (mode or VM_EXECUTION_MODE).strip()
-    if selected != VM_EXECUTION_MODE:
-        raise ValueError("xian_vm_v2 is the only supported execution mode")
-
-
-def validate_vm_execution_config(
-    xian_config: dict[str, object] | None,
-) -> None:
-    payload = xian_config or {}
-    if "tracer_mode" in payload:
-        raise ValueError("xian.tracer_mode is no longer supported; Xian nodes only run xian_vm_v2")
-    if "execution" in payload:
-        raise ValueError("xian.execution has been removed; Xian nodes only run xian_vm_v2")
-    removed = sorted(REMOVED_PARALLEL_EXECUTION_KEYS.intersection(payload))
-    if removed:
-        raise ValueError(
-            f"xian.toml must not set {', '.join(removed)}: the speculative parallel "
-            "executor was removed and blocks always execute serially; remove these keys"
-        )
-    validate_vm_execution_mode()

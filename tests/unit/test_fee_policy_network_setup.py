@@ -20,9 +20,7 @@ from xian.utils.block import store_genesis_block
 from xian.utils.tx import transaction_bytes
 from xian.xian_abci import Xian
 
-FOUNDER_PRIVATE_KEY = (
-    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-)
+FOUNDER_PRIVATE_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 FOUNDER_PUBLIC_KEY = Ed25519Account(FOUNDER_PRIVATE_KEY).public_key
 RECIPIENT = "f" * 64
 
@@ -62,9 +60,7 @@ def _approval_tx(*, chain_id: str, chi_supplied: int = 100_000) -> dict:
 
 class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
     async def test_fresh_network_fee_modes_boot_and_execute_as_configured(self):
-        contracts_dir = (
-            Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
-        )
+        contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
         cases = (
             {
                 "mode": "free_metered",
@@ -124,9 +120,7 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                         app.client,
                         app.genesis["abci_genesis"],
                     )
-                    state_root = app.state_root_cache.rebuild(
-                        app.client.raw_driver.items().items()
-                    )
+                    state_root = app.state_root_cache.rebuild(app.client.raw_driver.items().items())
                     self.assertEqual(
                         state_root.hex(),
                         app.genesis["abci_genesis"]["hash"],
@@ -193,7 +187,6 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                 finally:
                     await app.close()
 
-
     async def test_fee_policy_follows_committed_state_and_rejects_node_config(self):
         contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -214,8 +207,9 @@ class FeePolicyFreshNetworkSetupTests(unittest.IsolatedAsyncioTestCase):
                 genesis=genesis,
                 priv_validator_key=validator_material["priv_validator_key"],
             )
-            with self.assertRaises(SystemExit):
+            with self.assertRaisesRegex(ValueError, "unknown xian.toml.*tx_fee_mode"):
                 await Xian.create(constants=_fresh_runtime_constants(home))
+            self.assertFalse((home / "xian" / "lmdb").exists())
 
             # The operator's simulation cap applies when it is below the chain's tx cap.
             write_toml(

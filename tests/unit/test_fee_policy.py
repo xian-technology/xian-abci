@@ -9,7 +9,6 @@ from xian.fee_policy import (
     MAX_BLOCK_CHI_LIMIT,
     TxFeePolicy,
     fee_policy_state,
-    reject_node_local_fee_settings,
     resolve_chain_fee_policy,
     vm_max_tx_chi,
 )
@@ -158,7 +157,9 @@ class TxFeePolicyTests(unittest.TestCase):
                 with self.subTest(info=info):
                     vm_max_tx_chi.cache_clear()
                     with mock.patch("xian.fee_policy.runtime_info", return_value=info):
-                        with self.assertRaisesRegex(ValueError, "does not report its per-transaction"):
+                        with self.assertRaisesRegex(
+                            ValueError, "does not report its per-transaction"
+                        ):
                             vm_max_tx_chi()
             # The smallest positive ceiling is a real ceiling, not a missing one.
             vm_max_tx_chi.cache_clear()
@@ -176,13 +177,6 @@ class TxFeePolicyTests(unittest.TestCase):
                         fee_policy_state(settings)
                     with self.assertRaisesRegex(ValueError, "VM ceiling of 100 chi"):
                         TxFeePolicy.from_state(settings)
-
-    def test_node_config_cannot_set_the_consensus_fee_policy(self):
-        reject_node_local_fee_settings({"app_log_level": "INFO"})
-        for key in ("tx_fee_mode", "max_tx_chi", "max_block_chi"):
-            with self.subTest(key=key):
-                with self.assertRaisesRegex(ValueError, "genesis"):
-                    reject_node_local_fee_settings({key: "paid_metered"})
 
     def test_smallest_valid_limits_are_accepted(self):
         state = fee_policy_state(_state("free_metered", 1, 1))

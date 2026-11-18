@@ -32,8 +32,7 @@ def _sha256_hex(value: str) -> str:
 
 def build_parser() -> ArgumentParser:
     defaults = NodeConfigOptions(moniker="")
-    # No prefix matching: a removed flag such as --bds-password must fail, not
-    # silently become --bds-password-file.
+    # Require complete option names so a typo cannot select another setting.
     parser = ArgumentParser(
         description="Configure an initialized CometBFT home", allow_abbrev=False
     )

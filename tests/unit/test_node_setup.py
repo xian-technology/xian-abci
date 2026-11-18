@@ -114,7 +114,6 @@ class NodeSetupTests(unittest.TestCase):
         self.assertTrue(xian_config["pruning_enabled"])
         self.assertEqual(xian_config["metrics_port"], 9208)
         self.assertNotIn("execution", xian_config)
-        self.assertFalse([key for key in xian_config if key.startswith("parallel_execution_")])
         self.assertEqual(xian_config["bds"]["application_name"], "xian-bds-test")
 
     def test_render_config_applies_xian_settings(self):

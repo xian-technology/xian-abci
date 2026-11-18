@@ -91,15 +91,6 @@ def fee_policy_state(settings: Mapping[str, object] | None = None) -> dict[str, 
     return TxFeePolicy.from_settings(settings).to_state()
 
 
-def reject_node_local_fee_settings(xian_config: Mapping[str, object] | None) -> None:
-    configured = sorted(set(xian_config or {}) & set(FEE_POLICY_FIELDS))
-    if configured:
-        raise ValueError(
-            f"xian.toml must not set {', '.join(configured)}: the fee policy is chain "
-            "state chosen in genesis (__fee_policy); remove these keys"
-        )
-
-
 @dataclass(frozen=True, slots=True)
 class TxFeePolicy:
     mode: str
