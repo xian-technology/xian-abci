@@ -27,3 +27,10 @@ This file tracks follow-up work that still looks relevant on current `main`.
 - parallel block execution (Block-STM-style, in Rust): deferred design in
   `xian-meta/docs/XIAN_VM_PARALLEL_EXECUTION_PLAN.md` (step C)
 - monitoring and operator ergonomics
+
+## Transaction Throughput
+
+- [Transaction throughput optimization plan](../../xian-meta/docs/TRANSACTION_THROUGHPUT_OPTIMIZATION_PLAN.md): proposed staged work
+  on measurement, bounded immutable admission reuse, proposal scans, live
+  admission and receipt costs. Preserve current execution semantics and
+  remeasure before pursuing parallel contract execution.
