@@ -51,7 +51,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-configs
-          ref: 5681d5f3902ae54c47ebcdab4c4722fe60519457
+          ref: 9989997558826d14bf2aac12bfd38ef91eae3768
           path: xian-configs
 
       - name: Check out xian-contracts
