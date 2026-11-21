@@ -452,13 +452,12 @@ class GenesisBuilderTests(unittest.TestCase):
         contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
 
         validators = derive_genesis_validators_from_bundle(
-            network="devnet",
+            network="local",
             contracts_dir=contracts_dir,
         )
 
-        self.assertEqual(len(validators), 2)
-        self.assertEqual(validators[0]["address"], "614EBE42CBE8354F733851F4316D0DE316B1AEF0")
-        self.assertEqual(validators[1]["address"], "5C7B6531A88A6C6941A7AA495AF041394F8345F0")
+        self.assertEqual(len(validators), 1)
+        self.assertEqual(validators[0]["address"], "8ABB2DE01AE15C5F4EBD0D4455C6BCD9047B7CBB")
 
     def test_derive_genesis_validators_from_bundle_uses_declared_powers(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -504,22 +503,22 @@ class GenesisBuilderTests(unittest.TestCase):
         contracts_dir = Path(__file__).resolve().parents[3] / "xian-configs" / "contracts"
 
         genesis = build_bundle_network_genesis(
-            chain_id="xian-devnet-1",
-            network="devnet",
+            chain_id="xian-local-1",
+            network="local",
             contracts_dir=contracts_dir,
             genesis_time="2026-03-30T00:00:00.000000Z",
         )
 
-        self.assertEqual(genesis["chain_id"], "xian-devnet-1")
+        self.assertEqual(genesis["chain_id"], "xian-local-1")
         self.assertEqual(genesis["genesis_time"], "2026-03-30T00:00:00.000000Z")
         self.assertEqual(
             genesis["abci_genesis"]["origin"],
             {"sender": "", "signature": ""},
         )
-        self.assertEqual(len(genesis["validators"]), 2)
+        self.assertEqual(len(genesis["validators"]), 1)
         self.assertEqual(
             genesis["validators"][0]["address"],
-            "614EBE42CBE8354F733851F4316D0DE316B1AEF0",
+            "8ABB2DE01AE15C5F4EBD0D4455C6BCD9047B7CBB",
         )
 
     def test_local_bundle_pins_validators_policy_in_genesis(self):

@@ -397,7 +397,7 @@ def _build_genesis_block(
 def build_genesis_block(
     *,
     founder_private_key: str,
-    network: str = "devnet",
+    network: str = "local",
     contracts_dir: Path | None = None,
     storage_home: Path | None = None,
     constructor_overrides: dict[str, dict[str, Any]] | None = None,
