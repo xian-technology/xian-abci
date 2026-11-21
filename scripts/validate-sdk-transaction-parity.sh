@@ -47,3 +47,10 @@ XIAN_JS_DIR="${xian_js_dir}" \
 UV_CACHE_DIR="${uv_cache_dir}" \
 "${uv_bin}" run --python "${python_version}" \
   pytest tests/unit/test_sdk_transaction_parity.py
+
+if [[ -n "${XIAN_LIVE_SDK_RPC:-}" ]]; then
+  XIAN_JS_DIR="${xian_js_dir}" \
+  PYTHONPATH="${xian_py_dir}/src${PYTHONPATH:+:${PYTHONPATH}}" \
+  "${uv_bin}" run --python "${python_version}" \
+    pytest tests/integration/test_live_sdk_parity.py
+fi

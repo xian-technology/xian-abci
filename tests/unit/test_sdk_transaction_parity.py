@@ -24,6 +24,69 @@ ROOT = Path(__file__).resolve().parents[2]
 XIAN_PY_DIR = Path(os.environ.get("XIAN_PY_DIR", ROOT.parent / "xian-py"))
 XIAN_JS_DIR = Path(os.environ.get("XIAN_JS_DIR", ROOT.parent / "xian-js"))
 
+_deep_value = None
+for _ in range(130):
+    _deep_value = [_deep_value]
+
+SHARED_REFUSALS = [
+    {"name": "reject_unpaired_surrogate", "kwargs": {"data": "\ud800"}},
+    {"name": "reject_bad_bytes", "kwargs": {"data": {"__bytes__": "0g"}}},
+    {"name": "reject_reserved_tag_with_sibling", "kwargs": {"data": {"__bytes__": "00", "x": 1}}},
+    {"name": "reject_bad_delta", "kwargs": {"data": {"__delta__": [1, 2, 3]}}},
+    {
+        "name": "reject_duplicate_set_member",
+        "kwargs": {"data": {"__set__": {"codec": "xian-set-1", "items": [["int", "1"]] * 2}}},
+    },
+    {
+        "name": "reject_unsorted_unicode_set",
+        "kwargs": {
+            "data": {
+                "__set__": {"codec": "xian-set-1", "items": [["str", "😀"], ["str", "\ue000"]]}
+            }
+        },
+    },
+    {
+        "name": "reject_equal_integer_and_decimal_set_members",
+        "kwargs": {
+            "data": {
+                "__set__": {"codec": "xian-set-1", "items": [["int", "1"], ["fixed", str(10**30)]]}
+            }
+        },
+    },
+    {"name": "reject_invalid_datetime", "kwargs": {"data": {"__time__": [1900, 2, 29]}}},
+    {"name": "reject_wire_depth", "kwargs": {"data": _deep_value}},
+    {"name": "reject_empty_chain_id", "kwargs": {}, "chain_id": ""},
+    {"name": "reject_mismatched_sender", "kwargs": {}, "sender": "02" * 32},
+]
+
+SHARED_WIRE_VALUES = [
+    {"__fixed__": "1"},
+    "1",
+    {"__fixed__": "0.000000000000000000000000000001"},
+    {"__big_int__": str(2**512 - 1)},
+    {"__bytes__": "00ff"},
+    {"__bytearray__": "00ff"},
+    {"__delta__": [2, 3]},
+    {"__time__": [2000, 2, 29, 1, 2, 3, 4]},
+    {
+        "__set__": {
+            "codec": "xian-set-1",
+            "items": [
+                ["none"],
+                ["bool", True],
+                ["int", "1"],
+                ["fixed", "1000000000000000000000000000001"],
+                ["str", "\ue000"],
+                ["str", "😀"],
+                ["bytes", "00ff"],
+                ["tuple", [["int", "2"], ["str", "x"]]],
+                ["frozenset", [["str", "nested"]]],
+            ],
+        }
+    },
+    {"2": "e\u0301", "10": "é", "\ue000": "\ufeff雪", "😀": "emoji"},
+]
+
 
 @dataclass(frozen=True)
 class ValidationResult:
@@ -46,7 +109,7 @@ def _run(command: list[str], *, cwd: Path, stdin: str | None = None) -> str:
 
 def _python_sdk_records() -> list[dict]:
     script = f"""
-import json
+import json, sys
 
 from xian_py.transaction import canonical_json, create_tx
 from xian_py.wallet import Wallet
@@ -88,17 +151,17 @@ cases = [
         "kwargs": {{"amount": 1, "to": sender}},
         "payload_overrides": {{"nonce": True}},
     }},
-]
+] + json.load(sys.stdin)
 
 records = []
 for index, case in enumerate(cases, start=1):
     payload = {{
-        "chain_id": chain_id,
+        "chain_id": case.get("chain_id", chain_id),
         "contract": "currency",
         "function": "transfer",
         "kwargs": case["kwargs"],
         "nonce": index,
-        "sender": sender,
+        "sender": case.get("sender", sender),
         "chi_supplied": 50_000,
     }}
     payload.update(case.get("payload_overrides", {{}}))
@@ -123,12 +186,19 @@ print(json.dumps(records, sort_keys=True))
     output = _run(
         ["uv", "run", "--project", str(XIAN_PY_DIR), "python", "-c", script],
         cwd=XIAN_PY_DIR,
+        stdin=json.dumps(
+            [
+                {"name": "shared_wire_values", "kwargs": {"data": SHARED_WIRE_VALUES}},
+                *SHARED_REFUSALS,
+            ]
+        ),
     )
     return json.loads(output)
 
 
 def _js_sdk_records() -> list[dict]:
     script = f"""
+import {{ readFileSync }} from "node:fs";
 import {{
   Ed25519Signer,
   XianClient,
@@ -176,19 +246,19 @@ const cases = [
     kwargs: {{ amount: 1, to: sender }},
     payloadOverrides: {{ nonce: true }}
   }}
-];
+].concat(JSON.parse(readFileSync(0, "utf8")));
 
 const records = [];
 for (const [index, testCase] of cases.entries()) {{
   try {{
     const tx = await client.buildTx({{
-      sender,
+      sender: testCase.sender ?? sender,
       contract: "currency",
       function: "transfer",
       kwargs: testCase.kwargs,
       nonce: index + 1,
       chi: 50_000,
-      chainId,
+      chainId: testCase.chain_id ?? chainId,
       ...(testCase.payloadOverrides ?? {{}})
     }});
     const signedTx = await client.signTx(tx, signer);
@@ -209,7 +279,16 @@ for (const [index, testCase] of cases.entries()) {{
 
 console.log(JSON.stringify(records));
 """
-    output = _run(["node", "--input-type=module", "-e", script], cwd=XIAN_JS_DIR)
+    output = _run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=XIAN_JS_DIR,
+        stdin=json.dumps(
+            [
+                {"name": "shared_wire_values", "kwargs": {"data": SHARED_WIRE_VALUES}},
+                *SHARED_REFUSALS,
+            ]
+        ),
+    )
     return json.loads(output)
 
 
@@ -297,3 +376,36 @@ for (const { payload } of vectors.cases) {
         assert result.accepted, result.error
         assert result.value["payload"] == case["payload"]
         assert result.value["metadata"]["signature"] == case["signature"]
+
+
+def test_sdk_contract_values_keep_their_wire_types_when_reused():
+    wire = json.dumps(SHARED_WIRE_VALUES)
+    python = _run(
+        [
+            "uv",
+            "run",
+            "--project",
+            str(XIAN_PY_DIR),
+            "python",
+            "-c",
+            "import sys; from xian_runtime_types.encoding import decode, encode_wire;"
+            "print(encode_wire(decode(sys.stdin.read())))",
+        ],
+        cwd=XIAN_PY_DIR,
+        stdin=wire,
+    )
+    js = _run(
+        [
+            "node",
+            "--input-type=module",
+            "-e",
+            """
+import { readFileSync } from "node:fs";
+import { decodeRuntime, encodeRuntime } from "./packages/client/dist/index.js";
+console.log(encodeRuntime(decodeRuntime(readFileSync(0, "utf8"))));
+""",
+        ],
+        cwd=XIAN_JS_DIR,
+        stdin=wire,
+    )
+    assert json.loads(python) == json.loads(js) == SHARED_WIRE_VALUES

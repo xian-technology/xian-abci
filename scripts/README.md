@@ -11,7 +11,11 @@ importable runtime code.
 - `validate-repo.sh`: the preferred full validation entrypoint for local and CI
   use
 - `validate-sdk-transaction-parity.sh`: cross-checks SDK-built transactions
-  against runtime admission
+  against runtime admission. Set `XIAN_LIVE_SDK_RPC` to a disposable V2 dev
+  node with free metering to also deploy a probe contract and compare
+  committed receipts, state reads, and token helpers. Run once with the
+  CometBFT transaction index enabled and once with `tx_index.indexer = "null"`
+  to exercise both receipt paths.
 - `benchmark_shielded_chi.py`: manual shielded-fee benchmark harness for the
   shielded note-token path through the block executor (its chi must equal
   `BASELINE`)
