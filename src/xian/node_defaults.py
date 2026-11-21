@@ -120,14 +120,6 @@ experimental_max_gossip_connections_to_non_persistent_peers = 0
 
 [statesync]
 enable = false
-rpc_servers = ""
-trust_height = 0
-trust_hash = ""
-trust_period = "168h0m0s"
-discovery_time = "15s"
-temp_dir = ""
-chunk_request_timeout = "10s"
-chunk_fetchers = "4"
 
 [blocksync]
 version = "v0"

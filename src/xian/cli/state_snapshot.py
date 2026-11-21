@@ -5,7 +5,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 from xian.constants import Constants
-from xian.services.state_sync import StateSnapshotManager
+from xian.services.state_snapshot import StateSnapshotManager
 from xian.utils.cometbft import load_genesis_data, load_xian_config
 
 

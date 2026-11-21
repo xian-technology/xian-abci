@@ -16,7 +16,7 @@ subsystems around it.
 - `simulator.py` (readonly simulations, in-process on the Rust
   `xian_vm_core.execute_tx`), `metrics.py`, and `vm_observability.py`:
   simulation and observability helpers
-- `services/`: BDS and state-sync-related services
+- `services/`: BDS and offline application snapshot tools
 - `cli/`: backend entrypoints owned by this repo
 - `dashboard/`: optional HTTP dashboard surface
 - `node_defaults.py`: shared application defaults and the CometBFT template
@@ -34,10 +34,10 @@ flowchart LR
   Methods --> Processor["processor and execution engine"]
   Processor --> Policy["fixed execution policy"]
   Processor --> VM["Rust BlockExecutor"]
-  Methods --> Services["services"]
-  Services --> BDS["BDS and offline snapshot helpers"]
+  Methods --> BDS["BDS services"]
   Dashboard["dashboard"] --> RPC["CometBFT RPC"]
   CLI["cli entrypoints"] --> ABCI
+  CLI --> Snapshots["offline snapshot tools"]
 ```
 
 ## Notes
@@ -46,12 +46,10 @@ flowchart LR
   affect node behavior directly.
 - `methods/`, execution flow, rewards, validators, and state export/import are
   especially consensus-sensitive.
-- `services/` contains optional but important runtime layers such as BDS and
-  snapshot/state-sync support.
 
 ## Next
 
 - Open `xian_abci.py` and `methods/` for transaction and request flow.
-- Open `services/` for BDS or snapshot/state-sync work.
+- Open `services/` for BDS and offline application snapshot work.
 - Open `dashboard/` for the optional HTTP dashboard surface.
 - Open `cli/` when changing backend-oriented commands exposed by this repo.

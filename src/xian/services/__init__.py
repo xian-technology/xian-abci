@@ -1,1 +1,1 @@
-"""Long-lived runtime services such as BDS and state sync."""
+"""Application services and offline state tools."""

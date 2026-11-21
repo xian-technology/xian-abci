@@ -13,7 +13,6 @@ from xian.node_setup import (
     MetricsOptions,
     NodeConfigOptions,
     SimulationOptions,
-    StateSyncOptions,
     build_priv_validator_key,
     generate_validator_material,
     genesis_sha256,
@@ -24,7 +23,6 @@ from xian.node_setup import (
     render_xian_config,
     resolve_app_logging_settings,
     resolve_simulation_settings,
-    resolve_statesync_settings,
     write_json,
     write_toml,
 )
@@ -48,16 +46,6 @@ class NodeSetupTests(unittest.TestCase):
                 transaction_trace_logging=True,
                 block_policy_mode="on_demand",
                 block_policy_interval="0s",
-                statesync=StateSyncOptions(
-                    enable=False,
-                    rpc_servers=(
-                        "http://rpc-1.internal:26657",
-                        "http://rpc-2.internal:26657",
-                    ),
-                    trust_height=120,
-                    trust_hash="ab" * 32,
-                    trust_period="336h0m0s",
-                ),
                 metrics=MetricsOptions(
                     enabled=True,
                     host="0.0.0.0",
@@ -106,6 +94,7 @@ class NodeSetupTests(unittest.TestCase):
         self.assertEqual(config["version"], "0.40.0")
         self.assertFalse(config["p2p"]["libp2p"]["enabled"])
         self.assertEqual(config["p2p"]["libp2p"]["bootstrap_peers"], [])
+        self.assertEqual(config["statesync"], {"enable": False})
         self.assertEqual(config["blocksync"]["version"], "v0")
         self.assertFalse(config["blocksync"]["adaptive_sync"])
         self.assertFalse(config["rpc"]["cors_allowed_origins"])
@@ -301,19 +290,6 @@ class NodeSetupTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             render_node_configs(moniker="validator-1")
 
-    def test_render_config_rejects_p2p_application_state_sync(self):
-        with self.assertRaisesRegex(ValueError, "ordinary replay.*full-node-store"):
-            render_cometbft_config(
-                options=_node_options(
-                    statesync=StateSyncOptions(
-                        enable=True,
-                        rpc_servers=("http://rpc1:26657", "http://rpc2:26657"),
-                        trust_height=120,
-                        trust_hash="ab" * 32,
-                    )
-                )
-            )
-
     def test_default_xian_config_leaves_the_simulation_cap_to_the_chain(self):
         # Unset, a readonly simulation may spend the chain's max_tx_chi; the
         # operator setting can only lower that, so the default writes none.
@@ -351,26 +327,6 @@ class NodeSetupTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "retention_days"):
             resolve_app_logging_settings(retention_days=0)
-
-    def test_resolve_statesync_settings_rejects_incomplete_config(self):
-        with self.assertRaisesRegex(ValueError, "ordinary replay"):
-            resolve_statesync_settings(
-                enable=True,
-                rpc_servers=["http://rpc-1.internal:26657"],
-                trust_height=120,
-                trust_hash="ab" * 32,
-            )
-
-        with self.assertRaisesRegex(ValueError, "full-node-store"):
-            resolve_statesync_settings(
-                enable=True,
-                rpc_servers=[
-                    "http://rpc-1.internal:26657",
-                    "http://rpc-2.internal:26657",
-                ],
-                trust_height=0,
-                trust_hash="ab" * 32,
-            )
 
     def test_render_config_advertises_the_p2p_external_address(self):
         default = render_cometbft_config(options=_node_options())
@@ -435,6 +391,23 @@ class NodeSetupTests(unittest.TestCase):
                     block_policy_interval="0s",
                 )
             )
+
+    def test_materialize_home_refuses_config_that_enables_state_sync(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "node"
+            config = render_cometbft_config(options=_node_options())
+            config["statesync"]["enable"] = True
+
+            with self.assertRaisesRegex(ValueError, "ordinary replay.*verified full-node-store"):
+                materialize_cometbft_home(
+                    home=home,
+                    config=config,
+                    xian_config={},
+                    genesis={"chain_id": "xian-local-1"},
+                    priv_validator_key=build_priv_validator_key("ab" * 32),
+                )
+
+            self.assertFalse(home.exists())
 
     def test_materialize_home_writes_expected_files(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

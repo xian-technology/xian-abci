@@ -34,7 +34,6 @@ from xian.node_setup import (
     MetricsOptions,
     NodeConfigOptions,
     SimulationOptions,
-    StateSyncOptions,
     genesis_sha256,
     render_node_configs,
     write_json,
@@ -309,6 +308,22 @@ class NodeAdminTests(unittest.TestCase):
                         expected_sha256="deadbeef",
                     )
 
+    def test_configure_existing_home_refuses_an_enabled_state_sync_setting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            config_path = home / "config/config.toml"
+            config_path.parent.mkdir()
+            config = render_node_configs(options=NodeConfigOptions(moniker="node"))["cometbft"]
+            config["statesync"]["enable"] = True
+            write_toml(config_path, config)
+            original = config_path.read_bytes()
+
+            with self.assertRaisesRegex(ValueError, "ordinary replay.*verified full-node-store"):
+                configure_existing_home(ExistingHomeOptions(moniker="updated", home=home))
+
+            self.assertEqual(config_path.read_bytes(), original)
+            self.assertFalse((home / "config/xian.toml").exists())
+
     def test_configure_existing_home_renders_config_and_writes_files(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
@@ -379,16 +394,6 @@ prometheus = false
                             enable_pruning=True,
                             blocks_to_keep=5000,
                             allow_cors=False,
-                            statesync=StateSyncOptions(
-                                enable=False,
-                                rpc_servers=(
-                                    "http://rpc-1.internal:26657",
-                                    "http://rpc-2.internal:26657",
-                                ),
-                                trust_height=120,
-                                trust_hash="ab" * 32,
-                                trust_period="336h0m0s",
-                            ),
                             metrics=MetricsOptions(
                                 enabled=True,
                                 host="0.0.0.0",
@@ -457,14 +462,7 @@ prometheus = false
             self.assertEqual(rendered_config["db_backend"], "rocksdb")
             self.assertEqual(rendered_config["db_dir"], "custom-data")
             self.assertEqual(rendered_config["rpc"]["cors_allowed_origins"], [])
-            self.assertFalse(rendered_config["statesync"]["enable"])
-            self.assertEqual(
-                rendered_config["statesync"]["rpc_servers"],
-                "",
-            )
-            self.assertEqual(rendered_config["statesync"]["trust_height"], 0)
-            self.assertEqual(rendered_config["statesync"]["trust_hash"], "")
-            self.assertEqual(rendered_config["statesync"]["trust_period"], "336h0m0s")
+            self.assertEqual(rendered_config["statesync"], {"enable": False})
             self.assertNotIn("xian", rendered_config)
             self.assertTrue(rendered_xian_config["pruning_enabled"])
             self.assertEqual(rendered_xian_config["blocks_to_keep"], 5000)

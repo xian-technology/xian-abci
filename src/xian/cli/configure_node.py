@@ -17,7 +17,6 @@ from xian.node_setup import (
     MetricsOptions,
     NodeConfigOptions,
     SimulationOptions,
-    StateSyncOptions,
 )
 
 BDS_DEFAULTS = BdsOptions()
@@ -194,41 +193,6 @@ def build_parser() -> ArgumentParser:
         help="interval used by idle_interval or periodic block policies",
         required=False,
         default=defaults.block_policy_interval,
-    )
-    parser.add_argument(
-        "--statesync-enable",
-        action=BooleanOptionalAction,
-        help="enable CometBFT state sync using trusted application snapshots",
-        required=False,
-        default=defaults.statesync.enable,
-    )
-    parser.add_argument(
-        "--statesync-rpc-server",
-        action="append",
-        default=list(defaults.statesync.rpc_servers),
-        help="trusted CometBFT RPC server for state sync; specify at least twice",
-        required=False,
-    )
-    parser.add_argument(
-        "--statesync-trust-height",
-        type=int,
-        help="trusted height for CometBFT state sync",
-        required=False,
-        default=defaults.statesync.trust_height,
-    )
-    parser.add_argument(
-        "--statesync-trust-hash",
-        type=str,
-        help="trusted block hash for CometBFT state sync",
-        required=False,
-        default=defaults.statesync.trust_hash,
-    )
-    parser.add_argument(
-        "--statesync-trust-period",
-        type=str,
-        help="light-client trust period for CometBFT state sync",
-        required=False,
-        default=defaults.statesync.trust_period,
     )
     parser.add_argument(
         "--metrics-enabled",
@@ -592,13 +556,6 @@ def main(argv: list[str] | None = None) -> int:
                 transaction_trace_logging=args.transaction_trace_logging,
                 block_policy_mode=args.block_policy_mode,
                 block_policy_interval=args.block_policy_interval,
-                statesync=StateSyncOptions(
-                    enable=args.statesync_enable,
-                    rpc_servers=tuple(args.statesync_rpc_server or ()),
-                    trust_height=args.statesync_trust_height,
-                    trust_hash=args.statesync_trust_hash,
-                    trust_period=args.statesync_trust_period,
-                ),
                 metrics=MetricsOptions(
                     enabled=args.metrics_enabled,
                     host=args.metrics_host,

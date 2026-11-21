@@ -14,10 +14,9 @@ from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
 from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import encode
 
-from tendermint.abci.types_pb2 import Snapshot
 from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
 from xian.execution_policy import EXECUTION_POLICY_KEY, current_execution_policy
-from xian.services.state_sync import (
+from xian.services.state_snapshot import (
     SNAPSHOT_FORMAT_VERSION,
     StateSnapshotManager,
     _safe_extract_snapshot,
@@ -50,22 +49,7 @@ CANONICAL_CONTRACT_SOURCE = ContractingCompiler(module_name="demo").normalize_so
 )
 
 
-def snapshot_metadata(**changes):
-    return json.dumps(
-        {
-            "snapshot_format_version": SNAPSHOT_FORMAT_VERSION,
-            "execution_policy": current_execution_policy(),
-            "chain_id": "xian-test-1",
-            "height": 43,
-            "app_hash": "cd" * 32,
-            "archive_sha256": "ab" * 32,
-            "chunk_size": 64,
-            **changes,
-        }
-    ).encode()
-
-
-class StateSyncTests(unittest.TestCase):
+class StateSnapshotTests(unittest.TestCase):
     def test_snapshot_rejects_unexpected_duplicate_and_link_members_before_extraction(self):
         for extra in ("padding", "duplicate", "link"):
             with self.subTest(extra=extra), tempfile.TemporaryDirectory() as temp:
@@ -187,20 +171,14 @@ class StateSyncTests(unittest.TestCase):
                     previous_snapshot = Path(target.export_snapshot()["output_path"])
                     previous_archive = previous_snapshot.read_bytes()
                     previous_manifest = target._manifest_path(previous_snapshot).read_bytes()
-                    offered = target.offer_snapshot_response(
-                        record.to_proto(),
-                        app_hash=bytes.fromhex(record.app_hash_hex),
-                        current_height=3,
-                    )
-                    self.assertEqual(offered.result, offered.ACCEPT)
-                    with patch(
-                        "xian.services.state_sync." + failure,
-                        side_effect=OSError("injected publication failure"),
+                    with (
+                        patch(
+                            "xian.services.state_snapshot." + failure,
+                            side_effect=OSError("injected publication failure"),
+                        ),
+                        self.assertRaisesRegex(OSError, "injected publication failure"),
                     ):
-                        response = target.apply_snapshot_chunk_response(
-                            index=0, chunk=record.path.read_bytes(), sender="peer"
-                        )
-                    self.assertEqual(response.result, response.REJECT_SNAPSHOT)
+                        target.import_snapshot_archive(record.path)
                     driver.flush_cache()
                     self.assertEqual(get_committed_latest_block(driver)["height"], 3)
                     self.assertEqual(driver.get("local.value"), "preserve me")
@@ -291,44 +269,28 @@ class StateSyncTests(unittest.TestCase):
                 self.assertEqual(get_committed_latest_block(driver)["height"], 0)
 
     def test_offline_import_cleanup_failure_keeps_committed_state(self):
-        for failure in ("retention", "session_cleanup"):
-            with (
-                self.subTest(failure=failure),
-                tempfile.TemporaryDirectory() as source_dir,
-                tempfile.TemporaryDirectory() as target_dir,
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as target_dir,
+        ):
+            source_home, target_home = Path(source_dir), Path(target_dir)
+            self._seed_state(source_home)
+            source = StateSnapshotManager(storage_home=source_home, chain_id="local")
+            snapshot = source.export_snapshot()
+            target = StateSnapshotManager(storage_home=target_home, chain_id="local")
+            with Driver(vm_profile="xian_vm_v2", storage_home=target_home) as driver:
+                driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
+                driver.set("local.value", "replace me")
+                driver.commit()
+            with patch.object(
+                target, "_cleanup_existing_height", side_effect=OSError("injected cleanup failure")
             ):
-                source_home, target_home = Path(source_dir), Path(target_dir)
-                self._seed_state(source_home)
-                source = StateSnapshotManager(storage_home=source_home, chain_id="local")
-                source.export_snapshot()
-                record = source.list_snapshot_records()[0]
-                target = StateSnapshotManager(storage_home=target_home, chain_id="local")
-                with Driver(vm_profile="xian_vm_v2", storage_home=target_home) as driver:
-                    driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
-                    driver.set("local.value", "replace me")
-                    driver.commit()
-                offered = target.offer_snapshot_response(
-                    record.to_proto(), app_hash=bytes.fromhex(record.app_hash_hex), current_height=0
-                )
-                self.assertEqual(offered.result, offered.ACCEPT)
-                session = target._incoming_session
-                failed_object, failed_method = (
-                    (target, "_cleanup_existing_height")
-                    if failure == "retention"
-                    else (session.temp_dir, "cleanup")
-                )
-                with patch.object(
-                    failed_object, failed_method, side_effect=OSError("injected cleanup failure")
-                ):
-                    response = target.apply_snapshot_chunk_response(
-                        index=0, chunk=record.path.read_bytes(), sender="offline"
-                    )
-                self.assertEqual(response.result, response.ACCEPT)
-                with Driver(vm_profile="xian_vm_v2", storage_home=target_home) as restarted:
-                    self.assertIsNone(restarted.get("local.value"))
-                    self.assertEqual(restarted.get("demo.count"), 7)
-                    self.assertEqual(get_latest_block_height(target_home), 42)
-                session.close()
+                result = target.import_snapshot_archive(Path(snapshot["output_path"]))
+            self.assertEqual(result["height"], 42)
+            with Driver(vm_profile="xian_vm_v2", storage_home=target_home) as restarted:
+                self.assertIsNone(restarted.get("local.value"))
+                self.assertEqual(restarted.get("demo.count"), 7)
+                self.assertEqual(get_latest_block_height(target_home), 42)
 
     def test_snapshot_export_and_import_round_trip(self):
         with (
@@ -391,110 +353,28 @@ class StateSyncTests(unittest.TestCase):
                 bytes.fromhex(result["app_hash"]),
             )
 
-    def test_snapshot_abci_chunk_flow_restores_target_state(self):
+    def test_offline_import_refuses_a_mismatched_expected_checkpoint(self):
         with (
             tempfile.TemporaryDirectory() as source_dir,
             tempfile.TemporaryDirectory() as target_dir,
         ):
-            source_home = Path(source_dir) / "xian"
-            target_home = Path(target_dir) / "xian"
+            source_home, target_home = Path(source_dir), Path(target_dir)
             self._seed_state(source_home)
-
-            source_manager = StateSnapshotManager(
-                storage_home=source_home,
-                chain_id="xian-test-1",
-                chunk_size=64,
-            )
-            source_manager.export_snapshot()
-            record = source_manager.list_snapshot_records()[0]
-
-            target_manager = StateSnapshotManager(
-                storage_home=target_home,
-                chain_id="xian-test-1",
-                chunk_size=64,
-            )
-            offer = target_manager.offer_snapshot_response(
-                record.to_proto(),
-                app_hash=bytes.fromhex(record.app_hash_hex),
-                current_height=0,
-            )
-            self.assertEqual(offer.result, offer.ACCEPT)
-
-            for index in range(record.chunks):
-                chunk_response = source_manager.load_snapshot_chunk_response(
-                    height=record.height,
-                    format_version=record.format,
-                    chunk_index=index,
-                )
-                apply_response = target_manager.apply_snapshot_chunk_response(
-                    index=index,
-                    chunk=chunk_response.chunk,
-                    sender="peer-1",
-                )
-                self.assertEqual(apply_response.result, apply_response.ACCEPT)
-
-            target_driver = Driver(vm_profile="xian_vm_v2", storage_home=target_home)
-            self.addCleanup(target_driver.close)
-            self.assertEqual(target_driver.get("demo.count"), 7)
-            self.assertEqual(
-                target_driver.get("demo.set"),
-                ContractingSet([(1, "a"), ContractingFrozenSet([b"x"])]),
-            )
-            self.assertEqual(
-                target_driver.get("demo.price"),
-                ContractingDecimal("1.25"),
-            )
-            self.assertEqual(get_latest_block_height(target_home), 42)
-            self.assertTrue(target_manager.list_snapshot_records())
-
-    def test_state_sync_rejects_archive_that_disagrees_with_trusted_offer_before_import(self):
-        for mismatch in ("app_hash", "height"):
-            with (
-                self.subTest(mismatch=mismatch),
-                tempfile.TemporaryDirectory() as source_dir,
-                tempfile.TemporaryDirectory() as target_dir,
-            ):
-                source_home, target_home = Path(source_dir), Path(target_dir)
-                self._seed_state(source_home)
-                source = StateSnapshotManager(
-                    storage_home=source_home, chain_id="xian-test-1", chunk_size=1024 * 1024
-                )
-                source.export_snapshot()
-                record = source.list_snapshot_records()[0]
-                offered = record.to_proto()
-                trusted_hash = record.app_hash_hex if mismatch == "height" else "cd" * 32
-                trusted_height = record.height + (mismatch == "height")
-                offered.height = trusted_height
-                metadata = json.loads(offered.metadata)
-                metadata.update(app_hash=trusted_hash, height=trusted_height)
-                offered.metadata = json.dumps(metadata).encode()
-
-                driver = Driver(vm_profile="xian_vm_v2", storage_home=target_home)
-                driver.set(EXECUTION_POLICY_KEY, current_execution_policy())
-                driver.set("local.value", "preserve me")
-                driver.commit()
-                target = StateSnapshotManager(
-                    storage_home=target_home, chain_id="xian-test-1", chunk_size=1024 * 1024
-                )
-                offer = target.offer_snapshot_response(
-                    offered, app_hash=bytes.fromhex(trusted_hash), current_height=0
-                )
-                self.assertEqual(offer.result, offer.ACCEPT)
-                for index in range(record.chunks):
-                    chunk = source.load_snapshot_chunk_response(
-                        height=record.height, format_version=record.format, chunk_index=index
-                    )
-                    response = target.apply_snapshot_chunk_response(
-                        index=index, chunk=chunk.chunk, sender="peer"
-                    )
-                self.assertEqual(response.result, response.REJECT_SNAPSHOT)
-                driver.flush_cache()
-                self.assertEqual(driver.get("local.value"), "preserve me")
+            source = StateSnapshotManager(storage_home=source_home, chain_id="xian-test-1")
+            source.export_snapshot()
+            record = source.list_snapshot_records()[0]
+            target = StateSnapshotManager(storage_home=target_home, chain_id="xian-test-1")
+            for checkpoint in ({"expected_height": 43}, {"expected_app_hash_hex": "cd" * 32}):
+                with (
+                    self.subTest(checkpoint=checkpoint),
+                    self.assertRaisesRegex(ValueError, "does not match expected checkpoint"),
+                ):
+                    target.import_snapshot_archive(record.path, **checkpoint)
+            self.assertEqual(target.list_snapshot_records(), [])
+            with Driver(vm_profile="xian_vm_v2", storage_home=target_home) as driver:
                 self.assertIsNone(driver.get("demo.count"))
-                self.assertEqual(get_latest_block_height(target_home), 0)
-                driver.close()
 
-    def test_offline_chunk_import_reports_committed_height_after_restart(self):
+    def test_offline_import_reports_committed_height_after_restart(self):
         import asyncio
         from types import SimpleNamespace
 
@@ -512,17 +392,11 @@ class StateSyncTests(unittest.TestCase):
             source.export_snapshot()
             record = source.list_snapshot_records()[0]
             target = StateSnapshotManager(storage_home=target_home, chain_id="xian-test-1")
-            target.offer_snapshot_response(
-                record.to_proto(), app_hash=bytes.fromhex(record.app_hash_hex), current_height=0
+            target.import_snapshot_archive(
+                record.path,
+                expected_height=record.height,
+                expected_app_hash_hex=record.app_hash_hex,
             )
-            for index in range(record.chunks):
-                chunk = source.load_snapshot_chunk_response(
-                    height=record.height, format_version=record.format, chunk_index=index
-                )
-                response = target.apply_snapshot_chunk_response(
-                    index=index, chunk=chunk.chunk, sender="offline"
-                )
-                self.assertEqual(response.result, response.ACCEPT)
             with Driver(vm_profile="xian_vm_v2", storage_home=target_home) as restarted:
                 app = SimpleNamespace(client=SimpleNamespace(raw_driver=restarted), app_version=1)
                 response = asyncio.run(info(app, None))
@@ -530,89 +404,6 @@ class StateSyncTests(unittest.TestCase):
                 self.assertEqual(response.last_block_app_hash, bytes.fromhex(record.app_hash_hex))
                 self.assertEqual(restarted.get("demo.count"), 7)
                 self.assertEqual(restarted.get("__n.alice:"), 5)
-
-    def test_offer_snapshot_rejects_malformed_metadata_without_raising(self):
-        with tempfile.TemporaryDirectory() as target_dir:
-            target_home = Path(target_dir) / "xian"
-            manager = StateSnapshotManager(
-                storage_home=target_home,
-                chain_id="xian-test-1",
-                chunk_size=64,
-            )
-
-            response = manager.offer_snapshot_response(
-                Snapshot(
-                    height=43,
-                    format=SNAPSHOT_FORMAT_VERSION,
-                    chunks=1,
-                    hash=bytes.fromhex("ab" * 32),
-                    metadata=snapshot_metadata(height="not-an-int"),
-                ),
-                app_hash=bytes.fromhex("cd" * 32),
-                current_height=0,
-            )
-
-            self.assertEqual(response.result, response.REJECT)
-
-    def test_offer_snapshot_rejects_oversized_chunk_metadata(self):
-        with tempfile.TemporaryDirectory() as target_dir:
-            target_home = Path(target_dir) / "xian"
-            manager = StateSnapshotManager(
-                storage_home=target_home,
-                chain_id="xian-test-1",
-                chunk_size=64,
-            )
-
-            response = manager.offer_snapshot_response(
-                Snapshot(
-                    height=43,
-                    format=SNAPSHOT_FORMAT_VERSION,
-                    chunks=1,
-                    hash=bytes.fromhex("ab" * 32),
-                    metadata=snapshot_metadata(chunk_size=65),
-                ),
-                app_hash=bytes.fromhex("cd" * 32),
-                current_height=0,
-            )
-
-            self.assertEqual(response.result, response.REJECT)
-
-    def test_apply_snapshot_chunk_rejects_oversized_chunk(self):
-        with (
-            tempfile.TemporaryDirectory() as source_dir,
-            tempfile.TemporaryDirectory() as target_dir,
-        ):
-            source_home = Path(source_dir) / "xian"
-            target_home = Path(target_dir) / "xian"
-            self._seed_state(source_home)
-
-            source_manager = StateSnapshotManager(
-                storage_home=source_home,
-                chain_id="xian-test-1",
-                chunk_size=64,
-            )
-            source_manager.export_snapshot()
-            record = source_manager.list_snapshot_records()[0]
-
-            target_manager = StateSnapshotManager(
-                storage_home=target_home,
-                chain_id="xian-test-1",
-                chunk_size=64,
-            )
-            offer = target_manager.offer_snapshot_response(
-                record.to_proto(),
-                app_hash=bytes.fromhex(record.app_hash_hex),
-                current_height=0,
-            )
-            self.assertEqual(offer.result, offer.ACCEPT)
-
-            response = target_manager.apply_snapshot_chunk_response(
-                index=0,
-                chunk=b"x" * 65,
-                sender="peer-1",
-            )
-
-            self.assertEqual(response.result, response.REJECT_SNAPSHOT)
 
     def test_snapshot_import_rejects_tampered_exported_state(self):
         with (

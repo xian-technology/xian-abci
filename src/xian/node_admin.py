@@ -32,6 +32,7 @@ from xian.node_setup import (
     write_toml,
 )
 from xian.snapshot_restore import restore_application_archive
+from xian.state_sync_policy import validate_comet_state_sync_disabled
 from xian.toml_utils import load as load_toml
 from xian.utils.cometbft import format_url_netloc, normalize_rpc_url, split_host_port
 
@@ -316,6 +317,7 @@ def configure_existing_home(request: ExistingHomeOptions) -> dict[str, str | lis
     node_config = request.node_config or NodeConfigOptions(moniker=request.moniker)
     config_path = request.home / "config" / "config.toml"
     existing_config = load_existing_cometbft_config(config_path)
+    validate_comet_state_sync_disabled(existing_config)
     p2p_seeds = resolve_p2p_seeds(
         discover_seeds=request.discover_seeds,
         p2p_seeds=request.p2p_seeds,

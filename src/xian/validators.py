@@ -98,7 +98,7 @@ class ValidatorHandler:
             validators_state = validators_committed
         if validators_state:
             # Stage this with the block's writes, so rejected selections still
-            # retain the correct baseline after Commit, restart or state sync.
+            # retain the correct baseline after Commit, restart or snapshot restore.
             self.client.raw_driver.set(CONSENSUS_VALIDATORS_KEY, validators_state)
         updates = []
         for validator, power in validators_state.items():

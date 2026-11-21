@@ -8,7 +8,7 @@ import tempfile
 from dataclasses import asdict, dataclass, field
 from ipaddress import ip_address
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from nacl.encoding import Base64Encoder, HexEncoder
 from nacl.signing import SigningKey
@@ -29,7 +29,7 @@ from xian.node_defaults import (
     DEFAULT_COMETBFT_CONFIG_TOML as DEFAULT_COMETBFT_CONFIG_TOML,
 )
 from xian.services.bds.config import BdsConfig, validate_dsn
-from xian.state_sync_policy import require_p2p_state_sync_disabled
+from xian.state_sync_policy import validate_comet_state_sync_disabled
 from xian.utils.cometbft import split_host_port
 
 DEFAULT_XIAN_CONFIG_TOML = toml_utils.dumps(
@@ -46,15 +46,6 @@ SUPPORTED_APP_LOG_LEVELS = {
     "ERROR",
     "CRITICAL",
 }
-
-
-@dataclass(frozen=True, slots=True)
-class StateSyncOptions:
-    enable: bool = _COMETBFT_DEFAULTS["statesync"]["enable"]
-    rpc_servers: tuple[str, ...] = ()
-    trust_height: int = _COMETBFT_DEFAULTS["statesync"]["trust_height"]
-    trust_hash: str = _COMETBFT_DEFAULTS["statesync"]["trust_hash"]
-    trust_period: str = _COMETBFT_DEFAULTS["statesync"]["trust_period"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +129,6 @@ class NodeConfigOptions:
     transaction_trace_logging: bool = RUNTIME_DEFAULTS.transaction_trace_logging
     block_policy_mode: str = DEFAULT_BLOCK_POLICY_MODE
     block_policy_interval: str = DEFAULT_BLOCK_POLICY_INTERVAL
-    statesync: StateSyncOptions = field(default_factory=StateSyncOptions)
     metrics: MetricsOptions = field(default_factory=MetricsOptions)
     app_logging: AppLoggingOptions = field(default_factory=AppLoggingOptions)
     simulation: SimulationOptions = field(default_factory=SimulationOptions)
@@ -294,25 +284,6 @@ def resolve_app_logging_settings(
     }
 
 
-def resolve_statesync_settings(
-    *,
-    enable: bool = _NODE_DEFAULTS.statesync.enable,
-    rpc_servers: Sequence[str] | None = None,
-    trust_height: int = _NODE_DEFAULTS.statesync.trust_height,
-    trust_hash: str = _NODE_DEFAULTS.statesync.trust_hash,
-    trust_period: str = _NODE_DEFAULTS.statesync.trust_period,
-) -> dict[str, Any]:
-    require_p2p_state_sync_disabled(enable)
-    del rpc_servers, trust_height, trust_hash
-    return {
-        "enable": False,
-        "rpc_servers": "",
-        "trust_height": 0,
-        "trust_hash": "",
-        "trust_period": trust_period,
-    }
-
-
 def _normalize_private_key(private_key_hex: str | None) -> bytes:
     if private_key_hex is None:
         return secrets.token_bytes(32)
@@ -400,13 +371,6 @@ def render_node_configs(
         mode=options.block_policy_mode,
         interval=options.block_policy_interval,
     )
-    resolved_statesync = resolve_statesync_settings(
-        enable=options.statesync.enable,
-        rpc_servers=options.statesync.rpc_servers,
-        trust_height=options.statesync.trust_height,
-        trust_hash=options.statesync.trust_hash,
-        trust_period=options.statesync.trust_period,
-    )
     resolved_app_logging = resolve_app_logging_settings(
         level=options.app_logging.level,
         json_logging=options.app_logging.json_logging,
@@ -432,11 +396,6 @@ def render_node_configs(
     )
     cometbft_config["rpc"]["cors_allowed_origins"] = ["*"] if options.allow_cors else []
     cometbft_config["instrumentation"]["prometheus"] = options.prometheus
-    cometbft_config["statesync"]["enable"] = resolved_statesync["enable"]
-    cometbft_config["statesync"]["rpc_servers"] = resolved_statesync["rpc_servers"]
-    cometbft_config["statesync"]["trust_height"] = resolved_statesync["trust_height"]
-    cometbft_config["statesync"]["trust_hash"] = resolved_statesync["trust_hash"]
-    cometbft_config["statesync"]["trust_period"] = resolved_statesync["trust_period"]
 
     xian_config["bds_enabled"] = options.bds_enabled
     xian_config["pruning_enabled"] = options.enable_pruning
@@ -623,6 +582,7 @@ def materialize_cometbft_home(
     overwrite: bool = False,
     expected_genesis_sha256: str | None = None,
 ) -> dict[str, str]:
+    validate_comet_state_sync_disabled(config)
     genesis_text = _json_file_text(genesis)
     installed_genesis_sha256 = _text_sha256(genesis_text)
     verify_genesis_sha256(installed_genesis_sha256, expected_genesis_sha256)

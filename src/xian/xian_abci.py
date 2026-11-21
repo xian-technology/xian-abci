@@ -105,7 +105,6 @@ from xian.runtime_features import (
     resolve_runtime_features,
 )
 from xian.services.bds.bds import BDS
-from xian.services.state_sync import StateSnapshotManager
 from xian.simulator import QuerySimulationService
 from xian.snapshot_restore_status import validate_snapshot_restore_complete
 from xian.state_root import StateRootCache
@@ -209,11 +208,6 @@ class Xian:
             node_name=self.cometbft_config.get("moniker", ""),
             chain_id=self.chain_id,
             execution_mode=self.execution_mode,
-        )
-        self.state_snapshot_manager = StateSnapshotManager.from_config(
-            storage_home=constants.STORAGE_HOME,
-            chain_id=self.chain_id,
-            config=xian_config,
         )
         self.validator_handler = ValidatorHandler(self)
         self.nonce_storage = NonceStorage(
@@ -540,8 +534,7 @@ class Xian:
 
     async def offer_snapshot(self, req):
         del req
-        async with self._state_transition_lock:
-            return ResponseOfferSnapshot(result=ResponseOfferSnapshot.ABORT)
+        return ResponseOfferSnapshot(result=ResponseOfferSnapshot.ABORT)
 
     async def load_snapshot_chunk(self, req):
         del req
@@ -549,8 +542,7 @@ class Xian:
 
     async def apply_snapshot_chunk(self, req):
         del req
-        async with self._state_transition_lock:
-            return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.ABORT)
+        return ResponseApplySnapshotChunk(result=ResponseApplySnapshotChunk.ABORT)
 
     async def query(self, req):
         """

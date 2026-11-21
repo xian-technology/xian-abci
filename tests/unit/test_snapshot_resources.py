@@ -2,7 +2,6 @@
 
 import gzip
 import io
-import json
 import sys
 import tarfile
 from pathlib import Path
@@ -11,61 +10,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from tendermint.abci.types_pb2 import Snapshot
-from xian.execution_policy import current_execution_policy
 from xian.services.snapshot_limits import SnapshotArchiveReader, SnapshotLimits
-from xian.services.state_sync import (
-    SNAPSHOT_FORMAT_VERSION,
+from xian.services.state_snapshot import (
     StateSnapshotManager,
     _safe_extract_snapshot,
 )
-
-
-def offer_metadata(**changes):
-    return {
-        "snapshot_format_version": SNAPSHOT_FORMAT_VERSION,
-        "execution_policy": current_execution_policy(),
-        "chain_id": "local",
-        "height": 43,
-        "app_hash": "cd" * 32,
-        "archive_sha256": "ab" * 32,
-        "chunk_size": 4 * 1024 * 1024,
-        **changes,
-    }
-
-
-def offer(manager, *, chunks=1, metadata=None):
-    return manager.offer_snapshot_response(
-        Snapshot(
-            height=43,
-            format=SNAPSHOT_FORMAT_VERSION,
-            chunks=chunks,
-            hash=bytes.fromhex("ab" * 32),
-            metadata=metadata or json.dumps(offer_metadata()).encode(),
-        ),
-        app_hash=bytes.fromhex("cd" * 32),
-        current_height=0,
-    )
-
-
-def test_oversized_offer_metadata_is_rejected_before_json_decode(tmp_path):
-    manager = StateSnapshotManager(storage_home=tmp_path, chain_id="local")
-    metadata = json.dumps(offer_metadata()).encode() + b" " * 65_536
-    with patch("xian.services.state_sync.json.loads", wraps=json.loads) as parse:
-        result = offer(manager, metadata=metadata)
-
-    assert result.result == result.REJECT
-    parse.assert_not_called()
-    assert list(manager.incoming_dir.iterdir()) == []
-
-
-def test_unbounded_chunk_count_is_rejected_before_creating_staging(tmp_path):
-    manager = StateSnapshotManager(storage_home=tmp_path, chain_id="local")
-
-    result = offer(manager, chunks=1_000_000)
-
-    assert result.result == result.REJECT
-    assert list(manager.incoming_dir.iterdir()) == []
 
 
 def test_oversized_compressed_archive_is_refused_before_copy(tmp_path):
@@ -74,11 +23,11 @@ def test_oversized_compressed_archive_is_refused_before_copy(tmp_path):
         file.seek(256 * 1024 * 1024)
         file.write(b"x")
     manager = StateSnapshotManager(storage_home=tmp_path / "node", chain_id="local")
-    with patch("xian.services.state_sync.SnapshotLimits.stage_archive") as copy:
+    with patch("xian.services.state_snapshot.SnapshotLimits.stage_archive") as copy:
         with pytest.raises(ValueError, match="archive.*limit"):
             manager.import_snapshot_archive(archive)
     copy.assert_not_called()
-    assert list(manager.incoming_dir.iterdir()) == []
+    assert list(manager.snapshot_dir.iterdir()) == []
 
 
 @pytest.mark.parametrize("oversized", ["metadata.json", "exported_state.json"])
@@ -107,12 +56,12 @@ def test_compressed_bomb_is_bounded_before_tar_parsing_and_staging_is_cleaned(tm
     archive.write_bytes(gzip.compress(b"\0" * (limits.max_unpacked_bytes + 1)))
     manager = StateSnapshotManager(storage_home=tmp_path / "node", chain_id="local", limits=limits)
 
-    with patch("xian.services.state_sync.tarfile.open") as parse:
+    with patch("xian.services.state_snapshot.tarfile.open") as parse:
         with pytest.raises(ValueError, match="uncompressed archive.*limit"):
             manager.import_snapshot_archive(archive)
 
     parse.assert_not_called()
-    assert list(manager.incoming_dir.iterdir()) == []
+    assert list(manager.snapshot_dir.iterdir()) == []
 
 
 def test_large_auxiliary_tar_header_is_refused_before_its_payload_is_buffered(tmp_path):
@@ -126,54 +75,21 @@ def test_large_auxiliary_tar_header_is_refused_before_its_payload_is_buffered(tm
     with pytest.raises(ValueError, match="tar header read.*limit"):
         manager.import_snapshot_archive(archive)
 
-    assert list(manager.incoming_dir.iterdir()) == []
+    assert list(manager.snapshot_dir.iterdir()) == []
 
 
-def test_aggregate_chunks_cannot_cross_the_archive_cap(tmp_path):
-    manager = StateSnapshotManager(
-        storage_home=tmp_path,
-        chain_id="local",
-        limits=SnapshotLimits(max_archive_bytes=5, min_free_disk_bytes=0),
-    )
-    accepted = offer(manager, chunks=2, metadata=json.dumps(offer_metadata(chunk_size=4)).encode())
-    assert accepted.result == accepted.ACCEPT
-    staged = manager._incoming_session.archive_path
-    first = manager.apply_snapshot_chunk_response(index=0, chunk=b"1234", sender="peer")
-    assert first.result == first.ACCEPT
-    assert staged.read_bytes() == b"1234"
-
-    last = manager.apply_snapshot_chunk_response(index=1, chunk=b"56", sender="peer")
-
-    assert last.result == last.REJECT_SNAPSHOT
-    assert manager._incoming_session is None
-    assert not staged.exists()
-    assert list(manager.incoming_dir.iterdir()) == []
-
-
-def test_low_disk_offer_is_refused_without_staging(tmp_path):
-    manager = StateSnapshotManager(storage_home=tmp_path, chain_id="local")
-    with patch(
-        "xian.services.snapshot_limits.shutil.disk_usage", return_value=SimpleNamespace(free=0)
+def test_low_disk_import_cleans_up_temporary_staging(tmp_path):
+    archive = tmp_path / "local.tar.gz"
+    archive.write_bytes(b"archive")
+    manager = StateSnapshotManager(storage_home=tmp_path / "node", chain_id="local")
+    with (
+        patch(
+            "xian.services.snapshot_limits.shutil.disk_usage", return_value=SimpleNamespace(free=0)
+        ),
+        pytest.raises(ValueError, match="insufficient free disk space"),
     ):
-        response = offer(manager)
-
-    assert response.result == response.REJECT
-    assert list(manager.incoming_dir.iterdir()) == []
-
-
-def test_disk_failure_while_receiving_cleans_up_incoming_chunks(tmp_path):
-    manager = StateSnapshotManager(storage_home=tmp_path, chain_id="local")
-    response = offer(manager)
-    assert response.result == response.ACCEPT
-
-    with patch(
-        "xian.services.snapshot_limits.shutil.disk_usage", return_value=SimpleNamespace(free=0)
-    ):
-        response = manager.apply_snapshot_chunk_response(index=0, chunk=b"x", sender="peer")
-
-    assert response.result == response.REJECT_SNAPSHOT
-    assert manager._incoming_session is None
-    assert list(manager.incoming_dir.iterdir()) == []
+        manager.import_snapshot_archive(archive)
+    assert list(manager.snapshot_dir.iterdir()) == []
 
 
 @pytest.mark.parametrize("value", [0, -1, True, "1024", 1.5])
@@ -191,7 +107,7 @@ def test_raised_operator_cap_imports_a_valid_snapshot_without_changing_chain_rul
     from contracting.storage.driver import Driver
 
     from xian.evidence_policy import EVIDENCE_POLICY_KEY, EvidencePolicy
-    from xian.execution_policy import EXECUTION_POLICY_KEY
+    from xian.execution_policy import EXECUTION_POLICY_KEY, current_execution_policy
     from xian.state_root import compute_driver_state_root
     from xian.utils.block import stage_latest_block
 
@@ -210,8 +126,7 @@ def test_raised_operator_cap_imports_a_valid_snapshot_without_changing_chain_rul
     )
     with pytest.raises(ValueError, match="exported_state.json.*limit"):
         limited.import_snapshot_archive(Path(archive))
-    assert list(limited.incoming_dir.iterdir()) == []
-    assert list(limited.snapshot_dir.glob("*.tar.gz")) == []
+    assert list(limited.snapshot_dir.iterdir()) == []
 
     raised = StateSnapshotManager.from_config(
         storage_home=target_home,

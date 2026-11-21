@@ -323,7 +323,7 @@ def test_prepare_rejects_duplicate_keys_with_null_values_and_nonce_collisions():
 
 def test_runtime_features_are_hashed_exported_and_imported(tmp_path):
     # Runtime features change execution results, so they are consensus state:
-    # in the app hash, in exports and therefore in state-sync snapshots.
+    # in the app hash and in offline application snapshots.
     from contracting.runtime_features import runtime_feature_state_key
     from contracting.storage.driver import Driver
 

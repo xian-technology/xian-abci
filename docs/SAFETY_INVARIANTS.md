@@ -109,7 +109,7 @@ This file records the runtime properties that must hold before an
   and excluded from consensus updates, so one signing key has one account name.
 - Malformed identities are excluded. An empty or entirely invalid selection
   retains the last effective nonempty consensus set, including across blocks,
-  restart, export, and state sync.
+  restart, export, and full node-store restore.
 - Node-managed `validators.__consensus__` records that effective set in the
   same committed state and app hash as the block. Contracts cannot declare
   this reserved metadata name or write it through foreign state access.

@@ -1,4 +1,4 @@
-"""Local resource policy for snapshot transfers; never part of chain consensus."""
+"""Local resource policy for application snapshot archives; never part of chain consensus."""
 
 from __future__ import annotations
 

@@ -97,19 +97,17 @@ to bypass the guard.
 
 ## P2P Application State Sync Is Disabled
 
-Comet `[statesync].enable=true` is rejected by config helpers and node startup,
-even when RPC trust settings are otherwise valid. The ABCI facade advertises no
-snapshots, returns `ABORT` for offers and applied chunks, and serves empty chunk
-responses. Ordinary Echo remains ordinary Echo. No custom Comet fork, private
-pairing protocol or history RPC is required.
+Managed configs set `[statesync].enable = false`. Configuration and startup
+reject an enabled or malformed setting in a hand-edited `config.toml`. The
+ABCI facade advertises an empty snapshot list, returns `ABORT` for snapshot
+offers and chunk application, and serves empty chunk responses.
 
 ## Offline Application Exports
 
-`StateSnapshotManager` and `xian-state-snapshot` remain available for trusted
-offline analysis, export/import and recovery tooling. Their format-2 archives
-contain only `metadata.json` and `exported_state.json`; they do not restore
-Comet databases and cannot bootstrap a node by themselves. They are not served
-through the P2P snapshot protocol.
+`xian.services.state_snapshot.StateSnapshotManager` and `xian-state-snapshot`
+list, export, and import trusted application state offline. Format-2 archives
+contain only `metadata.json` and `exported_state.json`. Use a verified full
+node-store archive to restore both native Comet databases and application state.
 
 ```bash
 uv run xian-state-snapshot list
@@ -161,9 +159,8 @@ adoption, idle behavior and recovery's required independent checkpoint.
 
 ## BDS Snapshots
 
-BDS snapshots are a separate operator tool for the indexed Postgres state.
-They are not used by CometBFT state sync and they do not replace LMDB or full
-node-home restore.
+BDS snapshots restore the indexed Postgres state separately from the application
+and consensus stores.
 
 Use the dedicated BDS snapshot CLI:
 

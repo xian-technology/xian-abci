@@ -9,7 +9,6 @@ from xian.node_setup import (
     MetricsOptions,
     NodeConfigOptions,
     SimulationOptions,
-    StateSyncOptions,
 )
 
 
@@ -31,7 +30,6 @@ class ConfigureNodeCliTests(unittest.TestCase):
             metrics=MetricsOptions(False, "localhost", 9208, 7.0),
             app_logging=AppLoggingOptions("DEBUG", True, 2, 14, 100, 500),
             simulation=SimulationOptions(False, 4, 6000, 1000),
-            statesync=StateSyncOptions(False, ("http://127.0.0.1:27657",), 12, "ab", "24h"),
         )
         with patch("xian.cli.configure_node.NodeConfigOptions", return_value=defaults):
             args = build_parser().parse_args(["--moniker", "validator-1"])
@@ -54,15 +52,17 @@ class ConfigureNodeCliTests(unittest.TestCase):
             ("metrics", defaults.metrics),
             ("simulation", defaults.simulation),
             ("app_log", defaults.app_logging),
-            ("statesync", defaults.statesync),
         ):
             for name, value in asdict(options).items():
-                suffix = {"json_logging": "json", "rpc_servers": "rpc_server"}.get(name, name)
+                suffix = {"json_logging": "json"}.get(name, name)
                 with self.subTest(prefix=prefix, name=name):
                     self.assertEqual(
                         getattr(args, f"{prefix}_{suffix}"),
-                        list(value) if name == "rpc_servers" else value,
+                        value,
                     )
+
+    def test_parser_omits_retired_state_sync_flags(self):
+        self.assertNotIn("--statesync-", build_parser().format_help())
 
     def test_parser_uses_node_setup_defaults_for_every_bds_option(self):
         defaults = replace(
