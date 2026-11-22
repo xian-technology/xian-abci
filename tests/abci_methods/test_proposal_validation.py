@@ -1,12 +1,14 @@
 import json
 import logging
+import random
 import unittest
 from io import BytesIO
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import nacl.encoding
 import nacl.signing
 import pytest
+import xian_vm_core
 from loguru import logger
 from xian_runtime_types.encoding import decode, encode
 
@@ -27,6 +29,7 @@ from tendermint.abci.types_pb2 import (
 from xian.fee_policy import DEFAULT_MAX_BLOCK_CHI, DEFAULT_MAX_TX_CHI, TxFeePolicy
 from xian.methods import prepare_proposal
 from xian.perf import PerfTracker
+from xian.utils import tx as tx_utils
 from xian.utils.encoding import encode_transaction_bytes
 from xian.xian_abci import Xian
 
@@ -57,8 +60,9 @@ def make_signed_tx_bytes(
     contract: str = "currency",
     function: str = "transfer",
     kwargs: dict | None = None,
+    seed: bytes = SEED,
 ) -> bytes:
-    signing_key = nacl.signing.SigningKey(SEED)
+    signing_key = nacl.signing.SigningKey(seed)
     sender = signing_key.verify_key.encode(
         encoder=nacl.encoding.HexEncoder
     ).decode("ascii")
@@ -257,6 +261,37 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(list(response.prepare_proposal.txs), [first])
         self.assertEqual([call.args[1] for call in admit.call_args_list], [first])
+
+    async def test_prepare_proposal_budget_filter_matches_original_order(self):
+        if tx_utils._decode_transaction_for_proposal is None:
+            self.skipTest("the installed native VM has no proposal budget filter")
+        self.app.tx_fee_policy = TxFeePolicy.paid_metered(max_tx_chi=100, max_block_chi=150)
+        first = make_signed_tx_bytes(nonce=0, chi_supplied=100)
+        fits_late = make_signed_tx_bytes(nonce=1, chi_supplied=30)
+        fits_other_sender = make_signed_tx_bytes(nonce=0, chi_supplied=20, seed=bytes(32))
+        candidates = [
+            make_signed_tx_bytes(nonce=1, chi_supplied=51),
+            make_signed_tx_bytes(nonce=2, chi_supplied=6),
+            make_signed_tx_bytes(nonce=1, chi_supplied=20, mutate_signature=True),
+            make_signed_tx_bytes(nonce=1, chi_supplied=70, mutate_signature=True),
+            make_signed_tx_bytes(nonce=2, chi_supplied=2, memo="x" * 2000),
+            make_signed_tx_bytes_with_raw_spacing(nonce=1),
+            b"malformed wire bytes",
+        ]
+        rng = random.Random(71)
+        for budget in [2400, 3000, 1_000_000]:
+            for _ in range(4):
+                rng.shuffle(candidates)
+                req = RequestPrepareProposal(
+                    txs=[first, *candidates, fits_late, fits_other_sender], max_tx_bytes=budget
+                )
+                with patch.object(tx_utils, "_decode_transaction_for_proposal", None):
+                    original = await self.app.prepare_proposal(req)
+                optimized = await self.app.prepare_proposal(req)
+                self.assertEqual(optimized.SerializeToString(), original.SerializeToString())
+                self.assertIn(fits_late, optimized.txs)
+                if budget == 1_000_000:
+                    self.assertIn(fits_other_sender, optimized.txs)
 
     async def test_prepare_proposal_filters_duplicate_nonce(self):
         tx_one = make_signed_tx_bytes(nonce=0)
@@ -603,10 +638,9 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.app.nonce_storage.get_nonce(sender), 0)
 
     async def test_immutable_admission_is_reused_without_caching_live_policy(self):
-        from xian_vm_core import decode_and_validate_transaction
-
-        cache = Mock(chain_id=self.app.chain_id)
-        cache.decode.side_effect = lambda raw: decode_and_validate_transaction(raw, cache.chain_id)
+        cache = xian_vm_core.TransactionAdmissionCache(
+            self.app.chain_id, max_entries=2, max_bytes=64_000
+        )
         self.app.transaction_admission_cache = cache
         permissive = TxFeePolicy.free_metered(max_tx_chi=100, max_block_chi=100)
         self.app.tx_fee_policy = permissive
@@ -629,7 +663,8 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
         finalized = await self.app.finalize_block(RequestFinalizeBlock(txs=[tx], height=1))
         self.assertIn("con_missing", json.loads(finalized.tx_results[0].data)["result"])
-        self.assertEqual([call.args for call in cache.decode.call_args_list], [(tx,)] * 5)
+        stats = cache.stats()
+        self.assertEqual((stats["hits"], stats["misses"]), (4, 1))
 
     async def test_check_tx_profiling_distinguishes_new_transactions_and_rechecks(self):
         self.app.tx_fee_policy = TxFeePolicy.free_metered()

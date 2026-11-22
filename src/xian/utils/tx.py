@@ -12,6 +12,8 @@ from xian.execution_policy import VM_EXECUTION_MODE
 from xian.fee_policy import chain_chi_rate
 from xian.utils.encoding import canonical_json_text, encode_transaction_bytes
 
+_decode_transaction_for_proposal = getattr(xian_vm_core, "decode_transaction_for_proposal", None)
+
 
 def canonical_json(value: dict) -> str:
     return json.dumps(
@@ -156,12 +158,17 @@ def decode_and_validate_transaction_static_bytes(
     chain_id: str,
     max_raw_tx_bytes: int | None = None,
     admission_cache=None,
-) -> dict:
+    proposal_chi_remaining: int | None = None,
+) -> dict | None:
     if max_raw_tx_bytes is not None and len(raw_tx) > max_raw_tx_bytes:
         raise TransactionException(
             f"Transaction exceeds maximum configured size of {max_raw_tx_bytes} bytes"
         )
     try:
+        if proposal_chi_remaining is not None and _decode_transaction_for_proposal is not None:
+            return _decode_transaction_for_proposal(
+                raw_tx, chain_id, proposal_chi_remaining, admission_cache
+            )
         if admission_cache is not None and admission_cache.chain_id == chain_id:
             return admission_cache.decode(raw_tx)
         return decode_and_validate_transaction(raw_tx, chain_id)
