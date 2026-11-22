@@ -16,7 +16,7 @@ VM_EXECUTION_REVISION = "xvm-execution-15"
 SET_CODEC = "xian-set-1"
 # Contract admission (compiler-core) and transaction admission (fastpath-core,
 # linked into vm-core) are consensus rules like execution.
-COMPILER_ADMISSION_REVISION = "xian-admission-3"
+COMPILER_ADMISSION_REVISION = "xian-admission-4"
 TX_ADMISSION_REVISION = "xian-fastpath-admission-3"
 EXECUTION_POLICY_KEY = "__execution_policy"
 

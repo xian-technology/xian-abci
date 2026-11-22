@@ -23,8 +23,12 @@ from xian.execution_engine import (
     build_vm_runtime,
     vm_call_context,
 )
-from xian.execution_policy import EXECUTION_POLICY_KEY
-from xian.execution_policy import TX_ADMISSION_REVISION, VM_EXECUTION_REVISION
+from xian.execution_policy import (
+    COMPILER_ADMISSION_REVISION,
+    EXECUTION_POLICY_KEY,
+    TX_ADMISSION_REVISION,
+    VM_EXECUTION_REVISION,
+)
 from xian.fee_policy import TxFeePolicy
 from xian.nonce import NonceStorage
 from xian.processor import TxProcessor
@@ -179,6 +183,7 @@ def hidden():
                 "vm_profile": "xian_vm_v2",
                 "execution_revision": VM_EXECUTION_REVISION,
                 "set_codec": "xian-set-1",
+                "compiler_admission_revision": COMPILER_ADMISSION_REVISION,
                 "tx_admission_revision": TX_ADMISSION_REVISION,
             },
             supports_execution_policy=lambda *_args: False,
@@ -198,6 +203,7 @@ def hidden():
                 "host_catalog_version": "xian_vm_v2_host_v1",
                 "execution_revision": VM_EXECUTION_REVISION,
                 "set_codec": "xian-set-1",
+                "compiler_admission_revision": COMPILER_ADMISSION_REVISION,
                 "tx_admission_revision": TX_ADMISSION_REVISION,
             },
             supports_execution_policy=lambda *_args: True,

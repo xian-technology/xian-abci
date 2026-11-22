@@ -77,8 +77,7 @@ _LOADED = object()
 
 
 def validate_admission_runtimes(runtime_info: dict, *, compiler=_LOADED) -> None:
-    """Refuse native admission code that implements a different rule revision:
-    the compiler's contract admission and the VM's transaction admission."""
+    """Check the standalone compiler and both sets of admission rules in the VM."""
     if compiler is _LOADED:
         import xian_compiler_core as compiler
     revisions = compiler.compiler_version().get("admission_revisions") or {}
@@ -86,6 +85,11 @@ def validate_admission_runtimes(runtime_info: dict, *, compiler=_LOADED) -> None
         raise ValueError(
             "native compiler admission revision does not match the node: "
             f"{revisions.get(VM_EXECUTION_MODE)!r} != {COMPILER_ADMISSION_REVISION!r}"
+        )
+    if runtime_info.get("compiler_admission_revision") != COMPILER_ADMISSION_REVISION:
+        raise ValueError(
+            "native VM compiler admission revision does not match the node: "
+            f"{runtime_info.get('compiler_admission_revision')!r} != {COMPILER_ADMISSION_REVISION!r}"
         )
     if runtime_info.get("tx_admission_revision") != TX_ADMISSION_REVISION:
         raise ValueError(

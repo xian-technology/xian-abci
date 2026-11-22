@@ -197,6 +197,11 @@ fixtures were regenerated with them and the diff reviewed case by case:
   block's app hash (and the `ResponseFinalizeBlock` bytes that carry it). The
   system receipts are identical.
 
+- Compiler admission revision 4 records Unicode character columns in V2
+  f-string spans. Its genesis policy changes the same nine application hashes
+  in `system_blocks.json`. The system receipts and remaining response fields
+  are identical.
+
 - Explicit rules for the Python path's halts and quirks (single-engine plan,
   increment 7; findings 1-9). Every block transaction now gets a receipt in
   Rust; only a host fault halts. The goldens are the production path's

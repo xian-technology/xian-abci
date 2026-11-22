@@ -5,6 +5,7 @@ import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from contracting.artifacts import build_contract_artifacts
 from contracting.local import ContractingClient
 from processor_probe_model import typed_value
 
@@ -12,6 +13,8 @@ from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.state_export import fetch_filebased_state
 from xian.utils.tx import transaction_bytes
+
+
 def process_tx(processor, tx):
     """The block executor's response for ``tx`` alone in an unmetered block."""
     [response] = processor.process_block(
@@ -74,6 +77,11 @@ def bump(delta: int):
     updated = counter.get() + delta
     counter.set(updated)
     return updated
+
+
+@export
+def render(value: int):
+    return '雪' + f'🦊{value}é'
 """.strip()
 
 
@@ -251,13 +259,21 @@ class TestNativeReplayDeterminism(unittest.TestCase):
         self.assertEqual(
             ast.dump(ast.parse(writes["__source__"])), ast.dump(ast.parse(DEPLOYED_PROBE_SOURCE))
         )
+        artifact = build_contract_artifacts(
+            module_name="con_vm_replay_child", source=DEPLOYED_PROBE_SOURCE
+        )
+        self.assertEqual(writes["__source__"], artifact["source"])
+        self.assertEqual(writes["__xian_ir_v1__"], artifact["vm_ir_json"])
         ir = json.loads(writes["__xian_ir_v1__"])
         self.assertEqual(ir["module_name"], "con_vm_replay_child")
         self.assertEqual(ir["vm_profile"], "xian_vm_v2")
         self.assertEqual(
             {function["name"]: function["visibility"] for function in ir["functions"]},
-            {"seed": "construct", "bump": "export"},
+            {"seed": "construct", "bump": "export", "render": "export"},
         )
+        render = next(function for function in ir["functions"] if function["name"] == "render")
+        field_span = render["body"][0]["value"]["right"]["values"][1]["span"]
+        self.assertEqual((field_span["col"], field_span["end_col"]), (20, 27))
 
     def test_clean_native_replay_preserves_deployment_constructor_and_followup_calls(self):
         deployment = make_tx(
