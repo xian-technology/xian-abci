@@ -368,12 +368,12 @@ def _run(home, blocks, *, policy=None, contracts=()):
     receipts = []
     for txs in blocks:
         responses = processor.process_block(
-            txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy
+            txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy, receipt_details=False
         )
         for response in responses:
             receipts.append(
                 (
-                    encode_abci_json(response["tx_result"]),
+                    response.get("receipt") or encode_abci_json(response["tx_result"]),
                     response["chi_rewards_amount"],
                     response["chi_rewards_contract"],
                 )
@@ -396,7 +396,9 @@ def test_rust_block_execution_reproduces_the_frozen_receipts(tmp_path):
     assert any("val3" in r["rewards"]["validator_reward"] for r in paid_failures)
 
     # The entry rejections are receipts too.
-    rejected = [r for r in receipts if "not exported" in str(r["result"]) or "owner" in str(r["result"])]
+    rejected = [
+        r for r in receipts if "not exported" in str(r["result"]) or "owner" in str(r["result"])
+    ]
     assert len(rejected) > 5
 
 
@@ -457,9 +459,7 @@ def test_contract_metadata_changes_reproduce_the_frozen_receipts(tmp_path, polic
     blocks = [[_tx(300, index, 1, *call) for index, call in enumerate(calls)]]
     contracts = [("submission", METADATA, "submission_dev"), ("con_relay", RELAY, "relay_dev")]
     options = {"policy": POLICIES[policy](), "contracts": contracts}
-    actual = _run(
-        tmp_path, blocks, **options
-    )
+    actual = _run(tmp_path, blocks, **options)
     assert_matches_golden(f"block_executor/metadata_{policy}", actual)
     receipts = [json.loads(entry[0]) for entry in actual if isinstance(entry, tuple)]
     results = {receipt["result"] for receipt in receipts[:-2]}
@@ -552,9 +552,7 @@ def test_deployments_reproduce_the_frozen_receipts(tmp_path, policy):
     blocks = [[_tx(400, index, 1, *call) for index, call in enumerate(calls)]]
     contracts = [("submission", DEPLOYER, "sub_dev"), ("con_relay", RELAY_DEPLOY, "relay_dev")]
     options = {"policy": POLICIES[policy](), "contracts": contracts}
-    actual = _run(
-        tmp_path, blocks, **options
-    )
+    actual = _run(tmp_path, blocks, **options)
     assert_matches_golden(f"block_executor/deployments_{policy}", actual)
     receipts = [json.loads(entry[0]) for entry in actual if isinstance(entry, tuple)]
     statuses = [receipt["status"] for receipt in receipts]
@@ -717,7 +715,9 @@ def test_random_reproduces_the_frozen_receipts(tmp_path):
     assert 40 < sum(receipt["status"] == 0 for receipt in receipts) < len(receipts)
     assert any("random.seed() salt must be" in receipt["result"] for receipt in receipts)
     # The VM refuses what is out of bounds.
-    assert any("exceeds the maximum allowed allocation" in receipt["result"] for receipt in receipts)
+    assert any(
+        "exceeds the maximum allowed allocation" in receipt["result"] for receipt in receipts
+    )
 
 
 # Largest and smallest Python timedelta, a negative one and a plain one.
@@ -846,9 +846,7 @@ def test_values_the_receipt_encoding_refuses_never_reach_the_effects(tmp_path):
         for index, function in enumerate(functions)
     ]
     contracts = [("con_unencodable", UNENCODABLE, None)]
-    actual = _run(
-        tmp_path, [txs], contracts=contracts
-    )
+    actual = _run(tmp_path, [txs], contracts=contracts)
     assert_matches_golden("block_executor/unencodable", actual)
     receipts = [json.loads(receipt) for receipt, _, _ in actual[:-1]]
     refusals = [

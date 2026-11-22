@@ -9,7 +9,8 @@ block is committed."""
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
+import json
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from abci_node import (
@@ -140,6 +141,47 @@ def test_warm_admission_cache_preserves_exact_ordered_finalize_responses(tmp_pat
 
     assert asyncio.run(run_blocks(tmp_path / "warm", use_cache=True)) == asyncio.run(
         run_blocks(tmp_path / "uncached", use_cache=False)
+    )
+
+
+@pytest.mark.parametrize("indexing", [False, True])
+def test_native_receipts_match_python_with_warm_admission(tmp_path, monkeypatch, indexing):
+    monkeypatch.setenv("XIAN_PERF_ENABLED", "1")
+
+    async def run(root, native):
+        monkeypatch.setenv("XIAN_EXPERIMENT_NATIVE_RECEIPTS", str(int(native)))
+        node = await AbciNode(node_constants(root, local_genesis())).start()
+        try:
+            await node.init_chain()
+            if indexing:
+                node.app.bds_enabled = True
+                node.app.bds = AsyncMock()
+            responses = []
+            for height, txs in enumerate(_blocks(), start=1):
+                proposal = await node.app.process_proposal(RequestProcessProposal(txs=txs))
+                assert proposal.status == ResponseProcessProposal.ACCEPT
+                response = await node.finalize_block(height, txs)
+                responses.append(response.SerializeToString(deterministic=True))
+                await node.commit()
+
+            metrics = node.app.profiler.global_metrics
+            assert ("tx_native_receipt_encoding" in metrics) == native
+            assert metrics["tx_native_execute"].count >= len(responses)
+            assert node.app.transaction_admission_cache.stats()["hits"] == sum(map(len, _blocks()))
+            if indexing:
+                spool = [
+                    json.dumps(call.args[0].to_spool_dict(), separators=(",", ":")).encode()
+                    for call in node.app.bds.enqueue_block.await_args_list
+                ]
+                assert len(spool) == len(responses)
+            else:
+                spool = []
+            return responses, spool
+        finally:
+            await node.stop()
+
+    assert asyncio.run(run(tmp_path / "native", True)) == asyncio.run(
+        run(tmp_path / "python", False)
     )
 
 

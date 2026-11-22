@@ -292,6 +292,7 @@ def _execute_block_transactions(
                 [entry["tx"] for entry in decoded],
                 [entry["tx_bytes"] for entry in decoded],
                 fee_policy=self.tx_fee_policy,
+                receipt_details=self.bds_enabled,
             )
         processed_iter = iter(processed_results)
         for block_tx_index, entry in enumerate(decoded_entries):
@@ -312,6 +313,7 @@ def _execute_block_transactions(
                     "tx": tx,
                     "tx_bytes": tx_bytes,
                     "tx_result": tx_result,
+                    "receipt": result.get("receipt"),
                 }
             )
     return processed_entries
@@ -339,7 +341,9 @@ def _assemble_tx_results(
 
             tx_hash = tx_result["hash"]
             self.nonce_storage.set_nonce_by_tx(tx)
-            parsed_tx_result = encode_abci_json(tx_result)
+            parsed_tx_result = entry["receipt"]
+            if parsed_tx_result is None:
+                parsed_tx_result = encode_abci_json(tx_result)
             if self.transaction_trace_debug_logging:
                 logger.bind(
                     **build_log_fields(
