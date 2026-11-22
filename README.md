@@ -132,6 +132,8 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/unit/test_node_setup.py
 
 CI provisions PostgreSQL 18.7 for the BDS-backed paths. To mirror that locally, expose
 Postgres at `postgres://postgres:1234@localhost:5432/xian`.
+CI also runs admission and block replay against a fresh, non-editable install
+from `uv.lock`, alongside the editable development build.
 
 ## Related Docs
 

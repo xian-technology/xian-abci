@@ -114,6 +114,20 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y pkg-config build-essential
 
+      - name: Check the locked install without editable packages
+        working-directory: xian-abci
+        env:
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/xian-abci-locked
+          XIAN_CONFIGS_DIR: ${{ github.workspace }}/xian-configs
+        run: |
+          uv sync --locked --no-editable --group dev
+          uv run --no-sync python - <<'PYTHON'
+          from importlib.metadata import entry_points
+
+          entry_points(group="console_scripts")["xian-abci"].load()
+          PYTHON
+          uv run --no-sync pytest tests/unit/test_admission_parity.py tests/integration/test_crash_replay.py
+
       - name: Validate repository
         working-directory: xian-abci
         env:
