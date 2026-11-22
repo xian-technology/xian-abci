@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from binascii import unhexlify
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -13,7 +14,7 @@ from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal, canonical_fixed
 from xian_runtime_types.encoding import is_wrapper_set
 from xian_runtime_types.time import Datetime
-from xian_vm_core import execute_tx
+from xian_vm_core import MAX_STORAGE_KEY_BYTES, execute_tx
 
 from tendermint.abci.types_pb2 import ResponseQuery
 from xian.constants import Constants as c
@@ -232,15 +233,29 @@ def _optional_timestamp_param(params: dict[str, str], key: str) -> datetime | No
 
 
 def _keys_query_after_key(prefix: str, after: str | None) -> str | None:
-    if after is None:
+    if not after:
         return None
-    normalized = str(after).strip()
-    if not normalized:
-        return None
-    if normalized.startswith(prefix):
-        return normalized
+    if after.startswith(prefix):
+        return after
     delimiter = "" if prefix.endswith(":") else ":"
-    return f"{prefix}{delimiter}{normalized}"
+    return f"{prefix}{delimiter}{after}"
+
+
+def _keys_query_seek(prefix: str, params: dict[str, str]) -> str | None:
+    if "after_hex" not in params:
+        return _keys_query_after_key(prefix, params.get("after"))
+    if "after" in params:
+        raise QueryContractFailure("Use either after or after_hex for a key scan.")
+    encoded = params["after_hex"]
+    if not 0 < len(encoded) <= 2 * MAX_STORAGE_KEY_BYTES:
+        raise QueryContractFailure("after_hex must encode a bounded UTF-8 storage key.")
+    try:
+        key = unhexlify(encoded).decode("utf-8")
+    except ValueError:
+        raise QueryContractFailure("after_hex must encode a bounded UTF-8 storage key.") from None
+    if not key.startswith(prefix):
+        raise QueryContractFailure("The after_hex key must match the scan prefix.")
+    return key
 
 
 def _keys_query_suffix(prefix: str, full_key: str) -> str:
@@ -587,28 +602,38 @@ def _archive_id_cursor(params: dict[str, str], *, kind="Pending-unbond") -> int 
 
 def _resolve_keys_query(ctx: QueryContext) -> QueryResult:
     prefix = ctx.path_parts[1]
+    params = _query_params(ctx.path_parts[2:])
     limit = _bounded_int_param(
-        ctx.params,
+        params,
         "limit",
         default=DEFAULT_KEYS_QUERY_LIMIT,
         minimum=1,
         maximum=MAX_KEYS_QUERY_LIMIT,
     )
-    after = ctx.params.get("after")
-    full_after_key = _keys_query_after_key(prefix, after)
+    after = params.get("after")
+    full_after_key = _keys_query_seek(prefix, params)
     list_of_keys, has_more = ctx.raw_driver.scan_keys_from_disk(
         prefix,
         limit=limit,
         after_key=full_after_key,
     )
     items = [_keys_query_suffix(prefix, full_key) for full_key in list_of_keys]
+    next_after = None
+    next_after_hex = None
+    if has_more and items:
+        last_key = list_of_keys[-1]
+        next_after = items[-1]
+        if _keys_query_after_key(prefix, next_after) != last_key:
+            next_after = last_key
+        next_after_hex = last_key.encode("utf-8").hex()
     return QueryResult(
         result={
             "prefix": prefix,
             "items": items,
             "limit": limit,
             "after": after if after else None,
-            "next_after": items[-1] if has_more and items else None,
+            "next_after": next_after,
+            "next_after_hex": next_after_hex,
             "has_more": has_more,
         },
         key=prefix,

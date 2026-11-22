@@ -614,6 +614,67 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(second_payload["has_more"])
         self.assertIsNone(second_payload["next_after"])
 
+    async def test_keys_query_cursor_advances_over_exact_and_overlapping_prefixes(self):
+        prefix = "paging.hash"
+        driver = self.app.client.raw_driver
+        for key in (
+            prefix,
+            f"{prefix}: padded ",
+            f"{prefix}:{prefix}",
+            f"{prefix}set:other",
+            f"{prefix}z:final",
+        ):
+            driver.set(key, 1)
+        driver.commit()
+
+        after = ""
+        items = []
+        for limit in (1, 1, 2, 1):
+            path = f"/keys/{prefix}/limit={limit}{after}"
+            response = await self.process_request(Request(query=RequestQuery(path=path)))
+            self.assertEqual(response.query.code, self.constants.OkCode)
+            payload = json.loads(response.query.value)
+            items.extend(payload["items"])
+            after = f"/after={payload['next_after']}"
+
+        self.assertEqual(items, ["", " padded ", prefix, "set:other", "z:final"])
+        self.assertFalse(payload["has_more"])
+
+    async def test_keys_query_hex_cursor_round_trips_path_characters(self):
+        prefix = "paging.hash"
+        suffixes = ["a%2Fb", "a/b", "a/雪/", "done"]
+        for suffix in suffixes:
+            self.app.client.raw_driver.set(f"{prefix}:{suffix}", 1)
+        self.app.client.raw_driver.commit()
+
+        path = f"/keys/{prefix}/limit=1"
+        items = []
+        for _ in suffixes:
+            result = await self.process_request(Request(query=RequestQuery(path=path)))
+            self.assertEqual(result.query.code, self.constants.OkCode)
+            page = json.loads(result.query.value)
+            items.extend(page["items"])
+            path = f"/keys/{prefix}/limit=1/after_hex={page['next_after_hex']}"
+        self.assertEqual(items, suffixes)
+        self.assertIsNone(page["next_after_hex"])
+
+        legacy = await self.process_request(
+            Request(query=RequestQuery(path=f"/keys/{prefix}/limit=1/after=a%2Fb"))
+        )
+        self.assertEqual(json.loads(legacy.query.value)["items"], ["a/b"])
+
+        for invalid in (
+            "after_hex=",
+            "after_hex=ff",
+            "after_hex=6",
+            "after_hex=646f6e65",
+            f"after=a%2Fb/after_hex={f'{prefix}:a/b'.encode().hex()}",
+        ):
+            rejected = await self.process_request(
+                Request(query=RequestQuery(path=f"/keys/{prefix}/{invalid}"))
+            )
+            self.assertEqual(rejected.query.code, self.constants.ErrorCode)
+
     async def test_unbond_queries_use_one_bounded_page_and_report_legacy_overflow(self):
         from xian_vm_core import execute_tx
 
@@ -639,24 +700,36 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(run.call_count, 2)
 
             second = await self.process_request(
-                Request(query=RequestQuery(path="/validators_pending_unbonds_page/alice/cursor=101"))
+                Request(
+                    query=RequestQuery(path="/validators_pending_unbonds_page/alice/cursor=101")
+                )
             )
             page = json.loads(second.query.value)
             self.assertEqual([item["unbond_id"] for item in page["unbonds"]], [101])
             self.assertIsNone(page["next_cursor"])
             self.assertEqual(run.call_count, 3)
 
-            smallest = await self.process_request(Request(query=RequestQuery(
-                path="/validators_pending_unbonds_page/alice/cursor=1/limit=0"
-            )))
-            self.assertEqual([item["unbond_id"] for item in json.loads(smallest.query.value)["unbonds"]], [1])
+            smallest = await self.process_request(
+                Request(
+                    query=RequestQuery(
+                        path="/validators_pending_unbonds_page/alice/cursor=1/limit=0"
+                    )
+                )
+            )
+            self.assertEqual(
+                [item["unbond_id"] for item in json.loads(smallest.query.value)["unbonds"]], [1]
+            )
             self.assertEqual(run.call_count, 4)
 
     async def test_unbond_page_rejects_invalid_cursor_instead_of_silent_empty_result(self):
         for cursor in (0, -1, "bogus", 999):
             with self.subTest(cursor=cursor):
                 response = await self.process_request(
-                    Request(query=RequestQuery(path=f"/validators_pending_unbonds_page/alice/cursor={cursor}"))
+                    Request(
+                        query=RequestQuery(
+                            path=f"/validators_pending_unbonds_page/alice/cursor={cursor}"
+                        )
+                    )
                 )
                 self.assertEqual(response.query.code, self.constants.ErrorCode)
                 self.assertIn("cursor", response.query.log)
@@ -699,14 +772,18 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
             name="con_height",
         )
         driver = self.app.client.raw_driver
-        stage_latest_block(driver, block_hash=b"1" * 32, height=100, nanos=1_710_000_000_000_000_000)
+        stage_latest_block(
+            driver, block_hash=b"1" * 32, height=100, nanos=1_710_000_000_000_000_000
+        )
         driver.commit()
         set_latest_block(block_hash=b"0" * 32, height=4, nanos=0, storage_home=driver.storage_home)
         self.app.current_block_meta = None
         payload = {"sender": "alice", "contract": "con_height", "function": "gated", "kwargs": {}}
         encoded = json.dumps(payload).encode().hex()
 
-        response = await self.process_request(Request(query=RequestQuery(path=f"/simulate_tx/{encoded}")))
+        response = await self.process_request(
+            Request(query=RequestQuery(path=f"/simulate_tx/{encoded}"))
+        )
         result = json.loads(response.query.value)
 
         self.assertEqual(response.query.height, 100)
@@ -772,12 +849,16 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         payload = {"sender": "alice", "contract": "con_epoch", "function": "read", "kwargs": {}}
         encoded = json.dumps(payload).encode().hex()
         with patch.object(PreparedSimulation, "run_in_rust", delayed):
-            task = asyncio.create_task(self.process_request(Request(query=RequestQuery(path=f"/simulate_tx/{encoded}"))))
+            task = asyncio.create_task(
+                self.process_request(Request(query=RequestQuery(path=f"/simulate_tx/{encoded}")))
+            )
             await asyncio.wait_for(asyncio.to_thread(started.wait, 5), timeout=5)
             try:
                 async with self.app._state_transition_lock:
                     driver.set("con_epoch.value", 100)
-                    stage_latest_block(driver, block_hash=b"2" * 32, height=100, nanos=1_740_000_000_000_000_000)
+                    stage_latest_block(
+                        driver, block_hash=b"2" * 32, height=100, nanos=1_740_000_000_000_000_000
+                    )
                     driver.commit()
             finally:
                 release.set()
@@ -1225,10 +1306,14 @@ def fallback(value: list[int]):
             return []
 
         self.app.bds.get_blocks = blocked
-        task = asyncio.create_task(self.process_request(Request(query=RequestQuery(path="/blocks"))))
+        task = asyncio.create_task(
+            self.process_request(Request(query=RequestQuery(path="/blocks")))
+        )
         await asyncio.wait_for(started.wait(), timeout=1)
         try:
-            response = await asyncio.wait_for(self.app.check_tx(b"invalid transaction"), timeout=0.1)
+            response = await asyncio.wait_for(
+                self.app.check_tx(b"invalid transaction"), timeout=0.1
+            )
             self.assertNotEqual(response.code, self.constants.OkCode)
         finally:
             release.set()
@@ -1449,7 +1534,9 @@ def fallback(value: list[int]):
     async def test_contract_archive_pages_skip_large_maps_and_reject_unbounded_legacy_sort(self):
         driver = self.app.client.raw_driver
         for index in range(101):
-            driver.set_contract_from_source(f"con_archive_{index:03}", "@export\ndef read():\n    return 1\n")
+            driver.set_contract_from_source(
+                f"con_archive_{index:03}", "@export\ndef read():\n    return 1\n"
+            )
         for index in range(2000):
             driver.set(f"con_archive_000.items:{index}", "map payload")
         driver.commit()
@@ -1463,7 +1550,9 @@ def fallback(value: list[int]):
                 yield key, value
 
         with patch.object(driver, "iter_items", counted):
-            legacy = await self.process_request(Request(query=RequestQuery(path="/contracts/limit=1")))
+            legacy = await self.process_request(
+                Request(query=RequestQuery(path="/contracts/limit=1"))
+            )
             self.assertEqual(legacy.query.code, self.constants.ErrorCode)
             self.assertIn("contracts_page", legacy.query.log)
             after = None
@@ -1489,15 +1578,22 @@ def fallback(value: list[int]):
         driver.set("validators.total_votes", 3000)
         for proposal in range(1, 3001):
             pending = proposal in (1, 3000)
-            driver.set(f"validators.votes:{proposal}", {"status": "pending" if pending else "approved", "finalized": not pending})
+            driver.set(
+                f"validators.votes:{proposal}",
+                {"status": "pending" if pending else "approved", "finalized": not pending},
+            )
         driver.commit()
-        legacy = await self.process_request(Request(query=RequestQuery(path="/validators_open_votes/limit=1")))
+        legacy = await self.process_request(
+            Request(query=RequestQuery(path="/validators_open_votes/limit=1"))
+        )
         self.assertEqual(legacy.query.code, self.constants.ErrorCode)
         self.assertIn("validators_open_votes_page", legacy.query.log)
         cursor = None
         found = []
         for _ in range(5):
-            path = "/validators_open_votes_page/limit=1" + (f"/cursor={cursor}" if cursor is not None else "")
+            path = "/validators_open_votes_page/limit=1" + (
+                f"/cursor={cursor}" if cursor is not None else ""
+            )
             response = await self.process_request(Request(query=RequestQuery(path=path)))
             self.assertEqual(response.query.code, self.constants.OkCode)
             page = json.loads(response.query.value)

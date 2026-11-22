@@ -29,10 +29,14 @@ These paths do not require BDS:
 - `/contract_vars/<name>`
 - `/contract_info/<name>`
 - `/contracts/limit=<n>/offset=<n>/sort=<submitted_at|name>/order=<asc|desc>`
-- `/keys/<prefix>/limit=<n>/after=<cursor>`
+- `/keys/<prefix>/limit=<n>/after_hex=<cursor>`
 
 Use `/get` and `/keys` for current raw application state. Use the contract
 queries for deployed contract source, Xian VM IR, and metadata.
+Pass `next_after_hex` back as `after_hex` with the same prefix to continue a
+key scan. This cursor encodes the full UTF-8 storage key as hex, including
+any `/` and `%` characters. The last page returns `null`. Existing callers
+can continue passing a literal path-safe `next_after` value as `after`.
 
 ### Committed Evidence Policy
 
