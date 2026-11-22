@@ -37,12 +37,13 @@ def test_output_is_utc_bounded_and_does_not_capture_secrets(tmp_path, structured
                 payload={"value": secret_local},
                 stage="test\nforged",
             ).exception("Operation failed")
-        logger.info("line\nforged\x1b[31m" + "x" * 20000)
+        logger.info("line\nforged\x1b[31m" + "x" * 20000 + "unbounded-template-tail")
         logger.complete()
     finally:
         logger.remove()
     text = "".join(p.read_text() for p in (tmp_path / "logs").glob("*.log"))
     assert "do-not-log-" not in text
+    assert "unbounded-template-tail" not in text
     lines = text.splitlines()
     assert len(lines) == 3
     assert all(len(line.encode()) < 20000 for line in lines)

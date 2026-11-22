@@ -146,6 +146,8 @@ def sanitize_record(record: dict) -> None:
     fields["service"] = "xian-abci"
     fields["pid"] = record["process"].id
     record["message"] = safe_text(record["message"], MAX_MESSAGE)
+    # Structured sinks also serialize Loguru's raw, unformatted message.
+    record["template"] = None
     record["extra"] = clean_fields(fields)
     record["extra"]["context"] = context_text(record["extra"])
     record["time"] = record["time"].astimezone(UTC)
