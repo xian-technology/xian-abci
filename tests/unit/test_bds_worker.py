@@ -19,7 +19,7 @@ def _payload(height: int, block_hash: str) -> BdsBlockPayload:
 
 
 class _RecordingBDS(BDS):
-    def __init__(self, spool_dir: str, *, indexed_height: int = 0):
+    def __init__(self, spool_dir: str, *, indexed_height: int | None = 0):
         super().__init__(BdsConfig(queue_max_size=4, spool_dir=spool_dir))
         self.persisted_heights = []
         self._indexed_height = indexed_height
@@ -43,6 +43,34 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
             await bds.close()
 
             self.assertEqual(bds.persisted_heights, [1, 2])
+            self.assertEqual(list(Path(spool_dir).glob("*.json")), [])
+
+    async def test_close_waits_for_the_last_write_to_finish(self):
+        with TemporaryDirectory() as spool_dir:
+            bds = _RecordingBDS(spool_dir)
+            started = asyncio.Event()
+            release = asyncio.Event()
+            record = bds.persist_block
+
+            async def persist_block(payload):
+                started.set()
+                await release.wait()
+                return await record(payload)
+
+            bds.persist_block = persist_block
+            bds._start_worker()
+            await bds.enqueue_block(_payload(1, "A"))
+            await asyncio.wait_for(started.wait(), timeout=1)
+
+            shutdown = asyncio.create_task(bds.close())
+            try:
+                with self.assertRaises(TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(shutdown), timeout=0.1)
+            finally:
+                release.set()
+                await asyncio.wait_for(shutdown, timeout=1)
+
+            self.assertEqual(bds.persisted_heights, [1])
             self.assertEqual(list(Path(spool_dir).glob("*.json")), [])
 
     async def test_replay_spool_enqueues_pending_blocks_in_order(self):
@@ -296,11 +324,11 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_drain_spool_replays_and_flushes_pending_entries(self):
         with TemporaryDirectory() as spool_dir:
-            bds = _RecordingBDS(spool_dir, indexed_height=10)
+            bds = _RecordingBDS(spool_dir, indexed_height=None)
             Path(spool_dir).mkdir(parents=True, exist_ok=True)
             bds._write_spool_file(_payload(11, "A"))
             bds._write_spool_file(_payload(12, "B"))
-            bds.db.fetchval = AsyncMock(return_value=12)
+            bds.db.fetchval = AsyncMock(side_effect=[10, 12])
             bds.db.fetchrow = AsyncMock(
                 return_value={
                     "indexed_block_count": 12,
@@ -315,13 +343,28 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
                 }
             )
 
-            result = await bds.drain_spool(timeout_seconds=5.0)
+            result = await bds.drain_spool(timeout_seconds=0.5)
             await bds.close()
 
             self.assertFalse(result["timed_out"])
             self.assertEqual(bds.persisted_heights, [11, 12])
             self.assertEqual(result["status"]["spool_pending_count"], 0)
             self.assertEqual(result["compacted"]["kept_files"], 0)
+
+    async def test_drain_spool_times_out_when_only_future_blocks_remain(self):
+        with TemporaryDirectory() as spool_dir:
+            bds = _RecordingBDS(spool_dir, indexed_height=10)
+            bds.config = BdsConfig(queue_max_size=1, spool_dir=spool_dir)
+            bds._write_spool_file(_payload(12, "FUTURE"))
+            bds.db.fetchval = AsyncMock(return_value=10)
+            bds.db.fetchrow = AsyncMock(return_value=None)
+
+            result = await bds.drain_spool(timeout_seconds=0.1)
+            await bds.close()
+
+            self.assertTrue(result["timed_out"])
+            self.assertEqual(result["status"]["spool_pending_count"], 1)
+            self.assertEqual(bds.persisted_heights, [])
 
     async def test_live_future_block_waits_for_catchup_gap(self):
         with TemporaryDirectory() as spool_dir:
@@ -338,6 +381,29 @@ class BdsWorkerTests(unittest.IsolatedAsyncioTestCase):
             await bds.close()
 
             self.assertEqual(bds.persisted_heights, [11, 12])
+
+    async def test_full_live_buffer_leaves_room_to_recover_a_gap(self):
+        with TemporaryDirectory() as spool_dir:
+            bds = _RecordingBDS(spool_dir, indexed_height=10)
+            bds.config = BdsConfig(queue_max_size=1, spool_dir=spool_dir)
+            bds.CLOSE_FLUSH_TIMEOUT_SECONDS = 0.1
+            bds._ensure_catchup_runtime = AsyncMock()
+            bds._block_source = MagicMock(
+                latest_height=AsyncMock(return_value=12), close=AsyncMock()
+            )
+            bds._reindexer = MagicMock(
+                build_payload=AsyncMock(side_effect=lambda height: _payload(height, "C"))
+            )
+            bds._start_worker()
+            try:
+                await bds.enqueue_block(_payload(12, "LIVE"))
+                await bds._catch_up_once()
+                bds._reindexer.build_payload.assert_awaited_once_with(11)
+                await asyncio.wait_for(bds.flush(), timeout=1)
+                self.assertEqual(bds.persisted_heights, [11, 12])
+                self.assertEqual(list(Path(spool_dir).glob("*.json")), [])
+            finally:
+                await bds.close()
 
     async def test_a_recovered_chain_is_indexed_from_its_initial_height(self):
         # A recovery genesis starts two heights after the export (the halted

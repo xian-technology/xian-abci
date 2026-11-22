@@ -278,14 +278,19 @@ class BDS:
                 continue
             if height in self._pending_payloads:
                 continue
-            if self._pending_buffer_full():
+            if self._pending_buffer_full(height):
                 return
             self._enqueue_pending_payload(self._read_spool_file(spool_path))
 
-    async def flush(self) -> None:
+    async def flush(self, *, include_spool: bool = False) -> None:
         if self._worker_task is None:
             return
-        while self._pending_payloads:
+        # The worker removes a payload from the queue before persisting it.
+        while (
+            self._pending_payloads
+            or self._pending_event.is_set()
+            or (include_spool and next(self.spool_dir.glob("*.json"), None) is not None)
+        ):
             await asyncio.sleep(0.05)
 
     async def close(self) -> None:
@@ -369,8 +374,13 @@ class BDS:
     def _clear_enqueue_error(self) -> None:
         self._last_enqueue_error = None
 
-    def _pending_buffer_full(self) -> bool:
-        return len(self._pending_payloads) >= max(self.config.queue_max_size, 1)
+    def _pending_buffer_full(self, height: int) -> bool:
+        capacity = max(self.config.queue_max_size, 1)
+        expected = self._next_expected_height()
+        if height != expected and expected not in self._pending_payloads:
+            # Only the next contiguous block lets the worker free a slot.
+            capacity -= 1
+        return len(self._pending_payloads) >= capacity
 
     def _enqueue_pending_payload(self, payload: BdsBlockPayload) -> bool:
         validate_execution_policy(payload.execution_policy)
@@ -379,7 +389,7 @@ class BDS:
             return True
         if height in self._pending_payloads:
             return True
-        if self._pending_buffer_full():
+        if self._pending_buffer_full(height):
             return False
         self._pending_payloads[height] = payload
         self._pending_event.set()
@@ -452,13 +462,14 @@ class BDS:
     async def drain_spool(self, *, timeout_seconds: float = 60.0) -> dict[str, Any]:
         worker_started = False
         if self._worker_task is None:
+            await self._refresh_indexed_height()
             self._start_worker()
             await self._replay_spool()
             worker_started = True
 
         timed_out = False
         try:
-            await asyncio.wait_for(self.flush(), timeout=timeout_seconds)
+            await asyncio.wait_for(self.flush(include_spool=True), timeout=timeout_seconds)
         except asyncio.TimeoutError:
             timed_out = True
 
@@ -694,11 +705,11 @@ class BDS:
         next_height = max(indexed_height + 1, self._first_height)
 
         while next_height <= target_height:
-            if len(self._pending_payloads) >= max(self.config.queue_max_size, 1):
-                return
             if next_height in self._pending_payloads:
                 next_height += 1
                 continue
+            if self._pending_buffer_full(next_height):
+                return
             payload = await self._reindexer.build_payload(next_height)
             if not self._enqueue_pending_payload(payload):
                 return

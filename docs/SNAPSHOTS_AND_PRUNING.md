@@ -179,6 +179,14 @@ Important properties:
 - can optionally clear the local spool before import
 - does not affect consensus or the application snapshot lifecycle
 
+BDS indexes blocks in height order. If an earlier block is missing, the pending
+queue reserves space for it while later live blocks remain recoverable from the
+spool. On shutdown, BDS waits up to one second for queued and in-flight writes.
+Any remaining spooled blocks can be replayed when indexing starts again.
+The offline `xian-bds-spool drain --offline` command resumes replay from the
+indexed height in Postgres and reports a timeout if entries are still spooled
+when its time limit expires.
+
 ## Pruning
 
 Current Xian pruning is block-history pruning through `retain_height` in
