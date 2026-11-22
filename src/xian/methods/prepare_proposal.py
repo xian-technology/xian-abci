@@ -45,8 +45,12 @@ async def prepare_proposal(self, req) -> ResponsePrepareProposal:
     counts = Counter()
     block_chi_supplied = 0
     block_tx_bytes = 0
+    chi_limit = self.tx_fee_policy.max_block_chi if self.tx_fee_policy.meter_execution else None
 
     for raw_tx in req.txs:
+        # A valid wire transaction takes bytes and, on metered chains, positive chi.
+        if block_tx_bytes == req.max_tx_bytes or block_chi_supplied == chi_limit:
+            break
         next_block_tx_bytes = block_tx_bytes + len(raw_tx)
         if next_block_tx_bytes > req.max_tx_bytes:
             # Keep looking for a smaller transaction without advancing nonce
@@ -60,6 +64,7 @@ async def prepare_proposal(self, req) -> ResponsePrepareProposal:
             block_tx_bytes = next_block_tx_bytes
 
     if len(txs) != len(req.txs):
+        counts["skipped_at_capacity"] = len(req.txs) - counts.total()
         logger.bind(
             **build_log_fields(
                 stage="prepare_proposal",

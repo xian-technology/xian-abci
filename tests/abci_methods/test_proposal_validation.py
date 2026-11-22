@@ -23,6 +23,7 @@ from tendermint.abci.types_pb2 import (
     ResponseProcessProposal,
 )
 from xian.fee_policy import DEFAULT_MAX_BLOCK_CHI, DEFAULT_MAX_TX_CHI, TxFeePolicy
+from xian.methods import prepare_proposal
 from xian.utils.encoding import encode_transaction_bytes
 from xian.xian_abci import Xian
 
@@ -218,6 +219,41 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             ),
             (1, 1, 1, 1, 1),
         )
+
+    async def test_prepare_proposal_does_not_admit_candidates_after_exact_chi_fill(self):
+        self.app.tx_fee_policy = TxFeePolicy.free_metered(
+            max_tx_chi=100,
+            max_block_chi=150,
+        )
+        first = make_signed_tx_bytes(nonce=0, chi_supplied=100)
+        too_expensive = make_signed_tx_bytes(nonce=1, chi_supplied=75)
+        fits = make_signed_tx_bytes(nonce=1, chi_supplied=50)
+        tail = make_signed_tx_bytes(nonce=2, chi_supplied=1)
+        request = Request(
+            prepare_proposal=RequestPrepareProposal(
+                txs=[first, too_expensive, fits, tail, b"invalid"],
+                max_tx_bytes=1_000_000,
+            )
+        )
+        with patch.object(prepare_proposal, "_admit", wraps=prepare_proposal._admit) as admit:
+            response = await self.process_request("prepare_proposal", request)
+
+        self.assertEqual(list(response.prepare_proposal.txs), [first, fits])
+        self.assertEqual([call.args[1] for call in admit.call_args_list], [first, too_expensive, fits])
+
+    async def test_prepare_proposal_does_not_admit_candidates_after_exact_byte_fill(self):
+        first = make_signed_tx_bytes(nonce=0)
+        request = Request(
+            prepare_proposal=RequestPrepareProposal(
+                txs=[first, b""],
+                max_tx_bytes=len(first),
+            )
+        )
+        with patch.object(prepare_proposal, "_admit", wraps=prepare_proposal._admit) as admit:
+            response = await self.process_request("prepare_proposal", request)
+
+        self.assertEqual(list(response.prepare_proposal.txs), [first])
+        self.assertEqual([call.args[1] for call in admit.call_args_list], [first])
 
     async def test_prepare_proposal_filters_duplicate_nonce(self):
         tx_one = make_signed_tx_bytes(nonce=0)
