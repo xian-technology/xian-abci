@@ -49,12 +49,31 @@ class TxProcessor:
         """
         if not txs:
             return []
-        with self.profiler.scope("tx_process_total", block_scoped=True):
+        if not self.profiler.enabled:
             outcomes = self._block_executor(txs, raw_txs, fee_policy).run()
-            return [
-                self._native_response(tx, outcome, fee_policy)
-                for tx, outcome in zip(txs, outcomes, strict=True)
-            ]
+            return self._responses(txs, outcomes, fee_policy)
+
+        with self.profiler.scope("tx_process_total", block_scoped=True):
+            with self.profiler.scope("tx_native_prepare", block_scoped=True):
+                executor = self._block_executor(txs, raw_txs, fee_policy)
+            outcomes = self._profiled_outcomes(executor)
+            with self.profiler.scope("tx_receipt_conversion", block_scoped=True):
+                return self._responses(txs, outcomes, fee_policy)
+
+    def _responses(self, txs, outcomes, fee_policy):
+        return [
+            self._native_response(tx, outcome, fee_policy)
+            for tx, outcome in zip(txs, outcomes, strict=True)
+        ]
+
+    def _profiled_outcomes(self, executor):
+        run_profiled = getattr(executor, "run_profiled", None)
+        if run_profiled is None:
+            return executor.run()
+        outcomes, execution_ns, conversion_ns = run_profiled()
+        self.profiler.observe("tx_native_execute", execution_ns, block_scoped=True)
+        self.profiler.observe("tx_native_to_python", conversion_ns, block_scoped=True)
+        return outcomes
 
     def _block_executor(self, txs, raw_txs, fee_policy: TxFeePolicy):
         environment, overlay = self.client.raw_driver.committed_storage()
