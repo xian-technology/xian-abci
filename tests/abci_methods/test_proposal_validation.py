@@ -2,7 +2,7 @@ import json
 import logging
 import unittest
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import nacl.encoding
 import nacl.signing
@@ -13,7 +13,9 @@ from xian_runtime_types.encoding import decode, encode
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
 from tendermint.abci.types_pb2 import (
+    CheckTxType,
     Request,
+    RequestCheckTx,
     RequestFinalizeBlock,
     RequestInitChain,
     RequestPrepareProposal,
@@ -24,6 +26,7 @@ from tendermint.abci.types_pb2 import (
 )
 from xian.fee_policy import DEFAULT_MAX_BLOCK_CHI, DEFAULT_MAX_TX_CHI, TxFeePolicy
 from xian.methods import prepare_proposal
+from xian.perf import PerfTracker
 from xian.utils.encoding import encode_transaction_bytes
 from xian.xian_abci import Xian
 
@@ -598,6 +601,56 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         self.assertIn("con_missing", receipt["result"])
         await self.app.commit()
         self.assertEqual(self.app.nonce_storage.get_nonce(sender), 0)
+
+    async def test_immutable_admission_is_reused_without_caching_live_policy(self):
+        from xian_vm_core import decode_and_validate_transaction
+
+        cache = Mock(chain_id=self.app.chain_id)
+        cache.decode.side_effect = lambda raw: decode_and_validate_transaction(raw, cache.chain_id)
+        self.app.transaction_admission_cache = cache
+        permissive = TxFeePolicy.free_metered(max_tx_chi=100, max_block_chi=100)
+        self.app.tx_fee_policy = permissive
+        tx = make_signed_tx_bytes(nonce=0, contract="con_missing", function="any")
+
+        self.assertEqual((await self.app.check_tx(tx)).code, self.constants.OkCode)
+        prepared = await self.app.prepare_proposal(
+            RequestPrepareProposal(txs=[tx], max_tx_bytes=len(tx))
+        )
+        self.assertEqual(list(prepared.txs), [tx])
+        proposed = RequestProcessProposal(txs=[tx])
+        self.app.tx_fee_policy = TxFeePolicy.free_metered(max_tx_chi=99, max_block_chi=100)
+        self.assertEqual(
+            (await self.app.process_proposal(proposed)).status, ResponseProcessProposal.REJECT
+        )
+        self.app.tx_fee_policy = permissive
+        self.assertEqual(
+            (await self.app.process_proposal(proposed)).status, ResponseProcessProposal.ACCEPT
+        )
+
+        finalized = await self.app.finalize_block(RequestFinalizeBlock(txs=[tx], height=1))
+        self.assertIn("con_missing", json.loads(finalized.tx_results[0].data)["result"])
+        self.assertEqual([call.args for call in cache.decode.call_args_list], [(tx,)] * 5)
+
+    async def test_check_tx_profiling_distinguishes_new_transactions_and_rechecks(self):
+        self.app.tx_fee_policy = TxFeePolicy.free_metered()
+        self.app.profiler = PerfTracker(
+            output_path=self.constants.COMETBFT_HOME / "perf-test.json",
+            node_name="test",
+            chain_id=self.app.chain_id,
+            execution_mode=self.app.execution_mode,
+        )
+        tx = make_signed_tx_bytes(nonce=0)
+        for check_type in (CheckTxType.NEW, CheckTxType.RECHECK):
+            response = await self.process_request(
+                "check_tx", Request(check_tx=RequestCheckTx(tx=tx, type=check_type))
+            )
+            self.assertEqual(response.check_tx.code, self.constants.OkCode)
+
+        metrics = self.app.profiler.snapshot()["global_metrics"]
+        self.assertEqual(metrics["check_tx_new"]["count"], 1)
+        self.assertEqual(metrics["check_tx_recheck"]["count"], 1)
+        for metric in ("check_tx", "check_tx_lock_wait", "check_tx_static_admission", "check_tx_live_admission"):
+            self.assertEqual(metrics[metric]["count"], 2)
 
     async def test_finalize_block_halts_when_processing_raises(self):
         tx = make_signed_tx_bytes(nonce=0)

@@ -208,6 +208,7 @@ def _decode_block_transactions(self, req, *, height: int, block_hash: str):
                 tx = decode_and_validate_transaction_static_bytes(
                     tx_bytes,
                     chain_id=self.chain_id,
+                    admission_cache=self.transaction_admission_cache,
                 )
             except Exception as e:
                 decoded_entries.append(

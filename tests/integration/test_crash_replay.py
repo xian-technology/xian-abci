@@ -22,6 +22,7 @@ from abci_node import (
     node_constants,
     signed_tx,
 )
+from tendermint.abci.types_pb2 import RequestProcessProposal, ResponseProcessProposal
 
 pytest.importorskip("xian_vm_core")
 pytestmark = pytest.mark.usefixtures("quiet_node_logs")
@@ -109,6 +110,37 @@ def test_a_node_killed_before_commit_replays_the_block(tmp_path, reference, cras
 
 def test_a_node_killed_after_init_chain_runs_init_chain_again(tmp_path, reference):
     assert asyncio.run(_init_chain_twice(tmp_path)) == reference
+
+
+def test_warm_admission_cache_preserves_exact_ordered_finalize_responses(tmp_path):
+    blocks = _blocks()
+
+    async def run_blocks(root, *, use_cache):
+        node = await AbciNode(node_constants(root, local_genesis())).start()
+        try:
+            cache = node.app.transaction_admission_cache
+            if not use_cache:
+                node.app.transaction_admission_cache = None
+            elif cache is None:
+                pytest.skip("the installed native VM wheel predates admission caching")
+
+            await node.init_chain()
+            responses = []
+            for height, txs in enumerate(blocks, start=1):
+                proposal = await node.app.process_proposal(RequestProcessProposal(txs=txs))
+                assert proposal.status == ResponseProcessProposal.ACCEPT
+                response = await node.finalize_block(height, txs)
+                responses.append(response.SerializeToString(deterministic=True))
+                await node.commit()
+            if use_cache:
+                assert cache.stats()["hits"] == sum(map(len, blocks))
+            return responses
+        finally:
+            await node.stop()
+
+    assert asyncio.run(run_blocks(tmp_path / "warm", use_cache=True)) == asyncio.run(
+        run_blocks(tmp_path / "uncached", use_cache=False)
+    )
 
 
 async def _init_chain_twice(tmp_path):

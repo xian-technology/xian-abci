@@ -24,6 +24,7 @@ def _admit(self, raw_tx: bytes, block_chi_supplied: int, nonce_tracker) -> tuple
             raw_tx,
             chain_id=self.chain_id,
             max_raw_tx_bytes=self.max_tx_bytes,
+            admission_cache=self.transaction_admission_cache,
         )
         self.tx_fee_policy.validate_tx(tx)
     except Exception:

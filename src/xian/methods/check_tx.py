@@ -44,18 +44,23 @@ def report_check_tx_rejections(self, *, height: int) -> None:
 
 async def check_tx(self, raw_tx) -> ResponseCheckTx:
     try:
-        tx = decode_and_validate_transaction_static_bytes(
-            raw_tx,
-            chain_id=self.chain_id,
-            max_raw_tx_bytes=self.max_tx_bytes,
-        )
+        with self.profiler.scope("check_tx_static_admission"):
+            tx = decode_and_validate_transaction_static_bytes(
+                raw_tx,
+                chain_id=self.chain_id,
+                max_raw_tx_bytes=self.max_tx_bytes,
+                admission_cache=self.transaction_admission_cache,
+            )
     except Exception as e:
         return _rejected_check_tx(self, error=e, raw_tx=raw_tx)
 
     try:
         tx_hash = hashlib.sha256(raw_tx).hexdigest()
         # Mempool validation leaves no trace in the pending block state.
-        with self.client.raw_driver.discarding_changes():
+        with (
+            self.profiler.scope("check_tx_live_admission"),
+            self.client.raw_driver.discarding_changes(),
+        ):
             validate_transaction_after_static(
                 self.client,
                 self.nonce_storage,
