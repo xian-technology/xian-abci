@@ -132,6 +132,7 @@ jobs:
         working-directory: xian-abci
         env:
           XIAN_ABCI_COVERAGE: "1"
+          XIAN_TEST_BDS_DSN: postgresql://postgres:1234@localhost:5432/xian
         run: |
           ./scripts/validate-repo.sh
 

@@ -560,6 +560,15 @@ def select_contracts():
 
 def select_token_contracts():
     return """
+    WITH tokens AS (
+        SELECT name, last_tx_hash, submitted_at_block, submitted_at
+        FROM contracts
+        WHERE xsc001 = TRUE
+    ), page AS (
+        SELECT * FROM tokens
+        ORDER BY submitted_at_block DESC, name ASC
+        LIMIT $1 OFFSET $2
+    )
     SELECT
         c.name AS contract,
         c.last_tx_hash,
@@ -568,17 +577,16 @@ def select_token_contracts():
         name_state.value AS token_name,
         symbol_state.value AS token_symbol,
         logo_state.value AS token_logo_url,
-        COUNT(*) OVER() AS total_count
-    FROM contracts AS c
+        counts.total_count
+    FROM (SELECT COUNT(*) AS total_count FROM tokens) AS counts
+    LEFT JOIN page AS c ON TRUE
     LEFT JOIN state AS name_state
         ON name_state.key = c.name || '.metadata:token_name'
     LEFT JOIN state AS symbol_state
         ON symbol_state.key = c.name || '.metadata:token_symbol'
     LEFT JOIN state AS logo_state
         ON logo_state.key = c.name || '.metadata:token_logo_url'
-    WHERE c.xsc001 = TRUE
-    ORDER BY c.submitted_at_block DESC, c.name ASC
-    LIMIT $1 OFFSET $2;
+    ORDER BY c.submitted_at_block DESC, c.name ASC;
     """
 
 
@@ -1096,21 +1104,15 @@ def select_token_balances():
             ON logo_state.key = c.name || '.metadata:token_logo_url'
         WHERE c.xsc001 = TRUE
           AND ($2 OR s.value_numeric IS DISTINCT FROM 0)
+    ), page AS (
+        SELECT * FROM portfolio
+        ORDER BY last_block_height DESC, contract ASC
+        LIMIT $3 OFFSET $4
     )
-    SELECT
-        contract,
-        balance,
-        balance_numeric,
-        last_tx_hash,
-        last_block_height,
-        updated_at,
-        token_name,
-        token_symbol,
-        token_logo_url,
-        COUNT(*) OVER() AS total_count
-    FROM portfolio
-    ORDER BY last_block_height DESC, contract ASC
-    LIMIT $3 OFFSET $4;
+    SELECT page.*, counts.total_count
+    FROM (SELECT COUNT(*) AS total_count FROM portfolio) AS counts
+    LEFT JOIN page ON TRUE
+    ORDER BY last_block_height DESC, contract ASC;
     """
 
 

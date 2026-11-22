@@ -40,7 +40,8 @@ This folder contains the verification surface for `xian-abci`.
   corpora (`fixtures/fee_outputs*.json`, `fixtures/*reward_outputs*.json`).
   They are not regenerated; a difference is a behaviour change of the engine.
 - CI provisions PostgreSQL 18.7 at `postgres://postgres:1234@localhost:5432/xian` for
-  the BDS-backed paths.
+  the BDS-backed paths. Set `XIAN_TEST_BDS_DSN` to run the PostgreSQL query
+  tests locally.
 
 ## Next
 

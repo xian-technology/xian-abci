@@ -1,6 +1,9 @@
+import os
 import unittest
 from datetime import UTC, datetime
 from decimal import Decimal
+
+import asyncpg
 
 from xian.services.bds import sql
 from xian.services.bds.bds import BDS
@@ -21,6 +24,58 @@ class _FakeDb:
     async def fetch(self, query: str, args: list[object]):
         self.fetch_calls.append((query, args))
         return self.row
+
+
+@unittest.skipUnless(os.environ.get("XIAN_TEST_BDS_DSN"), "requires PostgreSQL")
+class BdsTokenPaginationTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.bds = BDS(BdsConfig())
+        self.bds.db.pool = await asyncpg.create_pool(
+            os.environ["XIAN_TEST_BDS_DSN"], min_size=1, max_size=1
+        )
+        self.addAsyncCleanup(self.bds.db.close_pool)
+        await self.bds.db.execute(
+            """
+            CREATE TEMP TABLE contracts (
+                name text PRIMARY KEY, last_tx_hash text, submitted_at_block bigint,
+                submitted_at timestamptz, xsc001 boolean
+            );
+            CREATE TEMP TABLE state (
+                key text PRIMARY KEY, value jsonb, value_numeric numeric,
+                last_tx_hash text, last_block_height bigint, updated_at timestamptz
+            );
+            INSERT INTO contracts VALUES
+                ('currency', 'tx1', 1, now(), true),
+                ('con_token', 'tx2', 1, now(), true),
+                ('con_other', 'tx3', 1, now(), false);
+            INSERT INTO state VALUES
+                ('currency.balances:alice', '12.5', 12.5, 'tx4', 2, now()),
+                ('con_token.balances:alice', '0', 0, 'tx5', 3, now());
+            """
+        )
+
+    async def test_out_of_range_token_contract_page_preserves_total(self):
+        first = await self.bds.get_token_contracts(limit=1)
+        empty = await self.bds.get_token_contracts(limit=1, offset=2)
+
+        self.assertEqual([item["contract"] for item in first["items"]], ["con_token"])
+        self.assertEqual(empty["items"], [])
+        self.assertEqual(first["total"], 2)
+        self.assertEqual(empty["total"], 2)
+
+    async def test_out_of_range_balance_page_preserves_filtered_total(self):
+        first = await self.bds.get_token_balances("alice", limit=1)
+        empty = await self.bds.get_token_balances("alice", limit=1, offset=1)
+        include_zero = await self.bds.get_token_balances(
+            "alice", limit=1, offset=2, include_zero=True
+        )
+
+        self.assertEqual([item["contract"] for item in first["items"]], ["currency"])
+        self.assertEqual(empty["items"], [])
+        self.assertEqual(first["total"], 1)
+        self.assertEqual(empty["total"], 1)
+        self.assertEqual(include_zero["items"], [])
+        self.assertEqual(include_zero["total"], 2)
 
 
 class BdsQueryTests(unittest.IsolatedAsyncioTestCase):

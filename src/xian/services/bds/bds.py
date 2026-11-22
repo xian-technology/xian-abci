@@ -1316,6 +1316,8 @@ class BDS:
         for row in rows:
             record = dict(row)
             total = int(record.pop("total_count", 0) or 0)
+            if record["contract"] is None:
+                continue
             items.append(
                 {
                     "contract": record["contract"],
@@ -1502,6 +1504,8 @@ class BDS:
         for row in rows:
             record = dict(row)
             total = int(record.pop("total_count", 0) or 0)
+            if record["contract"] is None:
+                continue
             items.append(
                 {
                     "contract": record["contract"],

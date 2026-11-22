@@ -85,6 +85,8 @@ jobs:
 
       - name: Run release validation
         working-directory: xian-abci
+        env:
+          XIAN_TEST_BDS_DSN: postgresql://postgres:1234@localhost:5432/xian
         run: ./scripts/validate-release.sh
 
   build:
