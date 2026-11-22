@@ -956,7 +956,17 @@ async def _handle_recent_events(ctx: QueryContext) -> QueryResult:
 
 
 async def _handle_dex_candles(ctx: QueryContext) -> QueryResult:
-    options = _bds_query_options(ctx.params)
+    try:
+        offset = int(ctx.params.get("offset", "0"))
+    except ValueError:
+        offset = None
+    if offset != 0:
+        raise QueryContractFailure(
+            "Candle queries accept only offset=0. Pass next_before as end for older candles."
+        )
+    limit = _bounded_int_param(
+        ctx.params, "limit", default=DEFAULT_LIST_QUERY_LIMIT, maximum=MAX_LIST_QUERY_LIMIT
+    )
     spec = get_candle_source_spec(ctx.params.get("source"))
 
     contract = ctx.params.get("contract")
@@ -974,8 +984,7 @@ async def _handle_dex_candles(ctx: QueryContext) -> QueryResult:
             market_id,
             source_spec=spec,
             interval_seconds=interval_seconds,
-            limit=options.limit,
-            offset=options.offset,
+            limit=limit,
             start_time=_optional_timestamp_param(ctx.params, "start"),
             end_time=_optional_timestamp_param(ctx.params, "end"),
         )
@@ -1206,6 +1215,8 @@ async def query(self, req) -> ResponseQuery:
         value, type_of_data = _encode_query_value(
             result, telemetry=route in {"perf_status", "bds_status", "bds_spool"}
         )
+    except QueryContractFailure as err:
+        return ResponseQuery(code=c.ErrorCode, height=height, log=str(err))
     except Exception as err:
         logger.bind(**error_fields(err)).error("ABCI query failed")
         return ResponseQuery(code=c.ErrorCode, height=height)

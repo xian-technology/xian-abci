@@ -272,7 +272,6 @@ class _FakeBDS:
         source_spec=None,
         interval_seconds=60,
         limit=100,
-        offset=0,
         start_time=None,
         end_time=None,
     ):
@@ -283,7 +282,6 @@ class _FakeBDS:
             "contract": source_spec.contract,
             "interval_seconds": interval_seconds,
             "limit": limit,
-            "offset": offset,
             "start_time": start_time,
             "end_time": end_time,
         }
@@ -311,7 +309,7 @@ class _FakeBDS:
                 }
             ],
             "limit": limit,
-            "offset": offset,
+            "offset": 0,
         }
 
     async def get_token_balances(self, address, limit, offset, *, include_zero=False):
@@ -1394,7 +1392,7 @@ def fallback(value: list[int]):
             Request(
                 query=RequestQuery(
                     path=(
-                        "/dex_candles/7/interval=5m/limit=25/offset=5"
+                        "/dex_candles/7/interval=5m/limit=25/offset=0"
                         "/start=1767225600/end=1767312000"
                     )
                 )
@@ -1407,6 +1405,7 @@ def fallback(value: list[int]):
         self.assertEqual(payload["pair_id"], 7)
         self.assertEqual(payload["market_id"], "7")
         self.assertEqual(payload["interval_seconds"], 300)
+        self.assertEqual(payload["offset"], 0)
         self.assertEqual(payload["items"][0]["open"], "1.0")
         self.assertEqual(
             fake_bds.dex_candle_call,
@@ -1416,7 +1415,6 @@ def fallback(value: list[int]):
                 "contract": "con_pairs",
                 "interval_seconds": 300,
                 "limit": 25,
-                "offset": 5,
                 "start_time": datetime(2026, 1, 1, tzinfo=UTC),
                 "end_time": datetime(2026, 1, 2, tzinfo=UTC),
             },
@@ -1514,6 +1512,32 @@ def fallback(value: list[int]):
         else:
             self.fail("Proposal cursor failed to finish")
         self.assertEqual(found, [3000, 1])
+
+    async def test_dex_candles_reject_nonzero_or_invalid_offsets(self):
+        self.app.bds_enabled = True
+        self.app.bds = _FakeBDS()
+
+        for offset in ("5", "-1", "invalid"):
+            with self.subTest(offset=offset):
+                response = await self.process_request(
+                    Request(query=RequestQuery(path=f"/dex_candles/7/offset={offset}"))
+                )
+                self.assertEqual(response.query.code, self.constants.ErrorCode)
+                self.assertIn("next_before", response.query.log)
+                self.assertIn("end", response.query.log)
+        self.assertFalse(hasattr(self.app.bds, "dex_candle_call"))
+
+    async def test_dex_candles_accept_omitted_or_zero_offsets(self):
+        self.app.bds_enabled = True
+        self.app.bds = _FakeBDS()
+
+        for suffix in ("", "/offset=0", "/offset=+0"):
+            with self.subTest(suffix=suffix):
+                response = await self.process_request(
+                    Request(query=RequestQuery(path=f"/dex_candles/7{suffix}"))
+                )
+                self.assertEqual(response.query.code, self.constants.OkCode)
+                self.assertEqual(json.loads(response.query.value)["offset"], 0)
 
     async def test_contract_listing_query_is_available_without_bds(self):
         self.app.client.submit(

@@ -1041,7 +1041,7 @@ def select_events_by_contract_event_after_id():
 
 
 def select_dex_candles():
-    return "SELECT * FROM bds_dex_candle_page($1, $2, $3, $4, $5, $6, $7);"
+    return "SELECT * FROM bds_dex_candle_page($1, $2, $3, $4, $5, $6);"
 
 
 def select_recent_events():

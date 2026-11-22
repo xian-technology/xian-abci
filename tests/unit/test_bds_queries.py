@@ -334,7 +334,6 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
             source_spec=get_candle_source_spec(),
             interval_seconds=300,
             limit=25,
-            offset=5,
             start_time=start,
             end_time=end,
         )
@@ -349,7 +348,6 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
                         "7",
                         300,
                         25,
-                        5,
                         start,
                         end,
                     ],
@@ -361,6 +359,7 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["market_id"], "7")
         self.assertEqual(result["pair_id"], 7)
         self.assertEqual(result["interval_seconds"], 300)
+        self.assertEqual(result["offset"], 0)
         self.assertEqual(result["indexed_height"], 12)
         self.assertEqual(result["next_before"], start)
         self.assertEqual(result["items"][0]["open"], Decimal("1.0"))

@@ -128,7 +128,7 @@ def create_candle_api() -> str:
 
     CREATE OR REPLACE FUNCTION bds_dex_candle_page(
         market_contract text, market_pair text, interval_seconds integer,
-        page_size integer, page_offset integer, start_time timestamptz, before timestamptz
+        page_size integer, start_time timestamptz, before timestamptz
     )
     RETURNS dex_candle_page LANGUAGE sql STABLE
     BEGIN ATOMIC
@@ -176,7 +176,7 @@ def create_candle_api() -> str:
                 (array_agg(event_id ORDER BY block_time DESC, event_id DESC))[1] AS last_event_id
             FROM fills WHERE price IS NOT NULL GROUP BY bucket_start, stride
             ORDER BY bucket_start DESC
-            LIMIT (SELECT page_limit FROM settings) OFFSET greatest(page_offset, 0)
+            LIMIT (SELECT page_limit FROM settings)
         ), page AS (
             SELECT CASE WHEN count(*) = w.page_limit THEN min(b.bucket_start)
                         ELSE w.lower_bound END AS older_than,
@@ -197,7 +197,7 @@ def create_candle_api() -> str:
             coalesce(p.items, ARRAY[]::dex_candle[])
         FROM (SELECT 1) AS singleton LEFT JOIN page p ON true;
     END;
-    COMMENT ON FUNCTION bds_dex_candle_page(text, text, integer, integer, integer, timestamptz, timestamptz)
+    COMMENT ON FUNCTION bds_dex_candle_page(text, text, integer, integer, timestamptz, timestamptz)
         IS '@behavior -*';
 
     CREATE OR REPLACE FUNCTION dex_markets_candles(
@@ -205,5 +205,7 @@ def create_candle_api() -> str:
         start_time timestamptz DEFAULT NULL, before timestamptz DEFAULT NULL
     )
     RETURNS dex_candle_page LANGUAGE sql STABLE
-    RETURN bds_dex_candle_page('con_pairs', market.pair_id, interval_seconds, page_size, 0, start_time, before);
+    RETURN bds_dex_candle_page('con_pairs', market.pair_id, interval_seconds, page_size, start_time, before);
+
+    DROP FUNCTION IF EXISTS bds_dex_candle_page(text, text, integer, integer, integer, timestamptz, timestamptz);
     """

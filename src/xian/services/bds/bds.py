@@ -1451,7 +1451,6 @@ class BDS:
         source_spec: CandleSourceSpec | None = None,
         interval_seconds: int = 60,
         limit: int = 100,
-        offset: int = 0,
         start_time: datetime | None = None,
         end_time: datetime | None = None,
     ):
@@ -1464,7 +1463,6 @@ class BDS:
                 market_id_text,
                 int(interval_seconds),
                 int(limit),
-                int(offset),
                 utc_datetime(start_time) if start_time is not None else None,
                 utc_datetime(end_time) if end_time is not None else None,
             ],
@@ -1477,7 +1475,7 @@ class BDS:
             "interval_seconds": int(interval_seconds),
             "items": [{**market, **dict(row)} for row in page["items"]],
             "limit": int(limit),
-            "offset": int(offset),
+            "offset": 0,
             "indexed_height": page["indexed_height"],
             "next_before": page["next_before"],
         }
