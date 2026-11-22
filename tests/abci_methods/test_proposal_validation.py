@@ -638,9 +638,10 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.app.nonce_storage.get_nonce(sender), 0)
 
     async def test_immutable_admission_is_reused_without_caching_live_policy(self):
-        cache = xian_vm_core.TransactionAdmissionCache(
-            self.app.chain_id, max_entries=2, max_bytes=64_000
-        )
+        cache_type = getattr(xian_vm_core, "TransactionAdmissionCache", None)
+        if cache_type is None:
+            self.skipTest("the installed native VM has no admission cache")
+        cache = cache_type(self.app.chain_id, max_entries=2, max_bytes=64_000)
         self.app.transaction_admission_cache = cache
         permissive = TxFeePolicy.free_metered(max_tx_chi=100, max_block_chi=100)
         self.app.tx_fee_policy = permissive
