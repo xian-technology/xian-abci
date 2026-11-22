@@ -116,5 +116,10 @@ class TestXianHandler(unittest.IsolatedAsyncioTestCase):
         resp = await deserialize(raw)
         self.assertEqual(resp.exception.error, "ABCI request not found")
 
+    async def test_unset_request_type_returns_an_exception_response(self):
+        req = Request()
+        resp = await self.process_request(req.WhichOneof("value"), req)
+        self.assertEqual(resp.exception.error, "ABCI request not found")
+
 if __name__ == "__main__":
     unittest.main()

@@ -33,8 +33,8 @@ class ProtocolHandler:
     def __init__(self, app):
         self.app = app
 
-    async def process(self, req_type: str, req) -> bytes:
-        handler = getattr(self, req_type, self.no_match)
+    async def process(self, req_type: str | None, req) -> bytes:
+        handler = getattr(self, req_type or "", self.no_match)
         if inspect.iscoroutinefunction(handler):
             return await handler(req)
         else:
