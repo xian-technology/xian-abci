@@ -12,9 +12,9 @@ from __future__ import annotations
 import asyncio
 import base64
 
-from abci_node import CHAIN_ID, AbciNode, local_genesis, node_constants, validator_key
+from abci_node import AbciNode, local_genesis, node_constants, validator_key
 
-from tendermint.abci.types_pb2 import Request, RequestInitChain, ValidatorUpdate
+from tendermint.abci.types_pb2 import Request, ValidatorUpdate
 from tendermint.crypto.keys_pb2 import PublicKey
 
 OTHER_SEED = bytes([9]) * 32
