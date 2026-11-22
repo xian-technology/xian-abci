@@ -20,7 +20,7 @@ from xian.execution_policy import (
     validate_execution_policy,
     validate_genesis_execution_policy,
 )
-from xian.services.bds import sql
+from xian.services.bds import market_sql, sql
 from xian.services.bds.candles import CandleSourceSpec, get_candle_source_spec
 from xian.services.bds.config import BdsConfig
 from xian.services.bds.database import DB
@@ -762,6 +762,8 @@ class BDS:
             sql.create_shielded_output_tags(),
             sql.create_contracts(),
             sql.create_state_patches(),
+            market_sql.create_market_views(),
+            market_sql.create_candle_api(),
         )
 
     async def _managed_tables_present(self) -> bool:
@@ -1453,36 +1455,29 @@ class BDS:
     ):
         spec = source_spec or get_candle_source_spec()
         market_id_text, market_id_int = spec.normalize_market_id(market_id)
-        rows = await self.db.fetch(
+        page = await self.db.fetchrow(
             sql.select_dex_candles(),
             [
                 spec.contract,
-                spec.event,
-                spec.source,
-                spec.market_field,
                 market_id_text,
-                market_id_int,
-                utc_datetime(start_time) if start_time is not None else None,
-                utc_datetime(end_time) if end_time is not None else None,
                 int(interval_seconds),
                 int(limit),
                 int(offset),
-                spec.amount0_in_field,
-                spec.amount1_in_field,
-                spec.amount0_out_field,
-                spec.amount1_out_field,
+                utc_datetime(start_time) if start_time is not None else None,
+                utc_datetime(end_time) if end_time is not None else None,
             ],
         )
+        market = {"source": spec.source, "market_id": market_id_text, "pair_id": market_id_int}
         return {
             "available": True,
-            "source": spec.source,
             "contract": spec.contract,
-            "market_id": market_id_text,
-            "pair_id": market_id_int,
+            **market,
             "interval_seconds": int(interval_seconds),
-            "items": [dict(row) for row in rows],
+            "items": [{**market, **dict(row)} for row in page["items"]],
             "limit": int(limit),
             "offset": int(offset),
+            "indexed_height": page["indexed_height"],
+            "next_before": page["next_before"],
         }
 
     async def get_state(self, key: str, limit: int = 100, offset: int = 0):

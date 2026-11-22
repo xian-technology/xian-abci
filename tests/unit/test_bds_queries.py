@@ -250,24 +250,28 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
         end = datetime(2026, 1, 2, tzinfo=UTC)
         bds = BDS(BdsConfig())
         bds.db = _FakeDb(
-            [
-                {
-                    "pair_id": 7,
-                    "source": "xian_pairs_v1",
-                    "market_id": "7",
-                    "bucket_start": datetime(2026, 1, 1, 12, tzinfo=UTC),
-                    "bucket_end": datetime(2026, 1, 1, 12, 5, tzinfo=UTC),
-                    "open": Decimal("1.0"),
-                    "high": Decimal("1.2"),
-                    "low": Decimal("0.9"),
-                    "close": Decimal("1.1"),
-                    "volume_token0": Decimal("42"),
-                    "volume_token1": Decimal("46.2"),
-                    "trade_count": 3,
-                    "first_event_id": 10,
-                    "last_event_id": 12,
-                }
-            ]
+            {
+                "indexed_height": 12,
+                "next_before": start,
+                "items": [
+                    {
+                        "pair_id": 7,
+                        "source": "xian_pairs_v1",
+                        "market_id": "7",
+                        "bucket_start": datetime(2026, 1, 1, 12, tzinfo=UTC),
+                        "bucket_end": datetime(2026, 1, 1, 12, 5, tzinfo=UTC),
+                        "open": Decimal("1.0"),
+                        "high": Decimal("1.2"),
+                        "low": Decimal("0.9"),
+                        "close": Decimal("1.1"),
+                        "volume_token0": Decimal("42"),
+                        "volume_token1": Decimal("46.2"),
+                        "trade_count": 3,
+                        "first_event_id": 10,
+                        "last_event_id": 12,
+                    }
+                ],
+            }
         )
 
         result = await bds.get_dex_candles(
@@ -281,26 +285,18 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(
-            bds.db.fetch_calls,
+            bds.db.fetchrow_calls,
             [
                 (
                     sql.select_dex_candles(),
                     [
                         "con_pairs",
-                        "Swap",
-                        "xian_pairs_v1",
-                        "pair",
                         "7",
-                        7,
-                        start,
-                        end,
                         300,
                         25,
                         5,
-                        "amount0In",
-                        "amount1In",
-                        "amount0Out",
-                        "amount1Out",
+                        start,
+                        end,
                     ],
                 )
             ],
@@ -310,6 +306,8 @@ class BdsQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["market_id"], "7")
         self.assertEqual(result["pair_id"], 7)
         self.assertEqual(result["interval_seconds"], 300)
+        self.assertEqual(result["indexed_height"], 12)
+        self.assertEqual(result["next_before"], start)
         self.assertEqual(result["items"][0]["open"], Decimal("1.0"))
 
     async def test_get_shielded_wallet_history_returns_commitments_with_optional_payloads(self):
