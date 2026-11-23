@@ -1,5 +1,3 @@
-import os
-
 from contracting.runtime_features import RUNTIME_FEATURE_ZK, runtime_feature_without_state
 from contracting.stdlib.bridge import zk as zk_bridge
 from loguru import logger
@@ -31,9 +29,7 @@ class TxProcessor:
         # `finalize_block`).
         self.profiler = profiler or NoopPerfTracker()
         self.trace_logging = trace_logging
-        self.native_receipts = os.environ.get("XIAN_EXPERIMENT_NATIVE_RECEIPTS") == "1"
-        if self.native_receipts and not hasattr(BlockExecutor, "run_receipts"):
-            raise RuntimeError("native receipt experiment requires its matching VM wheel")
+        self.native_receipts = hasattr(BlockExecutor, "run_receipts")
 
     def reset_block_cache(self) -> None:
         zk_bridge.clear_verified_proof_cache()

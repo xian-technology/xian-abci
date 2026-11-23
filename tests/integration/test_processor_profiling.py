@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -80,13 +81,10 @@ def test_profiling_still_executes_on_a_wheel_without_native_timings(
         return SimpleNamespace(add=executor.add, run=executor.run)
 
     monkeypatch.setattr(processor_module, "BlockExecutor", legacy_executor)
-    monkeypatch.setenv("XIAN_EXPERIMENT_NATIVE_RECEIPTS", "1")
-    with pytest.raises(RuntimeError, match="matching VM wheel"):
-        TxProcessor(client=client, profiler=profiler)
-
-    monkeypatch.delenv("XIAN_EXPERIMENT_NATIVE_RECEIPTS")
     processor = TxProcessor(client=client, profiler=profiler)
-    assert receipts._receipt((client, processor), "fail")["status"] == 1
+    assert not processor.native_receipts
+    wire = receipts._receipt_bytes((client, processor), "fail", receipt_details=False)
+    assert json.loads(wire)["status"] == 1
     assert profiler.global_metrics.keys() == {
         "tx_process_total",
         "tx_native_prepare",

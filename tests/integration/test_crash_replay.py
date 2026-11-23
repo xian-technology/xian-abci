@@ -144,14 +144,17 @@ def test_warm_admission_cache_preserves_exact_ordered_finalize_responses(tmp_pat
     )
 
 
-@pytest.mark.parametrize("indexing", [False, True])
-def test_native_receipts_match_python_with_warm_admission(tmp_path, monkeypatch, indexing):
+@pytest.mark.parametrize("indexing, tracing", [(False, False), (True, False), (False, True)])
+def test_native_receipts_match_python_with_warm_admission(tmp_path, monkeypatch, indexing, tracing):
     monkeypatch.setenv("XIAN_PERF_ENABLED", "1")
 
     async def run(root, native):
-        monkeypatch.setenv("XIAN_EXPERIMENT_NATIVE_RECEIPTS", str(int(native)))
         node = await AbciNode(node_constants(root, local_genesis())).start()
         try:
+            processor = node.app.tx_processor
+            assert processor.native_receipts
+            processor.native_receipts = native
+            processor.trace_logging = tracing
             await node.init_chain()
             if indexing:
                 node.app.bds_enabled = True

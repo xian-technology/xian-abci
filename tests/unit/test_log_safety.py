@@ -296,10 +296,12 @@ def test_context_redacts_compound_secrets_without_rendering_objects(tmp_path):
     assert "empty=" not in text
 
 
-def test_trace_logs_receipt_summary_without_payload(tmp_path):
+@pytest.mark.parametrize("preencoded", [False, True])
+def test_trace_logs_receipt_summary_without_payload(tmp_path, preencoded):
     from contextlib import nullcontext
 
     from xian.methods.finalize_block import _assemble_tx_results
+    from xian.utils.encoding import encode_abci_json
 
     app = SimpleNamespace(
         profiler=SimpleNamespace(scope=lambda *args, **kwargs: nullcontext()),
@@ -320,6 +322,8 @@ def test_trace_logs_receipt_summary_without_payload(tmp_path):
         "events": [],
     }
     entry = {"block_tx_index": 0, "tx": tx, "tx_bytes": b"secret-envelope", "tx_result": receipt}
+    if preencoded:
+        entry["receipt"] = encode_abci_json(receipt)
     configure_logging(SimpleNamespace(STORAGE_HOME=tmp_path), {"app_log_level": "TRACE"})
     try:
         results, _ = _assemble_tx_results(app, [entry], height=7, block_hash="cd" * 32)

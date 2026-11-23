@@ -117,7 +117,8 @@ def _receipt_bytes(chain, function, *, receipt_details=None):
         fee_policy=TxFeePolicy.paid_metered(),
         receipt_details=receipt_details,
     )
-    if receipt_details is None:
+    if "receipt" not in response:
+        assert receipt_details is None or not processor.native_receipts
         return encode_abci_json(response["tx_result"])
     if receipt_details:
         assert response["receipt"] == encode_abci_json(response["tx_result"])
@@ -171,11 +172,11 @@ def test_exception_wire_text_matches_python_for_binary_values_and_local_objects(
 @pytest.mark.parametrize(
     "function", ["members", "receipt_types", "fail", "fail_mixed", "fail_range"]
 )
-def test_native_receipt_projection_modes_match_python(chain, monkeypatch, function):
+def test_native_receipt_projection_modes_match_python(chain, function):
     client, _ = chain
     expected = _receipt_bytes(chain, function)
-    monkeypatch.setenv("XIAN_EXPERIMENT_NATIVE_RECEIPTS", "1")
     processor = TxProcessor(client)
+    assert processor.native_receipts
     for details in (True, False):
         client.raw_driver.rollback()
         assert _receipt_bytes((client, processor), function, receipt_details=details) == expected

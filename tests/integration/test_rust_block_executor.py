@@ -15,15 +15,15 @@ from pathlib import Path
 
 import pytest
 from contracting.local import ContractingClient
+from golden_support import assert_matches_golden
 from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, encode
 from xian_runtime_types.time import Timedelta
 
-from xian.utils.tx import transaction_bytes
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.utils.encoding import encode_abci_json
-from golden_support import assert_matches_golden
+from xian.utils.tx import transaction_bytes
 
 pytest.importorskip("xian_vm_core")
 
