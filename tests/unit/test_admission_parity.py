@@ -19,7 +19,9 @@ GOLDEN = load_fixture()
 
 def _assert_matches_golden(actual: dict[str, dict]) -> None:
     assert set(actual) == set(GOLDEN)
-    mismatches = {name: (actual[name], GOLDEN[name]) for name in GOLDEN if actual[name] != GOLDEN[name]}
+    mismatches = {
+        name: (actual[name], GOLDEN[name]) for name in GOLDEN if actual[name] != GOLDEN[name]
+    }
     assert not mismatches, mismatches
 
 

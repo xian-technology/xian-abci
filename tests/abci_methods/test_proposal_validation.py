@@ -63,9 +63,7 @@ def make_signed_tx_bytes(
     seed: bytes = SEED,
 ) -> bytes:
     signing_key = nacl.signing.SigningKey(seed)
-    sender = signing_key.verify_key.encode(
-        encoder=nacl.encoding.HexEncoder
-    ).decode("ascii")
+    sender = signing_key.verify_key.encode(encoder=nacl.encoding.HexEncoder).decode("ascii")
 
     payload = {
         "chain_id": chain_id,
@@ -96,9 +94,7 @@ def make_signed_tx_bytes_with_raw_spacing(
     chain_id: str = "xian-testnet-1",
 ) -> bytes:
     signing_key = nacl.signing.SigningKey(SEED)
-    sender = signing_key.verify_key.encode(
-        encoder=nacl.encoding.HexEncoder
-    ).decode("ascii")
+    sender = signing_key.verify_key.encode(encoder=nacl.encoding.HexEncoder).decode("ascii")
 
     payload = {
         "chain_id": chain_id,
@@ -137,7 +133,6 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         self.app.chain_id = "xian-testnet-1"
         self.handler = ProtocolHandler(self.app)
 
-
     async def process_request(self, request_type, req):
         raw = await self.handler.process(request_type, req)
         return await deserialize(raw)
@@ -150,15 +145,12 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             "prepare_proposal",
             Request(
                 prepare_proposal=RequestPrepareProposal(
-                    max_tx_bytes=4 * 1024 * 1024,
-                    txs=[valid_tx, invalid_tx]
+                    max_tx_bytes=4 * 1024 * 1024, txs=[valid_tx, invalid_tx]
                 )
             ),
         )
 
-        self.assertIsInstance(
-            response.prepare_proposal, ResponsePrepareProposal
-        )
+        self.assertIsInstance(response.prepare_proposal, ResponsePrepareProposal)
         self.assertEqual(list(response.prepare_proposal.txs), [valid_tx])
 
     async def test_prepare_proposal_free_metered_drops_tx_over_chi_cap(self):
@@ -173,8 +165,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             "prepare_proposal",
             Request(
                 prepare_proposal=RequestPrepareProposal(
-                    max_tx_bytes=4 * 1024 * 1024,
-                    txs=[valid_tx, oversized_tx]
+                    max_tx_bytes=4 * 1024 * 1024, txs=[valid_tx, oversized_tx]
                 )
             ),
         )
@@ -246,7 +237,9 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             response = await self.process_request("prepare_proposal", request)
 
         self.assertEqual(list(response.prepare_proposal.txs), [first, fits])
-        self.assertEqual([call.args[1] for call in admit.call_args_list], [first, too_expensive, fits])
+        self.assertEqual(
+            [call.args[1] for call in admit.call_args_list], [first, too_expensive, fits]
+        )
 
     async def test_prepare_proposal_does_not_admit_candidates_after_exact_byte_fill(self):
         first = make_signed_tx_bytes(nonce=0)
@@ -300,7 +293,9 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         response = await self.process_request(
             "prepare_proposal",
             Request(
-                prepare_proposal=RequestPrepareProposal(max_tx_bytes=4 * 1024 * 1024, txs=[tx_one, tx_two])
+                prepare_proposal=RequestPrepareProposal(
+                    max_tx_bytes=4 * 1024 * 1024, txs=[tx_one, tx_two]
+                )
             ),
         )
 
@@ -313,7 +308,9 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(
             "prepare_proposal",
-            Request(prepare_proposal=RequestPrepareProposal(max_tx_bytes=4 * 1024 * 1024, txs=[tx])),
+            Request(
+                prepare_proposal=RequestPrepareProposal(max_tx_bytes=4 * 1024 * 1024, txs=[tx])
+            ),
         )
 
         self.assertEqual(list(response.prepare_proposal.txs), [])
@@ -326,9 +323,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             Request(process_proposal=RequestProcessProposal(txs=[invalid_tx])),
         )
 
-        self.assertIsInstance(
-            response.process_proposal, ResponseProcessProposal
-        )
+        self.assertIsInstance(response.process_proposal, ResponseProcessProposal)
         self.assertEqual(
             response.process_proposal.status,
             ResponseProcessProposal.ProposalStatus.REJECT,
@@ -418,9 +413,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(
             "process_proposal",
-            Request(
-                process_proposal=RequestProcessProposal(txs=[tx_one, tx_two])
-            ),
+            Request(process_proposal=RequestProcessProposal(txs=[tx_one, tx_two])),
         )
 
         self.assertEqual(
@@ -440,9 +433,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(
             "process_proposal",
-            Request(
-                process_proposal=RequestProcessProposal(txs=[tx_one, tx_two])
-            ),
+            Request(process_proposal=RequestProcessProposal(txs=[tx_one, tx_two])),
         )
 
         self.assertEqual(
@@ -591,15 +582,11 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                 "process_block",
                 side_effect=lambda txs, _raw, **_kw: [ok_result for _ in txs],
             ) as process_block,
-            patch.object(
-                self.app.nonce_storage, "set_nonce_by_tx"
-            ) as set_nonce,
+            patch.object(self.app.nonce_storage, "set_nonce_by_tx") as set_nonce,
         ):
             response = await self.process_request(
                 "finalize_block",
-                Request(
-                    finalize_block=RequestFinalizeBlock(txs=[tx_one, tx_two])
-                ),
+                Request(finalize_block=RequestFinalizeBlock(txs=[tx_one, tx_two])),
             )
 
         self.assertEqual(len(response.finalize_block.tx_results), 2)
@@ -685,7 +672,12 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         metrics = self.app.profiler.snapshot()["global_metrics"]
         self.assertEqual(metrics["check_tx_new"]["count"], 1)
         self.assertEqual(metrics["check_tx_recheck"]["count"], 1)
-        for metric in ("check_tx", "check_tx_lock_wait", "check_tx_static_admission", "check_tx_live_admission"):
+        for metric in (
+            "check_tx",
+            "check_tx_lock_wait",
+            "check_tx_static_admission",
+            "check_tx_live_admission",
+        ):
             self.assertEqual(metrics[metric]["count"], 2)
 
     async def test_finalize_block_halts_when_processing_raises(self):
@@ -698,6 +690,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
     async def test_paid_rejected_deployments_have_deterministic_error_receipts(self):
         from google.protobuf.timestamp_pb2 import Timestamp
+
         timestamp = Timestamp()
         timestamp.FromJsonString(self.app.genesis["genesis_time"])
         await self.app.init_chain(RequestInitChain(time=timestamp))
@@ -718,8 +711,11 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                 kwargs={"name": "con_attack", "code": source},
             )
             response = await self.app.finalize_block(
-                RequestFinalizeBlock(txs=[tx], height=nonce + 1, time=Timestamp(
-                    seconds=timestamp.seconds + nonce + 1, nanos=timestamp.nanos))
+                RequestFinalizeBlock(
+                    txs=[tx],
+                    height=nonce + 1,
+                    time=Timestamp(seconds=timestamp.seconds + nonce + 1, nanos=timestamp.nanos),
+                )
             )
             receipt = json.loads(response.tx_results[0].data)
             self.assertEqual(receipt["status"], 1)

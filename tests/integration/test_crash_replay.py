@@ -12,8 +12,6 @@ import asyncio
 from unittest.mock import patch
 
 import pytest
-from xian_accounts import Ed25519Account
-
 from abci_node import (
     FOUNDER,
     AbciNode,
@@ -22,6 +20,8 @@ from abci_node import (
     node_constants,
     signed_tx,
 )
+from xian_accounts import Ed25519Account
+
 from tendermint.abci.types_pb2 import RequestProcessProposal, ResponseProcessProposal
 
 pytest.importorskip("xian_vm_core")
