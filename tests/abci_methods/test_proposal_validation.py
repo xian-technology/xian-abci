@@ -1,5 +1,6 @@
 import json
 import logging
+import random
 import unittest
 from io import BytesIO
 from unittest.mock import patch
@@ -7,13 +8,16 @@ from unittest.mock import patch
 import nacl.encoding
 import nacl.signing
 import pytest
+import xian_vm_core
 from loguru import logger
 from xian_runtime_types.encoding import decode, encode
 
 from abci.server import ProtocolHandler
 from abci.utils import read_messages
 from tendermint.abci.types_pb2 import (
+    CheckTxType,
     Request,
+    RequestCheckTx,
     RequestFinalizeBlock,
     RequestInitChain,
     RequestPrepareProposal,
@@ -23,6 +27,9 @@ from tendermint.abci.types_pb2 import (
     ResponseProcessProposal,
 )
 from xian.fee_policy import DEFAULT_MAX_BLOCK_CHI, DEFAULT_MAX_TX_CHI, TxFeePolicy
+from xian.methods import prepare_proposal
+from xian.perf import PerfTracker
+from xian.utils import tx as tx_utils
 from xian.utils.encoding import encode_transaction_bytes
 from xian.xian_abci import Xian
 
@@ -53,11 +60,10 @@ def make_signed_tx_bytes(
     contract: str = "currency",
     function: str = "transfer",
     kwargs: dict | None = None,
+    seed: bytes = SEED,
 ) -> bytes:
-    signing_key = nacl.signing.SigningKey(SEED)
-    sender = signing_key.verify_key.encode(
-        encoder=nacl.encoding.HexEncoder
-    ).decode("ascii")
+    signing_key = nacl.signing.SigningKey(seed)
+    sender = signing_key.verify_key.encode(encoder=nacl.encoding.HexEncoder).decode("ascii")
 
     payload = {
         "chain_id": chain_id,
@@ -88,9 +94,7 @@ def make_signed_tx_bytes_with_raw_spacing(
     chain_id: str = "xian-testnet-1",
 ) -> bytes:
     signing_key = nacl.signing.SigningKey(SEED)
-    sender = signing_key.verify_key.encode(
-        encoder=nacl.encoding.HexEncoder
-    ).decode("ascii")
+    sender = signing_key.verify_key.encode(encoder=nacl.encoding.HexEncoder).decode("ascii")
 
     payload = {
         "chain_id": chain_id,
@@ -129,7 +133,6 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         self.app.chain_id = "xian-testnet-1"
         self.handler = ProtocolHandler(self.app)
 
-
     async def process_request(self, request_type, req):
         raw = await self.handler.process(request_type, req)
         return await deserialize(raw)
@@ -142,15 +145,12 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             "prepare_proposal",
             Request(
                 prepare_proposal=RequestPrepareProposal(
-                    max_tx_bytes=4 * 1024 * 1024,
-                    txs=[valid_tx, invalid_tx]
+                    max_tx_bytes=4 * 1024 * 1024, txs=[valid_tx, invalid_tx]
                 )
             ),
         )
 
-        self.assertIsInstance(
-            response.prepare_proposal, ResponsePrepareProposal
-        )
+        self.assertIsInstance(response.prepare_proposal, ResponsePrepareProposal)
         self.assertEqual(list(response.prepare_proposal.txs), [valid_tx])
 
     async def test_prepare_proposal_free_metered_drops_tx_over_chi_cap(self):
@@ -165,8 +165,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             "prepare_proposal",
             Request(
                 prepare_proposal=RequestPrepareProposal(
-                    max_tx_bytes=4 * 1024 * 1024,
-                    txs=[valid_tx, oversized_tx]
+                    max_tx_bytes=4 * 1024 * 1024, txs=[valid_tx, oversized_tx]
                 )
             ),
         )
@@ -219,6 +218,74 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             (1, 1, 1, 1, 1),
         )
 
+    async def test_prepare_proposal_does_not_admit_candidates_after_exact_chi_fill(self):
+        self.app.tx_fee_policy = TxFeePolicy.free_metered(
+            max_tx_chi=100,
+            max_block_chi=150,
+        )
+        first = make_signed_tx_bytes(nonce=0, chi_supplied=100)
+        too_expensive = make_signed_tx_bytes(nonce=1, chi_supplied=75)
+        fits = make_signed_tx_bytes(nonce=1, chi_supplied=50)
+        tail = make_signed_tx_bytes(nonce=2, chi_supplied=1)
+        request = Request(
+            prepare_proposal=RequestPrepareProposal(
+                txs=[first, too_expensive, fits, tail, b"invalid"],
+                max_tx_bytes=1_000_000,
+            )
+        )
+        with patch.object(prepare_proposal, "_admit", wraps=prepare_proposal._admit) as admit:
+            response = await self.process_request("prepare_proposal", request)
+
+        self.assertEqual(list(response.prepare_proposal.txs), [first, fits])
+        self.assertEqual(
+            [call.args[1] for call in admit.call_args_list], [first, too_expensive, fits]
+        )
+
+    async def test_prepare_proposal_does_not_admit_candidates_after_exact_byte_fill(self):
+        first = make_signed_tx_bytes(nonce=0)
+        request = Request(
+            prepare_proposal=RequestPrepareProposal(
+                txs=[first, b""],
+                max_tx_bytes=len(first),
+            )
+        )
+        with patch.object(prepare_proposal, "_admit", wraps=prepare_proposal._admit) as admit:
+            response = await self.process_request("prepare_proposal", request)
+
+        self.assertEqual(list(response.prepare_proposal.txs), [first])
+        self.assertEqual([call.args[1] for call in admit.call_args_list], [first])
+
+    async def test_prepare_proposal_budget_filter_matches_original_order(self):
+        if tx_utils._decode_transaction_for_proposal is None:
+            self.skipTest("the installed native VM has no proposal budget filter")
+        self.app.tx_fee_policy = TxFeePolicy.paid_metered(max_tx_chi=100, max_block_chi=150)
+        first = make_signed_tx_bytes(nonce=0, chi_supplied=100)
+        fits_late = make_signed_tx_bytes(nonce=1, chi_supplied=30)
+        fits_other_sender = make_signed_tx_bytes(nonce=0, chi_supplied=20, seed=bytes(32))
+        candidates = [
+            make_signed_tx_bytes(nonce=1, chi_supplied=51),
+            make_signed_tx_bytes(nonce=2, chi_supplied=6),
+            make_signed_tx_bytes(nonce=1, chi_supplied=20, mutate_signature=True),
+            make_signed_tx_bytes(nonce=1, chi_supplied=70, mutate_signature=True),
+            make_signed_tx_bytes(nonce=2, chi_supplied=2, memo="x" * 2000),
+            make_signed_tx_bytes_with_raw_spacing(nonce=1),
+            b"malformed wire bytes",
+        ]
+        rng = random.Random(71)
+        for budget in [2400, 3000, 1_000_000]:
+            for _ in range(4):
+                rng.shuffle(candidates)
+                req = RequestPrepareProposal(
+                    txs=[first, *candidates, fits_late, fits_other_sender], max_tx_bytes=budget
+                )
+                with patch.object(tx_utils, "_decode_transaction_for_proposal", None):
+                    original = await self.app.prepare_proposal(req)
+                optimized = await self.app.prepare_proposal(req)
+                self.assertEqual(optimized.SerializeToString(), original.SerializeToString())
+                self.assertIn(fits_late, optimized.txs)
+                if budget == 1_000_000:
+                    self.assertIn(fits_other_sender, optimized.txs)
+
     async def test_prepare_proposal_filters_duplicate_nonce(self):
         tx_one = make_signed_tx_bytes(nonce=0)
         tx_two = make_signed_tx_bytes(nonce=0)
@@ -226,7 +293,9 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         response = await self.process_request(
             "prepare_proposal",
             Request(
-                prepare_proposal=RequestPrepareProposal(max_tx_bytes=4 * 1024 * 1024, txs=[tx_one, tx_two])
+                prepare_proposal=RequestPrepareProposal(
+                    max_tx_bytes=4 * 1024 * 1024, txs=[tx_one, tx_two]
+                )
             ),
         )
 
@@ -239,7 +308,9 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(
             "prepare_proposal",
-            Request(prepare_proposal=RequestPrepareProposal(max_tx_bytes=4 * 1024 * 1024, txs=[tx])),
+            Request(
+                prepare_proposal=RequestPrepareProposal(max_tx_bytes=4 * 1024 * 1024, txs=[tx])
+            ),
         )
 
         self.assertEqual(list(response.prepare_proposal.txs), [])
@@ -252,9 +323,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             Request(process_proposal=RequestProcessProposal(txs=[invalid_tx])),
         )
 
-        self.assertIsInstance(
-            response.process_proposal, ResponseProcessProposal
-        )
+        self.assertIsInstance(response.process_proposal, ResponseProcessProposal)
         self.assertEqual(
             response.process_proposal.status,
             ResponseProcessProposal.ProposalStatus.REJECT,
@@ -344,9 +413,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(
             "process_proposal",
-            Request(
-                process_proposal=RequestProcessProposal(txs=[tx_one, tx_two])
-            ),
+            Request(process_proposal=RequestProcessProposal(txs=[tx_one, tx_two])),
         )
 
         self.assertEqual(
@@ -366,9 +433,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
         response = await self.process_request(
             "process_proposal",
-            Request(
-                process_proposal=RequestProcessProposal(txs=[tx_one, tx_two])
-            ),
+            Request(process_proposal=RequestProcessProposal(txs=[tx_one, tx_two])),
         )
 
         self.assertEqual(
@@ -517,15 +582,11 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                 "process_block",
                 side_effect=lambda txs, _raw, **_kw: [ok_result for _ in txs],
             ) as process_block,
-            patch.object(
-                self.app.nonce_storage, "set_nonce_by_tx"
-            ) as set_nonce,
+            patch.object(self.app.nonce_storage, "set_nonce_by_tx") as set_nonce,
         ):
             response = await self.process_request(
                 "finalize_block",
-                Request(
-                    finalize_block=RequestFinalizeBlock(txs=[tx_one, tx_two])
-                ),
+                Request(finalize_block=RequestFinalizeBlock(txs=[tx_one, tx_two])),
             )
 
         self.assertEqual(len(response.finalize_block.tx_results), 2)
@@ -563,6 +624,62 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         await self.app.commit()
         self.assertEqual(self.app.nonce_storage.get_nonce(sender), 0)
 
+    async def test_immutable_admission_is_reused_without_caching_live_policy(self):
+        cache_type = getattr(xian_vm_core, "TransactionAdmissionCache", None)
+        if cache_type is None:
+            self.skipTest("the installed native VM has no admission cache")
+        cache = cache_type(self.app.chain_id, max_entries=2, max_bytes=64_000)
+        self.app.transaction_admission_cache = cache
+        permissive = TxFeePolicy.free_metered(max_tx_chi=100, max_block_chi=100)
+        self.app.tx_fee_policy = permissive
+        tx = make_signed_tx_bytes(nonce=0, contract="con_missing", function="any")
+
+        self.assertEqual((await self.app.check_tx(tx)).code, self.constants.OkCode)
+        prepared = await self.app.prepare_proposal(
+            RequestPrepareProposal(txs=[tx], max_tx_bytes=len(tx))
+        )
+        self.assertEqual(list(prepared.txs), [tx])
+        proposed = RequestProcessProposal(txs=[tx])
+        self.app.tx_fee_policy = TxFeePolicy.free_metered(max_tx_chi=99, max_block_chi=100)
+        self.assertEqual(
+            (await self.app.process_proposal(proposed)).status, ResponseProcessProposal.REJECT
+        )
+        self.app.tx_fee_policy = permissive
+        self.assertEqual(
+            (await self.app.process_proposal(proposed)).status, ResponseProcessProposal.ACCEPT
+        )
+
+        finalized = await self.app.finalize_block(RequestFinalizeBlock(txs=[tx], height=1))
+        self.assertIn("con_missing", json.loads(finalized.tx_results[0].data)["result"])
+        stats = cache.stats()
+        self.assertEqual((stats["hits"], stats["misses"]), (4, 1))
+
+    async def test_check_tx_profiling_distinguishes_new_transactions_and_rechecks(self):
+        self.app.tx_fee_policy = TxFeePolicy.free_metered()
+        self.app.profiler = PerfTracker(
+            output_path=self.constants.COMETBFT_HOME / "perf-test.json",
+            node_name="test",
+            chain_id=self.app.chain_id,
+            execution_mode=self.app.execution_mode,
+        )
+        tx = make_signed_tx_bytes(nonce=0)
+        for check_type in (CheckTxType.NEW, CheckTxType.RECHECK):
+            response = await self.process_request(
+                "check_tx", Request(check_tx=RequestCheckTx(tx=tx, type=check_type))
+            )
+            self.assertEqual(response.check_tx.code, self.constants.OkCode)
+
+        metrics = self.app.profiler.snapshot()["global_metrics"]
+        self.assertEqual(metrics["check_tx_new"]["count"], 1)
+        self.assertEqual(metrics["check_tx_recheck"]["count"], 1)
+        for metric in (
+            "check_tx",
+            "check_tx_lock_wait",
+            "check_tx_static_admission",
+            "check_tx_live_admission",
+        ):
+            self.assertEqual(metrics[metric]["count"], 2)
+
     async def test_finalize_block_halts_when_processing_raises(self):
         tx = make_signed_tx_bytes(nonce=0)
         with patch.object(self.app.tx_processor, "process_block", side_effect=OSError("disk")):
@@ -573,6 +690,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
     async def test_paid_rejected_deployments_have_deterministic_error_receipts(self):
         from google.protobuf.timestamp_pb2 import Timestamp
+
         timestamp = Timestamp()
         timestamp.FromJsonString(self.app.genesis["genesis_time"])
         await self.app.init_chain(RequestInitChain(time=timestamp))
@@ -593,8 +711,11 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                 kwargs={"name": "con_attack", "code": source},
             )
             response = await self.app.finalize_block(
-                RequestFinalizeBlock(txs=[tx], height=nonce + 1, time=Timestamp(
-                    seconds=timestamp.seconds + nonce + 1, nanos=timestamp.nanos))
+                RequestFinalizeBlock(
+                    txs=[tx],
+                    height=nonce + 1,
+                    time=Timestamp(seconds=timestamp.seconds + nonce + 1, nanos=timestamp.nanos),
+                )
             )
             receipt = json.loads(response.tx_results[0].data)
             self.assertEqual(receipt["status"], 1)

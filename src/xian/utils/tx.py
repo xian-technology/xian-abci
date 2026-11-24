@@ -3,6 +3,7 @@ import json
 from collections.abc import Callable
 from copy import deepcopy
 
+import xian_vm_core
 from xian_runtime_types.encoding import decode_wire_numbers, encode_wire
 from xian_vm_core import decode_and_validate_transaction
 
@@ -10,6 +11,8 @@ from xian.exceptions import TransactionException
 from xian.execution_policy import VM_EXECUTION_MODE
 from xian.fee_policy import chain_chi_rate
 from xian.utils.encoding import canonical_json_text, encode_transaction_bytes
+
+_decode_transaction_for_proposal = getattr(xian_vm_core, "decode_transaction_for_proposal", None)
 
 
 def canonical_json(value: dict) -> str:
@@ -52,6 +55,21 @@ INSUFFICIENT_FEE_BALANCE = (
 TRANSFER_EXCEEDS_BALANCE = (
     "currency.transfer amount plus the chi_supplied fee reservation exceeds the sender's balance"
 )
+
+ADMISSION_CACHE_MAX_ENTRIES = 8_192
+ADMISSION_CACHE_MAX_BYTES = 32 * 1024 * 1024
+
+
+def create_transaction_admission_cache(chain_id: str):
+    # Older compatible VM wheels provide the same native admission without retention.
+    cache_type = getattr(xian_vm_core, "TransactionAdmissionCache", None)
+    if cache_type is None:
+        return None
+    return cache_type(
+        chain_id,
+        max_entries=ADMISSION_CACHE_MAX_ENTRIES,
+        max_bytes=ADMISSION_CACHE_MAX_BYTES,
+    )
 
 
 def check_enough_chi(
@@ -139,12 +157,20 @@ def decode_and_validate_transaction_static_bytes(
     *,
     chain_id: str,
     max_raw_tx_bytes: int | None = None,
-) -> dict:
+    admission_cache=None,
+    proposal_chi_remaining: int | None = None,
+) -> dict | None:
     if max_raw_tx_bytes is not None and len(raw_tx) > max_raw_tx_bytes:
         raise TransactionException(
             f"Transaction exceeds maximum configured size of {max_raw_tx_bytes} bytes"
         )
     try:
+        if proposal_chi_remaining is not None and _decode_transaction_for_proposal is not None:
+            return _decode_transaction_for_proposal(
+                raw_tx, chain_id, proposal_chi_remaining, admission_cache
+            )
+        if admission_cache is not None and admission_cache.chain_id == chain_id:
+            return admission_cache.decode(raw_tx)
         return decode_and_validate_transaction(raw_tx, chain_id)
     except ValueError as exc:
         raise TransactionException(str(exc)) from exc

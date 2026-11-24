@@ -13,6 +13,7 @@ from io import BytesIO
 from loguru import logger
 
 from tendermint.abci.types_pb2 import (
+    CheckTxType,
     Request,
     Response,
     ResponseException,
@@ -55,7 +56,9 @@ class ProtocolHandler:
         return write_message(response)
 
     async def check_tx(self, req) -> bytes:
-        result = await self.app.check_tx(req.check_tx.tx)
+        result = await self.app.check_tx(
+            req.check_tx.tx, recheck=req.check_tx.type == CheckTxType.RECHECK
+        )
         response = Response(check_tx=result)
         return write_message(response)
 

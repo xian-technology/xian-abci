@@ -21,6 +21,7 @@ async def process_proposal(self, req) -> ResponseProcessProposal:
             tx = decode_and_validate_transaction_static_bytes(
                 raw_tx,
                 chain_id=self.chain_id,
+                admission_cache=self.transaction_admission_cache,
             )
             self.tx_fee_policy.validate_tx(tx)
             next_block_chi_supplied = block_chi_supplied + self.tx_fee_policy.tx_chi_supplied(tx)

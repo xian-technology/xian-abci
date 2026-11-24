@@ -4,6 +4,7 @@ import gc
 import importlib
 import signal
 import sys
+import time
 from collections import Counter
 from dataclasses import replace
 
@@ -120,6 +121,7 @@ from xian.utils.cometbft import (
     resolve_local_rpc_url,
 )
 from xian.utils.state_patches import StatePatchManager, resolve_state_patch_dir
+from xian.utils.tx import create_transaction_admission_cache
 from xian.validators import ValidatorHandler
 
 get_logger("requests").setLevel(30)
@@ -203,6 +205,7 @@ class Xian:
         self.chain_id = self.genesis.get("chain_id", None)
         if self.chain_id is None:
             raise ValueError("No value set for 'chain_id' in genesis block")
+        self.transaction_admission_cache = create_transaction_admission_cache(self.chain_id)
         self.profiler = PerfTracker.from_env(
             cometbft_home=constants.COMETBFT_HOME,
             node_name=self.cometbft_config.get("moniker", ""),
@@ -468,16 +471,22 @@ class Xian:
         resp = await init_chain.init_chain(self, req)
         return resp
 
-    async def check_tx(self, raw_tx):
+    async def check_tx(self, raw_tx, *, recheck=False):
         """
         Technically optional - not involved in processing blocks.
         Guardian of the mempool: every node runs CheckTx before letting a transaction into its local mempool.
         The transaction may come from an external user or another node
         """
+        queued_at = time.perf_counter_ns() if self.profiler.enabled else None
         async with self._state_transition_lock:
+            if queued_at is not None:
+                self.profiler.observe("check_tx_lock_wait", time.perf_counter_ns() - queued_at)
             with self.profiler.scope("check_tx"):
-                res = await check_tx.check_tx(self, raw_tx)
-        return res
+                if queued_at is None:
+                    return await check_tx.check_tx(self, raw_tx)
+                metric = "check_tx_recheck" if recheck else "check_tx_new"
+                with self.profiler.scope(metric):
+                    return await check_tx.check_tx(self, raw_tx)
 
     async def finalize_block(self, req):
         """
@@ -489,6 +498,10 @@ class Xian:
         try:
             with self.profiler.scope("finalize_block", block_scoped=True):
                 res = await finalize_block.finalize_block(self, req)
+            if self.profiler.enabled and self.transaction_admission_cache is not None:
+                self.profiler.set_block_metadata(
+                    admission_cache=self.transaction_admission_cache.stats()
+                )
             self.profiler.end_block(app_hash=res.app_hash.hex())
             return res
         except Exception as exc:
@@ -505,8 +518,8 @@ class Xian:
         """
         await self._state_transition_lock.acquire()
         try:
-            res = await commit.commit(self)
-            return res
+            with self.profiler.scope("commit"):
+                return await commit.commit(self)
         finally:
             self._release_state_transition_lock()
 
