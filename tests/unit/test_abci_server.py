@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from abci.server import ABCIServer, ProtocolHandler, _stop
-from abci.utils import read_messages, write_message
+from abci.utils import encode_varint, read_message, read_messages, write_message
 from tendermint.abci.types_pb2 import (
     Request,
     Response,
@@ -82,6 +82,41 @@ class ProtocolHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.exception.error, "ABCI request not found")
 
 
+class StreamFrameTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reads_fragmented_length_and_payload_then_the_next_frame(self):
+        request = Request()
+        request.echo.message = "x" * 200_000
+        frame = write_message(request)
+        reader = asyncio.StreamReader()
+        pending = asyncio.create_task(read_message(reader, Request))
+        for chunk in (frame[:1], frame[1:2], frame[2:70_000]):
+            reader.feed_data(chunk)
+            await asyncio.sleep(0)
+            self.assertFalse(pending.done())
+
+        # The following zero-length request is a valid empty protobuf.
+        reader.feed_data(frame[70_000:] + write_message(Request()))
+        self.assertEqual(await pending, request)
+        self.assertEqual(await read_message(reader, Request), Request())
+
+    async def test_rejects_invalid_length_without_waiting_for_a_payload(self):
+        for prefix in (b"\x80" * 10, encode_varint(2**31)):
+            with self.subTest(prefix=prefix):
+                reader = asyncio.StreamReader()
+                reader.feed_data(prefix)
+                with self.assertRaisesRegex(ValueError, "ABCI frame length"):
+                    await asyncio.wait_for(read_message(reader, Request), timeout=1)
+
+    async def test_largest_allowed_length_is_read_as_a_payload(self):
+        length = 2**31 - 1
+        reader = asyncio.StreamReader()
+        reader.feed_data(encode_varint(length))
+        reader.feed_eof()
+        with self.assertRaises(asyncio.IncompleteReadError) as incomplete:
+            await read_message(reader, Request)
+        self.assertEqual(incomplete.exception.expected, length)
+
+
 class AbciServerHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def _read_response(self, reader: asyncio.StreamReader) -> Response:
         # Responses in these tests are tiny, so the length varint is one byte.
@@ -109,11 +144,11 @@ class AbciServerHandlerTests(unittest.IsolatedAsyncioTestCase):
                     reader, writer = await asyncio.open_unix_connection(socket_path)
 
                     echo_request = Request()
-                    echo_request.echo.message = "ping"
+                    echo_request.echo.message = "ping" * 40_000
                     frame = write_message(echo_request)
 
-                    # Deliver the frame in two chunks to exercise buffering of
-                    # partial messages.
+                    # Split the length prefix of a frame larger than the stream's
+                    # default read limit.
                     writer.write(frame[:1])
                     await writer.drain()
                     await asyncio.sleep(0.05)
@@ -123,8 +158,7 @@ class AbciServerHandlerTests(unittest.IsolatedAsyncioTestCase):
                     response = await self._read_response(reader)
                     self.assertEqual(response.echo.message, "pong")
 
-                    # Deliver two complete frames in one chunk to exercise the
-                    # multi-message parsing loop.
+                    # Queue a second large Echo and a Flush in the same write.
                     flush_request = Request()
                     flush_request.flush.SetInParent()
                     writer.write(frame + write_message(flush_request))
@@ -168,6 +202,25 @@ class AbciServerHandlerTests(unittest.IsolatedAsyncioTestCase):
         writer.close.assert_called_once()
         writer.wait_closed.assert_awaited_once()
         stop.assert_awaited_once()
+
+    async def test_truncated_request_closes_connection_without_dispatch(self):
+        request = Request()
+        request.echo.message = "ping"
+        for partial in (b"\x80", write_message(request)[:-1]):
+            with self.subTest(partial=partial):
+                app = AsyncMock()
+                reader = asyncio.StreamReader()
+                reader.feed_data(partial)
+                reader.feed_eof()
+                writer = MagicMock()
+                writer.wait_closed = AsyncMock()
+                with patch("abci.server._stop", new_callable=AsyncMock) as stop:
+                    await ABCIServer(app)._handler(reader, writer)
+
+                app.echo.assert_not_awaited()
+                writer.write.assert_not_called()
+                writer.wait_closed.assert_awaited_once()
+                stop.assert_awaited_once()
 
     async def test_shutdown_cancellation_does_not_start_recursive_global_shutdown(self):
         server = ABCIServer(AsyncMock())

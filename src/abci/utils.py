@@ -3,9 +3,13 @@ Various utils
 """
 
 import logging
+from asyncio import StreamReader
 from io import BytesIO
 
 from google.protobuf.message import Message
+
+# The protobuf frame size used by CometBFT's ABCI decoder.
+_MAX_FRAME_BYTES = 2**31 - 1
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -77,6 +81,19 @@ def write_message(message: Message) -> bytes:
     buffer.write(encode_varint(len(bz)))
     buffer.write(bz)
     return buffer.getvalue()
+
+
+async def read_message(reader: StreamReader, message_class: type[Message]) -> Message:
+    """Read one length-delimited protobuf, consuming each frame field once."""
+    length = 0
+    for shift in range(0, 64, 7):
+        byte = (await reader.readexactly(1))[0]
+        length |= (byte & 0x7F) << shift
+        if byte < 0x80:
+            if length > _MAX_FRAME_BYTES:
+                raise ValueError("ABCI frame length exceeds the protobuf size limit")
+            return message_class.FromString(await reader.readexactly(length))
+    raise ValueError("Invalid ABCI frame length varint")
 
 
 def read_messages(reader: BytesIO, message_class):
