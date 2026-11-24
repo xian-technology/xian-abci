@@ -342,9 +342,12 @@ def _run(home, blocks, *, patches=None):
         for key, value in (patches or {}).get(height, {}).items():
             client.raw_driver.set(key, value)
         responses = processor.process_block(
-            txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy
+            txs, [transaction_bytes(tx) for tx in txs], fee_policy=policy, receipt_details=False
         )
-        receipts += [encode_abci_json(response["tx_result"]) for response in responses]
+        receipts += [
+            response.get("receipt") or encode_abci_json(response["tx_result"])
+            for response in responses
+        ]
         receipts.append(encode(client.raw_driver.pending_items()))
         client.raw_driver.commit()
     client.raw_driver.close()

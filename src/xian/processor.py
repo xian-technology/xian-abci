@@ -12,6 +12,10 @@ from xian.utils.encoding import normalize_contract_result
 from xian.utils.tx import transaction_bytes, tx_hash_from_tx
 
 
+def _format_receipt_failure(status, result, exception):
+    return safe_repr(native_error_result(status, result, exception=exception))
+
+
 class TxProcessor:
     """Runs a block's transactions in the Rust block executor (vm-core
     ``BlockExecutor``) and turns each outcome into its transaction
@@ -25,6 +29,7 @@ class TxProcessor:
         # `finalize_block`).
         self.profiler = profiler or NoopPerfTracker()
         self.trace_logging = trace_logging
+        self.native_receipts = hasattr(BlockExecutor, "run_receipts")
 
     def reset_block_cache(self) -> None:
         zk_bridge.clear_verified_proof_cache()
@@ -37,7 +42,9 @@ class TxProcessor:
         )
         return response
 
-    def process_block(self, txs, raw_txs, *, fee_policy: TxFeePolicy) -> list[dict]:
+    def process_block(
+        self, txs, raw_txs, *, fee_policy: TxFeePolicy, receipt_details: bool | None = None
+    ) -> list[dict]:
         """Transaction responses for a block's transactions, in order.
 
         ``raw_txs`` are the transactions' wire bytes (``txs`` decoded, with
@@ -49,12 +56,61 @@ class TxProcessor:
         """
         if not txs:
             return []
-        with self.profiler.scope("tx_process_total", block_scoped=True):
+        if self.native_receipts and receipt_details is not None:
+            return self._receipt_responses(txs, raw_txs, fee_policy, receipt_details)
+        if not self.profiler.enabled:
             outcomes = self._block_executor(txs, raw_txs, fee_policy).run()
-            return [
-                self._native_response(tx, outcome, fee_policy)
-                for tx, outcome in zip(txs, outcomes, strict=True)
-            ]
+            return self._responses(txs, outcomes, fee_policy)
+
+        with self.profiler.scope("tx_process_total", block_scoped=True):
+            with self.profiler.scope("tx_native_prepare", block_scoped=True):
+                executor = self._block_executor(txs, raw_txs, fee_policy)
+            outcomes = self._profiled_outcomes(executor)
+            with self.profiler.scope("tx_receipt_conversion", block_scoped=True):
+                return self._responses(txs, outcomes, fee_policy)
+
+    def _receipt_responses(self, txs, raw_txs, fee_policy, receipt_details):
+        details = receipt_details or self.trace_logging
+        with self.profiler.scope("tx_process_total", block_scoped=True):
+            with self.profiler.scope("tx_native_prepare", block_scoped=True):
+                executor = self._block_executor(txs, raw_txs, fee_policy)
+                hashes = [tx_hash_from_tx(tx) for tx in txs]
+            receipts = self._run_receipts(executor, hashes, details)
+            with self.profiler.scope("tx_receipt_conversion", block_scoped=True):
+                responses = []
+                for tx, tx_hash, (wire, outcome) in zip(txs, hashes, receipts, strict=True):
+                    response = self._native_response(
+                        tx, outcome, fee_policy, tx_hash=tx_hash, receipt_details=details
+                    )
+                    response["receipt"] = wire
+                    responses.append(response)
+                return responses
+
+    def _run_receipts(self, executor, hashes, details):
+        if not self.profiler.enabled:
+            return executor.run_receipts(hashes, details, _format_receipt_failure)
+        receipts, execution_ns, encoding_ns, conversion_ns = executor.run_receipts_profiled(
+            hashes, details, _format_receipt_failure
+        )
+        self.profiler.observe("tx_native_execute", execution_ns, block_scoped=True)
+        self.profiler.observe("tx_native_receipt_encoding", encoding_ns, block_scoped=True)
+        self.profiler.observe("tx_native_to_python", conversion_ns, block_scoped=True)
+        return receipts
+
+    def _responses(self, txs, outcomes, fee_policy):
+        return [
+            self._native_response(tx, outcome, fee_policy, tx_hash=tx_hash_from_tx(tx))
+            for tx, outcome in zip(txs, outcomes, strict=True)
+        ]
+
+    def _profiled_outcomes(self, executor):
+        run_profiled = getattr(executor, "run_profiled", None)
+        if run_profiled is None:
+            return executor.run()
+        outcomes, execution_ns, conversion_ns = run_profiled()
+        self.profiler.observe("tx_native_execute", execution_ns, block_scoped=True)
+        self.profiler.observe("tx_native_to_python", conversion_ns, block_scoped=True)
+        return outcomes
 
     def _block_executor(self, txs, raw_txs, fee_policy: TxFeePolicy):
         environment, overlay = self.client.raw_driver.committed_storage()
@@ -74,7 +130,9 @@ class TxProcessor:
             executor.add(raw)
         return executor
 
-    def _native_response(self, tx, outcome, fee_policy: TxFeePolicy) -> dict:
+    def _native_response(
+        self, tx, outcome, fee_policy: TxFeePolicy, *, tx_hash, receipt_details=True
+    ) -> dict:
         """The response of a transaction, with its log records."""
         (status, result, exception, writes, events, chi_used, rewards, chi_rate, output_writes) = (
             outcome
@@ -84,17 +142,20 @@ class TxProcessor:
         if status:
             result = native_error_result(status, result, exception=exception)
         self._log_output(tx, status, chi_used, output_writes, result)
-        rewards, _reward_deltas, reward_records = rewards or (None, {}, [])
         tx_result = {
-            "hash": tx_hash_from_tx(tx),
+            "hash": tx_hash,
             "status": status,
             "state": [{"key": key, "value": value} for key, value in writes],
             "events": events,
             "chi_used": chi_used,
-            "result": safe_repr(result) if status else normalize_contract_result(result),
-            "rewards": rewards if rewards else None,
-            "reward_records": reward_records or None,
         }
+        if receipt_details:
+            rewards, _reward_deltas, reward_records = rewards or (None, {}, [])
+            tx_result.update(
+                result=safe_repr(result) if status else normalize_contract_result(result),
+                rewards=rewards or None,
+                reward_records=reward_records or None,
+            )
         if self.trace_logging:
             self._log_result(tx, tx_result)
         return {
