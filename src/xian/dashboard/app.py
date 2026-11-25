@@ -537,6 +537,17 @@ async def _abci_query(
     return _decode_abci_value(val)
 
 
+async def _indexed_abci_query(session: aiohttp.ClientSession, rpc_url: str, path: str):
+    """Treat an unregistered indexer route as unavailable on this node."""
+    try:
+        return await _abci_query(session, rpc_url, path)
+    except RuntimeError as exc:
+        route = path.split("/", 1)[0]
+        if str(exc) != f"Unknown query path: {route}":
+            raise
+        return None
+
+
 async def _query_cursor_page(
     session,
     rpc,
@@ -1345,7 +1356,7 @@ async def handle_contract(request: web.Request) -> web.Response:
         methods = await _abci_query(session, rpc, f"contract_methods/{name}")
         variables = await _abci_query(session, rpc, f"contract_vars/{name}")
         metadata = await _abci_query(session, rpc, f"contract_info/{name}")
-        summary = await _abci_query(session, rpc, f"contract_summary/{name}")
+        summary = await _indexed_abci_query(session, rpc, f"contract_summary/{name}")
 
         return web.json_response(
             {
@@ -1377,12 +1388,12 @@ async def handle_address(request: web.Request) -> web.Response:
     offset = _request_int(request, "offset", 0)
 
     try:
-        transactions = await _abci_query(
+        transactions = await _indexed_abci_query(
             session,
             rpc,
             f"txs_by_sender/{address}/limit={limit}/offset={offset}",
         )
-        rewards = await _abci_query(session, rpc, f"developer_rewards/{address}")
+        rewards = await _indexed_abci_query(session, rpc, f"developer_rewards/{address}")
         available = isinstance(transactions, list)
 
         return web.json_response(
@@ -1412,7 +1423,7 @@ async def handle_addresses(request: web.Request) -> web.Response:
     offset = _request_int(request, "offset", 0)
 
     try:
-        payload = await _abci_query(
+        payload = await _indexed_abci_query(
             session,
             rpc,
             f"addresses/limit={limit}/offset={offset}",
@@ -1494,7 +1505,7 @@ async def handle_recent_events(request: web.Request) -> web.Response:
     offset = _request_int(request, "offset", 0)
 
     try:
-        payload = await _abci_query(
+        payload = await _indexed_abci_query(
             session,
             rpc,
             f"recent_events/limit={limit}/offset={offset}",

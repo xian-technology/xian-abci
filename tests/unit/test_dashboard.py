@@ -2,6 +2,8 @@ import asyncio
 import base64
 import hashlib
 import json
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,9 +25,11 @@ from xian.dashboard.app import (
     _resolved_rpc_url_variants,
     create_app,
     dashboard_security_middleware,
+    handle_address,
     handle_addresses,
     handle_contract,
     handle_index,
+    handle_recent_events,
     handle_validator_dashboard,
     handle_ws,
     normalize_rpc_url,
@@ -58,6 +62,16 @@ def dashboard_request(
 
 
 class DashboardTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for dashboard render tests")
+    def test_transaction_reward_rendering(self) -> None:
+        result = subprocess.run(
+            ["node", "--test", str(Path(__file__).with_name("dashboard_rewards.test.cjs"))],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_address_history_uses_canonical_bds_transaction_hash(self) -> None:
         dashboard_html = (
             Path(__file__).parents[2] / "src/xian/dashboard/static/index.html"
@@ -736,6 +750,46 @@ class DashboardRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(payload["available"])
         self.assertEqual(payload["items"], [])
         self.assertFalse(payload["has_more"])
+
+    async def test_explorer_can_browse_contracts_and_addresses_without_bds(self) -> None:
+        async def raw_rpc(_session, _rpc, method, params):
+            self.assertEqual(method, "abci_query")
+            route = json.loads(params["path"]).split("/")[1]
+            if route == "contract_source":
+                return {
+                    "response": {"value": base64.b64encode(b"@export\ndef ping(): pass").decode()}
+                }
+            if route in {"contract_methods", "contract_vars", "contract_info"}:
+                return {"response": {}}
+            return {"response": {"code": 1, "log": f"Unknown query path: {route}"}}
+
+        request = SimpleNamespace(
+            match_info={"name": "currency", "address": "alice"},
+            query={},
+            app={"session": object(), "rpc_url": "http://127.0.0.1:26657"},
+        )
+        with patch("xian.dashboard.app._raw_rpc", side_effect=raw_rpc):
+            contract = await handle_contract(request)
+            self.assertEqual(contract.status, 200)
+            self.assertTrue(json.loads(contract.text)["has_original_source"])
+            self.assertIsNone(json.loads(contract.text)["summary"])
+            for handler in (handle_address, handle_addresses, handle_recent_events):
+                with self.subTest(handler=handler.__name__):
+                    response = await handler(request)
+                    self.assertEqual(response.status, 200)
+                    self.assertFalse(json.loads(response.text)["available"])
+
+    async def test_explorer_reports_indexer_query_errors(self) -> None:
+        request = SimpleNamespace(
+            query={}, app={"session": object(), "rpc_url": "http://127.0.0.1:26657"}
+        )
+        with patch(
+            "xian.dashboard.app._raw_rpc",
+            return_value={"response": {"code": 1, "log": "Indexer query failed"}},
+        ):
+            response = await handle_addresses(request)
+        self.assertEqual(response.status, 500)
+        self.assertEqual(json.loads(response.text)["error"], "Indexer query failed")
 
     async def test_handle_validator_dashboard_combines_validator_queries(
         self,

@@ -404,6 +404,7 @@ let latestValidatorDashboardSnapshot = null;
 let latestMonitoringSnapshot = null;
 let lastRefreshAt = null;
 let explorerView = "blocks";
+let explorerDetailSeq = 0;
 let explorerContractCursors = [null];
 let explorerContractsNext = null;
 let explorerContractsSeq = 0;
@@ -980,6 +981,7 @@ function applyRouteState(route){
 }
 
 function setExplorerView(view, pushState){
+  explorerDetailSeq++;
   explorerView = view || "blocks";
   $("explorer-detail").innerHTML = "";
   $("explorer-list").style.display = "";
@@ -990,7 +992,7 @@ function setExplorerView(view, pushState){
     panel.style.display = panel.dataset.explorerPanel === explorerView ? "" : "none";
   });
   if(pushState !== false){
-    history.pushState({view:"list"}, "", withCurrentRpc(explorerListPath()));
+    history.pushState(null, "", withCurrentRpc(explorerListPath()));
   }
   if(explorerView === "blocks"){
     if(explorerMaxHeight === 0) loadExplorerBlocks();
@@ -1005,10 +1007,10 @@ function setExplorerView(view, pushState){
 
 function navigateTo(view, id, pushState){
   if(pushState !== false){
-    const path = view === "home" ? "/" : view === "list" ? explorerListPath() : "/explorer/"+view+"/"+id;
-    history.pushState({view, id}, "", withCurrentRpc(path));
+    history.pushState(null, "", withCurrentRpc(navPath(view, id)));
   }
   if(view === "home"){
+    explorerDetailSeq++;
     switchToTab("dashboard");
     return;
   }
@@ -1020,19 +1022,20 @@ function navigateTo(view, id, pushState){
     if(id !== currentAddress) explorerAddressOffset = 0;
     viewAddress(id);
   }
-  else if(view === "list"){
-    $("explorer-detail").innerHTML = "";
-    $("explorer-list").style.display = "";
-    setExplorerView(explorerView, false);
-  }
+  else if(view === "list") setExplorerView(explorerView, false);
 }
 window.navigateTo = navigateTo;
 
-window.addEventListener("popstate", function(e){
-  const s = e.state;
-  if(s) navigateTo(s.view, s.id, false);
-  else applyRouteState(routeStateFromPath(location.pathname));
+window.addEventListener("popstate", function(){
+  applyRouteState(routeStateFromPath(location.pathname));
 });
+
+async function loadExplorerDetail(label, load, opts){
+  const seq = ++explorerDetailSeq;
+  showDetail('<div class="card"><div class="card-body"><span class="loading"></span> Loading '+escHtml(label)+'...</div></div>', opts);
+  const data = await load();
+  return seq === explorerDetailSeq ? data : null;
+}
 
 function showDetail(html, opts){
   $("explorer-detail").innerHTML = html;
@@ -1958,12 +1961,12 @@ function eventsPage(dir){
 
 /* ── block detail view ── */
 async function viewBlock(height){
-  showDetail('<div class="card"><div class="card-body"><span class="loading"></span> Loading block '+escHtml(height)+'...</div></div>');
-
-  const [data, results] = await Promise.all([
+  const response = await loadExplorerDetail("block "+height, () => Promise.all([
     api("block/"+height),
     api("block_results/"+height)
-  ]);
+  ]));
+  if(!response) return;
+  const [data, results] = response;
 
   if(data.error){
     showDetail('<div class="card"><div class="card-body" style="color:var(--red)">Error: '+escHtml(data.error)+'</div></div>');
@@ -2036,11 +2039,60 @@ async function viewBlock(height){
 }
 
 /* ── tx detail view ── */
+const rewardTypes = new Map([
+  ["validator_reward", "Validator"],
+  ["delegator_reward", "Delegator"],
+  ["delegator_pool_reward", "Delegator Pool"],
+  ["foundation_reward", "Foundation"],
+  ["developer_reward", "Developer"],
+]);
+
+function rewardRecords(receipt){
+  if(Array.isArray(receipt.reward_records) && receipt.reward_records.length){
+    return receipt.reward_records;
+  }
+  if(Array.isArray(receipt.rewards)){
+    return receipt.rewards.filter(entry => entry != null).map(entry => {
+      if(typeof entry !== "object") return {value: entry};
+      const recipient = entry.key ?? Object.keys(entry)[0];
+      return {recipient_key: recipient, value: entry.value ?? entry[recipient]};
+    });
+  }
+  return Object.entries(receipt.rewards ?? {}).flatMap(([type, recipients]) =>
+    Object.entries(recipients).map(([recipient_key, value]) => ({type, recipient_key, value}))
+  );
+}
+
+function renderRewardAmount(value){
+  return escHtml(value?.__fixed__ ?? value?.__big_int__ ?? value ?? "\u2014");
+}
+
+function renderRewardRow(record){
+  const {type, recipient_key, source_contract, validator_key, value} = record;
+  const label = rewardTypes.get(type) ?? type ?? "\u2014";
+  const recipient = type === "delegator_pool_reward"
+    ? contractLink(recipient_key)
+    : addressLink(recipient_key, {left:14,right:10});
+  let context = "";
+  if(source_contract) context += '<div class="summary-meta">'+contractLink(source_contract)+'</div>';
+  if(validator_key && validator_key !== recipient_key){
+    context += '<div class="summary-meta">Validator '+addressLink(validator_key, {left:8,right:6})+'</div>';
+  }
+  return `<tr><td>${escHtml(label)}${context}</td><td>${recipient}</td><td class="mono" style="overflow-wrap:anywhere">${renderRewardAmount(value)}</td></tr>`;
+}
+
+function renderRewards(receipt){
+  const records = rewardRecords(receipt);
+  if(!records.length) return "";
+  return `<div class="card-header" style="border-top:1px solid var(--border)">Rewards</div>
+    <div class="card-body" style="padding:0"><table><thead><tr><th>Type</th><th>Recipient</th><th>Amount (XIAN)</th></tr></thead>
+    <tbody>${records.map(renderRewardRow).join("")}</tbody></table></div>`;
+}
+
 async function viewTx(hash){
   resetStateValueCache();
-  showDetail('<div class="card"><div class="card-body"><span class="loading"></span> Loading transaction...</div></div>');
-
-  const tx = await api("tx/"+hash);
+  const tx = await loadExplorerDetail("transaction", () => api("tx/"+hash));
+  if(!tx) return;
   if(tx.error){
     const errMsg = typeof tx.error === "object" ? (tx.error.data||tx.error.message||JSON.stringify(tx.error)) : tx.error;
     showDetail('<div class="card"><div class="card-body" style="color:var(--red)">Error: '+escHtml(errMsg)+'</div></div>');
@@ -2139,19 +2191,7 @@ async function viewTx(hash){
       });
     }
 
-    /* rewards */
-    if(dataDecoded.rewards && Array.isArray(dataDecoded.rewards) && dataDecoded.rewards.length){
-      html += '</div><div class="card-header" style="border-top:1px solid var(--border)">Rewards</div><div class="card-body" style="padding:0">';
-      html += '<table><thead><tr><th>Recipient</th><th>Amount</th></tr></thead><tbody>';
-      dataDecoded.rewards.forEach(r=>{
-        const key = typeof r === "object" ? (r.key||Object.keys(r)[0]||"") : "";
-        const val = typeof r === "object" ? (r.value||r[Object.keys(r)[0]]||"") : String(r);
-        html += `<tr><td style="word-break:break-all;font-size:.78rem">${key ? addressLink(key,{left:14,right:10}) : "\u2014"}</td><td style="font-size:.78rem">${escHtml(String(val))}</td></tr>`;
-      });
-      html += '</tbody></table>';
-    }
-
-    html += '</div></div>';
+    html += '</div>'+renderRewards(dataDecoded)+'</div>';
   }
 
   /* raw tx data fallback */
@@ -2169,13 +2209,12 @@ async function viewAddress(address, opts){
   currentAddress = address;
   explorerAddressOffset = explorerAddressOffset || 0;
   explorerView = "addresses";
-  showDetail('<div class="card"><div class="card-body"><span class="loading"></span> Loading address '+escHtml(address)+'...</div></div>', opts);
-
-  const data = await api(
+  const data = await loadExplorerDetail("address "+address, () => api(
     "address/"+encodeURIComponent(address)+
     "?limit="+ADDRESS_TXS_PER_PAGE+
     "&offset="+explorerAddressOffset
-  );
+  ), opts);
+  if(!data) return;
   if(data.error){
     showDetail('<div class="card"><div class="card-body" style="color:var(--red)">Error: '+escHtml(data.error)+'</div></div>');
     return;
@@ -2195,7 +2234,7 @@ async function viewAddress(address, opts){
 
   if(rewards){
     html +=
-      '<div class="data-row"><span class="data-key">Developer Rewards</span><span class="data-val">'+escHtml(String(rewards.total_rewards ?? "\u2014"))+'</span></div>'+
+      '<div class="data-row"><span class="data-key">Developer Rewards</span><span class="data-val">'+renderRewardAmount(rewards.total_rewards)+'</span></div>'+
       '<div class="data-row"><span class="data-key">Reward Records</span><span class="data-val">'+escHtml(String(rewards.reward_count ?? "\u2014"))+'</span></div>'+
       '<div class="data-row"><span class="data-key">Rewarded Txs</span><span class="data-val">'+escHtml(String(rewards.tx_count ?? "\u2014"))+'</span></div>'+
       '<div class="data-row"><span class="data-key">Rewarded Contracts</span><span class="data-val">'+escHtml(String(rewards.contract_count ?? "\u2014"))+'</span></div>';
@@ -2416,9 +2455,8 @@ window.scrollToContractFunction = scrollToContractFunction;
 
 /* ── contract detail view ── */
 async function viewContract(name){
-  showDetail('<div class="card"><div class="card-body"><span class="loading"></span> Loading contract '+escHtml(name)+'...</div></div>');
-
-  const data = await api("contract/"+encodeURIComponent(name));
+  const data = await loadExplorerDetail("contract "+name, () => api("contract/"+encodeURIComponent(name)));
+  if(!data) return;
   if(data.error){
     showDetail('<div class="card"><div class="card-body" style="color:var(--red)">Error: '+escHtml(data.error)+'</div></div>');
     return;
@@ -2445,7 +2483,7 @@ async function viewContract(name){
     html +=
       '<div class="data-row"><span class="data-key">Creation Tx</span><span class="data-val">'+(summary.last_tx_hash ? txLink(summary.last_tx_hash,{left:14,right:10}) : "\u2014")+'</span></div>'+
       '<div class="data-row"><span class="data-key">Created At Block</span><span class="data-val">'+(summary.submitted_at_block ? '<a class="link mono"'+navAttrs('block', String(summary.submitted_at_block))+'>'+escHtml(String(summary.submitted_at_block))+'</a>' : "\u2014")+'</span></div>'+
-      '<div class="data-row"><span class="data-key">Generated Rewards</span><span class="data-val">'+escHtml(String(summary.total_rewards ?? "\u2014"))+'</span></div>'+
+      '<div class="data-row"><span class="data-key">Generated Rewards</span><span class="data-val">'+renderRewardAmount(summary.total_rewards)+'</span></div>'+
       '<div class="data-row"><span class="data-key">Reward Records</span><span class="data-val">'+escHtml(String(summary.reward_count ?? "\u2014"))+'</span></div>'+
       '<div class="data-row"><span class="data-key">Indexed Txs</span><span class="data-val">'+escHtml(String(summary.tx_count ?? "\u2014"))+'</span></div>';
   }
@@ -2727,11 +2765,7 @@ async function init(){
   if(defaultRpcUrl && selectedRpc === defaultRpcUrl){
     setSelectedRpc(null);
   }
-  history.replaceState(
-    {view: initialRoute.view, id: initialRoute.id},
-    "",
-    withCurrentRpc(pageUrl.pathname),
-  );
+  history.replaceState(null, "", withCurrentRpc(location.pathname));
   /* full initial load */
   await refreshDashboard();
   await refreshValidatorDashboard();
