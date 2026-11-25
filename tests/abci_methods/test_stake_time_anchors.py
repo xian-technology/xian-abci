@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
+from receipt_fixture import receipt_response
 from test_evidence_retention import app as app
 
 from tendermint.abci.types_pb2 import RequestFinalizeBlock
@@ -32,7 +33,7 @@ def activate_shared_keeper(app):
 
 
 def _receipt():
-    return {"tx_result": {"hash": "paid", "status": 0, "chi_used": 1, "events": [], "state": []}}
+    return receipt_response({"hash": "paid", "status": 0, "chi_used": 1, "events": [], "state": []})
 
 
 def _finalize(app, *, height, seconds, paid=None):
@@ -43,11 +44,7 @@ def _finalize(app, *, height, seconds, paid=None):
         txs=[b"paid"] if paid else [],
         hash=f"block{height}".encode(),
     )
-    native_process = app.tx_processor.process_block
-
     def process(*args, **kwargs):
-        if kwargs["fee_policy"].mode == "system_unmetered":
-            return native_process(*args, **kwargs)
         return paid(*args, **kwargs) if paid is not None else []
 
     with (

@@ -10,6 +10,7 @@ import nacl.signing
 import pytest
 import xian_vm_core
 from loguru import logger
+from receipt_fixture import receipt_response
 from xian_runtime_types.encoding import decode, encode
 
 from abci.server import ProtocolHandler
@@ -491,8 +492,8 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
     async def test_finalize_block_rejects_tx_past_the_block_cap_before_execution(self):
         self.app.tx_fee_policy = TxFeePolicy.paid_metered(max_tx_chi=100, max_block_chi=150)
         txs = [make_signed_tx_bytes(nonce=0), make_signed_tx_bytes(nonce=1)]
-        ok_result = {
-            "tx_result": {
+        ok_result = receipt_response(
+            {
                 "hash": "ABC123",
                 "status": 0,
                 "state": [],
@@ -500,7 +501,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                 "chi_used": 1,
                 "result": "ok",
             }
-        }
+        )
 
         with (
             patch.object(
@@ -566,8 +567,8 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         tx_one = make_signed_tx_bytes(nonce=0)
         tx_two = make_signed_tx_bytes(nonce=0)
 
-        ok_result = {
-            "tx_result": {
+        ok_result = receipt_response(
+            {
                 "hash": "ABC123",
                 "status": 0,
                 "state": [],
@@ -575,7 +576,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                 "chi_used": 1,
                 "result": "ok",
             }
-        }
+        )
         with (
             patch.object(
                 self.app.tx_processor,

@@ -144,16 +144,13 @@ def test_warm_admission_cache_preserves_exact_ordered_finalize_responses(tmp_pat
     )
 
 
-@pytest.mark.parametrize("indexing, tracing", [(False, False), (True, False), (False, True)])
-def test_native_receipts_match_python_with_warm_admission(tmp_path, monkeypatch, indexing, tracing):
+def test_native_receipts_match_across_projection_modes_with_warm_admission(tmp_path, monkeypatch):
     monkeypatch.setenv("XIAN_PERF_ENABLED", "1")
 
-    async def run(root, native):
+    async def run(root, *, indexing, tracing):
         node = await AbciNode(node_constants(root, local_genesis())).start()
         try:
             processor = node.app.tx_processor
-            assert processor.native_receipts
-            processor.native_receipts = native
             processor.trace_logging = tracing
             await node.init_chain()
             if indexing:
@@ -168,7 +165,7 @@ def test_native_receipts_match_python_with_warm_admission(tmp_path, monkeypatch,
                 await node.commit()
 
             metrics = node.app.profiler.global_metrics
-            assert ("tx_native_receipt_encoding" in metrics) == native
+            assert metrics["tx_native_receipt_encoding"].count == len(responses)
             assert metrics["tx_native_execute"].count >= len(responses)
             assert node.app.transaction_admission_cache.stats()["hits"] == sum(map(len, _blocks()))
             if indexing:
@@ -183,9 +180,10 @@ def test_native_receipts_match_python_with_warm_admission(tmp_path, monkeypatch,
         finally:
             await node.stop()
 
-    assert asyncio.run(run(tmp_path / "native", True)) == asyncio.run(
-        run(tmp_path / "python", False)
-    )
+    expected, spool = asyncio.run(run(tmp_path / "indexing", indexing=True, tracing=False))
+    assert asyncio.run(run(tmp_path / "minimal", indexing=False, tracing=False)) == (expected, [])
+    assert asyncio.run(run(tmp_path / "tracing", indexing=False, tracing=True)) == (expected, [])
+    assert asyncio.run(run(tmp_path / "both", indexing=True, tracing=True)) == (expected, spool)
 
 
 async def _init_chain_twice(tmp_path):

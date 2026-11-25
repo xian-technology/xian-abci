@@ -19,7 +19,6 @@ from xian.utils.block import (
 )
 from xian.utils.encoding import (
     convert_binary_to_hex,
-    encode_abci_json,
     hash_bytes,
     stringify_decimals,
 )
@@ -304,7 +303,8 @@ def _execute_block_transactions(
             tx_bytes = entry["tx_bytes"]
             result = next(processed_iter)
             tx_result = result.get("tx_result")
-            if tx_result is None or not tx_result.get("hash"):
+            receipt = result.get("receipt")
+            if tx_result is None or not tx_result.get("hash") or receipt is None:
                 raise RuntimeError("transaction processor returned no receipt")
 
             processed_entries.append(
@@ -313,7 +313,7 @@ def _execute_block_transactions(
                     "tx": tx,
                     "tx_bytes": tx_bytes,
                     "tx_result": tx_result,
-                    "receipt": result.get("receipt"),
+                    "receipt": receipt,
                 }
             )
     return processed_entries
@@ -341,9 +341,7 @@ def _assemble_tx_results(
 
             tx_hash = tx_result["hash"]
             self.nonce_storage.set_nonce_by_tx(tx)
-            parsed_tx_result = entry.get("receipt")
-            if parsed_tx_result is None:
-                parsed_tx_result = encode_abci_json(tx_result)
+            parsed_tx_result = entry["receipt"]
             if self.transaction_trace_debug_logging:
                 logger.bind(
                     **build_log_fields(

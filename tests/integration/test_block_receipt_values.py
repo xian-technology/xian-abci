@@ -91,8 +91,8 @@ def _receipt(chain, function):
     return json.loads(_receipt_bytes(chain, function))
 
 
-def _receipt_bytes(chain, function, *, receipt_details=None):
-    client, processor = chain
+def _receipt_bytes(chain, function, *, receipt_details=True):
+    _, processor = chain
     tx = {
         "payload": {
             "chain_id": "xian-local",
@@ -117,9 +117,6 @@ def _receipt_bytes(chain, function, *, receipt_details=None):
         fee_policy=TxFeePolicy.paid_metered(),
         receipt_details=receipt_details,
     )
-    if "receipt" not in response:
-        assert receipt_details is None or not processor.native_receipts
-        return encode_abci_json(response["tx_result"])
     if receipt_details:
         assert response["receipt"] == encode_abci_json(response["tx_result"])
     return response["receipt"]
@@ -175,8 +172,5 @@ def test_exception_wire_text_matches_python_for_binary_values_and_local_objects(
 def test_native_receipt_projection_modes_match_python(chain, function):
     client, _ = chain
     expected = _receipt_bytes(chain, function)
-    processor = TxProcessor(client)
-    assert processor.native_receipts
-    for details in (True, False):
-        client.raw_driver.rollback()
-        assert _receipt_bytes((client, processor), function, receipt_details=details) == expected
+    client.raw_driver.rollback()
+    assert _receipt_bytes(chain, function, receipt_details=False) == expected

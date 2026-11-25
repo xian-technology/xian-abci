@@ -26,11 +26,7 @@ def test_native_registry_requires_keeper_deduplicates_and_preserves_anchor_after
     with pytest.raises(AssertionError, match="keeper"):
         registry.request_anchor(signer="timer", environment={"block_num": 1})
 
-    native_process = app.tx_processor.process_block
-
     def paid(*args, **kwargs):
-        if kwargs["fee_policy"].mode == "system_unmetered":
-            return native_process(*args, **kwargs)
         # Initialization is a real native system call before this paid boundary.
         assert app.client.raw_driver.get("time_checkpoints.keeper_ready") is True
         context = {"block_num": 1, "now": Datetime(1970, 1, 11)}

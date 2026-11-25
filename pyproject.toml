@@ -21,7 +21,7 @@ dependencies = [
     "xian-tech-accounts>=0.1.4,<0.2",
     "xian-tech-contracting>=1.1.4,<2",
     "xian-tech-runtime-types>=0.1.6,<0.2",
-    "xian-tech-vm-core>=0.1.3,<0.2",
+    "xian-tech-vm-core>=0.1.4,<0.2",
 ]
 keywords = ["blockchain", "cometbft", "abci", "xian", "python"]
 classifiers = [

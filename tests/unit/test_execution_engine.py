@@ -207,6 +207,10 @@ def hidden():
                 "tx_admission_revision": TX_ADMISSION_REVISION,
             },
             supports_execution_policy=lambda *_args: True,
+            BlockExecutor=types.SimpleNamespace(
+                run_receipts=lambda: None,
+                run_receipts_profiled=lambda: None,
+            ),
         )
 
         with mock.patch(
@@ -217,6 +221,26 @@ def hidden():
 
         self.assertEqual(runtime.runtime_info["vm_profile"], "xian_vm_v2")
         self.assertEqual(runtime.mode, "xian_vm_v2")
+
+    def test_build_runtime_requires_both_native_receipt_methods(self):
+        import xian_vm_core
+
+        methods = ("run_receipts", "run_receipts_profiled")
+        for missing in methods:
+            executor = types.SimpleNamespace(
+                **{name: getattr(xian_vm_core.BlockExecutor, name) for name in methods if name != missing}
+            )
+            bindings = types.SimpleNamespace(
+                runtime_info=xian_vm_core.runtime_info,
+                supports_execution_policy=xian_vm_core.supports_execution_policy,
+                BlockExecutor=executor,
+            )
+            with (
+                self.subTest(missing=missing),
+                mock.patch("xian.execution_engine._load_vm_runtime_bindings", return_value=bindings),
+                self.assertRaisesRegex(ValueError, rf"xian-tech-vm-core.*{missing}"),
+            ):
+                build_vm_runtime()
 
     def test_execute_native_submission_deploy_stages_contract_artifacts(self):
         driver = Driver(vm_profile="xian_vm_v2")

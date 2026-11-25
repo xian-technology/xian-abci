@@ -29,7 +29,6 @@ class TxProcessor:
         # `finalize_block`).
         self.profiler = profiler or NoopPerfTracker()
         self.trace_logging = trace_logging
-        self.native_receipts = hasattr(BlockExecutor, "run_receipts")
 
     def reset_block_cache(self) -> None:
         zk_bridge.clear_verified_proof_cache()
@@ -37,13 +36,21 @@ class TxProcessor:
     def process_system_tx(self, tx) -> dict:
         """The transaction response for a system transaction (epoch
         rebalance, evidence penalty): unmetered, no fees, no rewards."""
-        [response] = self.process_block(
-            [tx], [transaction_bytes(tx)], fee_policy=TxFeePolicy.system_unmetered()
-        )
-        return response
+        fee_policy = TxFeePolicy.system_unmetered()
+        with self.profiler.scope("tx_process_total", block_scoped=True):
+            with self.profiler.scope("tx_native_prepare", block_scoped=True):
+                executor = self._block_executor([tx], [transaction_bytes(tx)], fee_policy)
+            if self.profiler.enabled:
+                [outcome], execution_ns, conversion_ns = executor.run_profiled()
+                self.profiler.observe("tx_native_execute", execution_ns, block_scoped=True)
+                self.profiler.observe("tx_native_to_python", conversion_ns, block_scoped=True)
+            else:
+                [outcome] = executor.run()
+            with self.profiler.scope("tx_receipt_conversion", block_scoped=True):
+                return self._native_response(tx, outcome, fee_policy, tx_hash=tx_hash_from_tx(tx))
 
     def process_block(
-        self, txs, raw_txs, *, fee_policy: TxFeePolicy, receipt_details: bool | None = None
+        self, txs, raw_txs, *, fee_policy: TxFeePolicy, receipt_details: bool = True
     ) -> list[dict]:
         """Transaction responses for a block's transactions, in order.
 
@@ -56,20 +63,6 @@ class TxProcessor:
         """
         if not txs:
             return []
-        if self.native_receipts and receipt_details is not None:
-            return self._receipt_responses(txs, raw_txs, fee_policy, receipt_details)
-        if not self.profiler.enabled:
-            outcomes = self._block_executor(txs, raw_txs, fee_policy).run()
-            return self._responses(txs, outcomes, fee_policy)
-
-        with self.profiler.scope("tx_process_total", block_scoped=True):
-            with self.profiler.scope("tx_native_prepare", block_scoped=True):
-                executor = self._block_executor(txs, raw_txs, fee_policy)
-            outcomes = self._profiled_outcomes(executor)
-            with self.profiler.scope("tx_receipt_conversion", block_scoped=True):
-                return self._responses(txs, outcomes, fee_policy)
-
-    def _receipt_responses(self, txs, raw_txs, fee_policy, receipt_details):
         details = receipt_details or self.trace_logging
         with self.profiler.scope("tx_process_total", block_scoped=True):
             with self.profiler.scope("tx_native_prepare", block_scoped=True):
@@ -96,21 +89,6 @@ class TxProcessor:
         self.profiler.observe("tx_native_receipt_encoding", encoding_ns, block_scoped=True)
         self.profiler.observe("tx_native_to_python", conversion_ns, block_scoped=True)
         return receipts
-
-    def _responses(self, txs, outcomes, fee_policy):
-        return [
-            self._native_response(tx, outcome, fee_policy, tx_hash=tx_hash_from_tx(tx))
-            for tx, outcome in zip(txs, outcomes, strict=True)
-        ]
-
-    def _profiled_outcomes(self, executor):
-        run_profiled = getattr(executor, "run_profiled", None)
-        if run_profiled is None:
-            return executor.run()
-        outcomes, execution_ns, conversion_ns = run_profiled()
-        self.profiler.observe("tx_native_execute", execution_ns, block_scoped=True)
-        self.profiler.observe("tx_native_to_python", conversion_ns, block_scoped=True)
-        return outcomes
 
     def _block_executor(self, txs, raw_txs, fee_policy: TxFeePolicy):
         environment, overlay = self.client.raw_driver.committed_storage()
