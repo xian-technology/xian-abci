@@ -361,6 +361,10 @@ class NodeSetupTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, "external_address"):
                 render_cometbft_config(options=_node_options(p2p_external_address=value))
 
+    def test_render_config_uses_two_second_proposal_timeout(self):
+        config = render_cometbft_config(options=_node_options())
+        self.assertEqual(config["consensus"]["timeout_propose"], "2s")
+
     def test_render_config_supports_periodic_block_policy(self):
         config = render_cometbft_config(
             options=_node_options(

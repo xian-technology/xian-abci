@@ -127,7 +127,7 @@ adaptive_sync = false
 
 [consensus]
 wal_file = "data/cs.wal/wal"
-timeout_propose = "3s"
+timeout_propose = "2s"
 timeout_propose_delta = "500ms"
 timeout_prevote = "1s"
 timeout_prevote_delta = "500ms"
