@@ -4,6 +4,7 @@ from io import BytesIO
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from receipt_fixture import receipt_response
 from xian_runtime_types.decimal import ContractingDecimal
 
 from abci.server import ProtocolHandler
@@ -22,7 +23,7 @@ logging.disable(logging.CRITICAL)
 
 def per_tx(process_tx):
     """A ``process_block`` stand-in that processes each transaction alone."""
-    return lambda txs, raw_txs, **kwargs: [process_tx(tx) for tx in txs]
+    return lambda txs, raw_txs, **kwargs: [receipt_response(process_tx(tx)) for tx in txs]
 
 
 async def deserialize(raw: bytes) -> Response:
@@ -70,7 +71,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 self.app.tx_processor,
                 "process_block",
-                side_effect=per_tx(lambda tx: {"tx_result": tx_result}),
+                side_effect=per_tx(lambda tx: tx_result),
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):
@@ -115,7 +116,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 self.app.tx_processor,
                 "process_block",
-                side_effect=per_tx(lambda tx: {"tx_result": tx_result}),
+                side_effect=per_tx(lambda tx: tx_result),
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):
@@ -150,7 +151,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
         def process_tx(*args, **kwargs):
             del args, kwargs
             self.app.client.raw_driver.apply_writes({"currency.balances:alice": 99})
-            return {"tx_result": tx_result}
+            return tx_result
 
         with (
             patch(
@@ -200,8 +201,12 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             "metadata": {"signature": "sig"},
         }
         no_hash = {"status": 0, "state": [], "events": [], "chi_used": 1, "result": "ok"}
-        for tx_result in (None, no_hash):
-            with self.subTest(tx_result=tx_result):
+        for result in (
+            receipt_response(None),
+            receipt_response(no_hash),
+            {"tx_result": no_hash | {"hash": "ABC123"}},
+        ):
+            with self.subTest(result=result):
                 with (
                     patch(
                         "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
@@ -213,7 +218,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                     patch.object(
                         self.app.tx_processor,
                         "process_block",
-                        side_effect=per_tx(lambda tx: {"tx_result": tx_result}),
+                        return_value=[result],
                     ),
                     patch.object(self.app.nonce_storage, "set_nonce_by_tx") as set_nonce,
                 ):
@@ -243,7 +248,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                     state_write["key"],
                     state_write["value"],
                 )
-            return {"tx_result": tx_result}
+            return tx_result
 
         async def finalize_with(tx_result):
             with (
@@ -295,7 +300,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                     state_write["key"],
                     state_write["value"],
                 )
-            return {"tx_result": tx_result}
+            return tx_result
 
         with (
             patch(
@@ -375,7 +380,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 self.app.tx_processor,
                 "process_block",
-                side_effect=per_tx(lambda tx: {"tx_result": tx_result}),
+                side_effect=per_tx(lambda tx: tx_result),
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):
@@ -426,7 +431,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 self.app.tx_processor,
                 "process_block",
-                side_effect=per_tx(lambda tx: {"tx_result": tx_result}),
+                side_effect=per_tx(lambda tx: tx_result),
             ),
             patch.object(self.app.nonce_storage, "set_nonce_by_tx"),
         ):

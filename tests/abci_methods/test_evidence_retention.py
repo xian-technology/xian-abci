@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
+from receipt_fixture import receipt_response
 from xian_runtime_types.encoding import decode_wire_numbers, encode_wire, loads_wire_json
 
 from tendermint.abci.types_pb2 import RequestFinalizeBlock, RequestInitChain
@@ -67,23 +68,19 @@ def test_same_block_increase_and_reduction_preserve_the_longer_claim_window(app)
     receipts = []
     for index, days in enumerate([14, 7]):
         receipts.append(
-            {
-                "tx_result": {
+            receipt_response(
+                {
                     "hash": f"hash-{index}",
                     "status": 0,
                     "chi_used": 1,
                     "events": [],
                     "state": [{"key": UNBONDING_PERIOD_KEY, "value": days}],
                 }
-            }
+            )
         )
     tx = {"payload": {"sender": "alice", "nonce": 0, "chi_supplied": 100}}
 
-    native_process = app.tx_processor.process_block
-
     def process(*args, **kwargs):
-        if kwargs["fee_policy"].mode == "system_unmetered":
-            return native_process(*args, **kwargs)
         app.client.raw_driver.set(UNBONDING_PERIOD_KEY, 7)
         return receipts
 
@@ -118,23 +115,19 @@ def test_same_block_increase_and_reduction_preserve_the_longer_claim_window(app)
 def _paid_policy_block(app, days, *, height=1, seconds=10 * 86400 + 5, failed=False):
     tx = {"payload": {"sender": "alice", "nonce": 0, "chi_supplied": 100}}
 
-    native_process = app.tx_processor.process_block
-
     def process(*args, **kwargs):
-        if kwargs["fee_policy"].mode == "system_unmetered":
-            return native_process(*args, **kwargs)
         if not failed:
             app.client.raw_driver.set(UNBONDING_PERIOD_KEY, days[-1])
         return [
-            {
-                "tx_result": {
+            receipt_response(
+                {
                     "hash": f"h-{index}",
                     "status": 1 if failed else 0,
                     "chi_used": 1,
                     "events": [],
                     "state": [{"key": UNBONDING_PERIOD_KEY, "value": value}],
                 }
-            }
+            )
             for index, value in enumerate(days)
         ]
 

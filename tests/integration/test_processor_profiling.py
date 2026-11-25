@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import json
-from types import SimpleNamespace
-
 import pytest
 import test_block_receipt_values as receipts
 
-from xian import processor as processor_module
 from xian.perf import PerfTracker
 from xian.processor import TxProcessor
 
@@ -26,11 +22,11 @@ def profiler(tmp_path):
 def test_block_execution_reports_phase_timings_without_changing_receipts(receipt_chain, profiler):
     client, unprofiled = receipt_chain
     processor = TxProcessor(client=client, profiler=profiler)
-    expected = receipts._receipt((client, unprofiled), "members")
+    expected = receipts._receipt_bytes((client, unprofiled), "members")
     expected_writes = client.raw_driver.pending_stored_items()
     client.raw_driver.rollback()
     profiler.start_block(1, 2)
-    assert receipts._receipt((client, processor), "members") == expected
+    assert receipts._receipt_bytes((client, processor), "members") == expected
     assert client.raw_driver.pending_stored_items() == expected_writes
     # A system transaction (epoch rebalance, evidence) is block work too.
     processor.process_system_tx(
@@ -67,26 +63,5 @@ def test_block_execution_reports_phase_timings_without_changing_receipts(receipt
     # The user batch and the system transaction contribute one observation each.
     assert total.count == profiler.global_metrics["tx_process_total"].count == 2
     assert all(part.count == 2 and part.total_ns > 0 for part in parts)
+    assert metrics["tx_native_receipt_encoding"].count == 1
     assert sum(part.total_ns for part in parts) <= total.total_ns
-
-
-def test_profiling_still_executes_on_a_wheel_without_native_timings(
-    receipt_chain, profiler, monkeypatch
-):
-    client, _ = receipt_chain
-    native_executor = processor_module.BlockExecutor
-
-    def legacy_executor(*args, **kwargs):
-        executor = native_executor(*args, **kwargs)
-        return SimpleNamespace(add=executor.add, run=executor.run)
-
-    monkeypatch.setattr(processor_module, "BlockExecutor", legacy_executor)
-    processor = TxProcessor(client=client, profiler=profiler)
-    assert not processor.native_receipts
-    wire = receipts._receipt_bytes((client, processor), "fail", receipt_details=False)
-    assert json.loads(wire)["status"] == 1
-    assert profiler.global_metrics.keys() == {
-        "tx_process_total",
-        "tx_native_prepare",
-        "tx_receipt_conversion",
-    }

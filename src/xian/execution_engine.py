@@ -70,6 +70,13 @@ def build_vm_runtime() -> VmRuntime:
         )
 
     validate_admission_runtimes(runtime_info)
+    executor = getattr(bindings, "BlockExecutor", None)
+    for method in ("run_receipts", "run_receipts_profiled"):
+        if not callable(getattr(executor, method, None)):
+            raise ValueError(
+                f"native 'xian-tech-vm-core' must provide BlockExecutor.{method} "
+                "for finalized transaction receipts. Install the matching native VM build."
+            )
     return VmRuntime(runtime_info=runtime_info)
 
 
