@@ -17,7 +17,9 @@ function openExplorer(route, respond) {
         if (!elements.has(id)) {
             elements.set(id, {
                 addEventListener() {},
-                classList: { add() {}, remove() {} },
+                classList: { add() {}, remove() {}, toggle() {} },
+                dataset: {},
+                setAttribute(key, value) { this[key] = value; },
                 scrollIntoView() {},
                 style: {},
             });
@@ -26,13 +28,25 @@ function openExplorer(route, respond) {
     }
     const handlers = new Map();
     const window = { addEventListener: (type, handler) => handlers.set(type, handler) };
-    const location = new URL(`http://localhost/explorer/${route}`);
+    const location = new URL(route ? '/explorer/' + route : '/explorer', 'http://localhost');
     vm.runInNewContext(scripts.join('\n'), {
         document: {
             documentElement: { dataset: {} },
             getElementById: element,
             querySelector: element,
-            querySelectorAll: () => [],
+            querySelectorAll: selector => {
+                const groups = {
+                    '.tab': ['tab', ['dashboard', 'explorer']],
+                    '[data-explorer-view]': ['explorerView', ['blocks', 'contracts', 'addresses', 'events']],
+                };
+                if (!groups[selector]) return [];
+                const [attribute, names] = groups[selector];
+                return names.map(name => {
+                    const control = element(name);
+                    control.dataset[attribute] = name;
+                    return control;
+                });
+            },
             addEventListener() {},
         },
         window,
@@ -140,7 +154,38 @@ test('restores the explorer tab from the history URL while dropping a stale bloc
     finishBlock({ block: { header: { height: '3' } } });
     await nextTurn();
 
+    assert.equal(element('explorer')['aria-current'], 'page');
+    assert.equal(element('dashboard')['aria-current'], 'false');
+    assert.equal(element('contracts')['aria-pressed'], 'true');
+    assert.equal(element('blocks')['aria-pressed'], 'false');
     assert.ok(requests.includes('/api/contracts'));
     assert.equal(element('explorer-detail').innerHTML, '');
     assert.equal(element('explorer-list').style.display, '');
+});
+
+test('links the block height and canonical transaction hash in explorer tables', async () => {
+    const { element, location, popstate } = openExplorer('', pathname => {
+        if (pathname === '/api/status') return { sync_info: { latest_block_height: '12' } };
+        if (pathname === '/api/blockchain') return { block_metas: [
+            { header: { height: '12' }, block_id: { hash: validator }, num_txs: 2 },
+            { header: { height: '11' }, block_id: { hash: validator } },
+        ] };
+        if (pathname === '/api/block/12') return {
+            block: { header: { height: '12' } },
+            decoded_txs: [{ tx_hash: recipient }, {}],
+        };
+        if (pathname === '/api/block_results/12') return { txs_results: [] };
+        throw new Error('Unexpected request ' + pathname);
+    });
+    await nextTurn();
+    const blocks = element('explorer-blocks').innerHTML;
+    assert.match(blocks, /<a href="\/explorer\/block\/12"[^>]*>12<\/a><\/td>\s*<td>2<\/td>/);
+    assert.match(blocks, /<a href="\/explorer\/block\/11"[^>]*>11<\/a><\/td>\s*<td>0<\/td>/);
+    location.pathname = '/explorer/block/12';
+    popstate({});
+    await nextTurn();
+    const detail = element('explorer-detail').innerHTML;
+    assert.match(detail, new RegExp('<a [^>]*href="/explorer/tx/' + recipient + '"[^>]*>'));
+    assert.match(detail, /<td>2<\/td>/);
+    assert.doesNotMatch(detail, /href="\/explorer\/tx\/(null|undefined)"/);
 });
