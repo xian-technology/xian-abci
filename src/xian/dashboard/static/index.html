@@ -115,8 +115,9 @@ tr.clickable{cursor:pointer}
 
 /* ── explorer ── */
 .search-bar{display:flex;gap:8px;margin-bottom:24px}
-.search-input{flex:1;min-width:0;padding:10px 16px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:.98rem;font-family:var(--font);transition:border-color .15s}
-.search-input:focus{border-color:var(--accent)}
+.search-input{flex:1;min-width:0;padding:10px 16px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:.98rem;font-family:var(--font);transition:border-color .16s ease,box-shadow .16s ease}
+.search-input:focus{border-color:#83a9d6;outline:2px solid transparent;outline-offset:0;box-shadow:0 0 0 2px #9fcaff45}
+@media(forced-colors:active){.search-input:focus{outline-color:Highlight}}
 .search-input::placeholder{color:var(--text3)}
 .btn{padding:10px 20px;border-radius:var(--radius);border:none;background:var(--text);color:var(--bg);font-size:.85rem;cursor:pointer;font-weight:500;transition:background .15s}
 .btn:hover:enabled{background:#dedee1}
@@ -411,6 +412,7 @@ const CONTRACTS_PER_PAGE = 50;
 const ADDRESS_TXS_PER_PAGE = 50;
 const ADDRESSES_PER_PAGE = 50;
 const EVENTS_PER_PAGE = 50;
+const GENESIS_TX_HASH = "GENESIS";
 let ws = null;
 let wsConnected = false;
 let wsReconnectDelay = 1000;
@@ -523,7 +525,7 @@ function decodeDataAttr(value){
 }
 function navPath(view, id){
   if(view === "home") return "/";
-  if(view === "list") return explorerListPath();
+  if(view === "list") return explorerListPath(id);
   return "/explorer/"+view+"/"+encodeURIComponent(id);
 }
 function navAttrs(view, id){
@@ -581,6 +583,7 @@ function addressLink(address, opts){
 }
 function txLink(hash, opts){
   if(!hash) return "\u2014";
+  if(hash === GENESIS_TX_HASH) return "Chain genesis";
   const left = opts && opts.left ? opts.left : 10;
   const right = opts && opts.right ? opts.right : 8;
   const label = opts && opts.label ? opts.label : truncateMiddle(hash, left, right);
@@ -977,28 +980,26 @@ function routeStateFromPath(path){
     return {
       view: detailMatch[1],
       id: decodeURIComponent(detailMatch[2]),
-      explorerView: ({address:"addresses", contract:"contracts"})[detailMatch[1]] || "blocks",
     };
   }
   if(currentPath === "/explorer/contracts"){
-    return {view: "list", id: null, explorerView: "contracts"};
+    return {view: "list", id: "contracts"};
   }
   if(currentPath === "/explorer/addresses"){
-    return {view: "list", id: null, explorerView: "addresses"};
+    return {view: "list", id: "addresses"};
   }
   if(currentPath === "/explorer/events"){
-    return {view: "list", id: null, explorerView: "events"};
+    return {view: "list", id: "events"};
   }
   if(currentPath === "/explorer"){
-    return {view: "list", id: null, explorerView: "blocks"};
+    return {view: "list", id: "blocks"};
   }
-  return {view: "home", id: null, explorerView: "blocks"};
+  return {view: "home"};
 }
 
-function applyRouteState(route){
-  const nextRoute = route || {view: "home", id: null, explorerView: "blocks"};
-  selectExplorerCategory(nextRoute.explorerView);
-  navigateTo(nextRoute.view || "home", nextRoute.id, false);
+function restoreRoute(path){
+  const {view, id} = routeStateFromPath(path);
+  navigateTo(view, id, false);
 }
 
 function selectExplorerCategory(view){
@@ -1042,6 +1043,11 @@ function navigateTo(view, id, pushState){
     return;
   }
   switchToTab("explorer");
+  if(view === "list"){
+    setExplorerView(id || explorerView, false);
+    return;
+  }
+  selectExplorerCategory(({address:"addresses", contract:"contracts"})[view] || "blocks");
   if(view === "block") viewBlock(id);
   else if(view === "tx") viewTx(id);
   else if(view === "contract") viewContract(id);
@@ -1049,12 +1055,11 @@ function navigateTo(view, id, pushState){
     if(id !== currentAddress) explorerAddressOffset = 0;
     viewAddress(id);
   }
-  else if(view === "list") setExplorerView(explorerView, false);
 }
 window.navigateTo = navigateTo;
 
 window.addEventListener("popstate", function(){
-  applyRouteState(routeStateFromPath(location.pathname));
+  restoreRoute(location.pathname);
 });
 
 async function loadExplorerDetail(label, load, opts){
@@ -2235,7 +2240,6 @@ async function viewTx(hash){
 async function viewAddress(address, opts){
   currentAddress = address;
   explorerAddressOffset = explorerAddressOffset || 0;
-  explorerView = "addresses";
   const data = await loadExplorerDetail("address "+address, () => api(
     "address/"+encodeURIComponent(address)+
     "?limit="+ADDRESS_TXS_PER_PAGE+
@@ -2286,7 +2290,10 @@ async function viewAddress(address, opts){
   html += '<table><thead><tr><th>Time</th><th>Hash</th><th>Contract</th><th>Function</th><th>Block</th><th>Status</th></tr></thead><tbody>';
   transactions.forEach(item=>{
     const success = item.success === true || item.status_code === 0;
-    html += '<tr class="clickable"'+navAttrs('tx', item.tx_hash)+'>'+
+    const txAttrs = item.tx_hash && item.tx_hash !== GENESIS_TX_HASH
+      ? ' class="clickable"'+navAttrs('tx', item.tx_hash)
+      : '';
+    html += '<tr'+txAttrs+'>'+
       '<td>'+escHtml(item.created_at ? fmtTime(item.created_at) : "\u2014")+'</td>'+
       '<td>'+txLink(item.tx_hash,{left:10,right:8})+'</td>'+
       '<td>'+(item.contract ? contractLink(item.contract) : "\u2014")+'</td>'+
@@ -2507,8 +2514,9 @@ async function viewContract(name){
       <div class="data-row"><span class="data-key">Created</span><span class="data-val">${metadata.submitted_at ? fmtTime(metadata.submitted_at) : "\u2014"}</span></div>`;
 
   if(summary){
+    const creationTx = txLink(summary.last_tx_hash,{left:14,right:10});
     html +=
-      '<div class="data-row"><span class="data-key">Creation Tx</span><span class="data-val">'+(summary.last_tx_hash ? txLink(summary.last_tx_hash,{left:14,right:10}) : "\u2014")+'</span></div>'+
+      '<div class="data-row"><span class="data-key">Creation Tx</span><span class="data-val">'+creationTx+'</span></div>'+
       '<div class="data-row"><span class="data-key">Created At Block</span><span class="data-val">'+(summary.submitted_at_block ? '<a class="link mono"'+navAttrs('block', String(summary.submitted_at_block))+'>'+escHtml(String(summary.submitted_at_block))+'</a>' : "\u2014")+'</span></div>'+
       '<div class="data-row"><span class="data-key">Generated Rewards</span><span class="data-val">'+renderRewardAmount(summary.total_rewards)+'</span></div>'+
       '<div class="data-row"><span class="data-key">Reward Records</span><span class="data-val">'+escHtml(String(summary.reward_count ?? "\u2014"))+'</span></div>'+
@@ -2785,8 +2793,7 @@ function refreshTimeAgo(){
 async function init(){
   const pageUrl = new URL(location.href);
   setSelectedRpc(normalizeRpcUrl(pageUrl.searchParams.get("rpc")));
-  const initialRoute = routeStateFromPath(pageUrl.pathname);
-  applyRouteState(initialRoute);
+  restoreRoute(pageUrl.pathname);
   const config = await api("config");
   defaultRpcUrl = normalizeRpcUrl(config.default_rpc_url);
   if(defaultRpcUrl && selectedRpc === defaultRpcUrl){

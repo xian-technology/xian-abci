@@ -16,7 +16,8 @@ function openExplorer(route, respond) {
     function element(id) {
         if (!elements.has(id)) {
             elements.set(id, {
-                addEventListener() {},
+                listeners: new Map(),
+                addEventListener(type, listener) { this.listeners.set(type, listener); },
                 classList: { add() {}, remove() {}, toggle() {} },
                 dataset: {},
                 setAttribute(key, value) { this[key] = value; },
@@ -27,6 +28,7 @@ function openExplorer(route, respond) {
         return elements.get(id);
     }
     const handlers = new Map();
+    const historyEntries = [];
     const window = { addEventListener: (type, handler) => handlers.set(type, handler) };
     const location = new URL(route ? '/explorer/' + route : '/explorer', 'http://localhost');
     vm.runInNewContext(scripts.join('\n'), {
@@ -51,6 +53,12 @@ function openExplorer(route, respond) {
         },
         window,
         location,
+        history: {
+            pushState(_state, _title, url) {
+                location.href = new URL(url, location).href;
+                historyEntries.push(location.pathname);
+            },
+        },
         URL,
         fetch: async url => {
             // Keep dashboard initialization paused after it opens the requested detail page.
@@ -59,7 +67,7 @@ function openExplorer(route, respond) {
             return { ok: true, json: async () => response };
         },
     });
-    return { element, location, popstate: handlers.get('popstate') };
+    return { element, location, historyEntries, popstate: handlers.get('popstate') };
 }
 
 async function renderExplorer(route, response) {
@@ -141,7 +149,7 @@ test('restores the explorer tab from the history URL while dropping a stale bloc
     let finishBlock;
     const pendingBlock = new Promise(resolve => { finishBlock = resolve; });
     const requests = [];
-    const { element, location, popstate } = openExplorer('block/3', pathname => {
+    const { element, location, historyEntries, popstate } = openExplorer('block/3', pathname => {
         requests.push(pathname);
         if (pathname === '/api/block/3') return pendingBlock;
         if (pathname === '/api/block_results/3') return { txs_results: [] };
@@ -158,6 +166,7 @@ test('restores the explorer tab from the history URL while dropping a stale bloc
     assert.equal(element('dashboard')['aria-current'], 'false');
     assert.equal(element('contracts')['aria-pressed'], 'true');
     assert.equal(element('blocks')['aria-pressed'], 'false');
+    assert.deepEqual(historyEntries, []);
     assert.ok(requests.includes('/api/contracts'));
     assert.equal(element('explorer-detail').innerHTML, '');
     assert.equal(element('explorer-list').style.display, '');
@@ -188,4 +197,52 @@ test('links the block height and canonical transaction hash in explorer tables',
     assert.match(detail, new RegExp('<a [^>]*href="/explorer/tx/' + recipient + '"[^>]*>'));
     assert.match(detail, /<td>2<\/td>/);
     assert.doesNotMatch(detail, /href="\/explorer\/tx\/(null|undefined)"/);
+});
+
+test('renders genesis as contract provenance and links a real creation receipt', async () => {
+    const genesis = await renderExplorer('contract/token_factory', {
+        summary: { last_tx_hash: 'GENESIS', submitted_at_block: 0 },
+    });
+    assert.match(genesis, /Creation Tx<\/span><span class="data-val">Chain genesis<\/span>/);
+    assert.doesNotMatch(genesis, /href="\/explorer\/(tx\/GENESIS|block\/0)"/);
+
+    const deployed = await renderExplorer('contract/con_tea', {
+        summary: { last_tx_hash: recipient, submitted_at_block: 12 },
+    });
+    assert.ok(deployed.includes('href="/explorer/tx/' + recipient + '"'));
+    assert.ok(deployed.includes('href="/explorer/block/12"'));
+});
+
+test('shows the indexed genesis entry without a transaction link in address history', async () => {
+    const html = await renderExplorer('address/sys', {
+        available: true,
+        transactions: [{ tx_hash: 'GENESIS', block_height: 0 }],
+    });
+    assert.match(html, /<tr><td>—<\/td><td>Chain genesis<\/td>/);
+    assert.doesNotMatch(html, /href="\/explorer\/tx\/GENESIS"/);
+});
+
+test('switches explorer categories when search opens an address, contract, or transaction', async () => {
+    const { element, location } = openExplorer('', pathname => {
+        if (pathname === '/api/status') return { sync_info: { latest_block_height: '12' } };
+        if (pathname === '/api/blockchain') return { block_metas: [] };
+        if (pathname === '/api/tx/' + recipient) return { error: 'transaction not found' };
+        if (pathname === '/api/address/' + recipient) return { available: true };
+        if (pathname === '/api/contract/con_tea') return { name: 'con_tea' };
+        if (pathname === '/api/tx/' + validator) return { hash: validator, tx_result: {} };
+        throw new Error('Unexpected request ' + pathname);
+    });
+    await nextTurn();
+    for (const [query, route, selected] of [
+        [recipient, 'address/' + recipient, 'addresses'],
+        ['con_tea', 'contract/con_tea', 'contracts'],
+        [validator, 'tx/' + validator, 'blocks'],
+    ]) {
+        element('search-input').value = query;
+        await element('search-btn').listeners.get('click')();
+        await nextTurn();
+        assert.equal(location.pathname, '/explorer/' + route);
+        const categories = ['blocks', 'contracts', 'addresses', 'events'];
+        assert.deepEqual(categories.filter(name => element(name)['aria-pressed'] === 'true'), [selected]);
+    }
 });
