@@ -7,10 +7,12 @@ This file tracks follow-up work that still looks relevant on current `main`.
 - benchmark the current index strategy and query plans on realistic chain data
 - decide whether startup should wait for spool catch-up or keep the current
   eventual-consistency model
-- document archival-RPC reindex and backfill as an explicit operator flow
 - document Postgres storage policy, retention, and sizing guidance
 - evaluate whether operators need a heavier durable buffer ahead of Postgres
   beyond the current block spool and catch-up recovery model
+
+The [BDS recovery and backfill guide](https://docs.xian.technology/api/bds#recovery-and-backfill)
+covers the archival-RPC reindex and snapshot restore procedures.
 
 ## Snapshot And Recovery Follow-Ups
 
