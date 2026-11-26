@@ -1,18 +1,18 @@
 {
  "blocks": [
   {
-   "app_hash": "e7f42204eea9da3b12670732b92a34e6b6de70fa7ddc62da8dc8d7e558def614",
+   "app_hash": "6b4ada07a7d1f3ee7cec1e3248f1552192025285dc8fee5d66890e577a89f0a5",
    "height": 1,
    "txs": [
     {
      "case": "free/success",
      "code": 0,
-     "data": "{\"chi_used\":364,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"p\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"383ef7411ae730cdb9150717e6b5b7116927ec365cbf9487f377a031d233f4c3\",\"result\":{\"counter\":1,\"key\":\"p\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":1},{\"key\":\"con_probe.items:p\",\"value\":1}],\"status\":0}"
+     "data": "{\"chi_used\":369,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":1},\"data_indexed\":{\"key\":\"p\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"hash\":\"383ef7411ae730cdb9150717e6b5b7116927ec365cbf9487f377a031d233f4c3\",\"result\":{\"counter\":1,\"key\":\"p\"},\"reward_records\":null,\"rewards\":null,\"state\":[{\"key\":\"con_probe.counter\",\"value\":1},{\"key\":\"con_probe.items:p\",\"value\":1}],\"status\":0}"
     },
     {
      "case": "free/failure",
      "code": 1,
-     "data": "{\"chi_used\":339,\"events\":[],\"hash\":\"28ac6ba152181ccb3cc31fa6a1c26cd252b789f9a4c3fcc942ce917a899a7efc\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
+     "data": "{\"chi_used\":344,\"events\":[],\"hash\":\"28ac6ba152181ccb3cc31fa6a1c26cd252b789f9a4c3fcc942ce917a899a7efc\",\"result\":\"AssertionError('forced failure')\",\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":1}"
     },
     {
      "case": "free/deploy",
@@ -22,7 +22,7 @@
     {
      "case": "free/random",
      "code": 0,
-     "data": "{\"chi_used\":354,\"events\":[],\"hash\":\"f437aa1c7c1d7d9e5ebab2a09ba4aceae7144db464c013a780fcdbeab68af41d\",\"result\":[3,\"a\",[\"x\",\"y\",\"x\"],[5,4,7,3,6,2,1],{\"__big_int__\":\"935994352283543157298\"},0,0],\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":0}"
+     "data": "{\"chi_used\":359,\"events\":[],\"hash\":\"f437aa1c7c1d7d9e5ebab2a09ba4aceae7144db464c013a780fcdbeab68af41d\",\"result\":[3,\"a\",[\"x\",\"y\",\"x\"],[5,4,7,3,6,2,1],{\"__big_int__\":\"935994352283543157298\"},0,0],\"reward_records\":null,\"rewards\":null,\"state\":[],\"status\":0}"
     },
     {
      "case": "free/rotate_validators",

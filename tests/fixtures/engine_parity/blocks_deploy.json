@@ -1,7 +1,7 @@
 {
  "blocks": [
   {
-   "app_hash": "096f5eb80f8e66077b1c2b25a10522f64cc83d187ee31c725140c563225fe9fd",
+   "app_hash": "d249de0f5b633099c0ba120fab5163845d674dafabb6eae38adb0746449fc298",
    "height": 1,
    "txs": [
     {
@@ -164,7 +164,7 @@
    "writes_sha256": "9a806958aa1bb5caad7176bc3dc5ff90c22cc6f629a8a0a0f94d3cb102c559b6"
   },
   {
-   "app_hash": "439e92c8f9821c04d9581a75d869cb17b877b4cdec94dc767092e94196ba7bd6",
+   "app_hash": "ee3f955f81285f08d99c2fb64ffd93e8282bb0c7b4fd31ffbc43c25b1013d3e6",
    "height": 2,
    "txs": [
     {
@@ -217,7 +217,7 @@
    "writes_sha256": "2205fef66ea6349a53f41555111bf99bf891e2ef1955d2ff1166b4e396363293"
   },
   {
-   "app_hash": "439e92c8f9821c04d9581a75d869cb17b877b4cdec94dc767092e94196ba7bd6",
+   "app_hash": "ee3f955f81285f08d99c2fb64ffd93e8282bb0c7b4fd31ffbc43c25b1013d3e6",
    "height": 3,
    "txs": [
     {

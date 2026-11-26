@@ -20,7 +20,7 @@
  },
  "simulate/failure": {
   "type": "dict",
-  "value": "{\"chi_used\":340,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"fail_after_write\",\"kwargs\":{\"key\":\"s\"},\"sender\":\"alice\"},\"result\":\"AssertionError('forced failure')\",\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99983\"}}],\"status\":1}"
+  "value": "{\"chi_used\":344,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"fail_after_write\",\"kwargs\":{\"key\":\"s\"},\"sender\":\"alice\"},\"result\":\"AssertionError('forced failure')\",\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99982.8\"}}],\"status\":1}"
  },
  "simulate/float_kwargs": {
   "type": "dict",
@@ -28,11 +28,11 @@
  },
  "simulate/free_failure": {
   "type": "dict",
-  "value": "{\"chi_used\":340,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"fail_after_write\",\"kwargs\":{\"key\":\"s\"},\"sender\":\"carol\"},\"result\":\"AssertionError('forced failure')\",\"state\":[],\"status\":1}"
+  "value": "{\"chi_used\":344,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"fail_after_write\",\"kwargs\":{\"key\":\"s\"},\"sender\":\"carol\"},\"result\":\"AssertionError('forced failure')\",\"state\":[],\"status\":1}"
  },
  "simulate/free_success": {
   "type": "dict",
-  "value": "{\"chi_used\":364,\"events\":[{\"caller\":\"carol\",\"contract\":\"con_probe\",\"data\":{\"value\":2},\"data_indexed\":{\"key\":\"s\"},\"event\":\"Ev\",\"signer\":\"carol\"}],\"payload\":{\"contract\":\"con_probe\",\"function\":\"put\",\"kwargs\":{\"key\":\"s\",\"value\":2},\"sender\":\"carol\"},\"result\":{\"counter\":1,\"key\":\"s\"},\"state\":[{\"key\":\"con_probe.counter\",\"value\":1},{\"key\":\"con_probe.items:s\",\"value\":2}],\"status\":0}"
+  "value": "{\"chi_used\":369,\"events\":[{\"caller\":\"carol\",\"contract\":\"con_probe\",\"data\":{\"value\":2},\"data_indexed\":{\"key\":\"s\"},\"event\":\"Ev\",\"signer\":\"carol\"}],\"payload\":{\"contract\":\"con_probe\",\"function\":\"put\",\"kwargs\":{\"key\":\"s\",\"value\":2},\"sender\":\"carol\"},\"result\":{\"counter\":1,\"key\":\"s\"},\"state\":[{\"key\":\"con_probe.counter\",\"value\":1},{\"key\":\"con_probe.items:s\",\"value\":2}],\"status\":0}"
  },
  "simulate/missing_contract": {
   "type": "dict",
@@ -40,7 +40,7 @@
  },
  "simulate/not_exported": {
   "type": "dict",
-  "value": "{\"chi_used\":283,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"hidden\",\"kwargs\":{},\"sender\":\"alice\"},\"result\":\"RuntimeError(\\\"Function 'hidden' is not exported by contract 'con_probe'.\\\")\",\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99985.85\"}}],\"status\":1}"
+  "value": "{\"chi_used\":287,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"hidden\",\"kwargs\":{},\"sender\":\"alice\"},\"result\":\"RuntimeError(\\\"Function 'hidden' is not exported by contract 'con_probe'.\\\")\",\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99985.65\"}}],\"status\":1}"
  },
  "simulate/out_of_chi": {
   "type": "dict",
@@ -52,31 +52,31 @@
  },
  "simulate/random": {
   "type": "dict",
-  "value": "{\"chi_used\":355,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"rnd_plain\",\"kwargs\":{},\"sender\":\"alice\"},\"result\":[5,\"c\",[\"x\",\"x\",\"x\"],[7,5,2,3,4,1,6],{\"__big_int__\":\"522217259286661058627\"},9,0],\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99982.25\"}}],\"status\":0}"
+  "value": "{\"chi_used\":359,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"rnd_plain\",\"kwargs\":{},\"sender\":\"alice\"},\"result\":[5,\"c\",[\"x\",\"x\",\"x\"],[7,5,2,3,4,1,6],{\"__big_int__\":\"522217259286661058627\"},9,0],\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99982.05\"}}],\"status\":0}"
  },
  "simulate/str_balance": {
   "type": "dict",
-  "value": "{\"chi_used\":364,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"put\",\"kwargs\":{\"key\":\"s\",\"value\":2},\"sender\":\"erin\"},\"result\":\"AssertionError('Sender balance is not a number.')\",\"state\":[],\"status\":1}"
+  "value": "{\"chi_used\":369,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"put\",\"kwargs\":{\"key\":\"s\",\"value\":2},\"sender\":\"erin\"},\"result\":\"AssertionError('Sender balance is not a number.')\",\"state\":[],\"status\":1}"
  },
  "simulate/success": {
   "type": "dict",
-  "value": "{\"chi_used\":364,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":2},\"data_indexed\":{\"key\":\"s\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"payload\":{\"contract\":\"con_probe\",\"function\":\"put\",\"kwargs\":{\"key\":\"s\",\"value\":2},\"sender\":\"alice\"},\"result\":{\"counter\":1,\"key\":\"s\"},\"state\":[{\"key\":\"con_probe.counter\",\"value\":1},{\"key\":\"con_probe.items:s\",\"value\":2},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99981.8\"}}],\"status\":0}"
+  "value": "{\"chi_used\":369,\"events\":[{\"caller\":\"alice\",\"contract\":\"con_probe\",\"data\":{\"value\":2},\"data_indexed\":{\"key\":\"s\"},\"event\":\"Ev\",\"signer\":\"alice\"}],\"payload\":{\"contract\":\"con_probe\",\"function\":\"put\",\"kwargs\":{\"key\":\"s\",\"value\":2},\"sender\":\"alice\"},\"result\":{\"counter\":1,\"key\":\"s\"},\"state\":[{\"key\":\"con_probe.counter\",\"value\":1},{\"key\":\"con_probe.items:s\",\"value\":2},{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99981.55\"}}],\"status\":0}"
  },
  "simulate/transfer": {
   "type": "dict",
-  "value": "{\"chi_used\":402,\"events\":[{\"caller\":\"alice\",\"contract\":\"currency\",\"data\":{\"amount\":{\"__fixed__\":\"1.5\"}},\"data_indexed\":{\"from\":\"alice\",\"to\":\"bob\"},\"event\":\"Transfer\",\"signer\":\"alice\"}],\"payload\":{\"contract\":\"currency\",\"function\":\"transfer\",\"kwargs\":{\"amount\":{\"__fixed__\":\"1.5\"},\"to\":\"bob\"},\"sender\":\"alice\"},\"result\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99978.4\"}},{\"key\":\"currency.balances:bob\",\"value\":{\"__fixed__\":\"2502\"}}],\"status\":0}"
+  "value": "{\"chi_used\":412,\"events\":[{\"caller\":\"alice\",\"contract\":\"currency\",\"data\":{\"amount\":{\"__fixed__\":\"1.5\"}},\"data_indexed\":{\"from\":\"alice\",\"to\":\"bob\"},\"event\":\"Transfer\",\"signer\":\"alice\"}],\"payload\":{\"contract\":\"currency\",\"function\":\"transfer\",\"kwargs\":{\"amount\":{\"__fixed__\":\"1.5\"},\"to\":\"bob\"},\"sender\":\"alice\"},\"result\":null,\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99977.9\"}},{\"key\":\"currency.balances:bob\",\"value\":{\"__fixed__\":\"2502\"}}],\"status\":0}"
  },
  "simulate/unfunded_failure": {
   "type": "dict",
-  "value": "{\"chi_used\":340,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"fail_after_write\",\"kwargs\":{\"key\":\"s\"},\"sender\":\"carol\"},\"result\":\"AssertionError('forced failure')\",\"state\":[{\"key\":\"currency.balances:carol\",\"value\":0}],\"status\":1}"
+  "value": "{\"chi_used\":344,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"fail_after_write\",\"kwargs\":{\"key\":\"s\"},\"sender\":\"carol\"},\"result\":\"AssertionError('forced failure')\",\"state\":[{\"key\":\"currency.balances:carol\",\"value\":0}],\"status\":1}"
  },
  "simulate/unfunded_success": {
   "type": "dict",
-  "value": "{\"chi_used\":364,\"events\":[{\"caller\":\"carol\",\"contract\":\"con_probe\",\"data\":{\"value\":2},\"data_indexed\":{\"key\":\"s\"},\"event\":\"Ev\",\"signer\":\"carol\"}],\"payload\":{\"contract\":\"con_probe\",\"function\":\"put\",\"kwargs\":{\"key\":\"s\",\"value\":2},\"sender\":\"carol\"},\"result\":{\"counter\":1,\"key\":\"s\"},\"state\":[{\"key\":\"con_probe.counter\",\"value\":1},{\"key\":\"con_probe.items:s\",\"value\":2},{\"key\":\"currency.balances:carol\",\"value\":0}],\"status\":0}"
+  "value": "{\"chi_used\":369,\"events\":[{\"caller\":\"carol\",\"contract\":\"con_probe\",\"data\":{\"value\":2},\"data_indexed\":{\"key\":\"s\"},\"event\":\"Ev\",\"signer\":\"carol\"}],\"payload\":{\"contract\":\"con_probe\",\"function\":\"put\",\"kwargs\":{\"key\":\"s\",\"value\":2},\"sender\":\"carol\"},\"result\":{\"counter\":1,\"key\":\"s\"},\"state\":[{\"key\":\"con_probe.counter\",\"value\":1},{\"key\":\"con_probe.items:s\",\"value\":2},{\"key\":\"currency.balances:carol\",\"value\":0}],\"status\":0}"
  },
  "simulate/unseeded_random": {
   "type": "dict",
-  "value": "{\"chi_used\":313,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"rnd_unseeded\",\"kwargs\":{},\"sender\":\"alice\"},\"result\":\"AssertionError('Random state not seeded. Call seed().')\",\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99984.35\"}}],\"status\":1}"
+  "value": "{\"chi_used\":317,\"events\":[],\"payload\":{\"contract\":\"con_probe\",\"function\":\"rnd_unseeded\",\"kwargs\":{},\"sender\":\"alice\"},\"result\":\"AssertionError('Random state not seeded. Call seed().')\",\"state\":[{\"key\":\"currency.balances:alice\",\"value\":{\"__fixed__\":\"99984.15\"}}],\"status\":1}"
  },
  "simulate/zk_registry": {
   "type": "dict",

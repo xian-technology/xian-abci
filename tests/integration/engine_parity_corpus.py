@@ -39,6 +39,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
+from xian.config_paths import resolve_contracts_dir
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.utils.tx import transaction_bytes
@@ -49,7 +50,6 @@ else:  # imported by pytest with tests/integration on sys.path
     import engine_parity_contracts as sources
 
 HERE = Path(__file__).resolve().parent
-WORKSPACE = HERE.parents[2]
 FIXTURES = HERE.parent / "fixtures" / "engine_parity"
 ZK_DEMO = FIXTURES / "inputs" / "groth16_bn254_demo.json"
 NODE_FIXTURE = HERE / "fixtures" / ".cometbft-fixture"
@@ -157,7 +157,7 @@ def _deploy_contracts(driver) -> None:
 
     submitted = Datetime(*SUBMITTED)
     _fix_submission_time(driver)
-    currency = (WORKSPACE / "xian-configs/contracts/currency.s.py").read_text()
+    currency = (resolve_contracts_dir() / "currency.s.py").read_text(encoding="utf-8")
     driver.set_contract_from_source("currency", currency, timestamp=submitted)
     for name, source, metadata in CONTRACTS:
         driver.set_contract_from_source(name, source, timestamp=submitted, **metadata)
@@ -1290,8 +1290,6 @@ def _deploy_system_contracts(client) -> None:
     """The genesis contracts the validator system transactions use, deployed
     at the fixed submission time (the client stamps the wall clock)."""
     from xian_runtime_types.time import Datetime
-
-    from xian.config_paths import resolve_contracts_dir
 
     contracts_dir = resolve_contracts_dir()
     deployments = (

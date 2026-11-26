@@ -303,3 +303,18 @@ parameter update returned on every block. The nine system receipts remain
 byte-identical. Two fresh captures with distinct Python hash seeds matched;
 after clearing app_hash and consensus_param_updates, every serialized response
 matched the previous fixture. Transaction/fee/VM goldens are unchanged.
+
+The node pins xian-configs at `ae935e5` for the system contract accounting and
+custody changes. The corpus loads those contracts through the node's configs
+resolver, including the `XIAN_CONFIGS_DIR` override. Two fresh captures at
+that revision matched byte for byte. Updated genesis source changes the app
+hashes, and the currency validation changes transaction costs and their fee,
+reward, and balance values. Transaction outcomes and system receipts match
+the previous capture.
+
+The Rust block executor fixtures use the same configs resolver. Two captures
+at the new revision matched, and a replay at the previous pin reproduced the
+original fixtures. Ten files under `fixtures/golden/block_executor` change in
+metering, fee and reward values, currency balances and reads, and their log
+fields. Transaction statuses, events, and non-currency state match the previous
+capture. The zk executor fixtures still match byte for byte.

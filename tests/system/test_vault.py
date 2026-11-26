@@ -148,6 +148,12 @@ class TestVaultContract(unittest.TestCase):
         # WHEN executing the transaction
         self.vault.execute_transaction(tx_id=1, signer="owner1")
 
+        self.assertFalse(self.vault.owners["new_owner"])
+        self.assertEqual(self.vault.owner_count.get(), 3)
+        with self.assertRaisesRegex(AssertionError, "invitee"):
+            self.vault.accept_ownership(signer="non_owner")
+        self.vault.accept_ownership(signer="new_owner")
+
         # THEN new owner should be added
         self.assertTrue(self.vault.owners["new_owner"])
         self.assertEqual(self.vault.owner_count.get(), 4)

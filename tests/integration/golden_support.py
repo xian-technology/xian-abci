@@ -4,8 +4,9 @@ with the Rust executor (single-engine plan, increment 9).
 Until increment 9 these tests ran every case on both paths and compared
 them. The per-transaction path's outputs were frozen into
 ``tests/fixtures/golden/<name>.json`` (where the Rust executor reproduced
-them byte for byte) before that path was deleted. They are not regenerated:
-a difference is a behaviour change of the engine.
+them byte for byte) before that path was deleted. Review any change against the
+previous fixtures. Intentional changes from the pinned system contracts are
+recorded in the engine parity fixture README.
 """
 
 from __future__ import annotations

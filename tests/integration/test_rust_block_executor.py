@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import random
-from pathlib import Path
 
 import pytest
 from contracting.local import ContractingClient
@@ -20,6 +19,7 @@ from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, encode
 from xian_runtime_types.time import Timedelta
 
+from xian.config_paths import resolve_contracts_dir
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.utils.encoding import encode_abci_json
@@ -27,7 +27,6 @@ from xian.utils.tx import transaction_bytes
 
 pytest.importorskip("xian_vm_core")
 
-ROOT = Path(__file__).resolve().parents[3]
 PROBE = """import currency
 items = Hash(default_value=0)
 counter = Variable(default_value=0)
@@ -264,7 +263,7 @@ def _setup(home, contracts=()):
     submitted = Datetime(2026, 1, 2, 3, 4, 5)
     driver.set_contract_from_source(
         "currency",
-        (ROOT / "xian-configs/contracts/currency.s.py").read_text(),
+        (resolve_contracts_dir() / "currency.s.py").read_text(encoding="utf-8"),
         timestamp=submitted,
     )
     driver.set_contract_from_source("con_probe", PROBE, developer="dev", timestamp=submitted)

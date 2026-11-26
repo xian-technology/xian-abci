@@ -1,7 +1,7 @@
 {
  "blocks": [
   {
-   "app_hash": "ef225069283b3da5ad496f817da242cd601518f024b574ecb46792491497a7e7",
+   "app_hash": "22c8f4668920680807b10cea839bf37a4098cc30996309bc2e091201162b42ae",
    "height": 1,
    "txs": [
     {
@@ -79,7 +79,7 @@
    "writes_sha256": "d7c86fad5cae84709fce001436ce17aae233eb6a13790543b3a72c206adc01d0"
   },
   {
-   "app_hash": "87810938764b68e8398c904984bcc9f008308bcef8faf40de9c3f6f014766558",
+   "app_hash": "7b2b58cc1f810ef4d69b09472a56e4fba35d33d84e5f7df393e5b978be649f6a",
    "height": 2,
    "txs": [
     {

@@ -24,6 +24,7 @@ from golden_support import assert_matches_golden
 from xian_runtime_types.encoding import encode
 from xian_runtime_types.time import Datetime
 
+from xian.config_paths import resolve_contracts_dir
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.utils.encoding import encode_abci_json
@@ -305,7 +306,9 @@ def _setup(home):
     driver = client.raw_driver
     submitted = Datetime(2026, 1, 2, 3, 4, 5)
     driver.set_contract_from_source(
-        "currency", (ROOT / "xian-configs/contracts/currency.s.py").read_text(), timestamp=submitted
+        "currency",
+        (resolve_contracts_dir() / "currency.s.py").read_text(encoding="utf-8"),
+        timestamp=submitted,
     )
     for name, source in [
         ("zk_registry", REGISTRY),
