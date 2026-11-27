@@ -1,5 +1,3 @@
-import hashlib
-
 from loguru import logger
 
 from tendermint.abci.types_pb2 import ResponseCheckTx
@@ -55,7 +53,6 @@ async def check_tx(self, raw_tx) -> ResponseCheckTx:
         return _rejected_check_tx(self, error=e, raw_tx=raw_tx)
 
     try:
-        tx_hash = hashlib.sha256(raw_tx).hexdigest()
         # Mempool validation leaves no trace in the pending block state.
         with (
             self.profiler.scope("check_tx_live_admission"),
@@ -65,7 +62,6 @@ async def check_tx(self, raw_tx) -> ResponseCheckTx:
                 self.client,
                 self.nonce_storage,
                 tx,
-                tx_hash=tx_hash,
                 fee_policy=self.tx_fee_policy,
             )
         return ResponseCheckTx(code=c.OkCode)

@@ -213,17 +213,7 @@ class Xian:
             execution_mode=self.execution_mode,
         )
         self.validator_handler = ValidatorHandler(self)
-        self.nonce_storage = NonceStorage(
-            self.client,
-            reservation_ttl_seconds=xian_config.get(
-                "pending_nonce_reservation_ttl_seconds",
-                60.0,
-            ),
-            max_pending_nonces_per_sender=xian_config.get(
-                "max_pending_nonces_per_sender",
-                128,
-            ),
-        )
+        self.nonce_storage = NonceStorage(self.client)
         self._configure_transaction_processing(xian_config)
         try:
             self.tx_fee_policy = resolve_chain_fee_policy(

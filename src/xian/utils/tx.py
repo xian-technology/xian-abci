@@ -1,6 +1,5 @@
 import hashlib
 import json
-from collections.abc import Callable
 from copy import deepcopy
 
 import xian_vm_core
@@ -10,6 +9,7 @@ from xian_vm_core import decode_and_validate_transaction
 from xian.exceptions import TransactionException
 from xian.execution_policy import VM_EXECUTION_MODE
 from xian.fee_policy import chain_chi_rate
+from xian.nonce import validate_nonce
 from xian.utils.encoding import canonical_json_text, encode_transaction_bytes
 
 _decode_transaction_for_proposal = getattr(xian_vm_core, "decode_transaction_for_proposal", None)
@@ -97,13 +97,13 @@ def validate_transaction_after_static(
     nonce_storage,
     tx,
     *,
-    tx_hash: str,
     fee_policy=None,
 ):
+    payload = tx["payload"]
+    validate_nonce(payload["nonce"], nonce_storage.get_nonce(payload["sender"]))
     if fee_policy is not None:
         fee_policy.validate_tx(tx)
         if not fee_policy.require_chi_balance:
-            nonce_storage.check_nonce(tx, tx_hash=tx_hash)
             return
 
     # Get the senders balance and the current chi rate
@@ -111,7 +111,7 @@ def validate_transaction_after_static(
         balance = client.get_var(
             contract="currency",
             variable="balances",
-            arguments=[tx["payload"]["sender"]],
+            arguments=[payload["sender"]],
         )
     except Exception as e:
         raise TransactionException(f"Failed to retrieve 'currency' balance for sender: {e}")
@@ -121,9 +121,9 @@ def validate_transaction_after_static(
     except Exception as e:
         raise TransactionException(f"Failed to get chi cost: {e}")
 
-    contract = tx["payload"]["contract"]
-    func = tx["payload"]["function"]
-    chi_supplied = tx["payload"]["chi_supplied"]
+    contract = payload["contract"]
+    func = payload["function"]
+    chi_supplied = payload["chi_supplied"]
 
     if chi_supplied is None:
         chi_supplied = 0
@@ -132,7 +132,7 @@ def validate_transaction_after_static(
         balance = 0
 
     # Get how much they are sending
-    amount = tx["payload"]["kwargs"].get("amount")
+    amount = payload["kwargs"].get("amount")
     amount = 0 if amount is None else amount
 
     if isinstance(amount, dict):
@@ -147,9 +147,6 @@ def validate_transaction_after_static(
         function=func,
         amount=amount,
     )
-
-    # Reserve the local mempool nonce only after all admission checks pass.
-    nonce_storage.check_nonce(tx, tx_hash=tx_hash)
 
 
 def decode_and_validate_transaction_static_bytes(
@@ -174,45 +171,6 @@ def decode_and_validate_transaction_static_bytes(
         return decode_and_validate_transaction(raw_tx, chain_id)
     except ValueError as exc:
         raise TransactionException(str(exc)) from exc
-
-
-class SequentialNonceTracker:
-    """Deterministic per-block/proposal nonce tracker.
-
-    This intentionally does not use node-local mempool pending nonce state.
-    It starts from committed nonce state and advances only for transactions
-    accepted into the current proposal/block validation pass.
-    """
-
-    def __init__(self, committed_nonce_getter: Callable[[str], int | None]):
-        self._committed_nonce_getter = committed_nonce_getter
-        self._latest_nonces: dict[str, int] = {}
-
-    def expected_nonce(self, sender: str) -> int:
-        current_nonce = self._latest_nonces.get(sender)
-        if current_nonce is None:
-            current_nonce = self._committed_nonce_getter(sender)
-        if current_nonce is None:
-            return 0
-        return current_nonce + 1
-
-    def validate_and_advance(self, tx: dict) -> None:
-        sender = tx["payload"]["sender"]
-        tx_nonce = tx["payload"]["nonce"]
-        expected_nonce = self.expected_nonce(sender)
-        if tx_nonce != expected_nonce:
-            raise TransactionException(
-                f"Transaction nonce is invalid. Expected {expected_nonce}, got {tx_nonce}"
-            )
-        self._latest_nonces[sender] = tx_nonce
-
-
-def validate_consensus_transaction_after_static(
-    tx: dict,
-    *,
-    nonce_tracker: SequentialNonceTracker,
-) -> None:
-    nonce_tracker.validate_and_advance(tx)
 
 
 def format_dictionary(d: dict) -> dict:

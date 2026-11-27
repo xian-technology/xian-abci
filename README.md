@@ -55,8 +55,11 @@ PrepareProposal, ProcessProposal and FinalizeBlock). Optional extra:
   governed state decision, not a package-extra switch.
 
 Fresh chains use unmodified upstream CometBFT 0.40.0 with the flood mempool
-and Ed25519 validators. Other mempool modes are rejected at startup. Bootstrap
-uses ordinary replay
+and Ed25519 validators. Other mempool modes are rejected at startup. Keep
+rechecks enabled so the mempool removes
+transactions invalidated by a committed nonce, balance, or fee policy change.
+For each sender, a committed nonce makes every lower nonce unusable.
+Bootstrap uses ordinary replay
 or a [verified full-node-store backup](docs/SNAPSHOTS_AND_PRUNING.md); P2P
 application state sync is disabled. Offline application exports remain available.
 

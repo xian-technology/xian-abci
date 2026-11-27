@@ -23,8 +23,6 @@ class NodeRuntimeDefaults:
     simulation_enabled: bool = True
     simulation_max_concurrency: int = 2
     simulation_timeout_ms: int = 3000
-    pending_nonce_reservation_ttl_seconds: float = 60.0
-    max_pending_nonces_per_sender: int = 128
     # None leaves the chain fee policy in charge of the simulation budget.
     simulation_max_chi: int | None = None
 

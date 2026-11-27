@@ -183,10 +183,10 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         )
         included = make_signed_tx_bytes(nonce=0, chi_supplied=100)
         over_block_chi = make_signed_tx_bytes(nonce=1, chi_supplied=100)
-        nonce_gap = make_signed_tx_bytes(nonce=2, chi_supplied=10)
+        superseded = make_signed_tx_bytes(nonce=0, chi_supplied=10, memo="duplicate nonce")
         invalid = make_signed_tx_bytes(nonce=1, chi_supplied=10, mutate_signature=True)
         over_block_bytes = make_signed_tx_bytes(nonce=1, chi_supplied=10, memo="x" * 1000)
-        skipped = [over_block_chi, nonce_gap, invalid]
+        skipped = [over_block_chi, superseded, invalid]
         max_tx_bytes = len(included) + max(map(len, skipped))
         records = []
         sink = logger.add(lambda message: records.append(message.record), level="DEBUG")
@@ -283,7 +283,6 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                     original = await self.app.prepare_proposal(req)
                 optimized = await self.app.prepare_proposal(req)
                 self.assertEqual(optimized.SerializeToString(), original.SerializeToString())
-                self.assertIn(fits_late, optimized.txs)
                 if budget == 1_000_000:
                     self.assertIn(fits_other_sender, optimized.txs)
 
@@ -353,7 +352,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(list(response.prepare_proposal.txs), expected)
                 self.assertLessEqual(sum(map(len, response.prepare_proposal.txs)), budget)
 
-    async def test_prepare_proposal_skipped_size_does_not_consume_nonce_or_chi(self):
+    async def test_prepare_proposal_allows_successor_when_lower_nonce_does_not_fit(self):
         self.app.tx_fee_policy = TxFeePolicy.free_metered(
             max_tx_chi=100,
             max_block_chi=100,
@@ -366,11 +365,11 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             Request(
                 prepare_proposal=RequestPrepareProposal(
                     txs=[oversized, successor, replacement],
-                    max_tx_bytes=len(replacement),
+                    max_tx_bytes=max(len(replacement), len(successor)),
                 )
             ),
         )
-        self.assertEqual(list(response.prepare_proposal.txs), [replacement])
+        self.assertEqual(list(response.prepare_proposal.txs), [successor])
         accepted = await self.process_request(
             "process_proposal",
             Request(
@@ -407,6 +406,20 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
             response.process_proposal.status,
             ResponseProcessProposal.ProposalStatus.REJECT,
         )
+
+    async def test_process_proposal_allows_gaps_and_rejects_descending_nonces(self):
+        lower = make_signed_tx_bytes(nonce=3)
+        higher = make_signed_tx_bytes(nonce=7)
+        for txs, status in (
+            ([lower, higher], ResponseProcessProposal.ACCEPT),
+            ([higher, lower], ResponseProcessProposal.REJECT),
+        ):
+            with self.subTest(status=status):
+                response = await self.process_request(
+                    "process_proposal",
+                    Request(process_proposal=RequestProcessProposal(txs=txs)),
+                )
+                self.assertEqual(response.process_proposal.status, status)
 
     async def test_process_proposal_rejects_duplicate_nonce(self):
         tx_one = make_signed_tx_bytes(nonce=0)
@@ -595,7 +608,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         second_result = response.finalize_block.tx_results[1]
         self.assertEqual(second_result.code, self.constants.ErrorCode)
         error_payload = json.loads(second_result.data.decode("utf-8"))
-        self.assertIn("Expected 1, got 0", error_payload["error"])
+        self.assertIn("Must be greater than 0, got 0", error_payload["error"])
         process_block.assert_called_once()
         self.assertEqual(len(process_block.call_args.args[0]), 1)
         set_nonce.assert_called_once()
@@ -604,7 +617,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         # A contract that does not exist is a normal failed transaction: it
         # pays base chi and its nonce cannot be included again for free.
         self.app.tx_fee_policy = TxFeePolicy.free_metered()
-        tx = make_signed_tx_bytes(nonce=0, contract="con_missing", function="any")
+        tx = make_signed_tx_bytes(nonce=9, contract="con_missing", function="any")
         sender = (
             nacl.signing.SigningKey(SEED)
             .verify_key.encode(encoder=nacl.encoding.HexEncoder)
@@ -622,8 +635,9 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(receipt["status"], 1)
         self.assertEqual(receipt["chi_used"], 5)
         self.assertIn("con_missing", receipt["result"])
+        self.assertIsNone(self.app.nonce_storage.get_nonce(sender))
         await self.app.commit()
-        self.assertEqual(self.app.nonce_storage.get_nonce(sender), 0)
+        self.assertEqual(self.app.nonce_storage.get_nonce(sender), 9)
 
     async def test_immutable_admission_is_reused_without_caching_live_policy(self):
         cache_type = getattr(xian_vm_core, "TransactionAdmissionCache", None)

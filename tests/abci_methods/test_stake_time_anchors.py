@@ -44,6 +44,7 @@ def _finalize(app, *, height, seconds, paid=None):
         txs=[b"paid"] if paid else [],
         hash=f"block{height}".encode(),
     )
+
     def process(*args, **kwargs):
         return paid(*args, **kwargs) if paid is not None else []
 
@@ -52,7 +53,7 @@ def _finalize(app, *, height, seconds, paid=None):
             "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
             return_value=transaction,
         ),
-        patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
+        patch("xian.methods.finalize_block.BlockNonceTracker.validate_and_advance"),
         patch.object(app.nonce_storage, "set_nonce_by_tx"),
         patch.object(app.tx_processor, "process_block", side_effect=process),
     ):

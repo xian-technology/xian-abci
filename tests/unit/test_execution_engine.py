@@ -153,7 +153,6 @@ def hidden():
                         client,
                         NonceStorage(client),
                         tx,
-                        tx_hash=tx_hash_from_tx(tx),
                         fee_policy=policy,
                     )
                     tx["b_meta"] = {
@@ -228,7 +227,11 @@ def hidden():
         methods = ("run_receipts", "run_receipts_profiled")
         for missing in methods:
             executor = types.SimpleNamespace(
-                **{name: getattr(xian_vm_core.BlockExecutor, name) for name in methods if name != missing}
+                **{
+                    name: getattr(xian_vm_core.BlockExecutor, name)
+                    for name in methods
+                    if name != missing
+                }
             )
             bindings = types.SimpleNamespace(
                 runtime_info=xian_vm_core.runtime_info,
@@ -237,7 +240,9 @@ def hidden():
             )
             with (
                 self.subTest(missing=missing),
-                mock.patch("xian.execution_engine._load_vm_runtime_bindings", return_value=bindings),
+                mock.patch(
+                    "xian.execution_engine._load_vm_runtime_bindings", return_value=bindings
+                ),
                 self.assertRaisesRegex(ValueError, rf"xian-tech-vm-core.*{missing}"),
             ):
                 build_vm_runtime()
@@ -590,11 +595,11 @@ def hidden():
             self.assertIsNotNone(reregister_result["tx_result"])
             self.assertEqual(reregister_result["tx_result"]["status"], 0)
             self.assertEqual(
-                client.raw_driver.get(f"validators.pending_registrations:{"33" * 32}"),
+                client.raw_driver.get(f"validators.pending_registrations:{'33' * 32}"),
                 True,
             )
-            self.assertIsNone(client.raw_driver.get(f"validators.joined_at:{"33" * 32}"))
-            self.assertIsNone(client.raw_driver.get(f"validators.left_at:{"33" * 32}"))
+            self.assertIsNone(client.raw_driver.get(f"validators.joined_at:{'33' * 32}"))
+            self.assertIsNone(client.raw_driver.get(f"validators.left_at:{'33' * 32}"))
         finally:
             client.flush()
 
@@ -1309,4 +1314,3 @@ def hidden():
             native_output.writes,
             {f"{leaf_name}.touch_total": 3},
         )
-

@@ -329,26 +329,6 @@ def build_parser() -> ArgumentParser:
         default=None,
     )
     parser.add_argument(
-        "--pending-nonce-reservation-ttl-seconds",
-        type=float,
-        help=(
-            "local mempool reservation TTL for sender nonces before stale "
-            "pending transactions stop blocking retries"
-        ),
-        required=False,
-        default=defaults.pending_nonce_reservation_ttl_seconds,
-    )
-    parser.add_argument(
-        "--max-pending-nonces-per-sender",
-        type=int,
-        help=(
-            "maximum number of sequential pending nonce reservations allowed "
-            "per sender in the local mempool"
-        ),
-        required=False,
-        default=defaults.max_pending_nonces_per_sender,
-    )
-    parser.add_argument(
         "--bds-dsn",
         type=str,
         help="PostgreSQL DSN for the optional Blockchain Data Service",
@@ -576,8 +556,6 @@ def main(argv: list[str] | None = None) -> int:
                     timeout_ms=args.simulation_timeout_ms,
                     max_chi=args.simulation_max_chi,
                 ),
-                pending_nonce_reservation_ttl_seconds=(args.pending_nonce_reservation_ttl_seconds),
-                max_pending_nonces_per_sender=(args.max_pending_nonces_per_sender),
                 bds=BdsOptions(
                     dsn=args.bds_dsn,
                     host=args.bds_host,

@@ -67,7 +67,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                 "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
                 return_value={"payload": {"chi_supplied": 100}},
             ),
-            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
+            patch("xian.methods.finalize_block.BlockNonceTracker.validate_and_advance"),
             patch.object(
                 self.app.tx_processor,
                 "process_block",
@@ -112,7 +112,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                 "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
                 return_value={"payload": {"chi_supplied": 100}},
             ),
-            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
+            patch("xian.methods.finalize_block.BlockNonceTracker.validate_and_advance"),
             patch.object(
                 self.app.tx_processor,
                 "process_block",
@@ -158,7 +158,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                 "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
                 return_value=tx,
             ),
-            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
+            patch("xian.methods.finalize_block.BlockNonceTracker.validate_and_advance"),
             patch.object(
                 self.app.tx_processor,
                 "process_block",
@@ -212,9 +212,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                         "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
                         return_value=dict(tx),
                     ),
-                    patch(
-                        "xian.methods.finalize_block.validate_consensus_transaction_after_static"
-                    ),
+                    patch("xian.methods.finalize_block.BlockNonceTracker.validate_and_advance"),
                     patch.object(
                         self.app.tx_processor,
                         "process_block",
@@ -265,7 +263,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                         "metadata": {"signature": "sig"},
                     },
                 ),
-                patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
+                patch("xian.methods.finalize_block.BlockNonceTracker.validate_and_advance"),
                 patch.object(
                     self.app.tx_processor,
                     "process_block",
@@ -316,7 +314,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                     "metadata": {"signature": "sig"},
                 },
             ),
-            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
+            patch("xian.methods.finalize_block.BlockNonceTracker.validate_and_advance"),
             patch.object(
                 self.app.tx_processor,
                 "process_block",
@@ -376,7 +374,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                     "metadata": {"signature": "sig"},
                 },
             ),
-            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
+            patch("xian.methods.finalize_block.BlockNonceTracker.validate_and_advance"),
             patch.object(
                 self.app.tx_processor,
                 "process_block",
@@ -427,7 +425,7 @@ class TestFinalizeBlock(unittest.IsolatedAsyncioTestCase):
                     "metadata": {"signature": "sig"},
                 },
             ),
-            patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
+            patch("xian.methods.finalize_block.BlockNonceTracker.validate_and_advance"),
             patch.object(
                 self.app.tx_processor,
                 "process_block",

@@ -92,7 +92,7 @@ def test_same_block_increase_and_reduction_preserve_the_longer_claim_window(app)
             "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
             return_value=tx,
         ),
-        patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
+        patch("xian.methods.finalize_block.BlockNonceTracker.validate_and_advance"),
         patch.object(app.nonce_storage, "set_nonce_by_tx"),
         patch.object(app.tx_processor, "process_block", side_effect=process),
     ):
@@ -139,7 +139,7 @@ def _paid_policy_block(app, days, *, height=1, seconds=10 * 86400 + 5, failed=Fa
             "xian.methods.finalize_block.decode_and_validate_transaction_static_bytes",
             return_value=tx,
         ),
-        patch("xian.methods.finalize_block.validate_consensus_transaction_after_static"),
+        patch("xian.methods.finalize_block.BlockNonceTracker.validate_and_advance"),
         patch.object(app.nonce_storage, "set_nonce_by_tx"),
         patch.object(app.tx_processor, "process_block", side_effect=process),
     ):
