@@ -64,8 +64,6 @@ class NodeSetupTests(unittest.TestCase):
                     timeout_ms=4500,
                     max_chi=750000,
                 ),
-                pending_nonce_reservation_ttl_seconds=90.0,
-                max_pending_nonces_per_sender=64,
                 bds=BdsOptions(
                     host="postgres",
                     port=5544,
@@ -186,11 +184,6 @@ class NodeSetupTests(unittest.TestCase):
                 {"metrics": MetricsOptions(bds_refresh_seconds=0)},
                 "metrics_bds_refresh_seconds must be greater than zero",
             ),
-            (
-                {"pending_nonce_reservation_ttl_seconds": -1},
-                "pending_nonce_reservation_ttl_seconds must be non-negative",
-            ),
-            ({"max_pending_nonces_per_sender": 0}, "max_pending_nonces_per_sender must be"),
             ({"bds": BdsOptions(port=0)}, "bds_port must be between"),
             ({"bds": BdsOptions(port=65536)}, "bds_port must be between"),
             ({"bds": BdsOptions(pool_min_size=-1)}, "bds_pool_min_size must be non-negative"),
@@ -217,7 +210,6 @@ class NodeSetupTests(unittest.TestCase):
             {"blocks_to_keep": 1},
             {"metrics": MetricsOptions(port=1, bds_refresh_seconds=0.5)},
             {"metrics": MetricsOptions(port=65535)},
-            {"pending_nonce_reservation_ttl_seconds": 0, "max_pending_nonces_per_sender": 1},
             {"bds": BdsOptions(port=1, pool_min_size=4, pool_max_size=4)},
             {"bds": BdsOptions(port=65535)},
         ):

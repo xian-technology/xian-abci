@@ -6,7 +6,6 @@ import pytest
 
 from xian.dashboard.app import DashboardRateLimiter
 from xian.metrics import MetricsConfig
-from xian.nonce import NonceStorage
 
 NONFINITE = [
     float("nan"),
@@ -14,12 +13,6 @@ NONFINITE = [
     float("-inf"),
     pytest.param(10**400, id="overflowing_integer"),
 ]
-
-
-@pytest.mark.parametrize("value", NONFINITE)
-def test_nonce_expiry_rejects_nonfinite_ttl(value):
-    with pytest.raises(ValueError, match="finite"):
-        NonceStorage(SimpleNamespace(), reservation_ttl_seconds=value)
 
 
 @pytest.mark.parametrize("value", NONFINITE)
@@ -39,17 +32,6 @@ def test_metrics_refresh_rejects_nonfinite_interval(value, from_settings):
 def test_dashboard_rejects_nonfinite_refill_rate(value, option):
     with pytest.raises(ValueError, match="finite"):
         DashboardRateLimiter(**{option: value})
-
-
-@pytest.mark.parametrize("ttl,expected", [(0.0, 1), (-1.0, 1), (1.0, 0), (20.0, 1)])
-def test_finite_nonce_ttl_preserves_expiry_and_disable_semantics(monkeypatch, ttl, expected):
-    client = SimpleNamespace(raw_driver=SimpleNamespace(get=lambda _key: None))
-    storage = NonceStorage(client, reservation_ttl_seconds=ttl)
-    now = [0.0]
-    monkeypatch.setattr(storage, "_now", lambda: now[0])
-    storage.check_nonce({"payload": {"sender": "alice", "nonce": 0}}, tx_hash="first")
-    now[0] = 2.0
-    assert storage.get_next_nonce("alice") == expected
 
 
 @pytest.mark.parametrize("rate,refill_after", [(0.0, 1000.0), (-1.0, 1000.0), (2.0, 0.5)])

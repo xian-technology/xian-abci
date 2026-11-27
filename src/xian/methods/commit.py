@@ -17,7 +17,6 @@ async def commit(self) -> ResponseCommit:
     # so the commit can be retried.
     self.client.raw_driver.commit()
     self.state_root_cache.commit()
-    self.nonce_storage.reconcile_pending()
     # The next block runs under the fee policy and runtime features this block committed.
     self.refresh_tx_fee_policy()
     self.refresh_runtime_features()

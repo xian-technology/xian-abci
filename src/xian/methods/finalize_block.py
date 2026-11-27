@@ -12,6 +12,7 @@ from xian.methods._liveness import maybe_record_liveness
 from xian.methods._penalties import maybe_process_pending_slashes
 from xian.methods._stake_time import maybe_process_time_anchors
 from xian.methods._time_checkpoints import maybe_process_time_checkpoints
+from xian.nonce import BlockNonceTracker
 from xian.services.bds.payloads import BdsBlockPayload, BdsTransactionPayload
 from xian.utils.block import (
     convert_cometbft_time_to_datetime,
@@ -23,9 +24,7 @@ from xian.utils.encoding import (
     stringify_decimals,
 )
 from xian.utils.tx import (
-    SequentialNonceTracker,
     decode_and_validate_transaction_static_bytes,
-    validate_consensus_transaction_after_static,
 )
 
 STATE_CHANGE_TRANSLATION_TABLE = str.maketrans({".": "_", ":": "__"})
@@ -199,7 +198,7 @@ def _initialize_block(self, req):
 
 def _decode_block_transactions(self, req, *, height: int, block_hash: str):
     decoded_entries = []
-    nonce_tracker = SequentialNonceTracker(self.nonce_storage.get_nonce)
+    nonce_tracker = BlockNonceTracker(self.nonce_storage.get_nonce)
     block_chi_supplied = 0
     with self.profiler.scope("finalize_decode", block_scoped=True):
         for tx_bytes in req.txs:
@@ -231,10 +230,7 @@ def _decode_block_transactions(self, req, *, height: int, block_hash: str):
                     tx
                 )
                 self.tx_fee_policy.validate_block_total(next_block_chi_supplied)
-                validate_consensus_transaction_after_static(
-                    tx,
-                    nonce_tracker=nonce_tracker,
-                )
+                nonce_tracker.validate_and_advance(tx)
                 block_chi_supplied = next_block_chi_supplied
             except Exception as e:
                 decoded_entries.append(

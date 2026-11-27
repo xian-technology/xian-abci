@@ -22,7 +22,7 @@ These paths do not require BDS:
 - `/perf_status`
 - `/get/<state-key>`
 - `/evidence_policy`
-- `/get_next_nonce/<address>`
+- `/get_next_nonce/<address>` returns the committed nonce plus one, or zero for a sender with no committed nonce.
 - `/contract_source/<name>`
 - `/contract_ir/<name>`
 - `/contract_methods/<name>`

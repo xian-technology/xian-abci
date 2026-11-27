@@ -5,10 +5,9 @@ from loguru import logger
 from tendermint.abci.types_pb2 import ResponsePrepareProposal
 from xian.app_logging import build_log_fields
 from xian.exceptions import TransactionException
+from xian.nonce import BlockNonceTracker
 from xian.utils.tx import (
-    SequentialNonceTracker,
     decode_and_validate_transaction_static_bytes,
-    validate_consensus_transaction_after_static,
 )
 
 
@@ -40,14 +39,14 @@ def _admit(
         # Keep looking for a smaller transaction, as for the byte budget.
         return "skipped_over_block_chi", block_chi_supplied
     try:
-        validate_consensus_transaction_after_static(tx, nonce_tracker=nonce_tracker)
+        nonce_tracker.validate_and_advance(tx)
     except TransactionException:
         return "skipped_nonce", block_chi_supplied
     return "included_txs", next_block_chi_supplied
 
 
 async def prepare_proposal(self, req) -> ResponsePrepareProposal:
-    nonce_tracker = SequentialNonceTracker(self.nonce_storage.get_nonce)
+    nonce_tracker = BlockNonceTracker(self.nonce_storage.get_nonce)
     txs = []
     counts = Counter()
     block_chi_supplied = 0

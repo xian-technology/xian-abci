@@ -25,8 +25,6 @@ class ConfigureNodeCliTests(unittest.TestCase):
             block_policy_mode="periodic",
             block_policy_interval="5s",
             transaction_trace_logging=True,
-            pending_nonce_reservation_ttl_seconds=120.0,
-            max_pending_nonces_per_sender=32,
             metrics=MetricsOptions(False, "localhost", 9208, 7.0),
             app_logging=AppLoggingOptions("DEBUG", True, 2, 14, 100, 500),
             simulation=SimulationOptions(False, 4, 6000, 1000),
@@ -42,8 +40,6 @@ class ConfigureNodeCliTests(unittest.TestCase):
             "block_policy_mode",
             "block_policy_interval",
             "transaction_trace_logging",
-            "pending_nonce_reservation_ttl_seconds",
-            "max_pending_nonces_per_sender",
         ):
             with self.subTest(name=name):
                 self.assertEqual(getattr(args, name), getattr(defaults, name))

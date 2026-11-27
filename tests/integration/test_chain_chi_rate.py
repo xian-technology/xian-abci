@@ -74,9 +74,8 @@ def test_admission_refuses_to_price_fees_without_a_rate(tmp_path):
         with pytest.raises(TransactionException, match="chi_cost.S:value"):
             validate_transaction_after_static(
                 processor.client,
-                SimpleNamespace(check_nonce=lambda *_a, **_k: None),
+                SimpleNamespace(get_nonce=lambda _sender: None),
                 tx(),
-                tx_hash="ab",
                 fee_policy=TxFeePolicy.paid_metered(),
             )
     finally:

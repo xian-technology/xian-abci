@@ -132,10 +132,6 @@ class NodeConfigOptions:
     metrics: MetricsOptions = field(default_factory=MetricsOptions)
     app_logging: AppLoggingOptions = field(default_factory=AppLoggingOptions)
     simulation: SimulationOptions = field(default_factory=SimulationOptions)
-    pending_nonce_reservation_ttl_seconds: float = (
-        RUNTIME_DEFAULTS.pending_nonce_reservation_ttl_seconds
-    )
-    max_pending_nonces_per_sender: int = RUNTIME_DEFAULTS.max_pending_nonces_per_sender
     bds: BdsOptions = field(default_factory=BdsOptions)
     proxy_app: str = DEFAULT_ABCI_PROXY_APP
     prometheus: bool = _COMETBFT_DEFAULTS["instrumentation"]["prometheus"]
@@ -215,10 +211,6 @@ def validate_node_runtime_settings(options: NodeConfigOptions) -> None:
         raise ValueError("metrics_port must be between 1 and 65535")
     if options.metrics.bds_refresh_seconds <= 0:
         raise ValueError("metrics_bds_refresh_seconds must be greater than zero")
-    if options.pending_nonce_reservation_ttl_seconds < 0:
-        raise ValueError("pending_nonce_reservation_ttl_seconds must be non-negative")
-    if options.max_pending_nonces_per_sender < 1:
-        raise ValueError("max_pending_nonces_per_sender must be greater than zero")
     validate_bds_options(options.bds)
 
 
@@ -416,10 +408,6 @@ def render_node_configs(
     xian_config["simulation_timeout_ms"] = resolved_simulation["timeout_ms"]
     if resolved_simulation["max_chi"] is not None:
         xian_config["simulation_max_chi"] = resolved_simulation["max_chi"]
-    xian_config["pending_nonce_reservation_ttl_seconds"] = (
-        options.pending_nonce_reservation_ttl_seconds
-    )
-    xian_config["max_pending_nonces_per_sender"] = options.max_pending_nonces_per_sender
     xian_config["bds"] = {
         "dsn": options.bds.dsn,
         "host": options.bds.host,

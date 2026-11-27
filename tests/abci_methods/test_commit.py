@@ -33,14 +33,13 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
         self.app.current_block_rewards = {}
         self.handler = ProtocolHandler(self.app)
 
-
     async def process_request(self, req):
         raw = await self.handler.process("commit", req)
         return await deserialize(raw)
 
     async def test_commit(self):
         self.app.nonce_storage.set_nonce("alice", 3)
-        self.app.nonce_storage.set_pending_nonce("alice", 3)
+        self.app.client.raw_driver.commit()
         request = Request(commit=RequestCommit())
 
         with patch.object(self.app.client.raw_driver, "commit") as driver_commit:
@@ -48,7 +47,7 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.commit.retain_height, 0)
         driver_commit.assert_called_once_with()
-        self.assertEqual(self.app.nonce_storage.pending_nonces, {})
+        self.assertEqual(self.app.nonce_storage.get_next_nonce("alice"), 4)
 
     async def test_commit_reports_the_check_tx_rejections_of_its_block(self):
         self.app.check_tx_rejections["TransactionException"] += 2
@@ -71,19 +70,6 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
             retained.append(response.commit.retain_height)
 
         self.assertEqual(retained, [0, 1, 5])
-
-    async def test_commit_preserves_future_pending_nonces(self):
-        self.app.nonce_storage.set_nonce("alice", 3)
-        self.app.nonce_storage.set_pending_nonce("alice", 5)
-        request = Request(commit=RequestCommit())
-
-        with patch.object(self.app.client.raw_driver, "commit") as driver_commit:
-            response = await self.process_request(request)
-
-        self.assertEqual(response.commit.retain_height, 0)
-        driver_commit.assert_called_once_with()
-        self.assertEqual(self.app.nonce_storage.get_pending_nonce("alice"), 5)
-        self.assertEqual(self.app.nonce_storage.get_next_nonce("alice"), 6)
 
     async def test_commit_persists_state_before_advancing_json_mirror(self):
         storage_home = self.app.client.raw_driver.storage_home
@@ -143,7 +129,9 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
             pending[self.constants.LATEST_BLOCK_KEY],
             {"hash": "44" * 32, "height": 6, "nanos": 600},
         )
-        self.assertIsNone(self.app.client.raw_driver.value_from_disk(self.constants.LATEST_BLOCK_KEY))
+        self.assertIsNone(
+            self.app.client.raw_driver.value_from_disk(self.constants.LATEST_BLOCK_KEY)
+        )
 
         response = await self.process_request(Request(commit=RequestCommit()))
         self.assertEqual(response.commit.retain_height, 0)
@@ -155,6 +143,27 @@ class TestCommit(unittest.IsolatedAsyncioTestCase):
             self.app.client.raw_driver.value_from_disk(self.constants.LATEST_BLOCK_KEY),
             {"hash": "44" * 32, "height": 6, "nanos": 600},
         )
+
+    async def test_commit_failure_does_not_publish_staged_nonce(self):
+        self.app.nonce_storage.set_nonce("alice", 3)
+        self.app.client.raw_driver.commit()
+        self.app.nonce_storage.set_nonce("alice", 8)
+        self.app._stage_pending_commit_driver_state()
+        request = Request(commit=RequestCommit())
+
+        with (
+            patch.object(
+                self.app.client.raw_driver._store,
+                "commit_overlay",
+                side_effect=RuntimeError("injected persistence failure"),
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            await self.process_request(request)
+
+        self.assertEqual(self.app.nonce_storage.get_next_nonce("alice"), 4)
+        await self.process_request(request)
+        self.assertEqual(self.app.nonce_storage.get_next_nonce("alice"), 9)
 
     async def test_json_mirror_failure_does_not_fail_durable_commit(self):
         storage_home = self.app.client.raw_driver.storage_home

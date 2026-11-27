@@ -100,6 +100,8 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         self.app.client.raw_driver.set(f"currency.balances:{SENDER}", 100000)
         # The fixture genesis rate; these tests run without InitChain.
         self.app.client.raw_driver.set("chi_cost.S:value", 20)
+        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+        self.app.client.raw_driver.commit()
         self.handler = ProtocolHandler(self.app)
 
     async def process_request(self, req):
@@ -110,18 +112,13 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         return Request(check_tx=RequestCheckTx(tx=tx_bytes))
 
     async def test_check_tx_accepts_next_nonce(self):
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
 
         response = await self.process_request(self.make_request())
 
         self.assertEqual(response.check_tx.code, self.constants.OkCode)
-        self.assertEqual(
-            self.app.nonce_storage.get_pending_nonce(SENDER),
-            VALID_NONCE,
-        )
+        self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
 
     async def test_check_tx_rejects_runtime_invalid_submission_names(self):
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
         for name in ("con_Uppercase", "con_" + "a" * 61, None, 123):
             with self.subTest(name=name):
                 tx = make_signed_tx_bytes_for_payload(
@@ -138,84 +135,51 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
                 response = await self.process_request(self.make_request(tx))
                 self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
                 self.assertIn("Transaction contract name is invalid", response.check_tx.log)
-                self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+                self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
 
-    async def test_check_tx_rejects_skipped_nonce(self):
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 2)
+    async def test_check_tx_accepts_a_gap_without_cancelling_older_pending_nonces(self):
+        committed_nonce = VALID_NONCE - 2
+        self.app.nonce_storage.set_nonce(SENDER, committed_nonce)
+        self.app.client.raw_driver.commit()
+        lower = make_signed_tx_bytes(nonce=committed_nonce + 1)
 
-        response = await self.process_request(self.make_request())
+        for raw in (VALID_TX_BYTES, lower):
+            response = await self.process_request(self.make_request(raw))
+            self.assertEqual(response.check_tx.code, self.constants.OkCode)
+            self.assertEqual(self.app.nonce_storage.get_next_nonce(SENDER), committed_nonce + 1)
 
-        self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
-        self.assertIn("Expected 5, got 6", response.check_tx.log)
-        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
-
-    async def test_check_tx_advances_pending_nonce_for_sequenced_txs(self):
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
-        next_tx = make_signed_tx_bytes(nonce=VALID_NONCE + 1)
-
-        first_response = await self.process_request(self.make_request())
-        second_response = await self.process_request(self.make_request(next_tx))
-
-        self.assertEqual(first_response.check_tx.code, self.constants.OkCode)
-        self.assertEqual(second_response.check_tx.code, self.constants.OkCode)
-        self.assertEqual(
-            self.app.nonce_storage.get_pending_nonce(SENDER),
-            VALID_NONCE + 1,
-        )
+    async def test_check_tx_accepts_largest_wire_nonce(self):
+        request = self.make_request(make_signed_tx_bytes(nonce=2**53 - 1))
+        self.assertEqual((await self.process_request(request)).check_tx.code, self.constants.OkCode)
 
     async def test_check_tx_accepts_identical_retransmission(self):
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
 
         first_response = await self.process_request(self.make_request())
         second_response = await self.process_request(self.make_request())
 
         self.assertEqual(first_response.check_tx.code, self.constants.OkCode)
         self.assertEqual(second_response.check_tx.code, self.constants.OkCode)
-        self.assertEqual(
-            self.app.nonce_storage.get_pending_nonce(SENDER),
-            VALID_NONCE,
-        )
+        self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
 
     async def test_check_tx_rejects_default_json_wire_format(
         self,
     ):
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
         tx_bytes = make_signed_tx_bytes_with_raw_spacing(nonce=VALID_NONCE)
 
         response = await self.process_request(self.make_request(tx_bytes))
 
         self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
         self.assertIn("Transaction bytes are not canonical", response.check_tx.log)
-        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
-
-    async def test_check_tx_expires_stale_pending_reservations(self):
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
-
-        response = await self.process_request(self.make_request())
-        self.assertEqual(response.check_tx.code, self.constants.OkCode)
-        reservation = self.app.nonce_storage.pending_nonces[SENDER][VALID_NONCE]
-
-        with patch.object(
-            self.app.nonce_storage,
-            "_now",
-            return_value=(
-                reservation.reserved_at + self.app.nonce_storage.reservation_ttl_seconds + 1.0
-            ),
-        ):
-            self.assertEqual(
-                self.app.nonce_storage.get_next_nonce(SENDER),
-                VALID_NONCE,
-            )
+        self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
 
     async def test_check_tx_rejections_are_counted_not_logged_per_transaction(self):
         # A public RPC node can be sent any number of invalid transactions;
         # a WARNING record per rejection, which re-encoded the transaction to
         # hash it, turned that into log and CPU spam. Rejections are counted
         # and reported once per committed block; the responses are unchanged.
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
         rejected = [
-            make_signed_tx_bytes(nonce=VALID_NONCE + 5),
-            make_signed_tx_bytes(nonce=VALID_NONCE + 6),
+            make_signed_tx_bytes(nonce=VALID_NONCE - 1),
+            make_signed_tx_bytes(nonce=VALID_NONCE - 2),
             b"not hex",
         ]
         records = []
@@ -239,8 +203,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["extra"]["rejected_txs"], 3)
         self.assertEqual(summary["extra"]["TransactionException"], 3)
 
-    async def test_check_tx_bad_signature_does_not_reserve_nonce(self):
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+    async def test_check_tx_rejects_bad_signature(self):
         payload = {
             "chain_id": "xian-testnet-1",
             "contract": "currency",
@@ -260,10 +223,9 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
         self.assertIn("Bad signature", response.check_tx.log)
-        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+        self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
 
-    async def test_check_tx_wrong_chain_id_does_not_reserve_nonce(self):
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+    async def test_check_tx_rejects_wrong_chain_id(self):
         payload = {
             "chain_id": "wrong-chain",
             "contract": "currency",
@@ -279,39 +241,18 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
         self.assertIn("Wrong chain_id", response.check_tx.log)
-        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+        self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
 
     async def test_check_tx_rejects_tx_larger_than_configured_max_bytes(self):
         self.app.max_tx_bytes = len(VALID_TX_BYTES) - 1
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
 
         response = await self.process_request(self.make_request())
 
         self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
         self.assertIn("maximum configured size", response.check_tx.log)
-        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+        self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
 
-    async def test_check_tx_rejects_sender_with_too_many_pending_nonces(self):
-        self.app.nonce_storage.max_pending_nonces_per_sender = 1
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
-        next_tx = make_signed_tx_bytes(nonce=VALID_NONCE + 1)
-
-        first_response = await self.process_request(self.make_request())
-        second_response = await self.process_request(self.make_request(next_tx))
-
-        self.assertEqual(first_response.check_tx.code, self.constants.OkCode)
-        self.assertEqual(second_response.check_tx.code, self.constants.ErrorCode)
-        self.assertIn(
-            "Too many pending transactions reserved for sender",
-            second_response.check_tx.log,
-        )
-        self.assertEqual(
-            self.app.nonce_storage.get_pending_nonce(SENDER),
-            VALID_NONCE,
-        )
-
-    async def test_check_tx_insufficient_chi_does_not_reserve_nonce(self):
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
+    async def test_check_tx_rejects_insufficient_chi(self):
         self.app.client.raw_driver.set(f"currency.balances:{SENDER}", 0)
 
         response = await self.process_request(self.make_request())
@@ -321,11 +262,10 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
             "Transaction sender's balance cannot cover the chi_supplied fee reservation",
             response.check_tx.log,
         )
-        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+        self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
 
     async def test_check_tx_accepts_a_balance_that_exactly_covers_the_reservation(self):
         # chi_supplied 100 at 20 chi per XIAN reserves exactly 5 XIAN.
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
         self.app.client.raw_driver.set(f"currency.balances:{SENDER}", 5)
 
         response = await self.process_request(
@@ -347,8 +287,6 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         )
         for function, amount, accepted in cases:
             with self.subTest(function=function, amount=amount):
-                self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
-                self.app.nonce_storage.flush_pending()
                 response = await self.process_request(
                     self.make_request(
                         make_signed_tx_bytes(nonce=VALID_NONCE, amount=amount, function=function)
@@ -370,23 +308,18 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
             max_block_chi=1_000,
         )
         self.app.enable_tx_fee = False
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
         self.app.client.raw_driver.set(f"currency.balances:{SENDER}", 0)
 
         response = await self.process_request(self.make_request())
 
         self.assertEqual(response.check_tx.code, self.constants.OkCode)
-        self.assertEqual(
-            self.app.nonce_storage.get_pending_nonce(SENDER),
-            VALID_NONCE,
-        )
+        self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
 
     async def test_check_tx_applies_the_genesis_paid_policy_tx_cap(self):
         # The fixture genesis carries the default paid policy; its per-tx cap
         # holds even though the sender can afford a larger budget.
         self.assertEqual(self.app.tx_fee_policy.mode, "paid_metered")
         self.assertEqual(self.app.tx_fee_policy.max_tx_chi, DEFAULT_MAX_TX_CHI)
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
 
         over = await self.process_request(
             self.make_request(
@@ -407,7 +340,6 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         for factory in (TxFeePolicy.paid_metered, TxFeePolicy.free_metered):
             with self.subTest(mode=factory.__name__):
                 self.app.tx_fee_policy = factory(max_tx_chi=99, max_block_chi=1_000)
-                self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
 
                 response = await self.process_request(self.make_request())
 
@@ -416,11 +348,10 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
                     "chi_supplied 100 exceeds the chain's per-transaction limit of 99 chi",
                     response.check_tx.log,
                 )
-                self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
-        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+                self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
+        self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
 
     async def test_check_tx_accepts_runtime_big_int_transfer_amount(self):
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
         self.app.client.raw_driver.set(
             f"currency.balances:{SENDER}",
             2**65,
@@ -442,13 +373,9 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         response = await self.process_request(self.make_request(tx_bytes))
 
         self.assertEqual(response.check_tx.code, self.constants.OkCode)
-        self.assertEqual(
-            self.app.nonce_storage.get_pending_nonce(SENDER),
-            VALID_NONCE,
-        )
+        self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
 
     async def test_check_tx_rejects_duplicate_payload_wire_format(self):
-        self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE - 1)
         malicious_tx = (
             '{"payload":{"chain_id":"xian-testnet-1","contract":"currency",'
             '"function":"transfer","kwargs":{"amount":999,"to":"'
@@ -470,7 +397,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.check_tx.code, self.constants.ErrorCode)
         self.assertIn("Transaction bytes are not canonical", response.check_tx.log)
-        self.assertIsNone(self.app.nonce_storage.get_pending_nonce(SENDER))
+        self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,10 @@ This file records the runtime properties that must hold before an
   writes and events while retaining consumed chi for normal failure accounting.
   This check does not restrict return-only values: transaction results continue
   to render those values as text.
+- A sender's nonce must increase in proposal order from its last committed
+  value. Gaps are valid. The highest nonce committed for a sender invalidates
+  every lower nonce, including queued transactions. A committed call consumes
+  its nonce even when execution fails.
 - Paid and free metered transactions require a positive `chi_supplied` at
   admission, proposal validation, and finalization. Internal system execution
   retains its explicit unmetered policy. Changes to these consensus validation

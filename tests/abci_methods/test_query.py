@@ -1029,8 +1029,9 @@ class TestQuery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.query.key, ACCOUNT.encode("utf-8"))
         self.assertEqual(response.query.value, b"0")
 
-    async def test_get_next_nonce_query_uses_pending_nonce(self):
-        self.app.nonce_storage.set_pending_nonce(ACCOUNT, 9)
+    async def test_get_next_nonce_query_uses_committed_nonce(self):
+        self.app.nonce_storage.set_nonce(ACCOUNT, 9)
+        self.app.client.raw_driver.commit()
 
         response = await self.process_request(
             Request(query=RequestQuery(path=f"/get_next_nonce/{ACCOUNT}"))

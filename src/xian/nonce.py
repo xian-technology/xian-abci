@@ -1,215 +1,54 @@
-import time
-from dataclasses import dataclass
-from threading import RLock
+"""Read and advance the committed nonce for each sender."""
 
-from contracting import constants as config
+from contracting.constants import DELIMITER, INDEX_SEPARATOR
 
-from xian.config_values import finite_float
-from xian.constants import Constants as c
+from xian.constants import Constants
 from xian.exceptions import TransactionException
-from xian.node_defaults import RUNTIME_DEFAULTS
-
-DEFAULT_PENDING_NONCE_RESERVATION_TTL_SECONDS = (
-    RUNTIME_DEFAULTS.pending_nonce_reservation_ttl_seconds
-)
-DEFAULT_MAX_PENDING_NONCES_PER_SENDER = RUNTIME_DEFAULTS.max_pending_nonces_per_sender
 
 
-@dataclass
-class NonceReservation:
-    tx_hash: str
-    reserved_at: float
+def validate_nonce(nonce: int, latest: int | None) -> None:
+    if latest is not None and nonce <= latest:
+        raise TransactionException(
+            f"Transaction nonce is invalid. Must be greater than {latest}, got {nonce}"
+        )
 
 
 class NonceStorage:
-    def __init__(
-        self,
-        client,
-        root=None,
-        reservation_ttl_seconds: float = DEFAULT_PENDING_NONCE_RESERVATION_TTL_SECONDS,
-        max_pending_nonces_per_sender: int = DEFAULT_MAX_PENDING_NONCES_PER_SENDER,
-    ):
-        root = root if root is not None else c.STORAGE_HOME
+    def __init__(self, client):
         self.client = client
-        self.pending_nonces: dict[str, dict[int, NonceReservation]] = {}
-        self._pending_lock = RLock()
-        self.reservation_ttl_seconds = finite_float(
-            reservation_ttl_seconds, name="pending_nonce_reservation_ttl_seconds"
-        )
-        self.max_pending_nonces_per_sender = max(
-            int(max_pending_nonces_per_sender),
-            1,
-        )
 
-    def _now(self) -> float:
-        return time.monotonic()
+    @staticmethod
+    def key(sender: str) -> str:
+        return f"{Constants.NONCE_FILENAME}{INDEX_SEPARATOR}{sender}{DELIMITER}"
 
-    def _prune_pending_for_sender(self, sender: str) -> None:
-        with self._pending_lock:
-            sender_pending = self.pending_nonces.get(sender)
-            if not sender_pending:
-                self.pending_nonces.pop(sender, None)
-                return
+    def get_nonce(self, sender: str) -> int | None:
+        return self.client.raw_driver.value_from_disk(self.key(sender))
 
-            if self.reservation_ttl_seconds <= 0:
-                return
+    def get_next_nonce(self, sender: str) -> int:
+        latest = self.get_nonce(sender)
+        return 0 if latest is None else latest + 1
 
-            expires_before = self._now() - self.reservation_ttl_seconds
-            for nonce, reservation in list(sender_pending.items()):
-                if reservation.reserved_at < expires_before:
-                    del sender_pending[nonce]
+    def set_nonce(self, sender: str, nonce: int) -> None:
+        self.client.raw_driver.set(self.key(sender), nonce)
 
-            if not sender_pending:
-                self.pending_nonces.pop(sender, None)
+    def set_nonce_by_tx(self, tx: dict) -> None:
+        payload = tx["payload"]
+        self.set_nonce(payload["sender"], payload["nonce"])
 
-    def _prune_pending(self) -> None:
-        with self._pending_lock:
-            for sender in list(self.pending_nonces):
-                self._prune_pending_for_sender(sender)
 
-    def _get_committed_nonce(self, sender: str) -> int | None:
-        return self.get_nonce(sender=sender)
+class BlockNonceTracker:
+    """Validate against committed state and previously included transactions."""
 
-    def check_nonce(self, tx: dict, *, tx_hash: str):
-        with self._pending_lock:
-            tx_nonce = tx["payload"]["nonce"]
-            tx_sender = tx["payload"]["sender"]
-            self._prune_pending_for_sender(tx_sender)
-            sender_pending = self.pending_nonces.get(tx_sender, {})
-            existing = sender_pending.get(tx_nonce)
+    def __init__(self, get_committed_nonce):
+        self._get_committed_nonce = get_committed_nonce
+        self._latest_nonces: dict[str, int] = {}
 
-            # Accept duplicate admission/recheck of the exact same transaction
-            # without advancing the sender's local mempool sequence again.
-            if existing is not None and existing.tx_hash == tx_hash:
-                existing.reserved_at = self._now()
-                return
-
-            expected_nonce = self.get_next_nonce(sender=tx_sender)
-
-            if tx_nonce != expected_nonce:
-                raise TransactionException(
-                    f"Transaction nonce is invalid. Expected {expected_nonce}, got {tx_nonce}"
-                )
-
-            if len(sender_pending) >= self.max_pending_nonces_per_sender:
-                raise TransactionException("Too many pending transactions reserved for sender")
-
-            sender_pending[tx_nonce] = NonceReservation(
-                tx_hash=tx_hash,
-                reserved_at=self._now(),
-            )
-            self.pending_nonces[tx_sender] = sender_pending
-
-    def set_nonce_by_tx(self, tx):
-        self.client.raw_driver.set(
-            c.NONCE_FILENAME + config.INDEX_SEPARATOR + tx["payload"]["sender"] + config.DELIMITER,
-            tx["payload"]["nonce"],
-        )
-
-    def set_nonce(self, sender, value):
-        self.client.raw_driver.set(
-            c.NONCE_FILENAME + config.INDEX_SEPARATOR + sender + config.DELIMITER,
-            value,
-        )
-
-    # Move this to transaction.py
-    def get_nonce(self, sender):
-        return self.client.raw_driver.get(
-            c.NONCE_FILENAME + config.INDEX_SEPARATOR + sender + config.DELIMITER
-        )
-
-    # Move this to transaction.py
-    def get_pending_nonce(self, sender):
-        with self._pending_lock:
-            self._prune_pending_for_sender(sender)
-            sender_pending = self.pending_nonces.get(sender, {})
-            if not sender_pending:
-                return None
-
-            current_nonce = self._get_committed_nonce(sender=sender)
-            if current_nonce is None:
-                current_nonce = -1
-            latest_nonce = current_nonce
-
-            while (latest_nonce + 1) in sender_pending:
-                latest_nonce += 1
-
-            if latest_nonce == current_nonce:
-                return None
-            return latest_nonce
-
-    def safe_set_nonce(self, sender, value):
-        current_nonce = self.get_nonce(sender=sender)
-
-        if current_nonce is None:
-            current_nonce = -1
-
-        if value > current_nonce:
-            self.client.raw_driver.set(
-                c.NONCE_FILENAME + config.INDEX_SEPARATOR + sender + config.DELIMITER,
-                value,
-            )
-
-    def set_pending_nonce(self, sender, value):
-        with self._pending_lock:
-            current_nonce = self._get_committed_nonce(sender=sender)
-            if current_nonce is None:
-                current_nonce = -1
-
-            now = self._now()
-            sender_pending = {}
-            for nonce in range(current_nonce + 1, value + 1):
-                sender_pending[nonce] = NonceReservation(
-                    tx_hash=f"manual:{sender}:{nonce}",
-                    reserved_at=now,
-                )
-            if sender_pending:
-                self.pending_nonces[sender] = sender_pending
-            else:
-                self.pending_nonces.pop(sender, None)
-
-    # Move this to webserver.py
-    def get_latest_nonce(self, sender):
-        with self._pending_lock:
-            latest_nonce = self.get_pending_nonce(sender=sender)
-
-            if latest_nonce is None:
-                latest_nonce = self.get_nonce(sender=sender)
-
-            if latest_nonce is None:
-                latest_nonce = 0
-
-            return latest_nonce
-
-    def get_next_nonce(self, sender):
-        with self._pending_lock:
-            current_nonce = self.get_pending_nonce(sender=sender)
-
-            if current_nonce is None:
-                current_nonce = self.get_nonce(sender=sender)
-
-            if current_nonce is None:
-                return 0
-
-            return current_nonce + 1
-
-    def reconcile_pending(self):
-        with self._pending_lock:
-            self._prune_pending()
-            for sender, sender_pending in list(self.pending_nonces.items()):
-                committed_nonce = self._get_committed_nonce(sender=sender)
-                if committed_nonce is None:
-                    continue
-                for nonce in list(sender_pending):
-                    if nonce <= committed_nonce:
-                        del sender_pending[nonce]
-                if not sender_pending:
-                    self.pending_nonces.pop(sender, None)
-
-    def flush(self):
-        self.client.raw_driver.flush_file(c.NONCE_FILENAME)
-        self.flush_pending()
-
-    def flush_pending(self):
-        with self._pending_lock:
-            self.pending_nonces.clear()
+    def validate_and_advance(self, tx: dict) -> None:
+        payload = tx["payload"]
+        sender = payload["sender"]
+        nonce = payload["nonce"]
+        latest = self._latest_nonces.get(sender)
+        if latest is None:
+            latest = self._get_committed_nonce(sender)
+        validate_nonce(nonce, latest)
+        self._latest_nonces[sender] = nonce
