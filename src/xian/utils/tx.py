@@ -56,8 +56,8 @@ TRANSFER_EXCEEDS_BALANCE = (
     "currency.transfer amount plus the chi_supplied fee reservation exceeds the sender's balance"
 )
 
-ADMISSION_CACHE_MAX_ENTRIES = 8_192
-ADMISSION_CACHE_MAX_BYTES = 32 * 1024 * 1024
+ADMISSION_CACHE_MAX_ENTRIES = 32_768
+ADMISSION_CACHE_MAX_BYTES = 128 * 1024 * 1024
 
 
 def create_transaction_admission_cache(chain_id: str):
