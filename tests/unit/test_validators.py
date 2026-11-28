@@ -300,6 +300,8 @@ def test_pq_evidence_maps_to_member_including_after_exit():
     key = bytes.fromhex("93" * 1952)
     address = sha256(key).digest()[:20]
     app = _FakeApp(pq_state({VALIDATOR: key.hex()}))
+    app.genesis = {"consensus_params": {"validator": {"pub_key_types": ["ml_dsa_65"]}}}
+    app.validator_handler = ValidatorHandler(app)
     assert active_validator_keys_by_address(app) == {address: VALIDATOR}
     app.client.raw_driver.set("validators.active_validators", [])
     assert _resolve_misbehaving_validator_key(app, address) == VALIDATOR

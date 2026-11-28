@@ -12,7 +12,7 @@ import hashlib
 from loguru import logger
 
 from xian.app_logging import build_log_fields
-from xian.validator_keys import ADDRESS_PREFIX, consensus_address, state_suite
+from xian.validator_keys import ADDRESS_PREFIX, consensus_address
 
 SYSTEM_EVIDENCE_SENDER = "__evidence_penalty_driver__"
 MISBEHAVIOR_TYPE_NAMES = {
@@ -31,7 +31,7 @@ def _member_address(suite, member, read) -> bytes | None:
 def active_validator_keys_by_address(self) -> dict[bytes, str]:
     """Liveness resolves only the bounded active set, never lifetime history."""
     read = self.client.raw_driver.get
-    suite = state_suite(read)
+    suite = self.validator_handler.suite
     keys = {}
     for member in read("validators.active_validators") or []:
         address = _member_address(suite, member, read)
@@ -45,7 +45,11 @@ def _resolve_misbehaving_validator_key(self, validator_address: bytes) -> str | 
         return None
     read = self.client.raw_driver.get
     member = read(ADDRESS_PREFIX + validator_address.hex())
-    return member if _member_address(state_suite(read), member, read) == validator_address else None
+    return (
+        member
+        if _member_address(self.validator_handler.suite, member, read) == validator_address
+        else None
+    )
 
 
 def _misbehavior_type_name(raw_type: int) -> str | None:
