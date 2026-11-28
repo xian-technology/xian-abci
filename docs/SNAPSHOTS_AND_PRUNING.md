@@ -15,7 +15,7 @@ recipient configuration, node keys, validator keys and signing state survive.
 An archive cannot supply missing local signing state. Do not reset a validator's
 signing high-water mark to match an older checkpoint.
 
-The normal publication format is a signed JSON manifest with this exact schema:
+Ed25519 publishers sign a v2 JSON manifest with this schema.
 
 ```json
 {
@@ -41,12 +41,33 @@ All fields except `signature` are signed using compact, sorted JSON produced by
 The signer must be independently trusted. The manifest is limited to 64 KiB;
 v1 manifests and application-only backups cannot authorize bootstrap.
 
-An independently trusted `expected_sha256` may instead pin a raw full-store
-archive. It receives the same checkpoint, genesis, history and resource checks.
-A checksum supplied by the backup server itself is not a trust anchor. With a
-manifest, an explicit checksum is an additional archive pin. A trusted publisher
-or archive pin vouches for backup origin; consistency checks are not replay
-verification from genesis.
+ML-DSA-65 publishers use the same fields with `manifest_version: 3`.
+`signing_public_key` is `ml-dsa-65:` followed by 3,904 lowercase hex characters.
+`signature` is 6,618 lowercase hex characters. The signer prepends the ASCII
+bytes of `XIAN-FULL-NODE-STORE` and one zero byte to the UTF-8 canonical JSON
+and signs the result with pure ML-DSA-65 and an empty FIPS 204 context.
+
+Create the publisher key offline with `python -m xian.snapshot_attestation NEW_KEY_FILE`.
+The command creates a mode-0600 file exclusively and prints its public pin.
+Distribute that pin independently to the recipients' `snapshot_signing_keys`.
+Rotate by preinstalling a second independently authenticated PQ pin, publishing
+and verifying a snapshot with that key, then removing the retired pin everywhere.
+The pin authenticates the publisher. For a specific historical recovery point,
+pin the expected archive SHA-256 independently as well. An older valid snapshot
+of the same chain can still authenticate.
+
+A PQ pin requires a signed v3 manifest. The recipient also requires a PQ
+publisher when its genesis enables ML-DSA-65 validators or an account registry,
+or when its committed store or the incoming store contains the account registry.
+For a registry activated after genesis, provision PQ pins for every fresh
+recipient before bootstrap. This carries the upgraded trust policy to an empty
+home. Both local `file://` manifests and HTTP(S) manifests use these checks.
+Trust the genesis, runtime and publisher pins through independent channels.
+
+A classical home can use an independently trusted `expected_sha256` for a raw
+full-store archive. Every restore verifies the complete checkpoint, genesis,
+history and resource limits. Verification authenticates the publisher's
+checkpoint without replaying every transaction from genesis.
 
 Before replacing either root, the verifier:
 

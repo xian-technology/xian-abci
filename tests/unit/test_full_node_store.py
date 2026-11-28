@@ -660,3 +660,211 @@ def test_full_store_checkpoint_compares_derived_mid_ramp_limits_not_stored_base(
     (source / "data/native-checkpoint.json").write_text(json.dumps(native))
     with pytest.raises(ValueError, match="evidence limits mismatch"):
         read_full_node_store_checkpoint(source, native_store_inspector=fixture_inspector)
+
+
+def _pq_genesis(home):
+    path = home / "config/genesis.json"
+    genesis = json.loads(path.read_text())
+    genesis["consensus_params"] = {"validator": {"pub_key_types": ["ml_dsa_65"]}}
+    path.write_text(json.dumps(genesis))
+    return genesis_sha256(genesis)
+
+
+def test_pq_publisher_signs_snapshot_and_binds_domain_archive_and_genesis(stores, tmp_path):
+    from xian_accounts.hybrid import backend
+
+    from xian.snapshot_attestation import generate_publisher_key, load_publisher_key
+
+    _, target, _, payload, classic, _ = stores
+    key_file = tmp_path / "offline.key"
+    pin = generate_publisher_key(key_file)
+    signer = load_publisher_key(key_file)
+    assert signer.public_key == pin
+    assert key_file.stat().st_mode & 0o077 == 0
+    with pytest.raises(FileExistsError):
+        generate_publisher_key(key_file)
+    assert load_publisher_key(key_file).public_key == pin
+    archive = tmp_path / "snapshot.tar.gz"
+    archive.write_bytes(payload)
+    manifest = {
+        **classic,
+        "manifest_version": 3,
+        "signing_public_key": pin,
+        "snapshot_url": archive.as_uri(),
+        "genesis_sha256": _pq_genesis(target),
+    }
+    transcript = full_node_store_manifest_payload(manifest)
+    manifest["signature"] = signer.sign_message(transcript)
+    assert len(bytes.fromhex(manifest["signature"])) == 3309
+    assert transcript.startswith("XIAN-FULL-NODE-STORE\x00")
+    assert not backend().verify(
+        bytes.fromhex(pin.split(":")[1]),
+        transcript.split("\x00")[1].encode(),
+        bytes.fromhex(manifest["signature"]),
+    )
+    document = tmp_path / "snapshot.json"
+    document.write_text(json.dumps(manifest))
+    assert document.stat().st_size < 65536
+    apply_snapshot_archive(
+        str(document),
+        target,
+        trusted_manifest_public_keys=[pin],
+        expected_chain_id=manifest["chain_id"],
+        native_store_inspector=fixture_inspector,
+    )
+    assert (target / "xian/lmdb/data.mdb").is_file()
+    for field, changed in (
+        ("height", 124),
+        ("genesis_sha256", "e" * 64),
+        ("snapshot_sha256", "e" * 64),
+        ("chain_id", "another-chain"),
+    ):
+        with pytest.raises(ValueError, match="signature"):
+            verify_full_node_store_manifest(
+                {**manifest, field: changed}, trusted_manifest_public_keys=[pin]
+            )
+    with pytest.raises(ValueError, match="chain_id"):
+        verify_full_node_store_manifest(
+            manifest, trusted_manifest_public_keys=[pin], expected_chain_id="other"
+        )
+    wrong_pin = generate_publisher_key(tmp_path / "wrong.key")
+    with pytest.raises(ValueError, match="not trusted"):
+        verify_full_node_store_manifest(manifest, trusted_manifest_public_keys=[wrong_pin])
+    key_file.chmod(0o644)
+    with pytest.raises(ValueError, match="private"):
+        load_publisher_key(key_file)
+
+
+@pytest.mark.parametrize("attempt", ["raw", "classic", "mixed", "unsigned", "direct"])
+def test_pq_genesis_requires_pq_attestation_for_every_restore_path(stores, tmp_path, attempt):
+    from xian.snapshot_restore import restore_application_archive
+
+    _, target, _, payload, classic, signer = stores
+    classic["genesis_sha256"] = _pq_genesis(target)
+    archive = tmp_path / "snap.tar.gz"
+    archive.write_bytes(payload)
+    classic["snapshot_url"] = archive.as_uri()
+    classic["signature"] = signer.sign_message(full_node_store_manifest_payload(classic))
+    doc = tmp_path / "manifest.json"
+    doc.write_text(json.dumps(classic))
+    pq_pin = "ml-dsa-65:" + "a1" * 1952
+    pins = {"classic": [signer.public_key], "mixed": [signer.public_key, pq_pin], "raw": [pq_pin]}
+    with pytest.raises(ValueError, match="ML-DSA-65|ML-DSA"):
+        if attempt == "direct":
+            restore_application_archive(
+                archive, target, manifest=classic, native_store_inspector=fixture_inspector
+            )
+        else:
+            apply_snapshot_archive(
+                (doc if attempt in ("classic", "mixed") else archive).as_uri(),
+                target,
+                trusted_manifest_public_keys=pins.get(attempt, []),
+                expected_sha256=classic["snapshot_sha256"],
+                native_store_inspector=fixture_inspector,
+            )
+    assert (target / "data/original").is_file()
+
+
+@pytest.mark.parametrize("policy_source", ["genesis", "committed"])
+def test_registry_policy_protects_snapshots_on_classic_consensus(stores, policy_source):
+    _, home, _, _, _, _ = stores
+    key = "_accounts.policy"
+    value = {"version": 1, "transition_chi": 1000, "enrollment_open": True}
+    if policy_source == "genesis":
+        path = home / "config/genesis.json"
+        genesis = json.loads(path.read_text())
+        genesis["abci_genesis"] = {"genesis": [{"key": key, "value": value}]}
+        path.write_text(json.dumps(genesis))
+    else:
+        with Driver(storage_home=home / "xian", vm_profile="xian_vm_v2") as driver:
+            driver.set(key, value)
+            driver.commit()
+    with patch(
+        "xian.node_admin.urlopen", side_effect=AssertionError("download before trust check")
+    ):
+        with pytest.raises(ValueError, match="ML-DSA-65"):
+            apply_snapshot_archive("https://invalid/snap", home, expected_sha256="0" * 64)
+
+
+@pytest.mark.parametrize("value", [None, "slh-dsa:00", "ml-dsa-65:AB", "ml-dsa-65:" + "0" * 3903])
+def test_bad_publisher_pin_never_selects_a_legacy_path(stores, value):
+    _, target, _, _, manifest, _ = stores
+    with patch(
+        "xian.node_admin.urlopen", side_effect=AssertionError("download before trust check")
+    ):
+        with pytest.raises(ValueError, match="signing key"):
+            apply_snapshot_archive(
+                "https://invalid/snap",
+                target,
+                expected_sha256=manifest["snapshot_sha256"],
+                trusted_manifest_public_keys=[value],
+            )
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("format", "ed25519"),
+        ("public_key", "a" * 64),
+        ("secret_key", "0" * 63),
+    ],
+)
+def test_publisher_key_files_reject_wrong_suite_and_size(tmp_path, field, value):
+    from xian.snapshot_attestation import generate_publisher_key, load_publisher_key
+
+    path = tmp_path / "offline.key"
+    generate_publisher_key(path)
+    data = json.loads(path.read_text())
+    data[field] = value
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="format|key"):
+        load_publisher_key(path)
+    path.write_bytes(b"0" * 16385)
+    with pytest.raises(ValueError, match="size limit"):
+        load_publisher_key(path)
+
+
+def test_pq_pins_require_signed_manifest_even_on_classic_genesis(stores, tmp_path):
+    _, target, _, payload, manifest, _ = stores
+    archive = tmp_path / "store.tar.gz"
+    archive.write_bytes(payload)
+    with pytest.raises(ValueError, match="signed v3"):
+        apply_snapshot_archive(
+            archive.as_uri(),
+            target,
+            expected_sha256=manifest["snapshot_sha256"],
+            trusted_manifest_public_keys=["ml-dsa-65:" + "aa" * 1952],
+            native_store_inspector=fixture_inspector,
+        )
+
+
+def test_incoming_registry_stage_requires_pq_attestation(stores, tmp_path):
+    from xian.state_root import compute_driver_state_root
+
+    source, target, native, _, _, _ = stores
+    with Driver(storage_home=source / "xian", vm_profile="xian_vm_v2") as driver:
+        marker = driver.get("__latest_block")
+        driver.set("_accounts.policy", {"version": 2, "transition_chi": 1000})
+        root = compute_driver_state_root(driver).hex()
+        driver.set("__latest_block", {**marker, "hash": root})
+        driver.commit()
+    (source / "data/native-checkpoint.json").write_text(json.dumps({**native, "app_hash": root}))
+    archive = tmp_path / "store.tar.gz"
+    archive.write_bytes(
+        archive_bytes(
+            [
+                (p.relative_to(source).as_posix(), p.read_bytes())
+                for prefix in ("data", "xian")
+                for p in (source / prefix).rglob("*")
+                if p.is_file() and p.name != "lock.mdb"
+            ]
+        )
+    )
+    with pytest.raises(ValueError, match="requires an ML-DSA-65 publisher"):
+        apply_snapshot_archive(
+            archive.as_uri(),
+            target,
+            expected_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
+            native_store_inspector=fixture_inspector,
+        )
+    assert (target / "data/original").is_file()

@@ -11,13 +11,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, urlsplit, urlunsplit
 from urllib.request import urlopen
 
-from xian_accounts import is_valid_ed25519_key
-
 from xian.config_paths import resolve_genesis_source
 from xian.constants import Constants as c
 from xian.full_node_store import (
     NativeStoreInspector,
     canonical_hex,
+    requires_pq_snapshot_publisher,
     verify_full_node_store_manifest,
 )
 from xian.full_node_store_limits import MAX_MANIFEST_BYTES, FullNodeStoreLimits
@@ -31,9 +30,11 @@ from xian.node_setup import (
     write_json,
     write_toml,
 )
-from xian.snapshot_restore import restore_application_archive
+from xian.snapshot_attestation import is_pq_pin, validate_publisher_pins
+from xian.snapshot_restore import _restore_authenticated_archive
 from xian.state_sync_policy import validate_comet_state_sync_disabled
 from xian.toml_utils import load as load_toml
+from xian.validator_keys import ValidatorSuite
 from xian.utils.cometbft import format_url_netloc, normalize_rpc_url, split_host_port
 
 _ROOT_CONFIG_KEYS_TO_PRESERVE = (
@@ -221,28 +222,13 @@ def _fetch_json_url(url: str, *, timeout: float) -> dict[str, Any]:
     return json.loads(payload.decode(charset))
 
 
-def _normalize_snapshot_manifest_public_keys(
-    public_keys: list[str] | None,
-) -> list[str]:
-    if public_keys is None:
-        return []
-
-    normalized: list[str] = []
-    for value in public_keys:
-        if not isinstance(value, str):
-            raise ValueError("trusted snapshot signing keys must be hex strings")
-        key = value.strip()
-        if not is_valid_ed25519_key(key):
-            raise ValueError(f"invalid snapshot signing key: {value!r}")
-        normalized.append(key)
-    return normalized
-
-
 def _snapshot_source(snapshot_url, trusted_keys, expected_sha256, expected_chain_id):
     if trusted_keys:
         try:
             fetched = _fetch_json_url(snapshot_url, timeout=30)
         except (ValueError, UnicodeError):
+            if is_pq_pin(trusted_keys[0]):
+                raise ValueError("ML-DSA-65 snapshot pins require a signed v3 manifest") from None
             if expected_sha256 is None:
                 raise
             # Only an independently supplied checksum permits a non-JSON URI.
@@ -261,7 +247,7 @@ def _snapshot_source(snapshot_url, trusted_keys, expected_sha256, expected_chain
 
 
 def apply_snapshot_archive(
-    snapshot_url: str,
+    snapshot_url: str | Path,
     home: Path,
     *,
     expected_sha256: str | None = None,
@@ -275,7 +261,11 @@ def apply_snapshot_archive(
     limits = limits or FullNodeStoreLimits()
     if expected_sha256 is not None:
         canonical_hex(expected_sha256, "trusted snapshot SHA256")
-    trusted_keys = _normalize_snapshot_manifest_public_keys(trusted_manifest_public_keys)
+    trusted_keys = validate_publisher_pins(trusted_manifest_public_keys or [])
+    if not (trusted_keys and is_pq_pin(trusted_keys[0])) and requires_pq_snapshot_publisher(home):
+        raise ValueError("this home requires pinned ML-DSA-65 snapshot publishers")
+    if isinstance(snapshot_url, Path) or not urlsplit(snapshot_url).scheme:
+        snapshot_url = Path(snapshot_url).expanduser().resolve().as_uri()
     url, checksum, manifest = _snapshot_source(
         snapshot_url, trusted_keys, expected_sha256, expected_chain_id
     )
@@ -295,9 +285,10 @@ def apply_snapshot_archive(
             expected_bytes=manifest["snapshot_bytes"] if manifest else None,
             expected_sha256=checksum,
         )
-        restore_application_archive(
+        _restore_authenticated_archive(
             archive_path,
             home,
+            pq_authenticated=manifest is not None and manifest["manifest_version"] == 3,
             manifest=manifest,
             native_store_inspector=native_store_inspector,
             expected_chain_id=expected_chain_id,
@@ -384,14 +375,17 @@ def _restore_snapshot(request: ExistingHomeOptions) -> str | None:
 
 def _verify_genesis_pin(request: ExistingHomeOptions, genesis_file: str) -> None:
     """Refuse, before anything is written, a home whose genesis would differ from the pin."""
-    if request.expected_genesis_sha256 is None:
-        return
+    installed_path = resolve_home_relative_path(request.home, genesis_file)
     if request.genesis_payload is not None:
         genesis = request.genesis_payload
     elif request.genesis_source is not None:
         genesis = load_genesis(resolve_genesis_source(request.genesis_source))
+    elif request.expected_genesis_sha256 is None:
+        return
     else:
-        genesis = load_genesis(resolve_home_relative_path(request.home, genesis_file))
+        genesis = load_genesis(installed_path)
+    if installed_path.exists() and ValidatorSuite.from_genesis(load_genesis(installed_path)) is not ValidatorSuite.from_genesis(genesis):
+        raise ValueError("changing a validator suite requires a fresh node home")
     verify_genesis_sha256(genesis_sha256(genesis), request.expected_genesis_sha256)
 
 

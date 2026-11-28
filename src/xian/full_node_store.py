@@ -18,9 +18,11 @@ from typing import Callable
 
 from contracting.storage.lmdb_environment import standalone_environment
 from xian_accounts import verify_message
+from xian_accounts.hybrid import PQ_PUBLIC_BYTES, PQ_SIGNATURE_BYTES, backend
 from xian_runtime_types.encoding import decode
 from xian_vm_core import StateRootTree
 
+from xian.account_registry import POLICY_KEY as ACCOUNT_POLICY_KEY
 from xian.checkpoint_validation import (
     canonical_hex as canonical_hex,
 )
@@ -39,6 +41,12 @@ from xian.evidence_policy import (
 from xian.execution_policy import EXECUTION_POLICY_KEY, validate_execution_policy
 from xian.full_node_store_limits import FullNodeStoreLimits  # noqa: F401 - public policy API
 from xian.node_setup import genesis_sha256, load_genesis
+from xian.snapshot_attestation import (
+    PQ_DOMAIN,
+    PQ_KEY_PREFIX,
+    is_pq_pin,
+    validate_publisher_pins,
+)
 from xian.snapshot_restore_status import validate_snapshot_restore_complete
 from xian.state_root import HASHED_NODE_KEYS, HASHED_NODE_PREFIXES
 from xian.toml_utils import load as load_toml
@@ -82,9 +90,9 @@ INSPECTOR_FIELDS = frozenset(
 
 def validate_full_node_store_manifest(manifest: dict) -> dict:
     if type(manifest) is not dict or set(manifest) != MANIFEST_FIELDS:
-        raise ValueError("full-node-store manifest manifest_version 2 requires the exact fields")
-    if type(manifest["manifest_version"]) is not int or manifest["manifest_version"] != 2:
-        raise ValueError("unsupported snapshot manifest_version: full-node-store requires v2")
+        raise ValueError("full-node-store manifest_version requires the exact fields")
+    if type(manifest["manifest_version"]) is not int or manifest["manifest_version"] not in (2, 3):
+        raise ValueError("unsupported snapshot manifest_version: full-node-store requires v2 or v3")
     if manifest["snapshot_kind"] != "full_node_store":
         raise ValueError("snapshot_kind must be full_node_store")
     _validate_manifest_fields(manifest)
@@ -102,17 +110,28 @@ def _validate_manifest_fields(manifest):
         "app_hash",
         "block_hash",
         "snapshot_sha256",
-        "signing_public_key",
     ):
         canonical_hex(manifest[key], key)
-    canonical_hex(manifest["signature"], "signature", length=128)
+    pin = manifest["signing_public_key"]
+    if manifest["manifest_version"] == 3:
+        if type(pin) is not str or not is_pq_pin(pin):
+            raise ValueError("snapshot v3 requires an ML-DSA-65 publisher")
+        canonical_hex(pin[len(PQ_KEY_PREFIX) :], "signing_public_key", length=2 * PQ_PUBLIC_BYTES)
+    else:
+        canonical_hex(pin, "signing_public_key")
+    canonical_hex(manifest["signature"], "signature", length=_signature_hex_length(manifest))
+
+
+def _signature_hex_length(manifest):
+    return 2 * PQ_SIGNATURE_BYTES if manifest.get("manifest_version") == 3 else 128
 
 
 def full_node_store_manifest_payload(manifest: dict) -> str:
-    # Signing callers have not added a signature yet; validate through the same
-    # schema with a placeholder, then exclude only that field from the domain.
-    checked = validate_full_node_store_manifest({**manifest, "signature": "0" * 128})
-    return json.dumps(
+    checked = validate_full_node_store_manifest(
+        {**manifest, "signature": "0" * _signature_hex_length(manifest)}
+    )
+    domain = PQ_DOMAIN if checked["manifest_version"] == 3 else ""
+    return domain + json.dumps(
         {key: value for key, value in checked.items() if key != "signature"},
         sort_keys=True,
         separators=(",", ":"),
@@ -125,13 +144,19 @@ def verify_full_node_store_manifest(
     checked = validate_full_node_store_manifest(manifest)
     if expected_chain_id is not None and checked["chain_id"] != expected_chain_id:
         raise ValueError("snapshot manifest chain_id mismatch")
-    if checked["signing_public_key"] not in trusted_manifest_public_keys:
+    pin = checked["signing_public_key"]
+    if pin not in validate_publisher_pins(trusted_manifest_public_keys):
         raise ValueError("snapshot manifest signer is not trusted")
-    if not verify_message(
-        checked["signing_public_key"],
-        full_node_store_manifest_payload(checked),
-        checked["signature"],
-    ):
+    message = full_node_store_manifest_payload(checked)
+    if checked["manifest_version"] == 3:
+        valid = backend().verify(
+            bytes.fromhex(pin[len(PQ_KEY_PREFIX) :]),
+            message.encode("utf-8"),
+            bytes.fromhex(checked["signature"]),
+        )
+    else:
+        valid = verify_message(pin, message, checked["signature"])
+    if not valid:
         raise ValueError("snapshot manifest signature verification failed")
     return checked
 
@@ -253,6 +278,26 @@ def _reference_config(home: Path) -> tuple[dict, dict, Path]:
     genesis_path = genesis_path if genesis_path.is_absolute() else home / genesis_path
     genesis = load_genesis(genesis_path)
     return config, genesis, genesis_path
+
+
+def store_has_account_registry(home: Path) -> bool:
+    lmdb = home / "xian/lmdb"
+    if not (lmdb / "data.mdb").is_file():
+        return False
+    with standalone_environment(lmdb, readonly=True, lock=False) as environment:
+        return environment.get(ACCOUNT_POLICY_KEY.encode()) is not None
+
+
+def requires_pq_snapshot_publisher(home: Path, *, store_home: Path | None = None) -> bool:
+    if (home / "config/config.toml").is_file():
+        _, genesis, _ = _reference_config(home)
+        validators = genesis.get("consensus_params", {}).get("validator", {})
+        if "ml_dsa_65" in validators.get("pub_key_types", []):
+            return True
+        entries = genesis.get("abci_genesis", {}).get("genesis", [])
+        if any(entry.get("key") == ACCOUNT_POLICY_KEY for entry in entries):
+            return True
+    return store_has_account_registry(store_home or home)
 
 
 def _candidate_db_dir(store_home: Path, reference_home: Path, config: dict) -> Path:

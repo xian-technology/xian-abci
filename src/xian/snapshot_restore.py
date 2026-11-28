@@ -16,7 +16,12 @@ import unicodedata
 from pathlib import Path, PurePosixPath
 
 from xian.execution_policy import validate_persisted_execution_policy
-from xian.full_node_store import read_full_node_store_checkpoint, verify_full_node_store_checkpoint
+from xian.full_node_store import (
+    read_full_node_store_checkpoint,
+    requires_pq_snapshot_publisher,
+    store_has_account_registry,
+    verify_full_node_store_checkpoint,
+)
 from xian.full_node_store_limits import FullNodeStoreLimits
 from xian.services.snapshot_limits import SnapshotArchiveReader, SnapshotLimits
 from xian.snapshot_restore_status import validate_snapshot_restore_complete
@@ -262,9 +267,18 @@ def _check_home(home: Path) -> None:
 
 
 def _restore_application_archive(
-    archive_path, home, *, manifest, native_store_inspector, limits, expected_chain_id
+    archive_path,
+    home,
+    *,
+    manifest,
+    native_store_inspector,
+    limits,
+    expected_chain_id,
+    pq_authenticated,
 ):
     _check_home(home)
+    if not pq_authenticated and requires_pq_snapshot_publisher(home):
+        raise ValueError("use apply_snapshot_archive with trusted ML-DSA-65 snapshot pins")
     limits.check_size(archive_path.stat().st_size, limits.max_archive_bytes, "archive")
     validate_persisted_execution_policy(home / "xian")
     protected = _protected_paths(home)
@@ -287,6 +301,10 @@ def _restore_application_archive(
         point = _verify_staged_checkpoint(staged, home, manifest, native_store_inspector)
         if expected_chain_id is not None and point["chain_id"] != expected_chain_id:
             raise ValueError("full-node-store checkpoint chain_id mismatch")
+        if not pq_authenticated and store_has_account_registry(staged):
+            raise ValueError(
+                "this snapshot contains an account registry and requires an ML-DSA-65 publisher"
+            )
         _preserve_identity(home, staged, protected)
         _begin_publication(workspace)
         _publish(home, staged, backup)
@@ -315,6 +333,28 @@ def restore_application_archive(
     limits: FullNodeStoreLimits | None = None,
     expected_chain_id: str | None = None,
 ) -> None:
+    """Legacy local restore. PQ homes must authenticate the manifest through node_admin."""
+    _restore_authenticated_archive(
+        archive_path,
+        home,
+        manifest=manifest,
+        native_store_inspector=native_store_inspector,
+        limits=limits,
+        expected_chain_id=expected_chain_id,
+        pq_authenticated=False,
+    )
+
+
+def _restore_authenticated_archive(
+    archive_path: Path,
+    home: Path,
+    *,
+    manifest,
+    native_store_inspector,
+    limits,
+    expected_chain_id,
+    pq_authenticated,
+):
     home = home.resolve()
     with (home / ".snapshot-restore.lock").open("a") as lock:
         try:
@@ -327,5 +367,6 @@ def restore_application_archive(
             manifest=manifest,
             native_store_inspector=native_store_inspector,
             limits=limits or FullNodeStoreLimits(),
+            pq_authenticated=pq_authenticated,
             expected_chain_id=expected_chain_id,
         )
