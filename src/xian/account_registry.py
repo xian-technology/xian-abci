@@ -181,9 +181,20 @@ class AccountRegistry:
         self._proofs = proofs
 
     @cached_property
+    def _stored_policy(self):
+        return self.environment.get(POLICY_KEY.encode())
+
+    @cached_property
     def policy(self):
-        raw = self.environment.get(POLICY_KEY.encode())
-        return None if raw is None else RegistryPolicy.parse(decode(raw))
+        return (
+            None
+            if self._stored_policy is None
+            else RegistryPolicy.parse(decode(self._stored_policy))
+        )
+
+    def committed_authority(self, sender):
+        """The exact record and policy bytes read when authorizing this sender."""
+        return self._record(sender), self._stored_policy
 
     def _record(self, sender):
         if sender not in self._records:

@@ -63,7 +63,10 @@ ADMISSION_CACHE_MAX_BYTES = 128 * 1024 * 1024
 
 def create_transaction_admission_cache(chain_id: str):
     cache_type = getattr(xian_vm_core, "TransactionAdmissionCache", None)
-    if cache_type is None or not hasattr(cache_type, "check_live"):
+    if not all(
+        callable(getattr(cache_type, method, None))
+        for method in ("check_live", "check_account_live", "remember_account")
+    ):
         raise RuntimeError("The installed Xian VM does not provide native CheckTx admission")
     return cache_type(
         chain_id,

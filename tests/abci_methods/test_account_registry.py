@@ -236,7 +236,9 @@ class TestAccountRegistry(unittest.IsolatedAsyncioTestCase):
             self.driver.set(RECORD_PREFIX + self.sender, fresh.to_dict())
             self.driver.commit()
             self.assertEqual((await self.app.check_tx(wire(self.hybrid_tx(5)))).code, 1)
-            self.assertEqual((await self.app.check_tx(wire(self.hybrid_tx(5, fresh, active)))).code, 0)
+            self.assertEqual(
+                (await self.app.check_tx(wire(self.hybrid_tx(5, fresh, active)))).code, 0
+            )
             self.assertEqual(parser.call_count, 2)
 
     async def test_failed_proofs_never_modify_state_or_reserve_nonce(self):
@@ -483,6 +485,49 @@ def transfer(to: str, amount: int):
         response = await self.app.query(RequestQuery(path="/get/" + RECORD_PREFIX + self.sender))
         self.assertEqual(response.code, 0)
         self.assertEqual(json.loads(response.value), self.current.to_dict())
+
+    async def test_strict_recheck_reuses_authentication_and_reads_live_state(self):
+        self.app.tx_fee_policy = TxFeePolicy.paid_metered()
+        self.driver.set(POLICY_KEY, {"version": 2, "transition_chi": 1000})
+        self.driver.set(RECORD_PREFIX + self.sender, self.current.to_dict())
+        self.driver.commit()
+        spend = self.hybrid_tx()
+        raw = hybrid.compact_transaction(
+            canonical_json_text(spend["payload"]).encode(),
+            bytes.fromhex(spend["metadata"]["auth"]["signature"]),
+        )
+        self.assertEqual((await self.app.check_tx(raw)).code, 0)
+        with patch(
+            "xian_vm_core.decode_account_candidate", side_effect=AssertionError("redundant decode")
+        ):
+            self.assertEqual((await self.app.check_tx(raw, recheck=True)).code, 0)
+            self.driver.set(f"currency.balances:{self.sender}", 0)
+            self.driver.commit()
+            self.assertNotEqual((await self.app.check_tx(raw, recheck=True)).code, 0)
+            self.driver.set(f"currency.balances:{self.sender}", 50000)
+            self.driver.set("chi_cost.S:value", 0)
+            self.driver.commit()
+            self.assertNotEqual((await self.app.check_tx(raw, recheck=True)).code, 0)
+            self.driver.set("chi_cost.S:value", 20)
+            self.driver.commit()
+            self.app.tx_fee_policy = TxFeePolicy.paid_metered(max_tx_chi=999)
+            self.assertNotEqual((await self.app.check_tx(raw, recheck=True)).code, 0)
+            self.app.tx_fee_policy = TxFeePolicy.paid_metered()
+            self.assertEqual((await self.app.check_tx(raw, recheck=True)).code, 0)
+            self.app.nonce_storage.set_nonce(self.sender, 5)
+            self.driver.commit()
+            self.assertNotEqual((await self.app.check_tx(raw, recheck=True)).code, 0)
+        self.app.nonce_storage.set_nonce(self.sender, 4)
+        fresh, _, _ = record(1)
+        self.driver.set(RECORD_PREFIX + self.sender, fresh.to_dict())
+        self.driver.commit()
+        self.assertNotEqual((await self.app.check_tx(raw, recheck=True)).code, 0)
+        self.driver.set(RECORD_PREFIX + self.sender, self.current.to_dict())
+        self.driver.set(
+            POLICY_KEY, {"version": 1, "enrollment_open": False, "transition_chi": 1000}
+        )
+        self.driver.commit()
+        self.assertNotEqual((await self.app.check_tx(raw, recheck=True)).code, 0)
 
     async def test_strict_chain_uses_key_commitment_for_new_accounts(self):
         self.driver.set(POLICY_KEY, {"version": 2, "transition_chi": 1000})
