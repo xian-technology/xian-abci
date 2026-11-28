@@ -7,6 +7,7 @@ from enum import Enum
 from tendermint.crypto.keys_pb2 import PublicKey
 from xian.formatting import vk_is_formatted
 
+CONSENSUS_VALIDATORS_KEY = "validators.__consensus__"
 SUITE_KEY = "validators.consensus_key_type"
 PUBLIC_KEY_PREFIX = "validators.consensus_public_keys:"
 ADDRESS_PREFIX = "validators.consensus_keys:"
@@ -118,12 +119,17 @@ def _pq_member_powers(suite, state, require_records):
     if not isinstance(members, list) or not 1 <= len(members) <= MAX_MEMBERS:
         raise ValueError("invalid number of ML-DSA genesis validators")
     powers = {}
+    member_powers = {}
     for member in members:
         raw = suite.member_key(member, state.get)
         power = state.get("validators.powers:" + member, 10)
         if raw in powers or type(power) is not int or power <= 0:
             raise ValueError("invalid or duplicate ML-DSA genesis member")
         powers[raw] = power
+        member_powers[member] = power
+    baseline = state.get(CONSENSUS_VALIDATORS_KEY)
+    if baseline is not None and baseline != member_powers:
+        raise ValueError("genesis committed validator baseline differs from the initial set")
     if sum(powers.values()) > MAX_TOTAL_VOTING_POWER:
         raise ValueError("ML-DSA genesis exceeds the CometBFT voting power limit")
     if require_records:

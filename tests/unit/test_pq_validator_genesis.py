@@ -140,3 +140,12 @@ def test_unlimited_block_still_reserves_space_for_commit_and_evidence():
     g["consensus_params"]["evidence"]["max_bytes"] = "104857600"
     with pytest.raises(ValueError, match="maximum ML-DSA commit"):
         validate_genesis_validator_keys(g)
+
+
+def test_hardened_genesis_cannot_install_another_committed_validator_baseline():
+    g = hardened_genesis()
+    g["abci_genesis"]["genesis"].append(
+        {"key": "validators.__consensus__", "value": {"02" * 32: 9}}
+    )
+    with pytest.raises(ValueError, match="committed validator"):
+        validate_genesis_validator_keys(g)

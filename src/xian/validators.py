@@ -4,16 +4,13 @@ from xian_runtime_types.decimal import ContractingDecimal
 from tendermint.abci.types_pb2 import ValidatorUpdate
 from xian.formatting import vk_is_formatted
 from xian.validator_keys import (
+    CONSENSUS_VALIDATORS_KEY,
     MAX_MEMBERS,
     MAX_TOTAL_VOTING_POWER,
     ValidatorSuite,
     state_suite,
     validate_genesis_validator_keys,
 )
-
-# Node-managed metadata: contract identifiers cannot start/end with underscores.
-# Keeping it in the validators namespace includes it in app hashes and exports.
-CONSENSUS_VALIDATORS_KEY = "validators.__consensus__"
 
 
 class ValidatorHandler:
