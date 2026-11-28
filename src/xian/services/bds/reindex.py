@@ -7,11 +7,13 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import aiohttp
+import xian_vm_core
 from contracting.storage.driver import Driver
 from google.protobuf.timestamp_pb2 import Timestamp
 from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, loads_wire_json
 
+from xian.account_registry import COMPACT_PREFIX
 from xian.constants import Constants
 from xian.execution_policy import (
     VM_EXECUTION_MODE,
@@ -229,6 +231,7 @@ class BdsReindexer:
             zip(tx_bytes_list, tx_results, strict=True)
         ):
             payload = self._build_transaction_payload(
+                chain_id=header.get("chain_id", ""),
                 tx_b64=tx_b64,
                 tx_index=tx_index,
                 tx_result_rpc=tx_result_rpc,
@@ -299,12 +302,16 @@ class BdsReindexer:
     def _build_transaction_payload(
         self,
         *,
+        chain_id: str,
         tx_b64: str,
         tx_index: int,
         tx_result_rpc: dict[str, Any],
     ) -> BdsTransactionPayload | None:
         raw_tx = base64.b64decode(tx_b64)
-        envelope, _ = decode_transaction_bytes(raw_tx)
+        if raw_tx.startswith(COMPACT_PREFIX):
+            envelope = xian_vm_core.decode_account_candidate(raw_tx, chain_id)
+        else:
+            envelope, _ = decode_transaction_bytes(raw_tx)
         decoded_result = self._decode_tx_result_data(tx_result_rpc.get("data"))
 
         if not self._is_indexable_tx_result(decoded_result):

@@ -18,10 +18,10 @@ dependencies = [
     "prometheus-client>=0.25.0,<0.27",
     "protobuf==7.36.2",
     "pynacl>=1.6.2,<2",
-    "xian-tech-accounts>=0.1.4,<0.2",
-    "xian-tech-contracting>=1.1.4,<2",
+    "xian-tech-accounts[hybrid]>=0.2.0,<0.3",
+    "xian-tech-contracting>=1.2.0,<2",
     "xian-tech-runtime-types>=0.1.6,<0.2",
-    "xian-tech-vm-core>=0.1.5,<0.2",
+    "xian-tech-vm-core>=0.2.0,<0.3",
 ]
 keywords = ["blockchain", "cometbft", "abci", "xian", "python"]
 classifiers = [
@@ -32,7 +32,7 @@ classifiers = [
 
 [project.optional-dependencies]
 zk = [
-    "xian-tech-contracting[zk]>=1.1.4,<2",
+    "xian-tech-contracting[zk]>=1.2.0,<2",
 ]
 
 [project.urls]
@@ -93,6 +93,9 @@ exclude = [
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 ignore = ["E501"]
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/abci/__init__.py" }]
 
 [tool.uv.sources]
 xian-tech-compiler-core = { path = "../xian-contracting/packages/xian-compiler-core" }

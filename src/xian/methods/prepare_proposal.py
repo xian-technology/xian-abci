@@ -3,6 +3,7 @@ from collections import Counter
 from loguru import logger
 
 from tendermint.abci.types_pb2 import ResponsePrepareProposal
+from xian.account_registry import registry_for_app
 from xian.app_logging import build_log_fields
 from xian.exceptions import TransactionException
 from xian.nonce import BlockNonceTracker
@@ -12,7 +13,12 @@ from xian.utils.tx import (
 
 
 def _admit(
-    self, raw_tx: bytes, block_chi_supplied: int, chi_remaining: int | None, nonce_tracker
+    self,
+    raw_tx: bytes,
+    block_chi_supplied: int,
+    chi_remaining: int | None,
+    nonce_tracker,
+    account_registry,
 ) -> tuple[str, int]:
     """Classify one mempool transaction for this proposal: ``included`` or a skip reason.
 
@@ -26,6 +32,7 @@ def _admit(
             chain_id=self.chain_id,
             max_raw_tx_bytes=self.max_tx_bytes,
             admission_cache=self.transaction_admission_cache,
+            account_registry=account_registry,
             proposal_chi_remaining=chi_remaining,
         )
         if tx is not None:
@@ -42,10 +49,12 @@ def _admit(
         nonce_tracker.validate_and_advance(tx)
     except TransactionException:
         return "skipped_nonce", block_chi_supplied
+    account_registry.accept(tx)
     return "included_txs", next_block_chi_supplied
 
 
 async def prepare_proposal(self, req) -> ResponsePrepareProposal:
+    account_registry = registry_for_app(self)
     nonce_tracker = BlockNonceTracker(self.nonce_storage.get_nonce)
     txs = []
     counts = Counter()
@@ -65,7 +74,7 @@ async def prepare_proposal(self, req) -> ResponsePrepareProposal:
             continue
         chi_remaining = None if chi_limit is None else chi_limit - block_chi_supplied
         outcome, block_chi_supplied = _admit(
-            self, raw_tx, block_chi_supplied, chi_remaining, nonce_tracker
+            self, raw_tx, block_chi_supplied, chi_remaining, nonce_tracker, account_registry
         )
         counts[outcome] += 1
         if outcome == "included_txs":

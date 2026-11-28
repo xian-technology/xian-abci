@@ -19,7 +19,7 @@ from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, encode
 from xian_runtime_types.time import Timedelta
 
-from xian.config_paths import resolve_contracts_dir
+from engine_parity_contracts import genesis_contract_source
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.utils.encoding import encode_abci_json
@@ -263,7 +263,7 @@ def _setup(home, contracts=()):
     submitted = Datetime(2026, 1, 2, 3, 4, 5)
     driver.set_contract_from_source(
         "currency",
-        (resolve_contracts_dir() / "currency.s.py").read_text(encoding="utf-8"),
+        genesis_contract_source("currency"),
         timestamp=submitted,
     )
     driver.set_contract_from_source("con_probe", PROBE, developer="dev", timestamp=submitted)

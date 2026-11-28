@@ -5,7 +5,7 @@ import importlib
 import signal
 import sys
 import time
-from collections import Counter
+from collections import Counter, OrderedDict
 from dataclasses import replace
 
 
@@ -43,6 +43,7 @@ _refuse_optimized_python()
 
 from contracting.local import ContractingClient
 from loguru import logger
+from xian_accounts import hybrid
 
 from abci import __version__ as software_version
 from abci.server import ABCIServer
@@ -53,6 +54,7 @@ from tendermint.abci.types_pb2 import (
     ResponseLoadSnapshotChunk,
     ResponseOfferSnapshot,
 )
+from xian.account_registry import validate_persisted_account_policy
 from xian.app_logging import (
     build_log_fields,
     configure_logging,
@@ -173,7 +175,8 @@ class Xian:
         validate_comet_state_sync_disabled(self.cometbft_config)
         validate_comet_mempool_mode(self.cometbft_config)
         self.bds_config = validate_node_config(xian_config)
-        validate_genesis_execution_policy(self.genesis)
+        genesis_accounts = validate_genesis_execution_policy(self.genesis)
+        self.strict_accounts = genesis_accounts is not None and genesis_accounts.version == 2
         self.genesis_evidence_policy = validate_genesis_evidence_policy(self.genesis)
         validate_persisted_execution_policy(constants.STORAGE_HOME)
         self.execution_runtime = build_vm_runtime()
@@ -183,6 +186,13 @@ class Xian:
             vm_profile=VM_EXECUTION_MODE,
             storage_home=constants.STORAGE_HOME,
         )
+        try:
+            validate_persisted_account_policy(
+                self.client.raw_driver, genesis_accounts, constants.LATEST_BLOCK_KEY
+            )
+        except ValueError:
+            self.client.close()
+            raise
         self._validate_client_evidence_policy()
         reconcile_latest_block(
             self.client.raw_driver,
@@ -340,6 +350,8 @@ class Xian:
         except (TypeError, ValueError):
             configured_max_tx_bytes = DEFAULT_MAX_TX_BYTES
         self.max_tx_bytes = max(configured_max_tx_bytes, 1)
+        hybrid.backend()  # Mandatory verifier on every consensus participant.
+        self.account_proof_cache = OrderedDict()
         self.app_log_level = str(
             xian_config.get("app_log_level", RUNTIME_DEFAULTS.app_log_level)
         ).upper()

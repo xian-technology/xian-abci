@@ -318,3 +318,15 @@ original fixtures. Ten files under `fixtures/golden/block_executor` change in
 metering, fee and reward values, currency balances and reads, and their log
 fields. Transaction statuses, events, and non-currency state match the previous
 capture. The zk executor fixtures still match byte for byte.
+
+The historical replay corpus pins its deployed source inputs across the
+account-authorization upgrade. The currency and chi-cost sources in
+`inputs/` come from xian-configs commit
+`6af96f0af74ec6e1a0fb140f983251f0d79996c2`. Other genesis contracts in
+this corpus use the ABCI fixture's normalized source. Recompilation produced
+byte-identical source and IR for validators, dao, rewards and validator_penalties.
+All ordinary receipts, simulated results, fees and executor logs still match
+the frozen outputs. The nine system-block application hashes changed because
+genesis roots the execution and admission revisions. Each serialized response
+matched after clearing its app_hash, and every system receipt matched.
+Current-bundle genesis, integration and system tests run alongside this corpus.

@@ -6,6 +6,7 @@ import xian_vm_core
 from xian_runtime_types.encoding import decode_wire_numbers, encode_wire
 from xian_vm_core import decode_and_validate_transaction
 
+from xian.account_registry import ACCOUNT_PREFIXES
 from xian.exceptions import TransactionException
 from xian.execution_policy import VM_EXECUTION_MODE
 from xian.fee_policy import chain_chi_rate
@@ -162,16 +163,30 @@ def decode_and_validate_transaction_static_bytes(
     max_raw_tx_bytes: int | None = None,
     admission_cache=None,
     proposal_chi_remaining: int | None = None,
+    account_registry=None,
 ) -> dict | None:
     validate_raw_tx_size(raw_tx, max_raw_tx_bytes)
     try:
-        if proposal_chi_remaining is not None and _decode_transaction_for_proposal is not None:
-            return _decode_transaction_for_proposal(
+        if raw_tx.startswith(ACCOUNT_PREFIXES):
+            if account_registry is None:
+                raise TransactionException("Hybrid transactions require trusted account state")
+            tx = xian_vm_core.decode_account_candidate(raw_tx, chain_id)
+            if (
+                proposal_chi_remaining is not None
+                and tx["payload"]["chi_supplied"] > proposal_chi_remaining
+            ):
+                return None
+        elif proposal_chi_remaining is not None and _decode_transaction_for_proposal is not None:
+            tx = _decode_transaction_for_proposal(
                 raw_tx, chain_id, proposal_chi_remaining, admission_cache
             )
-        if admission_cache is not None and admission_cache.chain_id == chain_id:
-            return admission_cache.decode(raw_tx)
-        return decode_and_validate_transaction(raw_tx, chain_id)
+        elif admission_cache is not None and admission_cache.chain_id == chain_id:
+            tx = admission_cache.decode(raw_tx)
+        else:
+            tx = decode_and_validate_transaction(raw_tx, chain_id)
+        if account_registry is not None and tx is not None:
+            account_registry.authorize(tx, raw_tx)
+        return tx
     except ValueError as exc:
         raise TransactionException(str(exc)) from exc
 

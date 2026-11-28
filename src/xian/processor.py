@@ -4,6 +4,7 @@ from loguru import logger
 from xian_runtime_types.encoding import safe_repr
 from xian_vm_core import BlockExecutor, native_error_result
 
+from xian.account_registry import POLICY_KEY, RegistryPolicy, is_registry_transaction
 from xian.app_logging import build_log_fields
 from xian.execution_policy import EXECUTION_POLICY_KEY
 from xian.fee_policy import TxFeePolicy
@@ -104,8 +105,15 @@ class TxProcessor:
             ),
             block_meta=txs[0]["b_meta"],
         )
-        for raw in raw_txs:
-            executor.add(raw)
+        transition_chi = None
+        for tx, raw in zip(txs, raw_txs, strict=True):
+            if is_registry_transaction(tx):
+                if transition_chi is None:
+                    policy = self.client.raw_driver.value_from_disk(POLICY_KEY)
+                    transition_chi = RegistryPolicy.parse(policy).transition_chi
+                executor.add_account_transition(raw, transition_chi)
+            else:
+                executor.add(raw)
         return executor
 
     def _native_response(

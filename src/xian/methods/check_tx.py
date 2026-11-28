@@ -1,6 +1,7 @@
 from loguru import logger
 
 from tendermint.abci.types_pb2 import ResponseCheckTx
+from xian.account_registry import ACCOUNT_PREFIXES, registry_for_app
 from xian.app_logging import build_log_fields
 from xian.constants import Constants as c
 from xian.exceptions import TransactionException
@@ -43,18 +44,29 @@ def report_check_tx_rejections(self, *, height: int) -> None:
 
 
 def _admit_or_decode(self, raw_tx):
+    if self.strict_accounts and not raw_tx.startswith(ACCOUNT_PREFIXES):
+        raise TransactionException("Hybrid authorization required")
     cache = self.transaction_admission_cache
     storage = self.client.raw_driver.committed_storage()
-    if cache is not None and cache.chain_id == self.chain_id and storage is not None:
+    if (
+        cache is not None
+        and cache.chain_id == self.chain_id
+        and storage is not None
+        and not raw_tx.startswith(ACCOUNT_PREFIXES)
+    ):
         with self.profiler.scope("check_tx_native_admission"):
             validate_raw_tx_size(raw_tx, self.max_tx_bytes)
             try:
-                return cache.check_live(
+                tx = cache.check_live(
                     raw_tx,
                     *storage,
                     max_chi=self.tx_fee_policy.max_tx_chi,
                     require_balance=self.tx_fee_policy.require_chi_balance,
                 )
+                if tx is not None:
+                    # Native admission defers overlays and irregular stored values.
+                    registry_for_app(self).authorize(tx, raw_tx)
+                return tx
             except ValueError as error:
                 raise TransactionException(str(error)) from error
     with self.profiler.scope("check_tx_static_admission"):
@@ -63,6 +75,7 @@ def _admit_or_decode(self, raw_tx):
             chain_id=self.chain_id,
             max_raw_tx_bytes=self.max_tx_bytes,
             admission_cache=cache,
+            account_registry=registry_for_app(self),
         )
 
 

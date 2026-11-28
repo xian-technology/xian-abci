@@ -27,6 +27,9 @@ class FakeRawDriver:
             return ":".join([base, *[str(arg) for arg in args]])
         return base
 
+    def get(self, key):
+        return self.state.get(key)
+
     def get_var(self, contract, variable, arguments=None):
         return self.state.get(self.make_key(contract, variable, arguments))
 

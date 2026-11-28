@@ -39,7 +39,6 @@ from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
-from xian.config_paths import resolve_contracts_dir
 from xian.fee_policy import TxFeePolicy
 from xian.processor import TxProcessor
 from xian.utils.tx import transaction_bytes
@@ -157,7 +156,7 @@ def _deploy_contracts(driver) -> None:
 
     submitted = Datetime(*SUBMITTED)
     _fix_submission_time(driver)
-    currency = (resolve_contracts_dir() / "currency.s.py").read_text(encoding="utf-8")
+    currency = sources.genesis_contract_source("currency")
     driver.set_contract_from_source("currency", currency, timestamp=submitted)
     for name, source, metadata in CONTRACTS:
         driver.set_contract_from_source(name, source, timestamp=submitted, **metadata)
@@ -1291,7 +1290,6 @@ def _deploy_system_contracts(client) -> None:
     at the fixed submission time (the client stamps the wall clock)."""
     from xian_runtime_types.time import Datetime
 
-    contracts_dir = resolve_contracts_dir()
     deployments = (
         ("currency", {"vk": "xian-deployer"}),
         ("dao", None),
@@ -1307,7 +1305,7 @@ def _deploy_system_contracts(client) -> None:
     with mock.patch.dict(client.environment, {"now": Datetime(*SUBMITTED)}):
         for contract, args in deployments:
             client.submit(
-                (contracts_dir / f"{contract}.s.py").read_text(encoding="utf-8"),
+                sources.genesis_contract_source(contract),
                 name=contract,
                 constructor_args=args,
             )

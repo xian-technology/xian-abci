@@ -12,12 +12,12 @@ from contracting.storage.lmdb_environment import (
 VM_EXECUTION_MODE = "xian_vm_v2"
 VM_BYTECODE_VERSION = "xvm-2"
 VM_GAS_SCHEDULE = "xvm-gas-7"
-VM_EXECUTION_REVISION = "xvm-execution-15"
+VM_EXECUTION_REVISION = "xvm-execution-16"
 SET_CODEC = "xian-set-1"
 # Contract admission (compiler-core) and transaction admission (fastpath-core,
 # linked into vm-core) are consensus rules like execution.
-COMPILER_ADMISSION_REVISION = "xian-admission-4"
-TX_ADMISSION_REVISION = "xian-fastpath-admission-3"
+COMPILER_ADMISSION_REVISION = "xian-admission-5"
+TX_ADMISSION_REVISION = "xian-fastpath-admission-4"
 EXECUTION_POLICY_KEY = "__execution_policy"
 
 
@@ -40,7 +40,7 @@ def validate_execution_policy(value) -> None:
         )
 
 
-def validate_genesis_execution_policy(genesis: Mapping) -> None:
+def validate_genesis_execution_policy(genesis: Mapping):
     state = genesis.get("abci_genesis", genesis)
     entries = state.get("genesis", []) if isinstance(state, Mapping) else []
     policies = [
@@ -51,6 +51,9 @@ def validate_genesis_execution_policy(genesis: Mapping) -> None:
     if len(policies) != 1:
         raise ValueError("genesis must contain exactly one execution policy")
     validate_execution_policy(policies[0])
+    from xian.account_registry import validate_account_genesis
+
+    return validate_account_genesis(state)
 
 
 def validate_persisted_execution_policy(storage_home: Path) -> bool:

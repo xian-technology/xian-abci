@@ -649,7 +649,9 @@ def _current_bds_block_height(ctx: QueryContext) -> int | None:
 
 
 async def _handle_get(ctx: QueryContext) -> QueryResult:
-    return QueryResult(result=ctx.raw_driver.get(ctx.path_parts[1]))
+    if ctx.key.startswith("_accounts."):
+        return QueryResult(result=ctx.raw_driver.value_from_disk(ctx.key))
+    return QueryResult(result=ctx.raw_driver.get(ctx.key))
 
 
 async def _handle_health(_ctx: QueryContext) -> QueryResult:
@@ -1240,6 +1242,9 @@ async def query(self, req) -> ResponseQuery:
         value, type_of_data = _encode_query_value(
             result, telemetry=route in {"perf_status", "bds_status", "bds_spool"}
         )
+        if route == "get" and key.startswith("_accounts.") and result is None:
+            # Empty protobuf bytes become JSON null at the RPC boundary.
+            value = b"\x00"
     except QueryContractFailure as err:
         return ResponseQuery(code=c.ErrorCode, height=height, log=str(err))
     except Exception as err:

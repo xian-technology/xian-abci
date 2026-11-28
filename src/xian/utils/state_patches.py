@@ -13,6 +13,12 @@ from contracting.storage.lmdb_environment import validate_storage_key
 from loguru import logger
 from xian_runtime_types.encoding import decode_wire_numbers, loads_wire_json
 
+from xian.account_registry import (
+    POLICY_KEY,
+    RegistryPolicy,
+    validate_policy_change,
+    validate_transition_budget,
+)
 from xian.evidence_policy import EVIDENCE_POLICY_KEY, UNBONDING_PERIOD_KEY, validated_unbonding_days
 from xian.execution_policy import EXECUTION_POLICY_KEY, VM_EXECUTION_MODE
 from xian.fee_policy import CHI_RATE_KEY, FEE_POLICY_KEY, TxFeePolicy, validated_chi_rate
@@ -77,8 +83,12 @@ def _validate_patched_keys(bundle_file: Path, key: str) -> None:
 
 def _validate_patch_key(bundle_file: Path, key: str) -> None:
     """Refuse a key no bundle may write."""
+    if key.startswith("_accounts.") and key != POLICY_KEY:
+        raise ValueError(f"{bundle_file} cannot patch account registry records or code")
     if key == EXECUTION_POLICY_KEY:
         raise ValueError(f"{bundle_file} cannot patch the protected execution policy")
+    if key == "validators.consensus_key_type":
+        raise ValueError(f"{bundle_file} cannot change the validator authority suite")
     if key == EVIDENCE_POLICY_KEY:
         raise ValueError(f"{bundle_file} cannot patch the protected evidence policy")
     if key.endswith(".__code__"):
@@ -96,7 +106,9 @@ def _validate_patch_value(bundle_file: Path, key: str, value: Any) -> None:
     would be committed and then halt the chain for good.
     """
     try:
-        if key == UNBONDING_PERIOD_KEY:
+        if key == POLICY_KEY:
+            RegistryPolicy.parse(value)
+        elif key == UNBONDING_PERIOD_KEY:
             validated_unbonding_days(value)
         elif key == FEE_POLICY_KEY:
             TxFeePolicy.from_state(value)
@@ -106,6 +118,38 @@ def _validate_patch_value(bundle_file: Path, key: str, value: Any) -> None:
             runtime_feature_change(key, value)
     except ValueError as exc:
         raise ValueError(f"{bundle_file}: {exc}") from exc
+
+
+def _validate_authority_changes(read_var, changes, read_value=None):
+    zk_key = f"{RUNTIME_FEATURE_STATE_PREFIX}zk"
+    protected = any(key.startswith(("validators.", "validator_key_proofs.")) for key in changes)
+    if not protected and changes.keys().isdisjoint((POLICY_KEY, zk_key, FEE_POLICY_KEY)):
+        return
+    value = read_var("_accounts", "policy")
+    current = RegistryPolicy.parse(value) if value is not None else None
+    candidate = (
+        RegistryPolicy.parse(decode_wire_numbers(changes[POLICY_KEY]))
+        if POLICY_KEY in changes
+        else current
+    )
+    if (
+        candidate is not None
+        and candidate.version == 2
+        and (current is None or current.version != 2)
+    ):
+        raise ValueError("strict account activation requires a coordinated network upgrade")
+    zk = changes[zk_key] if zk_key in changes else read_var("__runtime_features", "zk")
+    validate_policy_change(current, candidate, zk)
+    if candidate is not None and (POLICY_KEY in changes or FEE_POLICY_KEY in changes):
+        fees = changes.get(FEE_POLICY_KEY)
+        if FEE_POLICY_KEY not in changes:
+            fees = read_value(FEE_POLICY_KEY)
+        validate_transition_budget(candidate, fees)
+    if protected and (
+        (current is not None and current.version == 2)
+        or read_var("validators", "consensus_key_type") == "ml_dsa_65"
+    ):
+        raise ValueError("governed patches cannot rewrite validator authority in hardened state")
 
 
 def _require_runtime_feature_support(bundle: StatePatchBundle) -> None:
@@ -569,6 +613,8 @@ class StatePatchManager:
             execution.record.patch_id,
             execution.bundle.file_path,
         )
+        changes = {entry["key"]: entry["value"] for entry in execution.bundle.changes}
+        _validate_authority_changes(self.raw_driver.get_var, changes, self.raw_driver.get)
         for change in execution.bundle.changes:
             key = change["key"]
             value = change["value"]

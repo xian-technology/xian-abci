@@ -9,6 +9,22 @@ Changing a source changes the golden fixtures: only for a consensus change.
 
 from __future__ import annotations
 
+import json
+from functools import cache
+from pathlib import Path
+
+
+@cache
+def genesis_contract_source(name: str) -> str:
+    """The deployed contract inputs underlying the frozen execution receipts."""
+    tests = Path(__file__).resolve().parents[1]
+    if name in {"currency", "chi_cost"}:
+        return (tests / "fixtures/engine_parity/inputs" / f"{name}.s.py").read_text()
+    fixture = tests / "abci_methods/fixtures/.cometbft-fixture/config/genesis.json"
+    entries = json.loads(fixture.read_bytes())["abci_genesis"]["genesis"]
+    return next(entry["value"] for entry in entries if entry["key"] == f"{name}.__source__")
+
+
 PROBE = """import currency
 items = Hash(default_value=0)
 counter = Variable(default_value=0)

@@ -3,6 +3,7 @@ import json
 from loguru import logger
 
 from tendermint.abci.types_pb2 import Event, EventAttribute, ExecTxResult, ResponseFinalizeBlock
+from xian.account_registry import registry_for_app
 from xian.app_logging import build_log_fields
 from xian.constants import Constants as c
 from xian.evidence_policy import stage_evidence_policy, validate_finalized_time
@@ -198,6 +199,7 @@ def _initialize_block(self, req):
 
 def _decode_block_transactions(self, req, *, height: int, block_hash: str):
     decoded_entries = []
+    account_registry = registry_for_app(self)
     nonce_tracker = BlockNonceTracker(self.nonce_storage.get_nonce)
     block_chi_supplied = 0
     with self.profiler.scope("finalize_decode", block_scoped=True):
@@ -207,6 +209,7 @@ def _decode_block_transactions(self, req, *, height: int, block_hash: str):
                     tx_bytes,
                     chain_id=self.chain_id,
                     admission_cache=self.transaction_admission_cache,
+                    account_registry=account_registry,
                 )
             except Exception as e:
                 decoded_entries.append(
@@ -231,6 +234,7 @@ def _decode_block_transactions(self, req, *, height: int, block_hash: str):
                 )
                 self.tx_fee_policy.validate_block_total(next_block_chi_supplied)
                 nonce_tracker.validate_and_advance(tx)
+                account_registry.accept(tx)
                 block_chi_supplied = next_block_chi_supplied
             except Exception as e:
                 decoded_entries.append(

@@ -19,12 +19,12 @@ def policy_state(value=None):
 
 def test_policy_requires_exact_current_identifiers():
     expected = {
-        "execution_revision": "xvm-execution-15",
+        "execution_revision": "xvm-execution-16",
         "gas_schedule": "xvm-gas-7",
         "bytecode_version": "xvm-2",
         "set_codec": "xian-set-1",
-        "compiler_admission_revision": "xian-admission-4",
-        "tx_admission_revision": "xian-fastpath-admission-3",
+        "compiler_admission_revision": "xian-admission-5",
+        "tx_admission_revision": "xian-fastpath-admission-4",
     }
     assert policy.current_execution_policy() == expected
     policy.validate_execution_policy(expected)
@@ -258,18 +258,23 @@ def test_startup_fences_compiler_and_transaction_admission_revisions():
             compiler_version=lambda: {"admission_revisions": {"xian_vm_v2": revision}}
         )
 
-    current_compiler = compiler("xian-admission-4")
+    current_compiler = compiler("xian-admission-5")
     current_runtime = {
-        "compiler_admission_revision": "xian-admission-4",
-        "tx_admission_revision": "xian-fastpath-admission-3",
+        "compiler_admission_revision": "xian-admission-5",
+        "tx_admission_revision": "xian-fastpath-admission-4",
     }
     execution_engine.validate_admission_runtimes(current_runtime, compiler=current_compiler)
-    for previous in ("xian-admission-1", "xian-admission-2", "xian-admission-3"):
+    for previous in (
+        "xian-admission-1",
+        "xian-admission-2",
+        "xian-admission-3",
+        "xian-admission-4",
+    ):
         with pytest.raises(ValueError, match="compiler admission"):
             execution_engine.validate_admission_runtimes(
                 current_runtime, compiler=compiler(previous)
             )
-    for revision in ("xian-fastpath-admission-2", None):
+    for revision in ("xian-fastpath-admission-2", "xian-fastpath-admission-3", None):
         with pytest.raises(ValueError, match="transaction admission"):
             execution_engine.validate_admission_runtimes(
                 current_runtime | {"tx_admission_revision": revision}, compiler=current_compiler
@@ -286,5 +291,5 @@ def test_installed_native_runtimes_match_the_node_policy():
     from xian.execution_engine import build_vm_runtime
 
     runtime = build_vm_runtime()
-    assert runtime.runtime_info["execution_revision"] == "xvm-execution-15"
-    assert runtime.runtime_info["compiler_admission_revision"] == "xian-admission-4"
+    assert runtime.runtime_info["execution_revision"] == "xvm-execution-16"
+    assert runtime.runtime_info["compiler_admission_revision"] == "xian-admission-5"
