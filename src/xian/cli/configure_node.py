@@ -87,9 +87,7 @@ def build_parser() -> ArgumentParser:
     parser.add_argument(
         "--snapshot-signing-key",
         action="append",
-        help=(
-            "trusted publisher pin (ml-dsa-65:<hex> or Ed25519 hex), repeatable"
-        ),
+        help=("trusted publisher pin (ml-dsa-65:<hex> or Ed25519 hex), repeatable"),
         required=False,
     )
     parser.add_argument(
