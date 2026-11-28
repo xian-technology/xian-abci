@@ -19,6 +19,7 @@ from loguru import logger
 from xian.config_values import finite_float
 from xian.dashboard.pages import bounded_page, namespace_cursor, numeric_cursor
 from xian.utils.cometbft import format_url_netloc, normalize_rpc_url
+from xian.validator_keys import ADDRESS_PREFIX, ValidatorSuite, consensus_address
 
 STATIC_DIR = Path(__file__).parent / "static"
 LOCALNET_PORT_STRIDE = 100
@@ -313,16 +314,22 @@ def _decode_abci_value(b64: str) -> str | dict | list | None:
         return None
 
 
-def _validator_pubkey_hex(status: dict | None) -> str | None:
-    validator_info = status.get("validator_info", {}) if isinstance(status, dict) else {}
-    pub_key = validator_info.get("pub_key", {}) if isinstance(validator_info, dict) else {}
-    value = pub_key.get("value") if isinstance(pub_key, dict) else None
-    if not isinstance(value, str) or not value:
+async def _local_validator_member(status, session, rpc) -> str | None:
+    info = status.get("validator_info", {}) if isinstance(status, dict) else {}
+    key = info.get("pub_key", {})
+    if not isinstance(key, dict) or not key.get("value"):
         return None
     try:
-        return base64.b64decode(value).hex()
-    except Exception:
+        # Older status responses expose the value alone for Ed25519.
+        suite = ValidatorSuite.from_json_key(
+            {"type": key.get("type", ValidatorSuite.ED25519.json_name)}
+        )
+        raw = suite.decode_json({"type": suite.json_name, "value": key["value"]})
+    except (ValueError, TypeError):
         return None
+    if suite is ValidatorSuite.ED25519:
+        return raw.hex()
+    return await _abci_query(session, rpc, f"get/{ADDRESS_PREFIX}{consensus_address(raw).hex()}")
 
 
 def _normalize_peer_rpc_url(peer: dict) -> str | None:
@@ -1169,7 +1176,7 @@ async def handle_validator_dashboard(request: web.Request) -> web.Response:
 
     try:
         status = await _raw_rpc(session, rpc, "status")
-        local_account = _validator_pubkey_hex(status)
+        local_account = await _local_validator_member(status, session, rpc)
 
         (
             policy,

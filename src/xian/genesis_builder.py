@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import re
 import tempfile
@@ -23,6 +22,7 @@ from xian_runtime_types.encoding import decode_wire_numbers, encode, encode_wire
 from xian_runtime_types.time import Datetime
 from xian_vm_core import execute_tx
 
+from xian.account_registry import RegistryPolicy, require_custody, stage_account_genesis
 from xian.config_paths import (
     resolve_contracts_dir as resolve_configs_contracts_dir,
 )
@@ -55,6 +55,12 @@ from xian.runtime_features import (
     install_driver_runtime_features,
 )
 from xian.state_root import StateRootCache
+from xian.validator_keys import (
+    ValidatorSuite,
+    consensus_address,
+    state_suite,
+    validate_genesis_validator_keys,
+)
 
 TEMPLATE_ARG_PATTERN = re.compile(r"%%(.*?)%%")
 DEFAULT_CONSENSUS_PARAMS = {
@@ -375,6 +381,8 @@ def _build_genesis_block(
     constructor_overrides: dict[str, dict[str, Any]] | None = None,
     runtime_features: dict[str, Any] | None = None,
     fee_policy: dict[str, Any] | None = None,
+    account_policy: dict[str, Any] | None = None,
+    account_records: dict[str, dict] | None = None,
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
     resolved_genesis_time = normalize_genesis_time(genesis_time)
@@ -390,6 +398,11 @@ def _build_genesis_block(
             fee_policy=fee_policy,
             submission_time=submission_time,
         )
+        stage_account_genesis(driver, account_policy, account_records)
+        if account_policy is not None and RegistryPolicy.parse(account_policy).version == 2:
+            # This signature is historical export metadata. Strict genesis trust
+            # comes from independently authenticated genesis bytes.
+            founder_private_key = None
         nanos = comet_time_nanos(resolved_genesis_time)
         return finalize_genesis_block(driver, founder_private_key=founder_private_key, nanos=nanos)
 
@@ -403,6 +416,8 @@ def build_genesis_block(
     constructor_overrides: dict[str, dict[str, Any]] | None = None,
     runtime_features: dict[str, Any] | None = None,
     fee_policy: dict[str, Any] | None = None,
+    account_policy: dict[str, Any] | None = None,
+    account_records: dict[str, dict] | None = None,
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
     resolved_contracts_dir = resolve_contracts_dir(contracts_dir)
@@ -416,6 +431,8 @@ def build_genesis_block(
             constructor_overrides=constructor_overrides,
             runtime_features=runtime_features,
             fee_policy=fee_policy,
+            account_policy=account_policy,
+            account_records=account_records,
             genesis_time=genesis_time,
         )
 
@@ -428,6 +445,8 @@ def build_genesis_block(
             constructor_overrides=constructor_overrides,
             runtime_features=runtime_features,
             fee_policy=fee_policy,
+            account_policy=account_policy,
+            account_records=account_records,
             genesis_time=genesis_time,
         )
 
@@ -451,15 +470,13 @@ def build_validator_genesis_entry_from_public_key(
     public_key_hex: str,
     power: int | str = 10,
     name: str = "",
+    key_type: str = "ed25519",
 ) -> dict[str, Any]:
-    public_key_bytes = bytes.fromhex(public_key_hex)
-    address_bytes = hashlib.sha256(public_key_bytes).digest()[:20]
+    suite = ValidatorSuite.from_name(key_type)
+    raw = suite.decode_hex(public_key_hex)
     return {
-        "address": address_bytes.hex().upper(),
-        "pub_key": {
-            "type": "tendermint/PubKeyEd25519",
-            "value": base64.b64encode(public_key_bytes).decode("ascii"),
-        },
+        "address": consensus_address(raw).hex().upper(),
+        "pub_key": suite.json_key(raw),
         "power": str(power),
         "name": name,
     }
@@ -484,16 +501,19 @@ def derive_genesis_validators_from_bundle(
     configured_powers = constructor_args.get("genesis_powers") or {}
     default_node_power = constructor_args.get("default_node_power", 10)
 
+    configured_keys = constructor_args.get("genesis_consensus_keys")
+    suite = ValidatorSuite.ML_DSA_65 if configured_keys is not None else ValidatorSuite.ED25519
     return [
         build_validator_genesis_entry_from_public_key(
-            public_key_hex=public_key_hex,
+            public_key_hex=(member if suite is ValidatorSuite.ED25519 else configured_keys[member]),
+            key_type=suite.comet_name,
             power=(
                 validator_power
                 if validator_power is not None
-                else configured_powers.get(public_key_hex, default_node_power)
+                else configured_powers.get(member, default_node_power)
             ),
         )
-        for public_key_hex in genesis_nodes
+        for member in genesis_nodes
     ]
 
 
@@ -511,6 +531,8 @@ def build_cometbft_genesis(
         genesis_time = timestamp.ToJsonString()
     resolved_genesis_time = normalize_genesis_time(genesis_time)
     consensus_params = deepcopy(DEFAULT_CONSENSUS_PARAMS)
+    state = {entry["key"]: entry["value"] for entry in abci_genesis["genesis"]}
+    consensus_params["validator"] = {"pub_key_types": [state_suite(state.get).comet_name]}
     consensus_params["evidence"] = evidence_policy.comet_json(
         nanos=comet_time_nanos(resolved_genesis_time),
         height=evidence_checkpoint_height(abci_genesis),
@@ -526,6 +548,7 @@ def build_cometbft_genesis(
         "abci_genesis": abci_genesis,
     }
     validate_genesis_evidence_policy(genesis)
+    validate_genesis_validator_keys(genesis)
     return genesis
 
 
@@ -541,6 +564,8 @@ def build_single_validator_genesis(
     contracts_dir: Path | None = None,
     runtime_features: dict[str, Any] | None = None,
     fee_policy: dict[str, Any] | None = None,
+    account_policy: dict[str, Any] | None = None,
+    account_records: dict[str, dict] | None = None,
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
     founder_wallet = Ed25519Account(founder_private_key)
@@ -560,6 +585,8 @@ def build_single_validator_genesis(
         contracts_dir=contracts_dir,
         runtime_features=runtime_features,
         fee_policy=fee_policy,
+        account_policy=account_policy,
+        account_records=account_records,
         genesis_time=genesis_time,
     )
 
@@ -574,6 +601,8 @@ def build_local_network_genesis(
     contracts_dir: Path | None = None,
     runtime_features: dict[str, Any] | None = None,
     fee_policy: dict[str, Any] | None = None,
+    account_policy: dict[str, Any] | None = None,
+    account_records: dict[str, dict] | None = None,
     validator_constructor_overrides: dict[str, Any] | None = None,
     genesis_time: str | None = None,
 ) -> dict[str, Any]:
@@ -608,6 +637,25 @@ def build_local_network_genesis(
         validator_overrides["genesis_reward_keys"] = genesis_reward_keys
     if validator_constructor_overrides:
         validator_overrides.update(validator_constructor_overrides)
+    public_keys = [v["priv_validator_key"]["pub_key"] for v in validators]
+    suites = {ValidatorSuite.from_json_key(key) for key in public_keys}
+    if len(suites) != 1:
+        raise ValueError("genesis must allow exactly one validator key type")
+    suite = suites.pop()
+    if account_policy is not None and RegistryPolicy.parse(account_policy).version == 2:
+        if suite is not ValidatorSuite.ML_DSA_65:
+            raise ValueError("strict genesis requires ML-DSA-65 validators")
+        require_custody(
+            [founder_wallet.public_key, *genesis_nodes, *genesis_reward_keys.values()],
+            account_records or {},
+        )
+    if suite is ValidatorSuite.ML_DSA_65:
+        validator_overrides.update(
+            genesis_consensus_keys={
+                member: suite.decode_json(key).hex()
+                for member, key in zip(genesis_nodes, public_keys, strict=True)
+            },
+        )
     abci_genesis = build_genesis_block(
         founder_private_key=founder_private_key,
         network=network,
@@ -619,6 +667,8 @@ def build_local_network_genesis(
         },
         runtime_features=runtime_features,
         fee_policy=fee_policy,
+        account_policy=account_policy,
+        account_records=account_records,
         genesis_time=resolved_genesis_time,
     )
     validator_entries = [
@@ -692,5 +742,6 @@ def update_cometbft_genesis(genesis_path: Path, *, abci_genesis: dict[str, Any])
     )
 
     validate_genesis_evidence_policy(cometbft_genesis)
+    validate_genesis_validator_keys(cometbft_genesis)
     with open(genesis_path, "w", encoding="utf-8") as handle:
         handle.write(encode_wire(cometbft_genesis, vm_profile=VM_EXECUTION_MODE))

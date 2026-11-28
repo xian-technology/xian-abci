@@ -34,8 +34,8 @@ from xian.snapshot_attestation import is_pq_pin, validate_publisher_pins
 from xian.snapshot_restore import _restore_authenticated_archive
 from xian.state_sync_policy import validate_comet_state_sync_disabled
 from xian.toml_utils import load as load_toml
-from xian.validator_keys import ValidatorSuite
 from xian.utils.cometbft import format_url_netloc, normalize_rpc_url, split_host_port
+from xian.validator_keys import ValidatorSuite
 
 _ROOT_CONFIG_KEYS_TO_PRESERVE = (
     "db_backend",
@@ -328,7 +328,9 @@ def configure_existing_home(request: ExistingHomeOptions) -> dict[str, str | lis
     snapshot_archive_name, genesis_target_path = _restore_with_genesis(
         request, config["genesis_file"]
     )
-    priv_validator_key_path = _install_validator_key(request, config["priv_validator_key_file"])
+    priv_validator_key_path = _install_validator_key(
+        request, config["priv_validator_key_file"], config["genesis_file"]
+    )
 
     xian_config_path = request.home / "config" / "xian.toml"
     write_toml(config_path, config, overwrite=True)
@@ -384,7 +386,9 @@ def _verify_genesis_pin(request: ExistingHomeOptions, genesis_file: str) -> None
         return
     else:
         genesis = load_genesis(installed_path)
-    if installed_path.exists() and ValidatorSuite.from_genesis(load_genesis(installed_path)) is not ValidatorSuite.from_genesis(genesis):
+    if installed_path.exists() and ValidatorSuite.from_genesis(
+        load_genesis(installed_path)
+    ) is not ValidatorSuite.from_genesis(genesis):
         raise ValueError("changing a validator suite requires a fresh node home")
     verify_genesis_sha256(genesis_sha256(genesis), request.expected_genesis_sha256)
 
@@ -401,11 +405,18 @@ def _install_genesis(request: ExistingHomeOptions, genesis_file: str) -> Path | 
     return genesis_target_path
 
 
-def _install_validator_key(request: ExistingHomeOptions, key_file: str) -> Path | None:
+def _install_validator_key(
+    request: ExistingHomeOptions, key_file: str, genesis_file: str
+) -> Path | None:
     if request.validator_private_key_hex is None:
         return None
     priv_validator_key_path = resolve_home_relative_path(request.home, key_file)
-    priv_validator_key = build_priv_validator_key(request.validator_private_key_hex)
+    genesis_path = resolve_home_relative_path(request.home, genesis_file)
+    genesis = load_genesis(genesis_path) if genesis_path.exists() else {}
+    suite = ValidatorSuite.from_genesis(genesis)
+    priv_validator_key = build_priv_validator_key(
+        request.validator_private_key_hex, key_type=suite.comet_name
+    )
     priv_validator_key.pop("_private_key_hex", None)
     write_json(priv_validator_key_path, priv_validator_key, overwrite=True, private=True)
     return priv_validator_key_path

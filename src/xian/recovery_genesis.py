@@ -35,6 +35,7 @@ from xian.genesis_builder import (
 from xian.state_export import prepare_state_import
 from xian.state_root import compute_exported_state_root
 from xian.utils.block import nanoseconds_to_utc_datetime
+from xian.validator_keys import state_suite
 from xian.validators import CONSENSUS_VALIDATORS_KEY
 
 ACTIVE_KEY = "validators.active_validators"
@@ -127,11 +128,16 @@ def build_recovery_genesis(
     abci_genesis["origin"] = {"signature": "", "sender": ""}
     abci_genesis["hash"] = compute_exported_state_root(abci_genesis).hex()
     consensus = state[CONSENSUS_VALIDATORS_KEY]
+    suite = state_suite(state.get)
     genesis = build_cometbft_genesis(
         chain_id=chain_id,
         abci_genesis=abci_genesis,
         validators=[
-            build_validator_genesis_entry_from_public_key(public_key_hex=key, power=power)
+            build_validator_genesis_entry_from_public_key(
+                public_key_hex=suite.member_key(key, state.get).hex(),
+                power=power,
+                key_type=suite.comet_name,
+            )
             for key, power in consensus.items()
         ],
         genesis_time=genesis_time,

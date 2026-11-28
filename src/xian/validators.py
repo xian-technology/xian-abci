@@ -2,14 +2,18 @@ from loguru import logger
 from xian_runtime_types.decimal import ContractingDecimal
 
 from tendermint.abci.types_pb2 import ValidatorUpdate
-from tendermint.crypto.keys_pb2 import PublicKey
 from xian.formatting import vk_is_formatted
+from xian.validator_keys import (
+    MAX_MEMBERS,
+    MAX_TOTAL_VOTING_POWER,
+    ValidatorSuite,
+    state_suite,
+    validate_genesis_validator_keys,
+)
 
 # Node-managed metadata: contract identifiers cannot start/end with underscores.
 # Keeping it in the validators namespace includes it in app hashes and exports.
 CONSENSUS_VALIDATORS_KEY = "validators.__consensus__"
-# CometBFT rejects a validator set whose total power exceeds MaxInt64 / 8.
-MAX_TOTAL_VOTING_POWER = (2**63 - 1) // 8
 
 
 class ValidatorHandler:
@@ -17,6 +21,16 @@ class ValidatorHandler:
 
     def __init__(self, app):
         self.client = app.client
+        genesis = getattr(app, "genesis", {})
+        self.suite = ValidatorSuite.from_genesis(genesis)
+        if "abci_genesis" in genesis:
+            validate_genesis_validator_keys(genesis)
+            read = self.client.raw_driver.value_from_disk
+            if (
+                read("validators.active_validators") is not None
+                and state_suite(read) is not self.suite
+            ):
+                raise ValueError("persisted validator key type disagrees with genesis")
 
     def get_validators_from_state(self, *, committed: bool = False) -> dict[str, int] | None:
         read = self.client.raw_driver.value_from_disk if committed else self.client.raw_driver.get
@@ -26,9 +40,13 @@ class ValidatorHandler:
                 "Ignoring invalid active validator list"
             )
             return None
+        if self.suite is ValidatorSuite.ML_DSA_65 and len(validators) > MAX_MEMBERS:
+            return self._reject_selection("too_many_ml_dsa_validators")
         desired = {}
         for validator in validators:
             if not vk_is_formatted(validator):
+                if self.suite is ValidatorSuite.ML_DSA_65:
+                    return self._reject_selection("invalid_validator_member")
                 logger.bind(
                     stage="validator_selection",
                     reason_code="invalid_validator_key",
@@ -74,17 +92,18 @@ class ValidatorHandler:
             return self.get_validators_from_state(committed=True) or {}
         return validators
 
-    def to_bytes(self, data: str) -> bytes:
-        return bytes.fromhex(data)
-
-    def update(self, validator: str, power: int) -> ValidatorUpdate:
-        return ValidatorUpdate(pub_key=PublicKey(ed25519=self.to_bytes(validator)), power=power)
+    def update(self, member: str, power: int, *, committed: bool = False) -> ValidatorUpdate:
+        driver = self.client.raw_driver
+        read = driver.value_from_disk if committed else driver.get
+        raw = self.suite.member_key(member, read)
+        return ValidatorUpdate(pub_key=self.suite.proto_key(raw), power=power)
 
     def genesis_validators(self) -> list[ValidatorUpdate]:
-        """The validator set genesis state selects, for InitChain: CometBFT
-        starts from it, so every later update applies to the set it knows."""
+        """Return the set the application will use as the baseline for updates."""
         validators = self.get_validators_from_state(committed=True) or {}
-        return [self.update(validator, power) for validator, power in validators.items()]
+        if not validators and self.suite is ValidatorSuite.ML_DSA_65:
+            raise ValueError("empty ML-DSA genesis validator set")
+        return [self.update(member, power, committed=True) for member, power in validators.items()]
 
     def build_validator_updates(self, height) -> list[ValidatorUpdate]:
         validators_state = self.get_validators_from_state() or {}
@@ -96,23 +115,25 @@ class ValidatorHandler:
                 block_height=height,
             ).warning("Retaining effective validator set because no valid selection remains")
             validators_state = validators_committed
+        try:
+            updates = [
+                self.update(member, power)
+                for member, power in validators_state.items()
+                if validators_committed.get(member) != power
+            ]
+        except ValueError:
+            self._reject_selection("invalid_consensus_key_binding")
+            validators_state = validators_committed
+            updates = []
+        updates.extend(
+            self.update(member, 0, committed=True)
+            for member in validators_committed
+            if member not in validators_state
+        )
         if validators_state:
-            # Stage this with the block's writes, so rejected selections still
-            # retain the correct baseline after Commit, restart or snapshot restore.
             self.client.raw_driver.set(CONSENSUS_VALIDATORS_KEY, validators_state)
-        updates = []
-        for validator, power in validators_state.items():
-            current_power = validators_committed.get(validator)
-            if current_power != power:
-                updates.append(self.update(validator, power))
-                logger.bind(
-                    stage="validator_update", validator=validator, power=power, block_height=height
-                ).info("Updating validator voting power")
-        for validator in validators_committed:
-            if validator not in validators_state:
-                updates.append(self.update(validator, 0))
-                logger.bind(
-                    stage="validator_update", validator=validator, block_height=height
-                ).info("Removing validator from effective set")
-
+        if updates:
+            logger.bind(stage="validator_update", block_height=height, count=len(updates)).info(
+                "Updating consensus validators"
+            )
         return updates

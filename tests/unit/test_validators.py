@@ -247,3 +247,63 @@ def test_selection_at_the_total_power_limit_is_applied():
         (REPLACEMENT, MAX_TOTAL_VOTING_POWER),
         (VALIDATOR, 0),
     ]
+
+
+def pq_state(members):
+    from hashlib import sha256
+
+    state = {
+        "validators.consensus_key_type": "ml_dsa_65",
+        "validators.active_validators": list(members),
+    }
+    for member, key in members.items():
+        state[f"validators.consensus_public_keys:{member}"] = key
+        address = sha256(bytes.fromhex(key)).hexdigest()[:40]
+        state[f"validators.consensus_keys:{address}"] = member
+    return state
+
+
+def test_pq_genesis_and_set_rotation_emit_comet_keys_only():
+    old, new = "01" * 1952, "02" * 1952
+    current = pq_state({REPLACEMENT: new})
+    committed = pq_state({VALIDATOR: old})
+    app = _FakeApp(current, committed)
+    app.genesis = {"consensus_params": {"validator": {"pub_key_types": ["ml_dsa_65"]}}}
+    handler = ValidatorHandler(app)
+    (init,) = handler.genesis_validators()
+    assert init.pub_key.WhichOneof("sum") == "mldsa65"
+    assert init.pub_key.mldsa65.hex() == old
+    assert [(v.pub_key.mldsa65.hex(), v.power) for v in handler.build_validator_updates(2)] == [
+        (new, 10),
+        (old, 0),
+    ]
+
+
+def test_missing_pq_binding_cannot_fall_back_to_member_key():
+    incumbent = pq_state({VALIDATOR: "01" * 1952})
+    current = {**incumbent, "validators.active_validators": [REPLACEMENT]}
+    app = _FakeApp(current, incumbent)
+    app.genesis = {"consensus_params": {"validator": {"pub_key_types": ["ml_dsa_65"]}}}
+    assert ValidatorHandler(app).build_validator_updates(2) == []
+    app.client.raw_driver.commit()
+    with pytest.raises(ValueError):
+        ValidatorHandler(app).genesis_validators()
+
+
+def test_pq_evidence_maps_to_member_including_after_exit():
+    from hashlib import sha256
+    from xian.methods._evidence import (
+        _resolve_misbehaving_validator_key,
+        active_validator_keys_by_address,
+    )
+
+    key = bytes.fromhex("93" * 1952)
+    address = sha256(key).digest()[:20]
+    app = _FakeApp(pq_state({VALIDATOR: key.hex()}))
+    assert active_validator_keys_by_address(app) == {address: VALIDATOR}
+    app.client.raw_driver.set("validators.active_validators", [])
+    assert _resolve_misbehaving_validator_key(app, address) == VALIDATOR
+    assert (
+        _resolve_misbehaving_validator_key(app, sha256(bytes.fromhex(VALIDATOR)).digest()[:20])
+        is None
+    )

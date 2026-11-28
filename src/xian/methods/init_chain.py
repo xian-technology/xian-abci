@@ -7,10 +7,12 @@ from xian.evidence_policy import (
 )
 from xian.execution_policy import validate_genesis_execution_policy
 from xian.utils.block import set_latest_block, store_genesis_block
+from xian.validator_keys import validate_init_validator_request
 
 
 async def init_chain(self, req) -> ResponseInitChain:
     abci_genesis_state = self.genesis["abci_genesis"]
+    validate_init_validator_request(req, self.genesis)
     validate_genesis_execution_policy(abci_genesis_state)
     evidence_policy = validate_genesis_evidence_policy(self.genesis)
     genesis_nanos = comet_time_nanos(self.genesis["genesis_time"])

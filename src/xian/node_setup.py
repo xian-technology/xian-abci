@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import json
 import os
 import secrets
+import subprocess
 import tempfile
 from dataclasses import asdict, dataclass, field
 from ipaddress import ip_address
@@ -31,6 +33,7 @@ from xian.node_defaults import (
 from xian.services.bds.config import BdsConfig, validate_dsn
 from xian.state_sync_policy import validate_comet_state_sync_disabled
 from xian.utils.cometbft import split_host_port
+from xian.validator_keys import ValidatorSuite
 
 DEFAULT_XIAN_CONFIG_TOML = toml_utils.dumps(
     {name: value for name, value in asdict(RUNTIME_DEFAULTS).items() if value is not None}
@@ -297,8 +300,30 @@ def _build_ed25519_key_material(seed: bytes) -> tuple[SigningKey, bytes, str]:
     return signing_key, verify_key.encode(), priv_key_b64
 
 
-def build_priv_validator_key(private_key_hex: str) -> dict[str, Any]:
+def _run_validator_key_helper(data: bytes, *args: str) -> bytes:
+    try:
+        result = subprocess.run(
+            ["xian-validator-key", *args], input=data, capture_output=True, check=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError(
+            "ML-DSA-65 key operation failed; check the key and xian-validator-key installation"
+        ) from exc
+    return result.stdout
+
+
+def validator_registration_proof(key: dict, chain_id: str, member: str) -> str:
+    """Produce only the chain- and member-bound registration proof."""
+    return _run_validator_key_helper(json.dumps(key).encode(), "prove", chain_id, member).hex()
+
+
+def build_priv_validator_key(private_key_hex: str, *, key_type: str = "ed25519") -> dict[str, Any]:
     seed = _normalize_private_key(private_key_hex)
+    suite = ValidatorSuite.from_name(key_type)
+    if suite is ValidatorSuite.ML_DSA_65:
+        # The helper links the exact CometBFT codec used by the node. Keep the
+        # seed off argv and the environment; both are observable by other processes.
+        return {**json.loads(_run_validator_key_helper(seed)), "_private_key_hex": seed.hex()}
     signing_key, public_key_bytes, priv_key_b64 = _build_ed25519_key_material(seed)
     address_bytes = hashlib.sha256(public_key_bytes).digest()[:20]
 
@@ -318,8 +343,12 @@ def build_priv_validator_key(private_key_hex: str) -> dict[str, Any]:
 
 def generate_validator_material(
     private_key_hex: str | None = None,
+    *,
+    key_type: str = "ed25519",
 ) -> dict[str, Any]:
-    priv_validator_key = build_priv_validator_key(_normalize_private_key(private_key_hex).hex())
+    priv_validator_key = build_priv_validator_key(
+        _normalize_private_key(private_key_hex).hex(), key_type=key_type
+    )
     public_key_bytes = Base64Encoder.decode(priv_validator_key["pub_key"]["value"].encode("ascii"))
     return {
         "validator_private_key_hex": priv_validator_key["_private_key_hex"],
@@ -575,6 +604,16 @@ def materialize_cometbft_home(
     installed_genesis_sha256 = _text_sha256(genesis_text)
     verify_genesis_sha256(installed_genesis_sha256, expected_genesis_sha256)
     _require_existing_signing_state(home, config)
+    suite = ValidatorSuite.from_genesis(genesis)
+    if ValidatorSuite.from_json_key(priv_validator_key.get("pub_key")) is not suite:
+        raise ValueError("local validator key type disagrees with genesis")
+    if suite is ValidatorSuite.ML_DSA_65:
+        _run_validator_key_helper(json.dumps(priv_validator_key).encode(), "check")
+    previous_genesis_path = home / config.get("genesis_file", "config/genesis.json")
+    if previous_genesis_path.is_file() and suite is not ValidatorSuite.from_genesis(
+        load_genesis(previous_genesis_path)
+    ):
+        raise ValueError("changing a validator suite requires a fresh node home")
     config_dir = home / "config"
     data_dir = home / "data"
     storage_dir = home / "xian"

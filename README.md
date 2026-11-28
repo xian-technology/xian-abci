@@ -54,8 +54,12 @@ PrepareProposal, ProcessProposal and FinalizeBlock). Optional extra:
   the native verifier; enabling the chain's `zk` feature is a genesis or
   governed state decision, not a package-extra switch.
 
-Fresh chains use unmodified upstream CometBFT 0.40.0 with the flood mempool
-and Ed25519 validators. Other mempool modes are rejected at startup. Keep
+Fresh chains use upstream CometBFT 0.40.0 with the flood mempool. An existing
+Ed25519 chain keeps its validator suite. A fresh ML-DSA-65 chain binds each
+64-character governance account to a separate consensus key in genesis.
+CometBFT proposals, votes and commits on that chain accept only ML-DSA-65.
+Operators generate and check FilePV keys with the pinned `xian-validator-key`
+helper supplied by `xian-stack`. Other mempool modes are rejected at startup. Keep
 rechecks enabled so the mempool removes
 transactions invalidated by a committed nonce, balance, or fee policy change.
 For each sender, a committed nonce makes every lower nonce unusable.
