@@ -149,3 +149,58 @@ def test_hardened_genesis_cannot_install_another_committed_validator_baseline():
     )
     with pytest.raises(ValueError, match="committed validator"):
         validate_genesis_validator_keys(g)
+
+
+def test_node_initialization_rejects_a_classical_key_before_writing_a_pq_home(tmp_path):
+    from xian.node_setup import (
+        NodeConfigOptions,
+        build_priv_validator_key,
+        materialize_cometbft_home,
+        render_node_configs,
+    )
+
+    home = tmp_path / "node"
+    config = render_node_configs(options=NodeConfigOptions(moniker="test"))
+    with pytest.raises(ValueError, match="key type disagrees"):
+        materialize_cometbft_home(
+            home=home,
+            config=config["cometbft"],
+            xian_config=config["xian"],
+            genesis=hardened_genesis(),
+            priv_validator_key=build_priv_validator_key("33" * 32),
+        )
+    assert not home.exists()
+
+
+@pytest.mark.skipif(
+    not shutil.which("xian-validator-key"), reason="requires pinned CometBFT helper"
+)
+def test_force_cannot_replace_existing_chain_with_different_validator_suite(tmp_path):
+    from xian.node_setup import (
+        NodeConfigOptions,
+        build_priv_validator_key,
+        materialize_cometbft_home,
+        render_node_configs,
+    )
+
+    config = render_node_configs(options=NodeConfigOptions(moniker="test"))
+    params = {"home": tmp_path, "config": config["cometbft"], "xian_config": config["xian"]}
+    materialize_cometbft_home(
+        **params,
+        genesis={"chain_id": "existing"},
+        priv_validator_key=build_priv_validator_key("33" * 32),
+    )
+    paths = [
+        tmp_path / "config/genesis.json",
+        tmp_path / "config/priv_validator_key.json",
+        tmp_path / "data/priv_validator_state.json",
+    ]
+    original = [p.read_bytes() for p in paths]
+    with pytest.raises(ValueError, match="fresh node home"):
+        materialize_cometbft_home(
+            **params,
+            genesis=hardened_genesis(),
+            overwrite=True,
+            priv_validator_key=build_priv_validator_key("44" * 32, key_type="ml_dsa_65"),
+        )
+    assert [p.read_bytes() for p in paths] == original
