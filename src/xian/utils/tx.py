@@ -61,10 +61,9 @@ ADMISSION_CACHE_MAX_BYTES = 32 * 1024 * 1024
 
 
 def create_transaction_admission_cache(chain_id: str):
-    # Older compatible VM wheels provide the same native admission without retention.
     cache_type = getattr(xian_vm_core, "TransactionAdmissionCache", None)
-    if cache_type is None:
-        return None
+    if cache_type is None or not hasattr(cache_type, "check_live"):
+        raise RuntimeError("The installed Xian VM does not provide native CheckTx admission")
     return cache_type(
         chain_id,
         max_entries=ADMISSION_CACHE_MAX_ENTRIES,
@@ -149,6 +148,13 @@ def validate_transaction_after_static(
     )
 
 
+def validate_raw_tx_size(raw_tx: bytes, max_raw_tx_bytes: int | None) -> None:
+    if max_raw_tx_bytes is not None and len(raw_tx) > max_raw_tx_bytes:
+        raise TransactionException(
+            f"Transaction exceeds maximum configured size of {max_raw_tx_bytes} bytes"
+        )
+
+
 def decode_and_validate_transaction_static_bytes(
     raw_tx: bytes,
     *,
@@ -157,10 +163,7 @@ def decode_and_validate_transaction_static_bytes(
     admission_cache=None,
     proposal_chi_remaining: int | None = None,
 ) -> dict | None:
-    if max_raw_tx_bytes is not None and len(raw_tx) > max_raw_tx_bytes:
-        raise TransactionException(
-            f"Transaction exceeds maximum configured size of {max_raw_tx_bytes} bytes"
-        )
+    validate_raw_tx_size(raw_tx, max_raw_tx_bytes)
     try:
         if proposal_chi_remaining is not None and _decode_transaction_for_proposal is not None:
             return _decode_transaction_for_proposal(

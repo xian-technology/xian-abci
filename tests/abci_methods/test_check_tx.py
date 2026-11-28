@@ -8,6 +8,7 @@ import nacl.encoding
 import nacl.signing
 import pytest
 from loguru import logger
+from xian_runtime_types.decimal import ContractingDecimal
 from xian_runtime_types.encoding import decode, encode
 
 from abci.server import ProtocolHandler
@@ -16,6 +17,7 @@ from tendermint.abci.types_pb2 import Request, RequestCheckTx, Response
 from xian.fee_policy import DEFAULT_MAX_TX_CHI, TxFeePolicy
 from xian.methods.check_tx import report_check_tx_rejections
 from xian.utils.encoding import encode_transaction_bytes
+from xian.utils.tx import create_transaction_admission_cache
 from xian.xian_abci import Xian
 
 logging.disable(logging.CRITICAL)
@@ -97,6 +99,7 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(self.app.close)
         self.app.current_block_meta = {"height": 0, "nanos": 0}
         self.app.chain_id = "xian-testnet-1"
+        self.app.transaction_admission_cache = create_transaction_admission_cache(self.app.chain_id)
         self.app.client.raw_driver.set(f"currency.balances:{SENDER}", 100000)
         # The fixture genesis rate; these tests run without InitChain.
         self.app.client.raw_driver.set("chi_cost.S:value", 20)
@@ -117,6 +120,69 @@ class TestCheckTx(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.check_tx.code, self.constants.OkCode)
         self.assertEqual(self.app.nonce_storage.get_nonce(SENDER), VALID_NONCE - 1)
+
+    async def test_native_recheck_sees_the_next_committed_state(self):
+        driver = self.app.client.raw_driver
+        balance_key = f"currency.balances:{SENDER}"
+        with patch(
+            "xian.methods.check_tx.validate_transaction_after_static",
+            side_effect=AssertionError("expected native admission"),
+        ):
+            accepted = await self.app.check_tx(VALID_TX_BYTES)
+            self.assertEqual(accepted.code, self.constants.OkCode, accepted.log)
+
+            driver.set(balance_key, 5)
+            driver.commit()
+            too_expensive = await self.app.check_tx(VALID_TX_BYTES, recheck=True)
+            self.assertEqual(too_expensive.code, self.constants.ErrorCode)
+            self.assertIn("plus the chi_supplied fee reservation", too_expensive.log)
+
+            driver.set("chi_cost.S:value", 25)
+            driver.commit()
+            accepted = await self.app.check_tx(VALID_TX_BYTES, recheck=True)
+            self.assertEqual(accepted.code, self.constants.OkCode, accepted.log)
+
+            self.app.nonce_storage.set_nonce(SENDER, VALID_NONCE)
+            driver.commit()
+            stale = await self.app.check_tx(VALID_TX_BYTES, recheck=True)
+            self.assertEqual(stale.code, self.constants.ErrorCode)
+            self.assertIn("Transaction nonce is invalid", stale.log)
+
+    async def test_native_check_tx_matches_python_for_paid_and_free_admission(self):
+        driver = self.app.client.raw_driver
+        balance_key = f"currency.balances:{SENDER}"
+        cases = (
+            (None, 20, 1, 100, "transfer", True),
+            (6, 20, 1, 100, "transfer", True),
+            (6, 20, 2, 100, "transfer", True),
+            (6, 20, None, 100, "transfer", True),
+            (6, 20, "1", 100, "transfer", True),
+            (6, 20, {"__fixed__": "1.5"}, 100, "approve", True),
+            (6, 20, {"__fixed__": "1.5"}, 100, "transfer", True),
+            (ContractingDecimal("6.5"), 20, {"__fixed__": "1.5"}, 100, "transfer", True),
+            (10**70, 20, {"__big_int__": str(10**70 - 5)}, 100, "transfer", True),
+            (6, None, 1, 100, "transfer", True),
+            (6, 0, 1, 100, "transfer", True),
+            (6, 20, 1, DEFAULT_MAX_TX_CHI + 1, "transfer", True),
+            (None, None, 1, 100, "transfer", False),
+            (None, None, 1, DEFAULT_MAX_TX_CHI + 1, "transfer", False),
+        )
+        for balance, rate, amount, chi, function, paid in cases:
+            with self.subTest(balance=balance, rate=rate, amount=amount, chi=chi, paid=paid):
+                driver.set(balance_key, balance)
+                driver.set("chi_cost.S:value", rate)
+                driver.commit()
+                self.app.tx_fee_policy = (
+                    TxFeePolicy.paid_metered() if paid else TxFeePolicy.free_metered()
+                )
+                raw = make_signed_tx_bytes(
+                    nonce=VALID_NONCE, chi_supplied=chi, amount=amount, function=function
+                )
+                with patch.object(self.app, "transaction_admission_cache", None):
+                    expected = await self.app.check_tx(raw)
+                for recheck in (False, True):
+                    actual = await self.app.check_tx(raw, recheck=recheck)
+                    self.assertEqual(actual, expected)
 
     async def test_check_tx_rejects_runtime_invalid_submission_names(self):
         for name in ("con_Uppercase", "con_" + "a" * 61, None, 123):

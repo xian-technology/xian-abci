@@ -617,12 +617,16 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         # A contract that does not exist is a normal failed transaction: it
         # pays base chi and its nonce cannot be included again for free.
         self.app.tx_fee_policy = TxFeePolicy.free_metered()
+        self.app.transaction_admission_cache = xian_vm_core.TransactionAdmissionCache(
+            self.app.chain_id, max_entries=8, max_bytes=64_000
+        )
         tx = make_signed_tx_bytes(nonce=9, contract="con_missing", function="any")
         sender = (
             nacl.signing.SigningKey(SEED)
             .verify_key.encode(encoder=nacl.encoding.HexEncoder)
             .decode("ascii")
         )
+        self.assertEqual((await self.app.check_tx(tx)).code, self.constants.OkCode)
 
         response = await self.process_request(
             "finalize_block",
@@ -636,8 +640,12 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(receipt["chi_used"], 5)
         self.assertIn("con_missing", receipt["result"])
         self.assertIsNone(self.app.nonce_storage.get_nonce(sender))
+        self.assertEqual((await self.app.check_tx(tx, recheck=True)).code, self.constants.OkCode)
         await self.app.commit()
         self.assertEqual(self.app.nonce_storage.get_nonce(sender), 9)
+        stale = await self.app.check_tx(tx, recheck=True)
+        self.assertEqual(stale.code, self.constants.ErrorCode)
+        self.assertIn("Transaction nonce is invalid", stale.log)
 
     async def test_immutable_admission_is_reused_without_caching_live_policy(self):
         cache_type = getattr(xian_vm_core, "TransactionAdmissionCache", None)
@@ -671,6 +679,9 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
 
     async def test_check_tx_profiling_distinguishes_new_transactions_and_rechecks(self):
         self.app.tx_fee_policy = TxFeePolicy.free_metered()
+        self.app.transaction_admission_cache = xian_vm_core.TransactionAdmissionCache(
+            self.app.chain_id, max_entries=8, max_bytes=64_000
+        )
         self.app.profiler = PerfTracker(
             output_path=self.constants.COMETBFT_HOME / "perf-test.json",
             node_name="test",
@@ -690,8 +701,7 @@ class TestProposalValidation(unittest.IsolatedAsyncioTestCase):
         for metric in (
             "check_tx",
             "check_tx_lock_wait",
-            "check_tx_static_admission",
-            "check_tx_live_admission",
+            "check_tx_native_admission",
         ):
             self.assertEqual(metrics[metric]["count"], 2)
 

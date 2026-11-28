@@ -17,6 +17,12 @@ import xian.utils.tx as tx_utils
 GOLDEN = load_fixture()
 
 
+def test_admission_cache_requires_the_native_check_tx_api(monkeypatch):
+    monkeypatch.setattr(xian_vm_core, "TransactionAdmissionCache", object)
+    with pytest.raises(RuntimeError, match="does not provide native CheckTx admission"):
+        tx_utils.create_transaction_admission_cache(CHAIN_ID)
+
+
 def _assert_matches_golden(actual: dict[str, dict]) -> None:
     assert set(actual) == set(GOLDEN)
     mismatches = {
